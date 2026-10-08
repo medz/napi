@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { setImmediate as immediate } from 'node:timers/promises';
 import { runInNewContext } from 'node:vm';
 import * as api from '@napi/integration';
 import * as subpath from '@napi/integration/module.wasm';
@@ -28,6 +29,15 @@ assert.deepEqual(api.identityBytes(runInNewContext('new Uint8Array([5, 128, 255]
 
 // GC before measurements separates retained host objects from temporary copies.
 // Wasm allocation may retain its high-water mark, so warm up with the same work.
+async function memoryAfterGC() {
+  // ArrayBuffer backing stores can still be swept concurrently after GC returns.
+  // A second GC finishes the previous sweep; use the same yields for each sample.
+  global.gc();
+  await immediate();
+  global.gc();
+  await immediate();
+  return process.memoryUsage();
+}
 function batch() {
   const data = new Uint8Array(4096);
   for (let i = 0; i < 10000; i++) {
@@ -37,11 +47,9 @@ function batch() {
   }
 }
 batch();
-global.gc();
-const before = process.memoryUsage();
+const before = await memoryAfterGC();
 batch();
-global.gc();
-const after = process.memoryUsage();
+const after = await memoryAfterGC();
 const retained = {
   heapUsed: after.heapUsed - before.heapUsed,
   arrayBuffers: after.arrayBuffers - before.arrayBuffers,
