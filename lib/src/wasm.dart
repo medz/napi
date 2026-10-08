@@ -23,7 +23,7 @@ final class RewrittenWasm {
 
   final Uint8List bytes;
 
-  /// Host imports only. Builtins and string constants need no JS host binding.
+  /// Host imports, including string constants. String operations stay builtins.
   final List<WasmImport> imports;
 }
 
@@ -81,14 +81,16 @@ RewrittenWasm rewriteImports(
         );
         final String target;
         final String alias;
-        if (module.isEmpty) {
+        if (module.isEmpty || module == 'wasm:js/string-constants') {
           if (kind != WasmImportKind.global) {
             section.fail('Dart string constants must be global imports');
           }
-          target = 'wasm:js/string-constants';
-          alias = name;
-        } else if (module == 'wasm:js-string' ||
-            module == 'wasm:js/string-constants') {
+          target = hostModule;
+          alias = '_i$index';
+          imports.add(
+            WasmImport(module: module, name: name, kind: kind, alias: alias),
+          );
+        } else if (module == 'wasm:js-string') {
           target = module;
           alias = name;
         } else {

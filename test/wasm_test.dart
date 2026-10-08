@@ -70,9 +70,9 @@ void main() {
       result.bytes,
       _module(
         _imports([
-          ('wasm:js/string-constants', 'hello', [3, 0x6f, 0]),
+          ('./host.mjs', '_i0', [3, 0x6f, 0]),
           entries[1],
-          entries[2],
+          ('./host.mjs', '_i2', [3, 0x6f, 0]),
           ('./host.mjs', '_i3', [0, 0]),
           ('./host.mjs', '_i4', [0, 0]),
           ('./host.mjs', '_i5', [0, 0]),
@@ -80,16 +80,33 @@ void main() {
       ),
     );
     expect(result.imports.map((entry) => entry.module), [
+      '',
+      'wasm:js/string-constants',
       'dart2wasm',
       'napi',
       'env',
     ]);
-    expect(result.imports.map((entry) => entry.name), ['same', 'same', 'same']);
-    expect(result.imports.map((entry) => entry.alias), ['_i3', '_i4', '_i5']);
-    expect(
-      result.imports.every((entry) => entry.kind == WasmImportKind.function),
-      isTrue,
-    );
+    expect(result.imports.map((entry) => entry.name), [
+      'hello',
+      'world',
+      'same',
+      'same',
+      'same',
+    ]);
+    expect(result.imports.map((entry) => entry.alias), [
+      '_i0',
+      '_i2',
+      '_i3',
+      '_i4',
+      '_i5',
+    ]);
+    expect(result.imports.map((entry) => entry.kind), [
+      WasmImportKind.global,
+      WasmImportKind.global,
+      WasmImportKind.function,
+      WasmImportKind.function,
+      WasmImportKind.function,
+    ]);
     expect(() => result.imports.clear(), throwsUnsupportedError);
   });
 

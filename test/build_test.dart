@@ -90,6 +90,9 @@ void main() {
     final output = p.join(work.path, 'dist');
     for (final arguments in [
       ['example/math.dart', '--name', 'Invalid Name'],
+      ['example/math.dart', '--name', '_invalid'],
+      ['example/math.dart', '--name', '.invalid'],
+      ['example/math.dart', '--name', 'favicon.ico'],
       ['example/math.dart', '--name', '@example/math', '--version', 'latest'],
       ['example/math.dart', '--name', '@example/math', '--version', '0.1.0-01'],
       ['example/math.dart', '--name', '@example/math', '--unknown'],
@@ -233,8 +236,18 @@ environment:
         '{"napi":{"generator":"napi"},"files":["index.d.ts"]}',
       );
       await previous.writeAsString('export const previous = 42;');
-      await Process.run('chmod', ['u-w', parent.path]);
+      final chmod = await Process.run('chmod', ['u-w', parent.path]);
       try {
+        expect(chmod.exitCode, 0, reason: '${chmod.stdout}${chmod.stderr}');
+        final probe = File(p.join(parent.path, 'permission-probe'));
+        try {
+          await probe.writeAsString('probe');
+          await probe.delete();
+          markTestSkipped('The process can write to a read-only directory.');
+          return;
+        } on FileSystemException {
+          // Confirmed that staging cannot create files in this directory.
+        }
         final result = await build([
           'example/math.dart',
           '--name',
@@ -265,11 +278,15 @@ environment:
       final result = await build([
         'example/math.dart',
         '--name',
-        '@example/rebuilt',
+        '@_example/_rebuilt',
         '--out',
         output.path,
       ]);
       expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
+      final manifest = jsonDecode(
+        await File(p.join(output.path, 'package.json')).readAsString(),
+      ) as Map;
+      expect(manifest['name'], '@_example/_rebuilt');
       expect(
         await File(p.join(output.path, 'index.d.ts')).readAsString(),
         isNot(contains('previous')),

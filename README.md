@@ -106,13 +106,13 @@ Annotate public, synchronous, top-level functions in the entry library. Use expl
 
 Invalid arguments throw `TypeError`; unsafe integers throw `RangeError`. Dart `ArgumentError` and `TypeError` become JavaScript `TypeError`, Dart `RangeError` becomes JavaScript `RangeError`, and other Dart exceptions become JavaScript `Error` with a readable message.
 
-The export name `then` is reserved because dynamic ESM imports treat it as a promise callback. Dart compiler helper names such as `$invokeMain` and `$wasmI16ArrayGet` are also reserved; other `$` names are allowed. Classes, generics, typedef aliases at the boundary, optional/named parameters, futures, streams, and callbacks are not supported in 0.1.0. Ordinary Dart helpers and Wasm-compatible dependencies can be used inside exported functions.
+The export name `then` is reserved because dynamic ESM imports treat it as a promise callback. Dart compiler helper names such as `$invokeMain` and `$wasmI16ArrayGet` are also reserved; other `$` names are allowed. Classes, generics, type aliases in exported signatures, optional/named parameters, futures, streams, and callbacks are not supported in 0.1.0. Ordinary Dart helpers and Wasm-compatible dependencies can be used inside exported functions.
 
 ## Status and platforms
 
 **0.1.0 is experimental and targets Node's native Wasm ESM integration.** [Node documents instance-phase Wasm imports](https://nodejs.org/api/esm.html#wasm-instance-phase-imports) as experimental. Synchronous CommonJS `require` is not supported.
 
-The backend uses Dart's experimental Wasm interop and compiler-generated JavaScript helpers. It rewrites the Wasm import section so Node resolves the helpers and built-in string operations through ESM; business logic remains Dart Wasm. It does not implement the Node-API C ABI or produce `.node` addons.
+The backend uses Dart's experimental Wasm interop and compiler-generated JavaScript helpers. It rewrites the Wasm import section so Node resolves the helpers, string constants, and built-in string operations through ESM; business logic remains Dart Wasm. It does not implement the Node-API C ABI or produce `.node` addons.
 
 Tested compiler: **Dart 3.13.5**. Other SDK versions allowed by the package constraint may change the experimental helper layout; unsupported layouts fail the build with a diagnostic. The generated Node engine requirement is `^22.19.0 || >=24.5.0`.
 

@@ -27,13 +27,21 @@ String generateHost(
     ..writeln(helpers)
     ..writeln(_napi);
   for (final import in imports) {
+    if (!RegExp(r'^_i[0-9]+$').hasMatch(import.alias)) {
+      throw FormatException('Invalid Wasm import alias "${import.alias}".');
+    }
+    if ((import.module.isEmpty ||
+            import.module == 'wasm:js/string-constants') &&
+        import.kind == WasmImportKind.global) {
+      output.writeln(
+        'export const ${import.alias} = ${jsonEncode(import.name)};',
+      );
+      continue;
+    }
     if (!_modules.contains(import.module) && import.module != 'napi') {
       throw FormatException(
         'Unsupported Dart Wasm host module "${import.module}".',
       );
-    }
-    if (!RegExp(r'^_i[0-9]+$').hasMatch(import.alias)) {
-      throw FormatException('Invalid Wasm import alias "${import.alias}".');
     }
     if (import.module == 'napi' &&
         (!_napiFunctions.contains(import.name) ||
