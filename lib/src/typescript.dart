@@ -19,8 +19,10 @@ String generateTypescript(List<Export> exports) {
       }
       parameters.add('$name: ${_type(parameter.type)}');
     }
+    final valueType = _type(export.returnType);
+    final returnType = export.isAsync ? 'Promise<$valueType>' : valueType;
     declarations.add(
-      'export declare function ${export.name}(${parameters.join(', ')}): ${_type(export.returnType)};',
+      'export declare function ${export.name}(${parameters.join(', ')}): $returnType;',
     );
   }
   return '${declarations.join('\n')}\n';

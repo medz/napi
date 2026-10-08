@@ -8,3 +8,6 @@ pubspec.lock
 
 # Generated npm packages.
 dist/
+
+# Local benchmark measurements; the recorded baseline is committed separately.
+/benchmark/results.json

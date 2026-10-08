@@ -12,6 +12,9 @@ String generateBridge(List<Export> exports, String sourceImport) {
     ..writeln("import 'dart:typed_data';")
     ..writeln('import ${_literal(sourceImport)} as business;')
     ..writeln(_helpers);
+  if (exports.any((function) => function.isAsync)) {
+    output.writeln(_promiseHelper);
+  }
   for (var index = 0; index < exports.length; index++) {
     final function = exports[index];
     final returnsVoid = function.returnType.kind == ValueKind.voidType;
@@ -22,9 +25,9 @@ String generateBridge(List<Export> exports, String sourceImport) {
     output
       ..writeln("@pragma('wasm:export', ${_literal(function.name)})")
       ..writeln(
-        '${returnsVoid ? 'WasmVoid' : 'WasmExternRef?'} _export$index($parameters) {',
+        '${returnsVoid && !function.isAsync ? 'WasmVoid' : 'WasmExternRef?'} _export$index($parameters) {',
       )
-      ..writeln('  try {');
+      ..writeln(function.isAsync ? '  return _promise(() async {' : '  try {');
     for (var i = 0; i < function.parameters.length; i++) {
       final type = function.parameters[i].type;
       output.writeln(
@@ -38,23 +41,33 @@ String generateBridge(List<Export> exports, String sourceImport) {
     final call = 'business.${function.name}($arguments)';
     if (returnsVoid) {
       output
-        ..writeln('    $call;')
-        ..writeln('    return WasmVoid();');
+        ..writeln('    ${function.isAsync ? 'await ' : ''}$call;')
+        ..writeln('    return ${function.isAsync ? 'null' : 'WasmVoid()'};');
+    } else {
+      var result = _write(function.returnType.kind, 'result');
+      if (function.isAsync) result = '$result!.toJS';
+      if (function.returnType.nullable) {
+        final nullResult = function.isAsync ? 'null' : 'WasmExternRef.nullRef';
+        result = 'result == null ? $nullResult : $result';
+      }
+      output
+        ..writeln(
+          '    final result = ${function.isAsync ? 'await ' : ''}$call;',
+        )
+        ..writeln('    return $result;');
+    }
+    if (function.isAsync) {
+      output.writeln('  }${returnsVoid ? ', returnsVoid: true' : ''});');
     } else {
       output
-        ..writeln('    final result = $call;')
+        ..writeln('  } catch (error, stack) {')
+        ..writeln('    _rethrowError(externRefForJSAny(_error(error, stack)));')
         ..writeln(
-          '    return ${function.returnType.nullable ? 'result == null ? WasmExternRef.nullRef : ' : ''}${_write(function.returnType.kind, 'result')};',
-        );
+          '    return ${returnsVoid ? 'WasmVoid()' : 'WasmExternRef.nullRef'};',
+        )
+        ..writeln('  }');
     }
-    output
-      ..writeln('  } catch (error) {')
-      ..writeln('    _throwException(error);')
-      ..writeln(
-        '    return ${returnsVoid ? 'WasmVoid()' : 'WasmExternRef.nullRef'};',
-      )
-      ..writeln('  }')
-      ..writeln('}');
+    output.writeln('}');
   }
   output.writeln('void main() {}');
   return output.toString();
@@ -85,12 +98,8 @@ const _helpers = r'''
 external WasmI32 _kind(WasmExternRef? value);
 @pragma('wasm:import', 'napi.copyBytes')
 external WasmExternRef? _copyBytes(WasmExternRef? value);
-@pragma('wasm:import', 'napi.throwTypeError')
-external WasmVoid _throwTypeError(WasmExternRef? message);
-@pragma('wasm:import', 'napi.throwRangeError')
-external WasmVoid _throwRangeError(WasmExternRef? message);
-@pragma('wasm:import', 'napi.throwError')
-external WasmVoid _throwError(WasmExternRef? message);
+@pragma('wasm:import', 'napi.error')
+external WasmExternRef _createError(WasmI32 kind, WasmExternRef? message, WasmExternRef? stack);
 @pragma('wasm:import', 'napi.rethrowError')
 external WasmVoid _rethrowError(WasmExternRef? error);
 
@@ -146,18 +155,46 @@ WasmExternRef? _writeInt(int value) {
   return externRefForJSAny(value.toDouble().toJS);
 }
 
-void _throwException(Object error) {
-  if (error is JSAny) {
-    _rethrowError(externRefForJSAny(error));
-    return;
+JSAny _error(Object error, [StackTrace? stack]) {
+  if (error is JSAny) return error;
+  String message;
+  try {
+    message = error.toString();
+  } catch (_) {
+    message = 'Dart exception (toString failed)';
   }
-  final message = externRefForJSAny(error.toString().toJS);
-  if (error is RangeError) {
-    _throwRangeError(message);
-  } else if (error is ArgumentError || error is TypeError || error is _InputError) {
-    _throwTypeError(message);
-  } else {
-    _throwError(message);
+  String? dartStack;
+  if (stack != null) {
+    try {
+      dartStack = stack.toString();
+    } catch (_) {
+      dartStack = 'Dart stack trace (toString failed)';
+    }
   }
+  final kind = error is RangeError ? 2
+      : error is ArgumentError || error is TypeError || error is _InputError ? 1 : 0;
+  return _createError(WasmI32.fromInt(kind), externRefForJSAny(message.toJS),
+      dartStack == null ? WasmExternRef.nullRef : externRefForJSAny(dartStack.toJS)).toJS;
+}
+''';
+
+const _promiseHelper = r'''
+WasmExternRef? _promise(Future<JSAny?> Function() invoke, {bool returnsVoid = false}) {
+  final promise = JSPromise<JSAny?>((JSFunction resolve, JSFunction reject) {
+    // Future.sync invokes immediately: validate and copy inputs before returning.
+    Future<JSAny?>.sync(invoke).then<void>(
+      (value) {
+        if (returnsVoid) {
+          resolve.callAsFunction(null);
+        } else {
+          resolve.callAsFunction(null, value);
+        }
+      },
+      onError: (Object error, StackTrace stack) {
+        reject.callAsFunction(null, _error(error, stack));
+      },
+    );
+  }.toJS);
+  return externRefForJSAny(promise);
 }
 ''';

@@ -70,6 +70,7 @@ void reset() {}
         'buffer',
         'reset',
       ]);
+      expect(exports.every((export) => !export.isAsync), isTrue);
       expect(
         exports.map(
           (export) => (export.returnType.kind, export.returnType.nullable),
@@ -98,6 +99,141 @@ export declare function text(value: string | null): string | null;
 export declare function buffer(value: Uint8Array | null): Uint8Array | null;
 export declare function reset(): void;
 ''');
+    },
+  );
+
+  test(
+    'SDK Future return signatures produce precise Promise declarations',
+    () async {
+      final exports = await analyze('''
+import 'dart:async' as tasks;
+import 'dart:typed_data' as bytes;
+import 'package:napi/napi.dart';
+
+@napi
+tasks.Future<bool> flag(bool value) async => value;
+@napi
+tasks.Future<int> count(int value) => tasks.Future<int>.value(value);
+@napi
+tasks.Future<double> scale(double value) async => value;
+@napi
+tasks.Future<String> text(String value) async {
+  await tasks.Future<void>.value();
+  return value;
+}
+@napi
+tasks.Future<bytes.Uint8List> buffer(bytes.Uint8List value) => tasks.Future.value(value);
+@napi
+tasks.Future<void> reset() async {}
+@napi
+int syncCount(int value) => value;
+''');
+      expect(exports.map((export) => export.isAsync), [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        false,
+      ]);
+      expect(exports.map((export) => export.returnType.kind), [
+        ValueKind.boolType,
+        ValueKind.intType,
+        ValueKind.doubleType,
+        ValueKind.stringType,
+        ValueKind.uint8ListType,
+        ValueKind.voidType,
+        ValueKind.intType,
+      ]);
+      expect(exports.every((export) => !export.returnType.nullable), isTrue);
+      expect(generateTypescript(exports), '''
+export declare function flag(value: boolean): Promise<boolean>;
+export declare function count(value: number): Promise<number>;
+export declare function scale(value: number): Promise<number>;
+export declare function text(value: string): Promise<string>;
+export declare function buffer(value: Uint8Array): Promise<Uint8Array>;
+export declare function reset(): Promise<void>;
+export declare function syncCount(value: number): number;
+''');
+    },
+  );
+
+  test(
+    'Future nullable completion values retain null in Promise types',
+    () async {
+      final exports = await analyze('''
+import 'dart:async' show Future;
+import 'dart:typed_data';
+import 'package:napi/napi.dart';
+
+@napi
+Future<bool?> flag() => Future<bool?>.value(null);
+@napi
+Future<int?> count() async => null;
+@napi
+Future<double?> scale() => Future<double?>.value(null);
+@napi
+Future<String?> text() async => null;
+@napi
+Future<Uint8List?> buffer() => Future<Uint8List?>.value(null);
+@napi
+Future<void> done() => Future<void>.value();
+''');
+      expect(exports.every((export) => export.isAsync), isTrue);
+      expect(
+        exports.take(5).every((export) => export.returnType.nullable),
+        isTrue,
+      );
+      expect(exports.last.returnType.kind, ValueKind.voidType);
+      expect(generateTypescript(exports), '''
+export declare function flag(): Promise<boolean | null>;
+export declare function count(): Promise<number | null>;
+export declare function scale(): Promise<number | null>;
+export declare function text(): Promise<string | null>;
+export declare function buffer(): Promise<Uint8Array | null>;
+export declare function done(): Promise<void>;
+''');
+    },
+  );
+
+  test('a user class named Future is not treated as an SDK Future', () async {
+    await expectLater(
+      analyze('''
+import 'package:napi/napi.dart';
+class Future<T> {}
+@napi
+Future<int> count() => Future<int>();
+'''),
+      throwsA(
+        isA<ExportError>().having(
+          (error) => error.message,
+          'message',
+          contains('Unsupported @napi type "Future<int>"'),
+        ),
+      ),
+    );
+  });
+
+  test(
+    'Future typedefs keep the existing signature alias restriction',
+    () async {
+      await expectLater(
+        analyze('''
+import 'dart:async' as tasks;
+import 'package:napi/napi.dart';
+typedef Pending = tasks.Future<int>;
+@napi
+Pending count() => tasks.Future<int>.value(1);
+'''),
+        throwsA(
+          isA<ExportError>().having(
+            (error) => error.message,
+            'message',
+            contains('Type aliases are not supported'),
+          ),
+        ),
+      );
     },
   );
 
@@ -171,14 +307,50 @@ Count count(Count value) => value;
       'T echo<T>(T value) => value;',
       'Generic @napi functions',
     ),
-    'async void': ('void clear() async {}', 'must be synchronous'),
+    'async void': ('void clear() async {}', 'must return Future<T>'),
     'generator': (
       'Iterable<int> values() sync* { yield 1; }',
       'cannot be generators',
     ),
-    'Future return': (
-      'Future<int> add() => Future.value(1);',
+    'Future parameter': (
+      'int inspect(Future<int> value) => 1;',
       'Unsupported @napi type "Future<int>"',
+    ),
+    'nullable Future return': (
+      'Future<int>? add() => null;',
+      'Nullable Future returns are not supported',
+    ),
+    'FutureOr return': (
+      'FutureOr<int> add() => 1;',
+      'Unsupported @napi type "FutureOr<int>"',
+    ),
+    'nested Future return': (
+      'Future<Future<int>> add() => throw UnimplementedError();',
+      'Unsupported @napi type "Future<int>"',
+    ),
+    'raw Future return': (
+      'Future add() => Future.value(1);',
+      'Unsupported @napi type "dynamic"',
+    ),
+    'Stream return': (
+      'Stream<int> values() => Stream<int>.empty();',
+      'Unsupported @napi type "Stream<int>"',
+    ),
+    'Future Stream completion': (
+      'Future<Stream<int>> values() => throw UnimplementedError();',
+      'Unsupported @napi type "Stream<int>"',
+    ),
+    'callback parameter': (
+      'int invoke(int Function(int) callback) => callback(1);',
+      'Unsupported @napi type "int Function(int)"',
+    ),
+    'Future callback completion': (
+      'Future<int Function(int)> callback() => throw UnimplementedError();',
+      'Unsupported @napi type "int Function(int)"',
+    ),
+    'async generator': (
+      'Stream<int> values() async* { yield 1; }',
+      'cannot be generators',
     ),
     'dynamic parameter': (
       'int add(dynamic value) => 1;',
@@ -202,7 +374,9 @@ Count count(Count value) => value;
   for (final entry in unsupported.entries) {
     test('rejects ${entry.key} with a source location', () async {
       await expectLater(
-        analyze("import 'package:napi/napi.dart';\n@napi\n${entry.value.$1}\n"),
+        analyze(
+          "import 'dart:async';\nimport 'package:napi/napi.dart';\n@napi\n${entry.value.$1}\n",
+        ),
         throwsA(
           isA<ExportError>()
               .having((error) => error.path, 'path', startsWith(fixture.path))

@@ -26,6 +26,16 @@ The project name is `napi`; the primary backend is Wasm ESM integration, not the
 - Verify fresh consumers, native function identity, strict types, error recovery, repeated calls, cross-realm bytes, and output-directory safety before release.
 - State experimental compiler/runtime status and platform support accurately. Browser and bundler support requires separate real-consumer evidence.
 
+## 0.2.0 contract
+
+- Resolve SDK `Future<T>` return types for both ordinary and `async` functions; generate `Promise<T>` from the same completion type used by the bridge.
+- Support the 0.1 value types, nullable completion values, and `Future<void>` resolving `undefined`. Reject Future parameters, nullable/nested Futures, `FutureOr`, streams, callbacks, generators, and `async void` exports before compilation.
+- Return a genuine Promise for every Future call; reject argument errors, synchronous throws, asynchronous failures, and result conversion errors with the same error categories as synchronous exports.
+- Preserve original non-null JavaScript exception values. JS `null`/`undefined` throws and rejections follow the SDK's Dart-exception wrapping and become readable JavaScript `Error` objects. Expose readable Dart messages and `dartStack`; use a fallback when user-defined error or stack formatting throws, so settlement cannot hang.
+- Copy bytes at call time before the first `await`, then copy results at completion. Preserve strict types, safe integers, and UTF-16.
+- Reuse compiler microtasks and timers without adding initialization or npm dependencies. Verify native imports, concurrency, timer cancellation, settlement, recovery, ownership, retained memory, and TypeScript consumers on the minimum Node runtime.
+- Provide reproducible build, size, cold-import, and call/conversion measurements with environment and variance; keep performance thresholds out of correctness CI.
+
 ## Iteration priorities
 
 After publishing the first complete workflow, prioritize Future-to-Promise support, useful typed data structures, clear diagnostics, compiler/runtime compatibility, reproducible performance and size measurements, and real applications. Define consumer syntax, type and ownership rules, and acceptance cases before implementing each addition.

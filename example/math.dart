@@ -6,6 +6,12 @@ import 'package:napi/napi.dart';
 double add(double a, double b) => a + b;
 
 @napi
+Future<double> addLater(double a, double b) async {
+  await Future<void>.delayed(const Duration(milliseconds: 1));
+  return a + b;
+}
+
+@napi
 String greet(String name) => 'Hello, $name';
 
 @napi

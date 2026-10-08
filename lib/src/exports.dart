@@ -38,11 +38,15 @@ final class Export {
     required this.name,
     required this.parameters,
     required this.returnType,
+    this.isAsync = false,
   });
 
   final String name;
   final List<Parameter> parameters;
+
+  /// The completion value type when [isAsync] is true.
   final ValueType returnType;
+  final bool isAsync;
 }
 
 final class ExportError implements Exception {
@@ -256,11 +260,11 @@ class _ExportVisitor extends RecursiveAstVisitor<void> {
         'Generic @napi functions are not supported.',
       );
     }
-    if (expression.body.isAsynchronous || expression.body.isGenerator) {
+    if (expression.body.isGenerator) {
       _fail(
         unit,
         expression.body.offset,
-        '@napi functions must be synchronous and cannot be generators.',
+        '@napi functions cannot be generators.',
       );
     }
 
@@ -286,15 +290,36 @@ class _ExportVisitor extends RecursiveAstVisitor<void> {
       );
     }
 
+    final declaredReturnType = element.returnType;
+    final returnOffset =
+        declaration.returnType?.offset ?? declaration.name.offset;
+    final isAsync =
+        declaredReturnType is InterfaceType &&
+        declaredReturnType.element.name == 'Future' &&
+        declaredReturnType.element.library.uri.toString() == 'dart:async';
+    var returnType = declaredReturnType;
+    if (isAsync) {
+      if (declaredReturnType.alias != null) {
+        _fail(
+          unit,
+          returnOffset,
+          'Type aliases are not supported in @napi signatures.',
+        );
+      }
+      if (declaredReturnType.nullabilitySuffix == NullabilitySuffix.question) {
+        _fail(unit, returnOffset, 'Nullable Future returns are not supported.');
+      }
+      returnType = declaredReturnType.typeArguments.single;
+    } else if (expression.body.isAsynchronous) {
+      _fail(unit, returnOffset, 'Async @napi functions must return Future<T>.');
+    }
+
     exports.add(
       Export(
         name: name,
         parameters: List.unmodifiable(parameters),
-        returnType: _valueType(
-          element.returnType,
-          declaration.returnType?.offset ?? declaration.name.offset,
-          allowVoid: true,
-        ),
+        returnType: _valueType(returnType, returnOffset, allowVoid: true),
+        isAsync: isAsync,
       ),
     );
   }
