@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>napi native Wasm import probe</title>
+<pre id="result">Checking native Wasm instance imports…</pre>
+<script type="module">
+import { runAssertions } from './assertions.mjs';
+const result = document.querySelector('#result');
+try {
+  const api = await import('../../.dart_tool/browser-native/module.wasm');
+  const checks = runAssertions(api);
+  result.textContent = `PASS: ${checks} native Wasm API checks in ${navigator.userAgent}`;
+  document.documentElement.dataset.status = 'passed';
+} catch (error) {
+  result.textContent = `Native Wasm instance import failed. This probe uses no compatibility loader.\n${error.stack ?? error}`;
+  document.documentElement.dataset.status = 'failed';
+  console.error(error);
+}
+</script>
+</html>

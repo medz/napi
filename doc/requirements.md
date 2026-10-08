@@ -1,0 +1,33 @@
+# Requirements
+
+## Goal
+
+A Dart author writes ordinary functions and marks exports with `@napi`. One command produces real WebAssembly named exports and TypeScript declarations. Consumers use:
+
+```js
+import { add } from './dist/module.wasm';
+add(1, 2);
+```
+
+The business implementation must execute in Dart Wasm. The consumer must not write glue or call an initialization function. npm package exports must point to the Wasm file. Any necessary JavaScript host helpers are imported automatically by that file.
+
+The project name is `napi`; the primary backend is Wasm ESM integration, not the Node-API C ABI. Native addon output is outside the goal.
+
+## 0.1.0 contract
+
+- One Dart package: `napi`; one annotation; one `napi:build` entrypoint.
+- Analyze the resolved entry library and derive bridge and declarations from the same signatures.
+- Support synchronous public top-level functions with explicit return types, required positional parameters, and the types documented in the README.
+- Preserve nullability, safe integer precision, UTF-16 strings, double special values, and independent byte ownership. Reject unsupported signatures before compilation.
+- Use true native Wasm exports and Node's instance-phase ESM integration. Ignore surplus arguments; reject missing or wrong-typed arguments.
+- Preserve unrelated Wasm sections while rewriting host imports. Detect unsupported compiler helper layouts instead of generating broken output.
+- Generate `module.wasm`, `module.imports.mjs`, `index.d.ts`, `module.d.wasm.ts`, and npm metadata. No npm runtime dependencies or JSON value serialization.
+- Resolve package and subpath declarations without special TypeScript options; resolve relative Wasm declarations with `allowArbitraryExtensions`.
+- Verify fresh consumers, native function identity, strict types, error recovery, repeated calls, cross-realm bytes, and output-directory safety before release.
+- State experimental compiler/runtime status and platform support accurately. Browser and bundler support requires separate real-consumer evidence.
+
+## Iteration priorities
+
+After publishing the first complete workflow, prioritize Future-to-Promise support, useful typed data structures, clear diagnostics, compiler/runtime compatibility, reproducible performance and size measurements, and real applications. Define consumer syntax, type and ownership rules, and acceptance cases before implementing each addition.
+
+Classes, callbacks, zero-copy buffers, and scheduling require concrete use cases and explicit lifetime/error contracts. Keep one consumer API and add dependencies only when they materially simplify a necessary task.

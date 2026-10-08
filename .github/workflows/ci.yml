@@ -1,0 +1,26 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: 3.13.5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+      - run: dart pub get
+      - run: dart format --output=none --set-exit-if-changed bin lib test example
+      - run: dart analyze --fatal-infos
+      - run: npm install --prefix .dart_tool/js --no-save --no-package-lock typescript@7.0.2
+      - run: dart test
+        env:
+          NAPI_TSC: ${{ github.workspace }}/.dart_tool/js/node_modules/typescript/bin/tsc
+      - run: dart pub publish --dry-run
