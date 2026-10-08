@@ -70,7 +70,7 @@ Annotate public, synchronous, top-level functions in the entry library. Paramete
 | `Uint8List` | `Uint8Array` | Copies in and out; Node `Buffer` accepted |
 | `T?` | `T \| null` | Accepts `null`; rejects `undefined` |
 
-Invalid arguments throw `TypeError`; unsafe integers throw `RangeError`; Dart exceptions become JavaScript `Error`. Classes, generics, typedef aliases at the boundary, optional/named parameters, futures, streams, and callbacks are not supported in 0.1.0. Ordinary Dart helpers and Wasm-compatible dependencies can be used inside exported functions.
+Invalid arguments throw `TypeError`; unsafe integers throw `RangeError`; Dart exceptions become JavaScript `Error`. The export name `then` is reserved to prevent ESM dynamic-import promise assimilation. Classes, generics, typedef aliases at the boundary, optional/named parameters, futures, streams, and callbacks are not supported in 0.1.0. Ordinary Dart helpers and Wasm-compatible dependencies can be used inside exported functions.
 
 ## Runtime and compiler
 
@@ -78,7 +78,7 @@ This first release is experimental. The backend uses Dart's experimental Wasm in
 
 Dart WasmGC and a separate linear memory coexist in the module. Temporary conversion memory is reused by call scopes, and host handles are released on both successful and failed calls. Byte results are independent copies, not borrowed views into Wasm memory.
 
-Tested compiler: **Dart 3.13.5**. Node packages require **Node 22+**; browsers need the WebAssembly features required by Dart's Wasm compiler, including WasmGC, and ESM with top-level await. Browser builds use `fetch` to load the adjacent `.wasm` asset. Serve the generated files over HTTP and retain the compiler's `.mjs` assets. Bundlers must preserve the Wasm URL and support top-level await.
+Tested compiler: **Dart 3.13.5**; browser validation: **Chrome 155**. Node packages require **Node 22+**; browsers need the WebAssembly features required by Dart's Wasm compiler, including WasmGC, and ESM with top-level await. Browser builds use `fetch` to load the adjacent `.wasm` asset. Serve the generated files over HTTP and retain the compiler's `.mjs` assets. Bundlers must preserve the Wasm URL and support top-level await.
 
 The build checks signatures before compiling and refuses to overwrite unrelated output directories. Run `dart pub get` in the source package first. Use `dart run napi:build --help` for options.
 
@@ -94,6 +94,6 @@ dart pub publish --dry-run
 
 Integration tests build and import a real package with Node. Set `NAPI_TSC` to TypeScript's `bin/tsc` to run the strict TypeScript consumer checks; CI supplies it. Browser verification is described in `test/js/browser.html`.
 
-See the [roadmap](docs/roadmap.md), [requirements](docs/requirements.md), and [0.1.0 milestone](https://github.com/medz/napi/milestone/1).
+See the [roadmap](doc/roadmap.md), [requirements](doc/requirements.md), and [0.1.0 milestone](https://github.com/medz/napi/milestone/1).
 
 MIT licensed.

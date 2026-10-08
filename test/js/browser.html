@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>napi browser integration</title>
+<pre id="result">Running browser integration…</pre>
+<script type="module">
+import { runAssertions } from './assertions.mjs';
+import * as api from '../../.dart_tool/browser-integration/browser.js';
+const result = document.querySelector('#result');
+try {
+  const checks = runAssertions(api);
+  result.textContent = `PASS: ${checks} public API checks in ${navigator.userAgent}`;
+  document.documentElement.dataset.status = 'passed';
+} catch (error) {
+  result.textContent = `FAIL: ${error.stack ?? error}`;
+  document.documentElement.dataset.status = 'failed';
+  console.error(error);
+}
+</script>
+</html>

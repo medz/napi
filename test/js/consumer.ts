@@ -1,0 +1,45 @@
+import {
+  identityBool, identityInt, identityDouble, identityString, identityBytes,
+  nullableBool, nullableInt, nullableDouble, nullableString, nullableBytes,
+  incrementCounter, counter, oversizedInt, throwError,
+  readFile, response, instantiate, $napiReadFile,
+} from '@napi/integration';
+
+const bool: boolean = identityBool(true);
+const int: number = identityInt(12);
+const double: number = identityDouble(0.125);
+const string: string = identityString('你好');
+const bytes: Uint8Array = identityBytes(new Uint8Array([1, 2]));
+const maybeBool: boolean | null = nullableBool(null);
+const maybeInt: number | null = nullableInt(null);
+const maybeDouble: number | null = nullableDouble(null);
+const maybeString: string | null = nullableString(null);
+const maybeBytes: Uint8Array | null = nullableBytes(null);
+const voidResult: void = incrementCounter();
+const count: number = counter();
+const unsafe: number = oversizedInt();
+const exception: number = throwError('error');
+const readFileResult: string = readFile('name');
+const responseResult: string = response('body');
+const instantiateResult: number = instantiate(9);
+const dollarResult: string = $napiReadFile('name');
+void [bool, int, double, string, bytes, maybeBool, maybeInt, maybeDouble, maybeString, maybeBytes, voidResult, count, unsafe, exception, readFileResult, responseResult, instantiateResult, dollarResult];
+
+// @ts-expect-error Wrong input type must not be accepted by generated declarations.
+identityBool(1);
+// @ts-expect-error Integer exports use number, never bigint.
+identityInt(1n);
+// @ts-expect-error Strings are not numbers.
+identityDouble('1');
+// @ts-expect-error Null is reserved for explicitly nullable arguments.
+identityString(null);
+// @ts-expect-error Arrays are not byte arrays.
+identityBytes([1, 2]);
+// @ts-expect-error Required positional arguments cannot be omitted.
+identityInt();
+// @ts-expect-error Undeclared arguments cannot be added.
+identityInt(1, 2);
+// @ts-expect-error Undefined is not null.
+nullableInt(undefined);
+// @ts-expect-error Nullable results cannot be assigned to a nonnullable value.
+const nonnullable: string = nullableString('value');
