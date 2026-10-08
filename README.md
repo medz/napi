@@ -80,7 +80,7 @@ Dart WasmGC and a separate linear memory coexist in the module. Temporary conver
 
 Tested compiler: **Dart 3.13.5**; browser validation: **Chrome 155**. Node packages require **Node 22+**; browsers need the WebAssembly features required by Dart's Wasm compiler, including WasmGC, and ESM with top-level await. Browser builds use `fetch` to load the adjacent `.wasm` asset. Serve the generated files over HTTP and retain the compiler's `.mjs` assets. Bundlers must preserve the Wasm URL and support top-level await.
 
-The build checks signatures before compiling and refuses to overwrite unrelated output directories. Run `dart pub get` in the source package first. Use `dart run napi:build --help` for options.
+The build checks signatures before compiling, supports Dart workspaces, and refuses to overwrite unrelated output directories. Rebuilds stage a complete replacement on the destination filesystem and restore the old package if installation fails. Run `dart pub get` in the source package first. Use `dart run napi:build --help` for options.
 
 ## Development
 

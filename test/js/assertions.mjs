@@ -75,6 +75,9 @@ export function runAssertions(api) {
   equal(api.response('body'), 'Dart response: body', 'response cannot collide with loader local names');
   equal(api.instantiate(9), 10, 'instantiate cannot collide with runtime imports');
   equal(api.$napiReadFile('name'), 'Dart dollar: name', 'dollar function names remain usable');
+  equal(api.fetch('body'), 'Dart fetch: body', 'fetch cannot shadow the loader global');
+  equal(api.URL(), 42, 'URL cannot shadow the loader global');
+  equal(api.Error(), 'Dart Error', 'Error cannot shadow the loader global');
 
   const initial = api.counter();
   equal(api.incrementCounter(), undefined, 'void returns undefined');

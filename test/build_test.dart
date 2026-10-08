@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -98,4 +99,138 @@ void main() {
       expect(Directory(output).existsSync(), isFalse);
     }
   });
+
+  test(
+    'resolves output ancestors before checking source containment',
+    () async {
+      final alias = Link(p.join(work.path, 'repository'));
+      await alias.create(root);
+      final result = await build([
+        'example/math.dart',
+        '--name',
+        '@example/math',
+        '--out',
+        p.join(alias.path, 'example'),
+      ]);
+      expect(result.exitCode, isNot(0));
+      expect(result.stderr, contains('contains the input source'));
+    },
+  );
+
+  test('builds a workspace member using the shared package configuration', () async {
+    final member = Directory(p.join(work.path, 'packages', 'api'));
+    await Directory(p.join(member.path, 'lib')).create(recursive: true);
+    await File(p.join(work.path, 'pubspec.yaml')).writeAsString('''
+name: napi_workspace_fixture
+environment:
+  sdk: ^3.13.5
+workspace:
+  - packages/api
+''');
+    await File(p.join(member.path, 'pubspec.yaml')).writeAsString('''
+name: napi_workspace_api
+resolution: workspace
+environment:
+  sdk: ^3.13.5
+dependencies:
+  napi:
+    path: ${jsonEncode(root)}
+''');
+    final source = File(p.join(member.path, 'lib', 'api.dart'));
+    await source.writeAsString(
+      "import 'package:napi/napi.dart';\n@napi\nint answer() => 42;\n",
+    );
+    final resolved = await Process.run(Platform.resolvedExecutable, [
+      'pub',
+      'get',
+      '--offline',
+    ], workingDirectory: work.path);
+    expect(
+      resolved.exitCode,
+      0,
+      reason: '${resolved.stdout}${resolved.stderr}',
+    );
+    expect(
+      File(p.join(member.path, '.dart_tool', 'package_config.json'))
+          .existsSync(),
+      isFalse,
+    );
+    final output = p.join(work.path, 'dist');
+    final result = await build([
+      source.path,
+      '--name',
+      '@example/workspace',
+      '--out',
+      output,
+    ]);
+    expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
+    final imported = await Process.run('node', [
+      '--input-type=module',
+      '-e',
+      'import { answer } from ${jsonEncode(File(p.join(output, 'node.js')).uri.toString())}; console.log(answer());',
+    ]);
+    expect(
+      imported.exitCode,
+      0,
+      reason: '${imported.stdout}${imported.stderr}',
+    );
+    expect((imported.stdout as String).trim(), '42');
+  });
+
+  test(
+    'a staging I/O failure preserves the previous generated package',
+    () async {
+      final parent = Directory(p.join(work.path, 'protected'));
+      final output = Directory(p.join(parent.path, 'dist'));
+      await output.create(recursive: true);
+      final manifest = File(p.join(output.path, 'package.json'));
+      final previous = File(p.join(output.path, 'node.js'));
+      await manifest.writeAsString(
+        '{"napi":{"generator":"napi"},"files":["node.js"]}',
+      );
+      await previous.writeAsString('export const previous = 42;');
+      await Process.run('chmod', ['u-w', parent.path]);
+      try {
+        final result = await build([
+          'example/math.dart',
+          '--name',
+          '@example/math',
+          '--out',
+          output.path,
+        ]);
+        expect(result.exitCode, isNot(0));
+        expect(await previous.readAsString(), 'export const previous = 42;');
+        expect(output.listSync().length, 2);
+      } finally {
+        await Process.run('chmod', ['u+w', parent.path]);
+      }
+    },
+    skip: Platform.isWindows ? 'Requires POSIX directory permissions.' : false,
+  );
+
+  test(
+    'replaces a generated package completely on a successful rebuild',
+    () async {
+      final output = Directory(p.join(work.path, 'dist'));
+      await output.create();
+      await File(p.join(output.path, 'package.json'))
+          .writeAsString('{"napi":{"generator":"napi"},"files":["node.js"]}');
+      await File(p.join(output.path, 'node.js'))
+          .writeAsString('export const previous = 42;');
+      final result = await build([
+        'example/math.dart',
+        '--name',
+        '@example/rebuilt',
+        '--out',
+        output.path,
+      ]);
+      expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
+      expect(
+        await File(p.join(output.path, 'node.js')).readAsString(),
+        isNot(contains('previous')),
+      );
+      expect(File(p.join(output.path, 'module.wasm')).existsSync(), isTrue);
+      expect(work.listSync().map((entry) => p.basename(entry.path)), ['dist']);
+    },
+  );
 }

@@ -2,7 +2,7 @@ import {
   identityBool, identityInt, identityDouble, identityString, identityBytes,
   nullableBool, nullableInt, nullableDouble, nullableString, nullableBytes,
   incrementCounter, counter, oversizedInt, throwError,
-  readFile, response, instantiate, $napiReadFile,
+  readFile, response, instantiate, $napiReadFile, fetch, URL, Error,
 } from '@napi/integration';
 
 const bool: boolean = identityBool(true);
@@ -23,7 +23,10 @@ const readFileResult: string = readFile('name');
 const responseResult: string = response('body');
 const instantiateResult: number = instantiate(9);
 const dollarResult: string = $napiReadFile('name');
-void [bool, int, double, string, bytes, maybeBool, maybeInt, maybeDouble, maybeString, maybeBytes, voidResult, count, unsafe, exception, readFileResult, responseResult, instantiateResult, dollarResult];
+const fetchResult: string = fetch('body');
+const urlResult: number = URL();
+const errorResult: string = Error();
+void [bool, int, double, string, bytes, maybeBool, maybeInt, maybeDouble, maybeString, maybeBytes, voidResult, count, unsafe, exception, readFileResult, responseResult, instantiateResult, dollarResult, fetchResult, urlResult, errorResult];
 
 // @ts-expect-error Wrong input type must not be accepted by generated declarations.
 identityBool(1);

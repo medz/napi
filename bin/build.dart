@@ -89,11 +89,15 @@ Future<void> _build(List<String> arguments) async {
   if (versionMatch == null || leadingZero) {
     throw FormatException('Invalid npm package version: $version');
   }
-  final entry = File(p.normalize(p.absolute(source)));
+  final input = File(p.normalize(p.absolute(source)));
+  if (!input.existsSync()) {
+    throw FormatException('Dart source file not found: ${input.path}');
+  }
+  final entry = File(input.resolveSymbolicLinksSync());
   if (!entry.existsSync() || p.extension(entry.path) != '.dart') {
     throw FormatException('Dart source file not found: ${entry.path}');
   }
-  final destination = Directory(p.normalize(p.absolute(out)));
+  final destination = _resolveDestination(out);
   if (p.equals(destination.path, entry.parent.path) ||
       p.isWithin(destination.path, entry.path)) {
     throw const FormatException(
@@ -124,16 +128,24 @@ Future<void> _build(List<String> arguments) async {
         'Dart Wasm compilation failed:\n${result.stdout}${result.stderr}',
       );
     }
-    final names = exports.map((export) => export.name).join(', ');
+    final bindings = [
+      for (var index = 0; index < exports.length; index++)
+        '${exports[index].name}: _napi$index',
+    ].join(', ');
+    final reexports = [
+      for (var index = 0; index < exports.length; index++)
+        '_napi$index as ${exports[index].name}',
+    ].join(', ');
     await File(p.join(work.path, 'runtime.js'))
         .writeAsString(generateRuntime(exports));
     await File(p.join(work.path, 'node.js')).writeAsString(
       '''import { readFile as _napiReadFile } from 'node:fs/promises';
 import { instantiate as _napiInstantiate } from './runtime.js';
 
-export const { $names } = (await _napiInstantiate(
+const { $bindings } = (await _napiInstantiate(
   await _napiReadFile(new URL('./module.wasm', import.meta.url)),
 )).exports;
+export { $reexports };
 ''',
     );
     await File(p.join(work.path, 'browser.js')).writeAsString(
@@ -141,7 +153,8 @@ export const { $names } = (await _napiInstantiate(
 
 const _napiResponse = await fetch(new URL('./module.wasm', import.meta.url));
 if (!_napiResponse.ok) throw new Error(`Failed to load Wasm: \${_napiResponse.status}`);
-export const { $names } = (await _napiInstantiate(await _napiResponse.arrayBuffer())).exports;
+const { $bindings } = (await _napiInstantiate(await _napiResponse.arrayBuffer())).exports;
+export { $reexports };
 ''',
     );
     await File(p.join(work.path, 'index.d.ts'))
@@ -176,13 +189,11 @@ export const { $names } = (await _napiInstantiate(await _napiResponse.arrayBuffe
     await File(p.join(work.path, 'package.json')).writeAsString(
       '${const JsonEncoder.withIndent('  ').convert(manifest)}\n',
     );
-    // Recheck after compilation; a failed build never modifies the output.
-    _checkDestination(destination);
-    await destination.create(recursive: true);
-    for (final asset in [...assets, 'package.json']) {
-      await File(p.join(work.path, asset))
-          .copy(p.join(destination.path, asset));
+    // Resolve again in case an output ancestor changed during compilation.
+    if (_resolveDestination(out).path != destination.path) {
+      throw const FormatException('Output path changed during compilation.');
     }
+    await _publishOutput(work, destination, [...assets, 'package.json']);
     stdout.writeln('Built $name@$version → ${destination.path}');
   } finally {
     await work.delete(recursive: true);
@@ -191,20 +202,86 @@ export const { $names } = (await _napiInstantiate(await _napiResponse.arrayBuffe
 
 Directory _findProject(Directory directory) {
   var current = directory;
-  while (!File(p.join(current.path, 'pubspec.yaml')).existsSync()) {
-    final parent = current.parent;
-    if (parent.path == current.path) {
-      throw const FormatException('Source must belong to a Dart package.');
+  var foundPackage = false;
+  while (true) {
+    foundPackage |= File(p.join(current.path, 'pubspec.yaml')).existsSync();
+    if (foundPackage &&
+        File(p.join(current.path, '.dart_tool', 'package_config.json'))
+            .existsSync()) {
+      return current;
     }
+    final parent = current.parent;
+    if (parent.path == current.path) break;
     current = parent;
   }
-  if (!File(p.join(current.path, '.dart_tool', 'package_config.json'))
-      .existsSync()) {
+  throw FormatException(
+    foundPackage
+        ? 'Run dart pub get in the source package or workspace first.'
+        : 'Source must belong to a Dart package.',
+  );
+}
+
+Directory _resolveDestination(String output) {
+  final absolute = p.normalize(p.absolute(output));
+  if (FileSystemEntity.typeSync(absolute, followLinks: false) ==
+      FileSystemEntityType.link) {
     throw const FormatException(
-      'Run dart pub get in the source package first.',
+      'Output directory must not be a symbolic link.',
     );
   }
-  return current;
+  var ancestor = Directory(absolute);
+  while (!ancestor.existsSync()) {
+    if (FileSystemEntity.typeSync(ancestor.path, followLinks: false) ==
+        FileSystemEntityType.link) {
+      throw const FormatException(
+        'Output path contains a broken symbolic link.',
+      );
+    }
+    final parent = ancestor.parent;
+    if (parent.path == ancestor.path) {
+      throw const FormatException(
+        'Output path has no existing directory ancestor.',
+      );
+    }
+    ancestor = parent;
+  }
+  final resolved = ancestor.resolveSymbolicLinksSync();
+  final suffix = p.relative(absolute, from: ancestor.path);
+  return Directory(p.normalize(p.join(resolved, suffix)));
+}
+
+Future<void> _publishOutput(
+  Directory work,
+  Directory destination,
+  List<String> assets,
+) async {
+  await destination.parent.create(recursive: true);
+  // Stage on the destination filesystem; copy failures leave the old package intact.
+  final staged = await destination.parent.createTemp('.napi-stage-');
+  final backup = Directory('${staged.path}-previous');
+  try {
+    for (final asset in assets) {
+      await File(p.join(work.path, asset)).copy(p.join(staged.path, asset));
+    }
+    _checkDestination(destination);
+    final hadPrevious = destination.existsSync();
+    if (hadPrevious) await destination.rename(backup.path);
+    try {
+      await staged.rename(destination.path);
+    } catch (_) {
+      if (hadPrevious) await backup.rename(destination.path);
+      rethrow;
+    }
+    if (hadPrevious) {
+      try {
+        await backup.delete(recursive: true);
+      } on FileSystemException {
+        stderr.writeln('napi: previous output retained at ${backup.path}');
+      }
+    }
+  } finally {
+    if (staged.existsSync()) await staged.delete(recursive: true);
+  }
 }
 
 void _checkDestination(Directory directory) {
@@ -225,6 +302,18 @@ void _checkDestination(Directory directory) {
       throw const FormatException();
     }
     final files = (data['files'] as List).cast<String>();
+    const generated = {
+      'node.js',
+      'browser.js',
+      'runtime.js',
+      'index.d.ts',
+      'module.wasm',
+      'module.mjs',
+      'module.support.js',
+    };
+    if (files.any((file) => !generated.contains(file))) {
+      throw const FormatException();
+    }
     for (final entry in entries) {
       final filename = p.basename(entry.path);
       if (entry is! File ||

@@ -62,6 +62,17 @@ int instantiate(int value) => value + 1;
 @napi
 String $napiReadFile(String value) => 'Dart dollar: $value';
 
+@napi
+String fetch(String value) => 'Dart fetch: $value';
+
+@napi
+// ignore: non_constant_identifier_names
+int URL() => 42;
+
+@napi
+// ignore: non_constant_identifier_names
+String Error() => 'Dart Error';
+
 var _counter = 0;
 
 @napi
