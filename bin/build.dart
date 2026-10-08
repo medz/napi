@@ -3,9 +3,11 @@ import 'dart:io';
 
 import 'package:napi/src/bridge.dart';
 import 'package:napi/src/exports.dart';
-import 'package:napi/src/runtime.dart';
+import 'package:napi/src/host.dart';
 import 'package:napi/src/typescript.dart';
+import 'package:napi/src/wasm.dart';
 import 'package:path/path.dart' as p;
+import 'package:yaml/yaml.dart';
 
 const _usage =
     '''Usage: dart run napi:build <dart-file> --name <npm-name> [options]
@@ -105,8 +107,8 @@ Future<void> _build(List<String> arguments) async {
     );
   }
   _checkDestination(destination);
-  final exports = await readExports(entry.path);
   final project = _findProject(entry.parent);
+  final exports = await readExports(entry.path);
   final workParent = Directory(p.join(project.path, '.dart_tool', 'napi'));
   await workParent.create(recursive: true);
   final work = await workParent.createTemp('build-');
@@ -128,46 +130,21 @@ Future<void> _build(List<String> arguments) async {
         'Dart Wasm compilation failed:\n${result.stdout}${result.stderr}',
       );
     }
-    final bindings = [
-      for (var index = 0; index < exports.length; index++)
-        '${exports[index].name}: _napi$index',
-    ].join(', ');
-    final reexports = [
-      for (var index = 0; index < exports.length; index++)
-        '_napi$index as ${exports[index].name}',
-    ].join(', ');
-    await File(p.join(work.path, 'runtime.js'))
-        .writeAsString(generateRuntime(exports));
-    await File(p.join(work.path, 'node.js')).writeAsString(
-      '''import { readFile as _napiReadFile } from 'node:fs/promises';
-import { instantiate as _napiInstantiate } from './runtime.js';
-
-const { $bindings } = (await _napiInstantiate(
-  await _napiReadFile(new URL('./module.wasm', import.meta.url)),
-)).exports;
-export { $reexports };
-''',
-    );
-    await File(p.join(work.path, 'browser.js')).writeAsString(
-      '''import { instantiate as _napiInstantiate } from './runtime.js';
-
-const _napiResponse = await fetch(new URL('./module.wasm', import.meta.url));
-if (!_napiResponse.ok) throw new Error(`Failed to load Wasm: \${_napiResponse.status}`);
-const { $bindings } = (await _napiInstantiate(await _napiResponse.arrayBuffer())).exports;
-export { $reexports };
-''',
-    );
-    await File(p.join(work.path, 'index.d.ts'))
-        .writeAsString(generateTypescript(exports));
+    final rewritten = rewriteImports(await File(wasm).readAsBytes());
+    final compilerSource = await File(p.join(work.path, 'module.mjs'))
+        .readAsString();
+    await File(p.join(work.path, 'module.imports.mjs'))
+        .writeAsString(generateHost(compilerSource, rewritten.imports));
+    await File(wasm).writeAsBytes(rewritten.bytes);
+    final declarations = generateTypescript(exports);
+    await File(p.join(work.path, 'index.d.ts')).writeAsString(declarations);
+    await File(p.join(work.path, 'module.d.wasm.ts'))
+        .writeAsString(declarations);
     final assets = [
-      'node.js',
-      'browser.js',
-      'runtime.js',
-      'index.d.ts',
       'module.wasm',
-      'module.mjs',
-      if (File(p.join(work.path, 'module.support.js')).existsSync())
-        'module.support.js',
+      'module.imports.mjs',
+      'index.d.ts',
+      'module.d.wasm.ts',
     ];
     final manifest = <String, Object>{
       'name': name,
@@ -175,15 +152,11 @@ export { $reexports };
       'type': 'module',
       'types': './index.d.ts',
       'exports': {
-        '.': {
-          'types': './index.d.ts',
-          'browser': './browser.js',
-          'node': './node.js',
-          'default': './browser.js',
-        },
+        for (final path in ['.', './module.wasm'])
+          path: {'types': './index.d.ts', 'default': './module.wasm'},
       },
       'files': assets,
-      'engines': {'node': '>=22'},
+      'engines': {'node': '^22.19.0 || >=24.5.0'},
       'napi': {'generator': 'napi', 'version': '0.1.0'},
     };
     await File(p.join(work.path, 'package.json')).writeAsString(
@@ -202,20 +175,46 @@ export { $reexports };
 
 Directory _findProject(Directory directory) {
   var current = directory;
-  var foundPackage = false;
+  Directory? package;
   while (true) {
-    foundPackage |= File(p.join(current.path, 'pubspec.yaml')).existsSync();
-    if (foundPackage &&
-        File(p.join(current.path, '.dart_tool', 'package_config.json'))
-            .existsSync()) {
-      return current;
+    final pubspec = File(p.join(current.path, 'pubspec.yaml'));
+    if (package == null && pubspec.existsSync()) {
+      package = current;
+      final config = File(
+        p.join(current.path, '.dart_tool', 'package_config.json'),
+      );
+      if (config.existsSync()) return current;
+      final metadata = loadYaml(pubspec.readAsStringSync());
+      if (metadata is! YamlMap || metadata['resolution'] != 'workspace') {
+        throw const FormatException(
+          'Run dart pub get in the source package first.',
+        );
+      }
+    }
+    if (package != null) {
+      final config = File(
+        p.join(current.path, '.dart_tool', 'package_config.json'),
+      );
+      if (config.existsSync()) {
+        final data =
+            jsonDecode(config.readAsStringSync()) as Map<String, dynamic>;
+        for (final entry
+            in (data['packages'] as List).cast<Map<String, dynamic>>()) {
+          final rootUri = entry['rootUri'] as String;
+          final root = Directory.fromUri(config.uri.resolve(rootUri));
+          if (root.existsSync() &&
+              p.equals(root.resolveSymbolicLinksSync(), package.path)) {
+            return current;
+          }
+        }
+      }
     }
     final parent = current.parent;
     if (parent.path == current.path) break;
     current = parent;
   }
   throw FormatException(
-    foundPackage
+    package != null
         ? 'Run dart pub get in the source package or workspace first.'
         : 'Source must belong to a Dart package.',
   );
@@ -303,13 +302,10 @@ void _checkDestination(Directory directory) {
     }
     final files = (data['files'] as List).cast<String>();
     const generated = {
-      'node.js',
-      'browser.js',
-      'runtime.js',
       'index.d.ts',
       'module.wasm',
-      'module.mjs',
-      'module.support.js',
+      'module.imports.mjs',
+      'module.d.wasm.ts',
     };
     if (files.any((file) => !generated.contains(file))) {
       throw const FormatException();

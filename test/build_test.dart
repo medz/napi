@@ -72,7 +72,7 @@ void main() {
 
   test('does not trust a generated manifest with unrelated files', () async {
     await File(p.join(work.path, 'package.json'))
-        .writeAsString('{"napi":{"generator":"napi"},"files":["node.js"]}');
+        .writeAsString('{"napi":{"generator":"napi"},"files":["index.d.ts"]}');
     final sentinel = File(p.join(work.path, 'user-code.js'));
     await sentinel.writeAsString('const keep = true;');
     final result = await build([
@@ -167,7 +167,7 @@ dependencies:
     final imported = await Process.run('node', [
       '--input-type=module',
       '-e',
-      'import { answer } from ${jsonEncode(File(p.join(output, 'node.js')).uri.toString())}; console.log(answer());',
+      'import { answer } from ${jsonEncode(File(p.join(output, 'module.wasm')).uri.toString())}; console.log(answer());',
     ]);
     expect(
       imported.exitCode,
@@ -178,15 +178,59 @@ dependencies:
   });
 
   test(
+    'standalone nested packages require their own package configuration',
+    () async {
+      final member = Directory(p.join(work.path, 'packages', 'api'));
+      await Directory(p.join(member.path, 'lib')).create(recursive: true);
+      await File(p.join(work.path, 'pubspec.yaml')).writeAsString('''
+name: unrelated_parent
+environment:
+  sdk: ^3.13.5
+''');
+      await Directory(p.join(work.path, '.dart_tool')).create();
+      await File(p.join(work.path, '.dart_tool', 'package_config.json'))
+          .writeAsString(
+            jsonEncode({
+              'configVersion': 2,
+              'packages': [
+                {'name': 'nested_api', 'rootUri': '../packages/api'},
+              ],
+            }),
+          );
+      await File(p.join(member.path, 'pubspec.yaml')).writeAsString('''
+name: nested_api
+environment:
+  sdk: ^3.13.5
+''');
+      final source = File(p.join(member.path, 'lib', 'api.dart'));
+      await source.writeAsString('int answer() => 42;');
+      final output = p.join(work.path, 'dist');
+      final result = await build([
+        source.path,
+        '--name',
+        '@example/nested',
+        '--out',
+        output,
+      ]);
+      expect(result.exitCode, isNot(0));
+      expect(
+        result.stderr,
+        contains('Run dart pub get in the source package first'),
+      );
+      expect(Directory(output).existsSync(), isFalse);
+    },
+  );
+
+  test(
     'a staging I/O failure preserves the previous generated package',
     () async {
       final parent = Directory(p.join(work.path, 'protected'));
       final output = Directory(p.join(parent.path, 'dist'));
       await output.create(recursive: true);
       final manifest = File(p.join(output.path, 'package.json'));
-      final previous = File(p.join(output.path, 'node.js'));
+      final previous = File(p.join(output.path, 'index.d.ts'));
       await manifest.writeAsString(
-        '{"napi":{"generator":"napi"},"files":["node.js"]}',
+        '{"napi":{"generator":"napi"},"files":["index.d.ts"]}',
       );
       await previous.writeAsString('export const previous = 42;');
       await Process.run('chmod', ['u-w', parent.path]);
@@ -213,9 +257,10 @@ dependencies:
     () async {
       final output = Directory(p.join(work.path, 'dist'));
       await output.create();
-      await File(p.join(output.path, 'package.json'))
-          .writeAsString('{"napi":{"generator":"napi"},"files":["node.js"]}');
-      await File(p.join(output.path, 'node.js'))
+      await File(
+        p.join(output.path, 'package.json'),
+      ).writeAsString('{"napi":{"generator":"napi"},"files":["index.d.ts"]}');
+      await File(p.join(output.path, 'index.d.ts'))
           .writeAsString('export const previous = 42;');
       final result = await build([
         'example/math.dart',
@@ -226,7 +271,7 @@ dependencies:
       ]);
       expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
       expect(
-        await File(p.join(output.path, 'node.js')).readAsString(),
+        await File(p.join(output.path, 'index.d.ts')).readAsString(),
         isNot(contains('previous')),
       );
       expect(File(p.join(output.path, 'module.wasm')).existsSync(), isTrue);

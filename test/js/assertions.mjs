@@ -1,4 +1,4 @@
-// Kept independent of Node so the browser exercises the same public contract.
+// The package and relative Wasm imports exercise the same public contract.
 export function runAssertions(api) {
   let checks = 0;
   function check(condition, message) {
@@ -61,8 +61,9 @@ export function runAssertions(api) {
   for (const value of [[1, 2], new Uint16Array([1, 2]), new Uint8ClampedArray([1, 2]), new DataView(new ArrayBuffer(2)), null, undefined]) {
     throws(() => api.identityBytes(value), 'invalid bytes rejected');
   }
-  throws(() => api.identityInt(), 'missing argument rejected');
-  throws(() => api.identityInt(1, 2), 'extra argument rejected');
+  throws(() => api.identityInt(), 'missing argument uses TypeError', null, TypeError);
+  throws(() => api.identityInt(undefined), 'undefined argument uses TypeError', null, TypeError);
+  equal(api.identityInt(1, 2), 1, 'native Wasm ignores extra arguments');
   throws(() => api.oversizedInt(), 'unsafe integer result rejected');
   throws(() => api.throwError('original Dart error 🦀'), 'Dart exception translated', 'original Dart error 🦀');
   throws(() => api.identityInt(0.5), 'integer fractions use TypeError', null, TypeError);
@@ -71,13 +72,13 @@ export function runAssertions(api) {
   throws(() => api.throwRange(), 'Dart RangeError translated', 'range failure', RangeError);
   throws(() => api.throwArgument(), 'Dart ArgumentError translated', 'argument failure', TypeError);
   equal(api.identityInt(42), 42, 'calls recover after errors');
-  equal(api.readFile('name'), 'Dart readFile: name', 'readFile cannot collide with loader imports');
-  equal(api.response('body'), 'Dart response: body', 'response cannot collide with loader local names');
-  equal(api.instantiate(9), 10, 'instantiate cannot collide with runtime imports');
+  equal(api.readFile('name'), 'Dart readFile: name', 'readFile remains a named Wasm export');
+  equal(api.response('body'), 'Dart response: body', 'response remains a named Wasm export');
+  equal(api.instantiate(9), 10, 'instantiate remains a named Wasm export');
   equal(api.$napiReadFile('name'), 'Dart dollar: name', 'dollar function names remain usable');
-  equal(api.fetch('body'), 'Dart fetch: body', 'fetch cannot shadow the loader global');
-  equal(api.URL(), 42, 'URL cannot shadow the loader global');
-  equal(api.Error(), 'Dart Error', 'Error cannot shadow the loader global');
+  equal(api.fetch('body'), 'Dart fetch: body', 'fetch remains a named Wasm export');
+  equal(api.URL(), 42, 'URL remains a named Wasm export');
+  equal(api.Error(), 'Dart Error', 'Error remains a named Wasm export');
 
   const initial = api.counter();
   equal(api.incrementCounter(), undefined, 'void returns undefined');
@@ -89,6 +90,6 @@ export function runAssertions(api) {
       throws(() => api.throwError(`error-${i}`), 'repeated exception', `error-${i}`);
     }
   }
-  equal(api.identityString('after repeated errors'), 'after repeated errors', 'scope cleanup after repeated errors');
+  equal(api.identityString('after repeated errors'), 'after repeated errors', 'calls recover after repeated errors');
   return checks;
 }

@@ -4,6 +4,7 @@ import {
   incrementCounter, counter, oversizedInt, throwError,
   readFile, response, instantiate, $napiReadFile, fetch, URL, Error,
 } from '@napi/integration';
+import { identityInt as subpathInt } from '@napi/integration/module.wasm';
 
 const bool: boolean = identityBool(true);
 const int: number = identityInt(12);
@@ -26,7 +27,8 @@ const dollarResult: string = $napiReadFile('name');
 const fetchResult: string = fetch('body');
 const urlResult: number = URL();
 const errorResult: string = Error();
-void [bool, int, double, string, bytes, maybeBool, maybeInt, maybeDouble, maybeString, maybeBytes, voidResult, count, unsafe, exception, readFileResult, responseResult, instantiateResult, dollarResult, fetchResult, urlResult, errorResult];
+const subpathResult: number = subpathInt(42);
+void [bool, int, double, string, bytes, maybeBool, maybeInt, maybeDouble, maybeString, maybeBytes, voidResult, count, unsafe, exception, readFileResult, responseResult, instantiateResult, dollarResult, fetchResult, urlResult, errorResult, subpathResult];
 
 // @ts-expect-error Wrong input type must not be accepted by generated declarations.
 identityBool(1);
@@ -40,7 +42,7 @@ identityString(null);
 identityBytes([1, 2]);
 // @ts-expect-error Required positional arguments cannot be omitted.
 identityInt();
-// @ts-expect-error Undeclared arguments cannot be added.
+// @ts-expect-error TypeScript checks the declared signature even when Wasm ignores extra arguments.
 identityInt(1, 2);
 // @ts-expect-error Undefined is not null.
 nullableInt(undefined);

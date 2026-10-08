@@ -20,7 +20,7 @@ String generateTypescript(List<Export> exports) {
       parameters.add('$name: ${_type(parameter.type)}');
     }
     declarations.add(
-      'export function ${export.name}(${parameters.join(', ')}): ${_type(export.returnType)};',
+      'export declare function ${export.name}(${parameters.join(', ')}): ${_type(export.returnType)};',
     );
   }
   return '${declarations.join('\n')}\n';

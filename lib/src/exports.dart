@@ -109,6 +109,22 @@ const javascriptKeywords = {
   'yield',
 };
 
+// Fixed strong and weak export names in the Dart 3.13.5 Wasm runtime.
+const _dartWasmExportNames = {
+  r'$invokeMain',
+  r'$invokeCallback',
+  r'$wasmI8ArrayGet',
+  r'$wasmI8ArraySet',
+  r'$wasmI16ArrayGet',
+  r'$wasmI16ArraySet',
+  r'$wasmI32ArrayGet',
+  r'$wasmI32ArraySet',
+  r'$wasmF32ArrayGet',
+  r'$wasmF32ArraySet',
+  r'$wasmF64ArrayGet',
+  r'$wasmF64ArraySet',
+};
+
 /// Resolves a Dart library and reads its annotated function signatures.
 ///
 /// Parts belong to the same library and are included. Imports and re-exports
@@ -205,6 +221,13 @@ class _ExportVisitor extends RecursiveAstVisitor<void> {
         unit,
         declaration.name.offset,
         '"$name" is a reserved JavaScript export name.',
+      );
+    }
+    if (_dartWasmExportNames.contains(name)) {
+      _fail(
+        unit,
+        declaration.name.offset,
+        '"$name" is a reserved Dart Wasm export name.',
       );
     }
     if (name == 'then') {

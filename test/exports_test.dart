@@ -91,12 +91,12 @@ void reset() {}
         );
       }
       expect(generateTypescript(exports), '''
-export function flag(value: boolean | null): boolean | null;
-export function count(value: number): number;
-export function scale(value: number | null): number | null;
-export function text(value: string | null): string | null;
-export function buffer(value: Uint8Array | null): Uint8Array | null;
-export function reset(): void;
+export declare function flag(value: boolean | null): boolean | null;
+export declare function count(value: number): number;
+export declare function scale(value: number | null): number | null;
+export declare function text(value: string | null): string | null;
+export declare function buffer(value: Uint8Array | null): Uint8Array | null;
+export declare function reset(): void;
 ''');
     },
   );
@@ -325,7 +325,7 @@ class Counter {
       );
       expect(
         generateTypescript(exports),
-        'export function inspect(arg0: number): number;\n',
+        'export declare function inspect(arg0: number): number;\n',
       );
     },
   );
@@ -340,7 +340,7 @@ int inspect(int delete, int arg0, int typeof, int arg1) => delete + arg0 + typeo
 ''');
       expect(
         generateTypescript(exports),
-        'export function inspect(arg2: number, arg0: number, arg3: number, arg1: number): number;\n',
+        'export declare function inspect(arg2: number, arg0: number, arg3: number, arg1: number): number;\n',
       );
     },
   );
@@ -351,7 +351,46 @@ int inspect(int delete, int arg0, int typeof, int arg1) => delete + arg0 + typeo
     );
     expect(
       generateTypescript(exports),
-      'export function inspect(then: number): number;\n',
+      'export declare function inspect(then: number): number;\n',
     );
   });
+
+  for (final name in [r'$invokeMain', r'$wasmI16ArrayGet']) {
+    test('rejects the SDK export $name at its source location', () async {
+      await expectLater(
+        analyze("import 'package:napi/napi.dart';\n@napi\nint $name() => 1;\n"),
+        throwsA(
+          isA<ExportError>()
+              .having((error) => error.path, 'path', startsWith(fixture.path))
+              .having((error) => error.line, 'line', 3)
+              .having((error) => error.column, 'column', 5)
+              .having(
+                (error) => error.message,
+                'message',
+                '"$name" is a reserved Dart Wasm export name.',
+              ),
+        ),
+      );
+    });
+  }
+
+  test(
+    'ordinary dollar exports remain valid near SDK reserved names',
+    () async {
+      final exports = await analyze(r'''
+import 'package:napi/napi.dart';
+@napi
+int $napiReadFile() => 1;
+@napi
+int $invokeMainBusiness() => 2;
+@napi
+int $wasmI16ArrayGetBusiness() => 3;
+''');
+      expect(exports.map((export) => export.name), [
+        r'$napiReadFile',
+        r'$invokeMainBusiness',
+        r'$wasmI16ArrayGetBusiness',
+      ]);
+    },
+  );
 }

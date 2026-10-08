@@ -13,7 +13,7 @@ jobs:
           sdk: 3.13.5
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 22.19.0
       - run: dart pub get
       - run: dart format --output=none --set-exit-if-changed bin lib test example
       - run: dart analyze --fatal-infos
