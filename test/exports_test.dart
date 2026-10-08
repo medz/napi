@@ -197,6 +197,315 @@ export declare function done(): Promise<void>;
     },
   );
 
+  test('flat SDK collections resolve through prefixed imports', () async {
+    final exports = await analyze('''
+import 'dart:core' as core;
+import 'package:napi/napi.dart' as api;
+
+@api.napi
+core.List<core.bool> flags(core.List<core.bool> values) => values;
+@api.napi
+core.List<core.int> doubleAll(core.List<core.int> values) => [for (final v in values) v * 2];
+@api.napi
+core.List<core.double> scales(core.List<core.double> values) => values;
+@api.napi
+core.List<core.String> texts(core.List<core.String> values) => values;
+@api.napi
+core.Map<core.String, core.bool> flagLabels(core.Map<core.String, core.bool> values) => values;
+@api.napi
+core.Map<core.String, core.int> counts(core.Map<core.String, core.int> values) => values;
+@api.napi
+core.Map<core.String, core.double> weights(core.Map<core.String, core.double> values) => values;
+@api.napi
+core.Map<core.String, core.String> labels(core.Map<core.String, core.String> values) => {...values};
+''');
+    expect(exports.every((export) => !export.isAsync), isTrue);
+    expect(exports.map((export) => export.returnType.kind), [
+      ...List.filled(4, ValueKind.listType),
+      ...List.filled(4, ValueKind.mapType),
+    ]);
+    expect(exports.map((export) => export.returnType.elementType!.kind), [
+      ValueKind.boolType,
+      ValueKind.intType,
+      ValueKind.doubleType,
+      ValueKind.stringType,
+      ValueKind.boolType,
+      ValueKind.intType,
+      ValueKind.doubleType,
+      ValueKind.stringType,
+    ]);
+    for (final export in exports) {
+      final input = export.parameters.single.type;
+      final result = export.returnType;
+      expect(input.kind, result.kind);
+      expect(input.elementType!.kind, result.elementType!.kind);
+      expect(input.nullable, isFalse);
+      expect(input.elementType!.nullable, isFalse);
+      expect(input.elementType!.elementType, isNull);
+      expect(result.nullable, isFalse);
+      expect(result.elementType!.nullable, isFalse);
+    }
+    expect(generateTypescript(exports), '''
+export declare function flags(values: boolean[]): boolean[];
+export declare function doubleAll(values: number[]): number[];
+export declare function scales(values: number[]): number[];
+export declare function texts(values: string[]): string[];
+export declare function flagLabels(values: Record<string, boolean>): Record<string, boolean>;
+export declare function counts(values: Record<string, number>): Record<string, number>;
+export declare function weights(values: Record<string, number>): Record<string, number>;
+export declare function labels(values: Record<string, string>): Record<string, string>;
+''');
+  });
+
+  test('collection and scalar leaf nullability remain independent', () async {
+    final exports = await analyze('''
+import 'package:napi/napi.dart';
+@napi
+List<int?> leaf(List<int?> values) => values;
+@napi
+List<int>? container(List<int>? values) => values;
+@napi
+List<int?>? both(List<int?>? values) => values;
+@napi
+Map<String, String?> mapLeaf(Map<String, String?> values) => values;
+@napi
+Map<String, String>? mapContainer(Map<String, String>? values) => values;
+@napi
+Map<String, String?>? mapBoth(Map<String, String?>? values) => values;
+@napi
+List<bool?>? flags(List<bool?>? values) => values;
+@napi
+Map<String, double?>? weights(Map<String, double?>? values) => values;
+''');
+    expect(
+      exports.map(
+        (export) => (
+          export.returnType.nullable,
+          export.returnType.elementType!.nullable,
+        ),
+      ),
+      [
+        (false, true),
+        (true, false),
+        (true, true),
+        (false, true),
+        (true, false),
+        (true, true),
+        (true, true),
+        (true, true),
+      ],
+    );
+    for (final export in exports) {
+      expect(
+        export.parameters.single.type.nullable,
+        export.returnType.nullable,
+      );
+      expect(
+        export.parameters.single.type.elementType!.nullable,
+        export.returnType.elementType!.nullable,
+      );
+    }
+    expect(generateTypescript(exports), '''
+export declare function leaf(values: Array<number | null>): Array<number | null>;
+export declare function container(values: number[] | null): number[] | null;
+export declare function both(values: Array<number | null> | null): Array<number | null> | null;
+export declare function mapLeaf(values: Record<string, string | null>): Record<string, string | null>;
+export declare function mapContainer(values: Record<string, string> | null): Record<string, string> | null;
+export declare function mapBoth(values: Record<string, string | null> | null): Record<string, string | null> | null;
+export declare function flags(values: Array<boolean | null> | null): Array<boolean | null> | null;
+export declare function weights(values: Record<string, number | null> | null): Record<string, number | null> | null;
+''');
+  });
+
+  test(
+    'ordinary and async Futures retain collection completion types',
+    () async {
+      final exports = await analyze('''
+import 'dart:async' as tasks;
+import 'dart:core' as core;
+import 'package:napi/napi.dart';
+@napi
+tasks.Future<core.List<core.int?>?> later(core.List<core.int?>? values) async => values;
+@napi
+tasks.Future<core.Map<core.String, core.String?>?> labels(core.Map<core.String, core.String?>? values) => tasks.Future.value(values);
+@napi
+tasks.Future<core.List<core.bool>> flags() => tasks.Future.value([true]);
+''');
+      expect(exports.every((export) => export.isAsync), isTrue);
+      expect(exports.map((export) => export.returnType.kind), [
+        ValueKind.listType,
+        ValueKind.mapType,
+        ValueKind.listType,
+      ]);
+      expect(exports.map((export) => export.returnType.nullable), [
+        true,
+        true,
+        false,
+      ]);
+      expect(exports.map((export) => export.returnType.elementType!.nullable), [
+        true,
+        true,
+        false,
+      ]);
+      expect(generateTypescript(exports), '''
+export declare function later(values: Array<number | null> | null): Promise<Array<number | null> | null>;
+export declare function labels(values: Record<string, string | null> | null): Promise<Record<string, string | null> | null>;
+export declare function flags(): Promise<boolean[]>;
+''');
+    },
+  );
+
+  final unsupportedCollections = <String, (String, String)>{
+    'raw List': ('List', 'collection leaf type "dynamic"'),
+    'raw Map': ('Map', 'Map keys must be non-nullable String'),
+    'non-String Map key': (
+      'Map<int, String>',
+      'Map keys must be non-nullable String',
+    ),
+    'nullable Map key': (
+      'Map<String?, int>',
+      'Map keys must be non-nullable String',
+    ),
+    'dynamic List leaf': ('List<dynamic>', 'collection leaf type "dynamic"'),
+    'num List leaf': ('List<num>', 'collection leaf type "num"'),
+    'object Map leaf': (
+      'Map<String, Object?>',
+      'collection leaf type "Object?"',
+    ),
+    'byte List leaf': ('List<Uint8List>', 'collection leaf type "Uint8List"'),
+    'byte Map leaf': (
+      'Map<String, Uint8List?>',
+      'collection leaf type "Uint8List?"',
+    ),
+    'nested List': ('List<List<int>>', 'collection leaf type "List<int>"'),
+    'Map inside List': (
+      'List<Map<String, int>>',
+      'collection leaf type "Map<String, int>"',
+    ),
+    'List inside Map': (
+      'Map<String, List<int>>',
+      'collection leaf type "List<int>"',
+    ),
+    'nested Map': (
+      'Map<String, Map<String, String>>',
+      'collection leaf type "Map<String, String>"',
+    ),
+    'Future List leaf': (
+      'List<Future<int>>',
+      'collection leaf type "Future<int>"',
+    ),
+    'callback Map leaf': (
+      'Map<String, void Function()>',
+      'collection leaf type "void Function()"',
+    ),
+  };
+  for (final entry in unsupportedCollections.entries) {
+    test('rejects ${entry.key} at the collection parameter type', () async {
+      await expectLater(
+        analyze('''
+import 'dart:async';
+import 'dart:typed_data';
+import 'package:napi/napi.dart';
+@napi
+void inspect(${entry.value.$1} value) {}
+'''),
+        throwsA(
+          isA<ExportError>()
+              .having((error) => error.path, 'path', startsWith(fixture.path))
+              .having((error) => error.line, 'line', 5)
+              .having((error) => error.column, 'column', 14)
+              .having(
+                (error) => error.message,
+                'message',
+                contains(entry.value.$2),
+              ),
+        ),
+      );
+    });
+  }
+
+  for (final type in ['List<int>', 'Map<String, int>']) {
+    test('same-named user $type is not an SDK collection', () async {
+      await expectLater(
+        analyze('''
+import 'package:napi/napi.dart';
+class List<T> {}
+class Map<K, V> {}
+@napi
+void inspect($type value) {}
+'''),
+        throwsA(
+          isA<ExportError>()
+              .having((error) => error.line, 'line', 5)
+              .having((error) => error.column, 'column', 14)
+              .having(
+                (error) => error.message,
+                'message',
+                contains('Unsupported @napi type "$type"'),
+              ),
+        ),
+      );
+    });
+  }
+
+  for (final type in [
+    'Counts',
+    'List<Count>',
+    'Map<Key, int>',
+    'Map<String, Count>',
+  ]) {
+    test(
+      'rejects the collection alias in $type with a source location',
+      () async {
+        await expectLater(
+          analyze('''
+import 'package:napi/napi.dart';
+typedef Counts = List<int>;
+typedef Count = int;
+typedef Key = String;
+@napi
+void inspect($type value) {}
+'''),
+          throwsA(
+            isA<ExportError>()
+                .having((error) => error.line, 'line', 6)
+                .having((error) => error.column, 'column', 14)
+                .having(
+                  (error) => error.message,
+                  'message',
+                  contains('Type aliases are not supported'),
+                ),
+          ),
+        );
+      },
+    );
+  }
+
+  test(
+    'unsupported Future collection completion reports the return type',
+    () async {
+      await expectLater(
+        analyze('''
+import 'dart:async';
+import 'dart:typed_data';
+import 'package:napi/napi.dart';
+@napi
+Future<List<Uint8List>> bad() => throw UnimplementedError();
+'''),
+        throwsA(
+          isA<ExportError>()
+              .having((error) => error.line, 'line', 5)
+              .having((error) => error.column, 'column', 1)
+              .having(
+                (error) => error.message,
+                'message',
+                contains('collection leaf type "Uint8List"'),
+              ),
+        ),
+      );
+    },
+  );
+
   test('a user class named Future is not treated as an SDK Future', () async {
     await expectLater(
       analyze('''

@@ -36,6 +36,17 @@ The project name is `napi`; the primary backend is Wasm ESM integration, not the
 - Reuse compiler microtasks and timers without adding initialization or npm dependencies. Verify native imports, concurrency, timer cancellation, settlement, recovery, ownership, retained memory, and TypeScript consumers on the minimum Node runtime.
 - Provide reproducible build, size, cold-import, and call/conversion measurements with environment and variance; keep performance thresholds out of correctness CI.
 
+## 0.3.0 contract
+
+- Resolve actual SDK `List<T>` and `Map<String,T>` signatures with flat bool/int/double/String leaves; preserve nullable containers and leaves. Allow collections as Future completion values. Derive the bridge and precise Array/Record/Promise declarations from the same signature model.
+- Validate and copy all inputs before entering business code, also before returning an async Promise. Return new independent containers at synchronous return or Future completion, including empty containers.
+- Accept dense own-data Arrays across realms. Reject holes, inherited indices, accessors, typed arrays, and invalid leaves; never invoke property getters. Ignore unrelated named and symbol properties.
+- Accept ordinary and null-prototype objects across realms. Read own enumerable string data properties; reject accessors, class instances, custom prototypes, Arrays, Date, and JS Map/Set. Ignore inherited, non-enumerable, and symbol fields.
+- Emit null-prototype objects and preserve special keys, UTF-16 keys/values, double special values, and safe integers. Do not promise key order. Null requires nullable signatures; reject undefined. Conversion failures identify parameter/result and index/key; Proxy reflection traps and exceptions follow ordinary JS and the 0.2 error policy.
+- Reject raw/aliased/nested collections, unsupported leaves, and non-String or nullable Map keys with source positions before compilation. Preserve the existing direct Uint8List contract.
+- Verify native package/subpath/relative imports, precise TypeScript in both resolution modes, sync/Future calls, mutation independence, all scalar/nullability combinations, cross-realm values, malformed properties, recovery, and retained memory.
+- Measure 0/1/16/256/4096 element conversions and package-size changes. Omit unused collection helpers from scalar-only packages. Keep one native import API, no JSON serialization, no new runtime dependencies, and no timing gates in correctness CI.
+
 ## Iteration priorities
 
 After publishing the first complete workflow, prioritize Future-to-Promise support, useful typed data structures, clear diagnostics, compiler/runtime compatibility, reproducible performance and size measurements, and real applications. Define consumer syntax, type and ownership rules, and acceptance cases before implementing each addition.

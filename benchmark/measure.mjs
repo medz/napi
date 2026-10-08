@@ -10,8 +10,10 @@ if (process.argv[2] === '--cold') {
   const imported = performance.now();
   const name = process.argv[4];
   const result = name === 'add' ? module.add(1.5, 2.5) : module.answer();
-  assert.equal(await result, name === 'add' ? 4 : 42);
-  console.log(JSON.stringify({ import_ms: imported - start, first_call_ms: performance.now() - imported }));
+  const completed = result instanceof Promise ? await result : result;
+  const firstCall = performance.now() - imported;
+  assert.equal(completed, name === 'add' ? 4 : 42);
+  console.log(JSON.stringify({ import_ms: imported - start, first_call_ms: firstCall }));
 } else {
   await measure();
 }
@@ -21,6 +23,7 @@ async function measure() {
   const warmup = Number(args['--warmup']);
   const runs = Number(args['--runs']);
   const wasm = await import(args['--wasm']);
+  const collections = await import(args['--collections']);
   globalThis.self = globalThis; // dart compile js emits a browser-compatible global.
   await import(args['--dart-js']);
   const dart = globalThis.dartBaseline;
@@ -42,6 +45,28 @@ async function measure() {
     if (value === null || typeof value !== 'object' || Reflect.apply(tag, value, []) !== 'Uint8Array') throw new TypeError('Expected Uint8Array');
     return value;
   };
+  const listSnapshot = value => {
+    if (!Array.isArray(value)) throw new TypeError('Expected Array');
+    const output = [];
+    for (let i = 0; i < value.length; i++) {
+      const field = Object.getOwnPropertyDescriptor(value, String(i));
+      if (!field || !Object.hasOwn(field, 'value')) throw new TypeError('Expected dense data indices');
+      output.push(integer(field.value));
+    }
+    return output;
+  };
+  const mapSnapshot = value => {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('Expected ordinary object');
+    const proto = Object.getPrototypeOf(value);
+    if (proto !== null && proto !== Object.prototype) throw new TypeError('Expected ordinary object');
+    const output = Object.create(null);
+    for (const key of Object.keys(value)) {
+      const field = Object.getOwnPropertyDescriptor(value, key);
+      if (!Object.hasOwn(field, 'value')) throw new TypeError('Expected data properties');
+      output[key] = string(field.value);
+    }
+    return output;
+  };
   const js = {
     add: (a, b) => number(a) + number(b),
     identityInt: value => integer(value),
@@ -58,6 +83,16 @@ async function measure() {
     async echoStringAsync(value) { return js.echoString(value); },
     async echoBytesAsync(value) { return js.echoBytes(value); },
     async failAsync() { return js.fail(); },
+    echoList(value) { return listSnapshot(value).map(integer); },
+    sumList(value) { return listSnapshot(value).reduce((sum, item) => sum + item, 0); },
+    echoMap(value) {
+      const snapshot = mapSnapshot(value);
+      const result = Object.create(null);
+      for (const key of Object.keys(snapshot)) result[key] = string(snapshot[key]);
+      return result;
+    },
+    async echoListAsync(value) { return js.echoList(value); },
+    async echoMapAsync(value) { return js.echoMap(value); },
   };
   // These checks match the valid-input boundary. Copies execute inside the
   // compiled Dart interop entry, so no copy is skipped or counted a third time.
@@ -72,7 +107,7 @@ async function measure() {
     echoStringAsync: value => dart.echoStringAsync(string(value)),
     echoBytesAsync: value => dart.echoBytesAsync(bytes(value)),
   };
-  const implementations = [['wasm', wasm], ['javascript', js], ['dart_javascript', dartJs]];
+  const implementations = [['wasm', { ...wasm, ...collections }], ['javascript', js], ['dart_javascript', dartJs]];
   for (const [, api] of implementations) {
     assert.equal(api.add(1.5, 2.5), 4);
     assert.equal(api.identityInt(Number.MAX_SAFE_INTEGER), Number.MAX_SAFE_INTEGER);
@@ -97,6 +132,38 @@ async function measure() {
     { name: 'numeric/int-safe53', count: iterations, warmup, input: 'MAX_SAFE_INTEGER - (i & 1023)', call: (api, i) => api.identityInt(Number.MAX_SAFE_INTEGER - (i & 1023)) },
     { name: 'async/add', count: Math.max(50, Math.floor(iterations / 10)), warmup: Math.max(10, Math.floor(warmup / 10)), async: true, input: '[i & 1023, 0.25]', call: (api, i) => api.addAsync(i & 1023, 0.25) },
   ];
+  for (const size of [0, 1, 16, 256, 4096]) {
+    const list = Array.from({ length: size }, (_, i) => i & 255);
+    const map = Object.create(null);
+    for (let i = 0; i < size; i++) map[`key${i}`] = `Aé😀\ud800:${i}`;
+    for (const [, api] of implementations.slice(0, 2)) {
+      const listOutput = api.echoList(list);
+      assert.deepEqual(listOutput, list);
+      assert.notEqual(listOutput, list);
+      assert.equal(api.sumList(list), list.reduce((sum, item) => sum + item, 0));
+      const mapOutput = api.echoMap(map);
+      assert.deepEqual(mapOutput, map);
+      assert.equal(Object.getPrototypeOf(mapOutput), null);
+      assert.notEqual(mapOutput, map);
+      const ownedList = [...list];
+      const listPromise = api.echoListAsync(ownedList);
+      ownedList.push(-1);
+      assert.deepEqual(await listPromise, list);
+      const ownedMap = Object.assign(Object.create(null), map);
+      const mapPromise = api.echoMapAsync(ownedMap);
+      ownedMap.extra = 'after-call';
+      assert.deepEqual(await mapPromise, map);
+    }
+    for (const [kind, method, input, asynchronous, copies] of [
+      ['list/echo/int', 'echoList', list, false, 2],
+      ['list/sum/int', 'sumList', list, false, 1],
+      ['map/echo/string', 'echoMap', map, false, 2],
+      ['async/list-echo/int', 'echoListAsync', list, true, 2],
+      ['async/map-echo/string', 'echoMapAsync', map, true, 2],
+    ]) {
+      cases.push({ name: `${kind}/${size}`, count: sized(asynchronous ? iterations / 10 : iterations, size), warmup: sized(asynchronous ? warmup / 10 : warmup, size), async: asynchronous, implementations: ['wasm', 'javascript'], input: { elements: size, ownership_copies: copies, leaf: kind.includes('string') ? 'UTF-16 String' : 'safe int', validation: 'own data descriptors' }, call: api => api[method](input) });
+    }
+  }
   for (const size of [16, 1024, 65536]) {
     const value = 'Aé😀\ud800'.repeat(Math.ceil(size / 5)).slice(0, size);
     for (const [operation, method, asynchronous] of [['echo', 'echoString', false], ['length', 'stringLength', false], ['async-echo', 'echoStringAsync', true]]) {
@@ -137,7 +204,8 @@ async function measure() {
   const consume = value => {
     if (typeof value === 'number') sink = (sink + value) | 0;
     else if (typeof value === 'string') sink = (sink + value.length) | 0;
-    else sink = (sink + value.length + (value[0] || 0)) | 0;
+    else if (typeof value.length === 'number') sink = (sink + value.length + (value[0] || 0)) | 0;
+    else sink = (sink + (value.key0?.length || 0)) | 0;
   };
   const rows = [];
   for (const benchmark of cases) {
@@ -164,7 +232,7 @@ async function measure() {
   }
   console.log(JSON.stringify({
     environment: { node: process.version, v8: process.versions.v8, os: `${platform()} ${release()}`, arch: arch(), cpu: cpus()[0]?.model },
-    ownership_preflight: 'sync output independence and async input snapshot checked for all three implementations',
+    ownership_preflight: 'scalar/bytes: all three implementations; collections: Wasm and JavaScript sync independence and async input snapshots',
     dart_js_errors: 'omitted: hand-written dart:js_interop entry is not napi error mapping',
     notes: 'loop, dispatch, result consumption, validation and ownership copies are included; no concurrent Promise batching',
     sink, cases: rows,

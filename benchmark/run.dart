@@ -55,6 +55,11 @@ Run from the napi repository root. No timing assertions are made.''');
   final npmVersion = await _run('npm', ['--version']);
   final report = <String, Object?>{
     'schema': 1,
+    'napi_version': File('pubspec.yaml')
+        .readAsLinesSync()
+        .firstWhere((line) => line.startsWith('version:'))
+        .substring('version:'.length)
+        .trim(),
     'recorded_at': DateTime.now().toUtc().toIso8601String(),
     'environment': {
       'dart': '${dartVersion.stdout}${dartVersion.stderr}'.trim(),
@@ -78,7 +83,7 @@ Run from the napi repository root. No timing assertions are made.''');
   final work = await Directory.systemTemp.createTemp('napi-benchmark-');
   try {
     final builds = <Map<String, Object?>>[];
-    for (final fixture in ['minimal', 'minimal_async', 'api']) {
+    for (final fixture in ['minimal', 'minimal_async', 'api', 'collections']) {
       final directory = Directory('${work.path}/$fixture');
       final times = <double>[];
       for (var run = 0; run < buildRuns; run++) {
@@ -105,6 +110,15 @@ Run from the napi repository root. No timing assertions are made.''');
       ]) {
         sizes[name] = await File('${directory.path}/$name').length();
       }
+      final host = await File('${directory.path}/module.imports.mjs')
+          .readAsString();
+      final collectionHelpers = RegExp(
+        r'^napi\.(\w+)\s*=',
+        multiLine: true,
+      ).allMatches(host).map((match) => match.group(1)!).toList();
+      if (fixture != 'collections' && collectionHelpers.isNotEmpty) {
+        throw StateError('Unexpected collection helpers in $fixture');
+      }
       final packed = await _run(
         'npm',
         ['pack', '--ignore-scripts', '--json', '--pack-destination', work.path],
@@ -129,6 +143,7 @@ Run from the napi repository root. No timing assertions are made.''');
         'fixture': fixture,
         'build_ms': _summary(times),
         'files_bytes': sizes,
+        'collection_host_helpers': collectionHelpers,
         'npm_tgz_bytes': pack['size'],
         'npm_unpacked_bytes': pack['unpackedSize'],
         'cold_import_ms': _summary(coldImport),
@@ -165,6 +180,8 @@ Run from the napi repository root. No timing assertions are made.''');
       File('${work.path}/api/module.wasm').uri.toString(),
       '--dart-js',
       jsFile.uri.toString(),
+      '--collections',
+      File('${work.path}/collections/module.wasm').uri.toString(),
       '--iterations',
       '$iterations',
       '--warmup',

@@ -9,17 +9,25 @@
 
 Acceptance is defined in the issues and [requirements](requirements.md). This release establishes the complete Dart-to-Wasm-import workflow for synchronous functions on Node.
 
-## 0.2.0 — async functions and measured costs
+## 0.2.0 — released: async functions and measured costs
 
 - [#26: Future<T> → Promise<T>](https://github.com/medz/napi/issues/26).
 - [#35: Establish reproducible performance and package-size baselines](https://github.com/medz/napi/issues/35); optimize measured bottlenecks.
 
 Acceptance includes native Wasm functions returning real Promises, strict declarations, consistent errors, call-time byte snapshots, and the [0.2.0 requirements](requirements.md#020-contract).
 
-## Next — useful types and reliable platforms
+## 0.3.0 — typed collections
+
+- [#34: Add typed List and Map exports](https://github.com/medz/napi/issues/34).
+
+Acceptance covers flat scalar collections, nullable containers and values,
+Future completion types, strict own-data property validation, independent
+ownership, precise declarations, real Node consumers, and measured conversion
+and package-size costs. See the [0.3.0 requirements](requirements.md#030-contract).
+
+## Next — reliable platforms and real applications
 
 - [#28: Broader tested compiler/runtime support](https://github.com/medz/napi/issues/28), including native browser imports and real bundler consumers.
-- [#34: Define typed List and Map export contracts](https://github.com/medz/napi/issues/34) with precise declarations and explicit ownership rules.
 - Improve diagnostics and add complete application examples based on real usage.
 
 Each addition starts with concrete Dart and JavaScript code, explicit value/error/ownership rules, and an acceptance case. Release complete, tested workflows in small increments. Dates and platform support are announced only when verified.

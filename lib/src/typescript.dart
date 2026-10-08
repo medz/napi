@@ -35,6 +35,11 @@ String _type(ValueType type) {
     ValueKind.intType || ValueKind.doubleType => 'number',
     ValueKind.stringType => 'string',
     ValueKind.uint8ListType => 'Uint8Array',
+    ValueKind.listType =>
+      type.elementType!.nullable
+          ? 'Array<${_type(type.elementType!)}>'
+          : '${_type(type.elementType!)}[]',
+    ValueKind.mapType => 'Record<string, ${_type(type.elementType!)}>',
   };
   return type.nullable ? '$name | null' : name;
 }
