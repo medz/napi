@@ -1,0 +1,5 @@
+.github/
+.dart_tool/
+work/
+dist/
+pubspec.lock
