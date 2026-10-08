@@ -19,13 +19,36 @@ String generateHost(
   if (!(start < table && table < base && base < end)) {
     throw const FormatException('Unsupported Dart compiler host layout.');
   }
-  final helpers = compilerSource.substring(start, end);
+  final helperTable = compilerSource.substring(table, base);
+  final stackHelper = helperTable.indexOf(_sdkExceptionStackHelper);
+  if (stackHelper < 0 ||
+      helperTable.indexOf(_sdkExceptionStackHelper, stackHelper + 1) >= 0) {
+    throw const FormatException(
+      'Unsupported Dart compiler exception stack helper; expected one Dart 3.13.5 helper body.',
+    );
+  }
+  final stackStart = table + stackHelper;
+  final helpers =
+      compilerSource.substring(start, stackStart) +
+      _safeExceptionStackHelper +
+      compilerSource.substring(
+        stackStart + _sdkExceptionStackHelper.length,
+        end,
+      );
   final output = StringBuffer()
     ..writeln(_licenses)
     ..writeln('import * as dartExports from ${jsonEncode('./$wasmFile')};')
     ..writeln('const dartInstance = { exports: dartExports };')
     ..writeln(helpers)
     ..writeln(_napi);
+  final bridgeImports = {
+    for (final import in imports)
+      if (import.module == 'napi') import.name,
+  };
+  for (final name in bridgeImports) {
+    final helper = _collectionHelpers[name];
+    if (helper != null) output.writeln(helper);
+  }
   for (final import in imports) {
     if (!RegExp(r'^_i[0-9]+$').hasMatch(import.alias)) {
       throw FormatException('Invalid Wasm import alias "${import.alias}".');
@@ -80,6 +103,26 @@ int _marker(String source, String marker) {
   return index;
 }
 
+// Match the generated function body, not its compiler-minified field name.
+const _sdkExceptionStackHelper = '''(exn) => {
+        if (exn instanceof Error) {
+          return exn.stack;
+        } else {
+          return null;
+        }
+      }''';
+
+// Extracting diagnostic metadata must never replace the exception itself.
+const _safeExceptionStackHelper = '''(exn) => {
+        try {
+          if (exn instanceof Error) {
+            const stack = exn.stack;
+            return typeof stack === 'string' ? stack : null;
+          }
+        } catch (_) {}
+        return null;
+      }''';
+
 const _modules = {
   'dart2wasm',
   'Math',
@@ -90,7 +133,13 @@ const _modules = {
   'WebAssembly',
 };
 
-const _napiFunctions = {'kind', 'copyBytes', 'error', 'rethrowError'};
+final _napiFunctions = {
+  'kind',
+  'copyBytes',
+  'error',
+  'rethrowError',
+  ..._collectionHelpers.keys,
+};
 
 const _napi = r'''
 const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype);
@@ -114,6 +163,85 @@ const napi = {
   rethrowError(error) { throw error; },
 };
 ''';
+
+// Only helpers referenced by the compiled Wasm imports are emitted.
+const _collectionHelpers = {
+  'arrayLength': 'napi.arrayLength = value => value.length;',
+  'arrayGet': 'napi.arrayGet = (value, index) => value[index];',
+  'arraySet': r'''
+napi.arraySet = (value, index, element) => {
+  Object.defineProperty(value, index, {
+    value: element, writable: true, enumerable: true, configurable: true,
+  });
+};
+''',
+  'newList': 'napi.newList = length => new Array(length);',
+  'snapshotList': r'''
+napi.snapshotList = (value, context) => {
+  if (!Array.isArray(value)) throw new TypeError(context + ': Expected an Array');
+  const length = Object.getOwnPropertyDescriptor(value, 'length').value;
+  if (typeof length !== 'number') {
+    throw new TypeError(context + ': Expected a numeric Array length');
+  }
+  if (!Number.isInteger(length) || length < 0 || length > 0xffffffff) {
+    throw new RangeError(context + ': Expected a valid Array length');
+  }
+  const snapshot = new Array(length);
+  for (let index = 0; index < length; index++) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, index);
+    if (!descriptor || !Object.hasOwn(descriptor, 'value')) {
+      throw new TypeError(context + '[' + index + ']: Expected an own data index');
+    }
+    Object.defineProperty(snapshot, index, {
+      value: descriptor.value, writable: true, enumerable: true, configurable: true,
+    });
+  }
+  return snapshot;
+};
+''',
+  'newMap': 'napi.newMap = () => Object.create(null);',
+  'mapSet': r'''
+napi.mapSet = (value, key, element) => {
+  Object.defineProperty(value, key, {
+    value: element, writable: true, enumerable: true, configurable: true,
+  });
+};
+''',
+  'snapshotMap': r'''
+napi.snapshotMap = (value, context) => {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError(context + ': Expected an ordinary object');
+  }
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== null && prototype !== Object.prototype) {
+    const constructor = Object.getOwnPropertyDescriptor(prototype, 'constructor');
+    const ctor = constructor && constructor.value;
+    if (Object.getPrototypeOf(prototype) !== null || typeof ctor !== 'function' ||
+        Object.getOwnPropertyDescriptor(ctor, 'prototype')?.value !== prototype ||
+        Function.prototype.toString.call(ctor) !== Function.prototype.toString.call(Object)) {
+      throw new TypeError(context + ': Expected an ordinary or null-prototype object');
+    }
+  }
+  const snapshot = [];
+  let index = 0;
+  for (const key of Reflect.ownKeys(value)) {
+    if (typeof key !== 'string') continue;
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !descriptor.enumerable) continue;
+    if (!Object.hasOwn(descriptor, 'value')) {
+      throw new TypeError(context + '[' + JSON.stringify(key) + ']: Expected an own data property');
+    }
+    Object.defineProperty(snapshot, index++, {
+      value: key, writable: true, enumerable: true, configurable: true,
+    });
+    Object.defineProperty(snapshot, index++, {
+      value: descriptor.value, writable: true, enumerable: true, configurable: true,
+    });
+  }
+  return snapshot;
+};
+''',
+};
 
 const _licenses = r'''
 /*

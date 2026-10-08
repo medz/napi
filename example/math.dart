@@ -22,3 +22,11 @@ int checksum(Uint8List bytes) {
   }
   return sum;
 }
+
+@napi
+List<int> doubleAll(List<int> values) => [
+  for (final value in values) value * 2,
+];
+
+@napi
+Map<String, String> labels(Map<String, String> values) => {...values};

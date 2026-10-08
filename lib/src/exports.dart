@@ -17,13 +17,16 @@ enum ValueKind {
   doubleType,
   stringType,
   uint8ListType,
+  listType,
+  mapType,
 }
 
 final class ValueType {
-  const ValueType(this.kind, {this.nullable = false});
+  const ValueType(this.kind, {this.nullable = false, this.elementType});
 
   final ValueKind kind;
   final bool nullable;
+  final ValueType? elementType;
 }
 
 final class Parameter {
@@ -344,6 +347,52 @@ class _ExportVisitor extends RecursiveAstVisitor<void> {
       kind = ValueKind.doubleType;
     } else if (type.isDartCoreString) {
       kind = ValueKind.stringType;
+    } else if (type is InterfaceType &&
+        type.element.library.uri.toString() == 'dart:core' &&
+        (type.element.name == 'List' || type.element.name == 'Map')) {
+      final isMap = type.element.name == 'Map';
+      if (isMap) {
+        final key = type.typeArguments.first;
+        if (key.alias != null) {
+          _fail(
+            unit,
+            offset,
+            'Type aliases are not supported in @napi signatures.',
+          );
+        }
+        if (!key.isDartCoreString ||
+            key.nullabilitySuffix == NullabilitySuffix.question) {
+          _fail(
+            unit,
+            offset,
+            'Map keys must be non-nullable String. Use Map<String, int> or Map<String, String>.',
+          );
+        }
+      }
+      final leaf = type.typeArguments.last;
+      if (leaf.alias != null) {
+        _fail(
+          unit,
+          offset,
+          'Type aliases are not supported in @napi signatures.',
+        );
+      }
+      if (!leaf.isDartCoreBool &&
+          !leaf.isDartCoreInt &&
+          !leaf.isDartCoreDouble &&
+          !leaf.isDartCoreString) {
+        _fail(
+          unit,
+          offset,
+          'Unsupported @napi collection leaf type "${leaf.getDisplayString()}". '
+          'Use bool, int, double, or String (optionally nullable), as in List<int> or Map<String, String>.',
+        );
+      }
+      return ValueType(
+        isMap ? ValueKind.mapType : ValueKind.listType,
+        nullable: type.nullabilitySuffix == NullabilitySuffix.question,
+        elementType: _valueType(leaf, offset),
+      );
     } else if (type is InterfaceType &&
         type.element.name == 'Uint8List' &&
         type.element.library.uri.toString() == 'dart:typed_data') {

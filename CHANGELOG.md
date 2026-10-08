@@ -1,3 +1,12 @@
+## 0.3.0
+
+- Export flat Dart Lists and String-keyed Maps with scalar values, nullable containers/elements, and Future completion types.
+- Generate exact Array, Record, and Promise declarations from resolved signatures.
+- Validate dense own-data Arrays and ordinary object fields without invoking getters; preserve cross-realm values and special Map keys.
+- Copy complete input containers before business code runs and independent results on completion; report conversion paths in errors.
+- Measure collection conversion costs and emit collection helpers only where needed.
+- Preserve original JavaScript errors when hostile stack accessors or prototype traps throw during diagnostic extraction.
+
 ## 0.2.0
 
 - Export ordinary Dart `Future<T>` functions as native Wasm functions returning JavaScript `Promise<T>`.
