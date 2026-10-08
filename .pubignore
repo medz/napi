@@ -4,3 +4,4 @@ work/
 dist/
 pubspec.lock
 AGENTS.md
+/benchmark/results.json
