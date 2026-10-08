@@ -210,7 +210,13 @@ try {
     assert.ok(error.dartStack.length > 0);
     return true;
   });
-  assert.throws(() => api.syncBadErrorFormatter(), Error);
+  assert.throws(() => api.syncBadErrorFormatter(), (error) => {
+    assert.ok(error instanceof Error);
+    assert.match(error.message, /toString failed/);
+    assert.equal(typeof error.dartStack, 'string');
+    assert.ok(error.dartStack.length > 0);
+    return true;
+  });
   for (let i = 0; i < 16; i++) {
     await rejection('asyncFailure', [2], Error);
     assert.equal(await invoke('asyncInt', i), i);

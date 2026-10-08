@@ -60,8 +60,8 @@ String generateBridge(List<Export> exports, String sourceImport) {
       output.writeln('  }${returnsVoid ? ', returnsVoid: true' : ''});');
     } else {
       output
-        ..writeln('  } catch (error) {')
-        ..writeln('    _rethrowError(externRefForJSAny(_error(error)));')
+        ..writeln('  } catch (error, stack) {')
+        ..writeln('    _rethrowError(externRefForJSAny(_error(error, stack)));')
         ..writeln(
           '    return ${returnsVoid ? 'WasmVoid()' : 'WasmExternRef.nullRef'};',
         )
