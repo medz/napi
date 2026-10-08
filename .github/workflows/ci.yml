@@ -17,7 +17,7 @@ jobs:
         with:
           node-version: 22.19.0
       - run: dart pub get
-      - run: dart format --output=none --set-exit-if-changed bin lib test example
+      - run: dart format --output=none --set-exit-if-changed bin lib test example benchmark
       - run: dart analyze --fatal-infos
       - run: npm install --prefix .dart_tool/js --no-save --no-package-lock typescript@7.0.2
       - run: dart test

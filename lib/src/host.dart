@@ -90,14 +90,7 @@ const _modules = {
   'WebAssembly',
 };
 
-const _napiFunctions = {
-  'kind',
-  'copyBytes',
-  'throwTypeError',
-  'throwRangeError',
-  'throwError',
-  'rethrowError',
-};
+const _napiFunctions = {'kind', 'copyBytes', 'error', 'rethrowError'};
 
 const _napi = r'''
 const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype);
@@ -112,9 +105,12 @@ const napi = {
     return 0;
   },
   copyBytes(value) { return new Uint8Array(value); },
-  throwTypeError(message) { throw new TypeError(message); },
-  throwRangeError(message) { throw new RangeError(message); },
-  throwError(message) { throw new Error(message); },
+  error(kind, message, stack) {
+    const error = kind === 1 ? new TypeError(message)
+      : kind === 2 ? new RangeError(message) : new Error(message);
+    if (stack !== null) error.dartStack = stack;
+    return error;
+  },
   rethrowError(error) { throw error; },
 };
 ''';

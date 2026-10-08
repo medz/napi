@@ -1,0 +1,1504 @@
+{
+  "schema": 1,
+  "recorded_at": "2026-10-08T18:39:41.503114Z",
+  "environment": {
+    "dart": "Dart SDK version: 3.13.5 (stable) (Tue Sep 29 01:00:52 2026 -0700) on \"macos_arm64\"",
+    "node": "v26.0.0",
+    "os": "Version 27.0.1 (Build 26A434)",
+    "dart_executable": "/Users/seven/workspace/flutter/bin/cache/dart-sdk/bin/dart",
+    "node_executable": "node",
+    "npm": "11.12.1",
+    "npm_version_recorded": "verified immediately after the baseline run"
+  },
+  "configuration": {
+    "iterations": 20000,
+    "warmup": 2000,
+    "runs": 3,
+    "build_runs": 1,
+    "dart_js_optimization": "-O2",
+    "cold_import": "fresh Node process, filesystem caches uncontrolled",
+    "build_cache": "no result reuse; existing SDK/pub/filesystem caches uncontrolled"
+  },
+  "wasm_builds": [
+    {
+      "fixture": "minimal",
+      "build_ms": {
+        "samples": [
+          2364.529
+        ],
+        "median": 2364.529,
+        "min": 2364.529,
+        "max": 2364.529,
+        "spread_percent": 0.0
+      },
+      "files_bytes": {
+        "module.wasm": 17161,
+        "module.imports.mjs": 16552,
+        "index.d.ts": 42,
+        "module.d.wasm.ts": 42,
+        "package.json": 528
+      },
+      "npm_tgz_bytes": 9553,
+      "npm_unpacked_bytes": 34325,
+      "cold_import_ms": {
+        "samples": [
+          2.5904589999999956,
+          2.2829580000000007,
+          2.2551660000000027
+        ],
+        "median": 2.2829580000000007,
+        "min": 2.2551660000000027,
+        "max": 2.5904589999999956,
+        "spread_percent": 14.686779169831107
+      },
+      "first_call_ms": {
+        "samples": [
+          0.0804160000000067,
+          0.08879199999999798,
+          0.07950000000000301
+        ],
+        "median": 0.0804160000000067,
+        "min": 0.07950000000000301,
+        "max": 0.08879199999999798,
+        "spread_percent": 11.554914444879373
+      }
+    },
+    {
+      "fixture": "minimal_async",
+      "build_ms": {
+        "samples": [
+          2309.648
+        ],
+        "median": 2309.648,
+        "min": 2309.648,
+        "max": 2309.648,
+        "spread_percent": 0.0
+      },
+      "files_bytes": {
+        "module.wasm": 29671,
+        "module.imports.mjs": 18956,
+        "index.d.ts": 51,
+        "module.d.wasm.ts": 51,
+        "package.json": 534
+      },
+      "npm_tgz_bytes": 15559,
+      "npm_unpacked_bytes": 49263,
+      "cold_import_ms": {
+        "samples": [
+          2.632334,
+          2.7755420000000015,
+          2.489874999999998
+        ],
+        "median": 2.632334,
+        "min": 2.489874999999998,
+        "max": 2.7755420000000015,
+        "spread_percent": 10.852232277515075
+      },
+      "first_call_ms": {
+        "samples": [
+          0.6042910000000035,
+          0.6112499999999983,
+          0.598666999999999
+        ],
+        "median": 0.6042910000000035,
+        "min": 0.598666999999999,
+        "max": 0.6112499999999983,
+        "spread_percent": 2.0822749304555708
+      }
+    },
+    {
+      "fixture": "api",
+      "build_ms": {
+        "samples": [
+          2420.174
+        ],
+        "median": 2420.174,
+        "min": 2420.174,
+        "max": 2420.174,
+        "spread_percent": 0.0
+      },
+      "files_bytes": {
+        "module.wasm": 38316,
+        "module.imports.mjs": 23049,
+        "index.d.ts": 686,
+        "module.d.wasm.ts": 686,
+        "package.json": 524
+      },
+      "npm_tgz_bytes": 19392,
+      "npm_unpacked_bytes": 63261,
+      "cold_import_ms": {
+        "samples": [
+          2.9778340000000014,
+          3.2338750000000047,
+          2.953541999999999
+        ],
+        "median": 2.9778340000000014,
+        "min": 2.953541999999999,
+        "max": 3.2338750000000047,
+        "spread_percent": 9.413990168693278
+      },
+      "first_call_ms": {
+        "samples": [
+          0.15808299999999775,
+          0.17508399999999824,
+          0.18233300000000696
+        ],
+        "median": 0.17508399999999824,
+        "min": 0.15808299999999775,
+        "max": 0.18233300000000696,
+        "spread_percent": 13.850494619730787
+      }
+    }
+  ],
+  "dart_js_build": {
+    "build_ms": {
+      "samples": [
+        352.468
+      ],
+      "median": 352.468,
+      "min": 352.468,
+      "max": 352.468,
+      "spread_percent": 0.0
+    },
+    "file_bytes": 68051,
+    "gzip_bytes": 21435
+  },
+  "runtime": {
+    "environment": {
+      "node": "v26.0.0",
+      "v8": "14.6.202.33-node.19",
+      "os": "darwin 27.0.0",
+      "arch": "arm64",
+      "cpu": "Apple M3 Max"
+    },
+    "ownership_preflight": "sync output independence and async input snapshot checked for all three implementations",
+    "dart_js_errors": "omitted: hand-written dart:js_interop entry is not napi error mapping",
+    "notes": "loop, dispatch, result consumption, validation and ownership copies are included; no concurrent Promise batching",
+    "sink": -1595330559,
+    "cases": [
+      {
+        "case": "numeric/add",
+        "input": "[i & 1023, 0.25]",
+        "iterations": 20000,
+        "warmup": 2000,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              129.56874999999997,
+              95.96875000000011,
+              86.71875
+            ],
+            "median": 95.96875000000011,
+            "min": 86.71875,
+            "max": 129.56874999999997,
+            "spread_percent": 44.64995115597516
+          },
+          "javascript": {
+            "samples": [
+              19.304149999999964,
+              20.283350000000056,
+              19.968749999999957
+            ],
+            "median": 19.968749999999957,
+            "min": 19.304149999999964,
+            "max": 20.283350000000056,
+            "spread_percent": 4.903661971831452
+          },
+          "dart_javascript": {
+            "samples": [
+              46.24795000000006,
+              37.554150000000064,
+              35.07709999999982
+            ],
+            "median": 37.554150000000064,
+            "min": 35.07709999999982,
+            "max": 46.24795000000006,
+            "spread_percent": 29.74598013801464
+          }
+        }
+      },
+      {
+        "case": "numeric/int-safe53",
+        "input": "MAX_SAFE_INTEGER - (i & 1023)",
+        "iterations": 20000,
+        "warmup": 2000,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              69.89580000000046,
+              44.05000000000001,
+              40.65834999999964
+            ],
+            "median": 44.05000000000001,
+            "min": 40.65834999999964,
+            "max": 69.89580000000046,
+            "spread_percent": 66.37332576617663
+          },
+          "javascript": {
+            "samples": [
+              23.170850000000343,
+              18.122899999999476,
+              8.97290000000055
+            ],
+            "median": 18.122899999999476,
+            "min": 8.97290000000055,
+            "max": 23.170850000000343,
+            "spread_percent": 78.34259417642983
+          },
+          "dart_javascript": {
+            "samples": [
+              49.266649999999856,
+              35.71460000000002,
+              24.906250000000085
+            ],
+            "median": 35.71460000000002,
+            "min": 24.906250000000085,
+            "max": 49.266649999999856,
+            "spread_percent": 68.2085197650254
+          }
+        }
+      },
+      {
+        "case": "async/add",
+        "input": "[i & 1023, 0.25]",
+        "iterations": 2000,
+        "warmup": 200,
+        "completion": "sequential await per fulfilled/rejected call",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              1274.0830000000044,
+              735.8334999999983,
+              736.9790000000052
+            ],
+            "median": 736.9790000000052,
+            "min": 735.8334999999983,
+            "max": 1274.0830000000044,
+            "spread_percent": 73.03457764739598
+          },
+          "javascript": {
+            "samples": [
+              168.3335000000028,
+              144.43750000000222,
+              157.68749999999443
+            ],
+            "median": 157.68749999999443,
+            "min": 144.43750000000222,
+            "max": 168.3335000000028,
+            "spread_percent": 15.154022988506654
+          },
+          "dart_javascript": {
+            "samples": [
+              15259,
+              14028.146,
+              13842.874999999993
+            ],
+            "median": 14028.146,
+            "min": 13842.874999999993,
+            "max": 15259,
+            "spread_percent": 10.094883529156363
+          }
+        }
+      },
+      {
+        "case": "string/echo/16",
+        "input": {
+          "utf16_code_units": 16,
+          "pattern": "Aé + non-BMP U+1F600 + isolated U+D800"
+        },
+        "iterations": 20000,
+        "warmup": 2000,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              64.35624999999874,
+              57.47709999999984,
+              44.12915000000055
+            ],
+            "median": 57.47709999999984,
+            "min": 44.12915000000055,
+            "max": 64.35624999999874,
+            "spread_percent": 35.19158064689806
+          },
+          "javascript": {
+            "samples": [
+              19.293749999999932,
+              19.31459999999987,
+              8.829149999999686
+            ],
+            "median": 19.293749999999932,
+            "min": 8.829149999999686,
+            "max": 19.31459999999987,
+            "spread_percent": 54.346355685132345
+          },
+          "dart_javascript": {
+            "samples": [
+              40.133300000000816,
+              32.531249999999545,
+              21.21039999999965
+            ],
+            "median": 32.531249999999545,
+            "min": 21.21039999999965,
+            "max": 40.133300000000816,
+            "spread_percent": 58.16837656100343
+          }
+        }
+      },
+      {
+        "case": "string/length/16",
+        "input": {
+          "utf16_code_units": 16,
+          "pattern": "Aé + non-BMP U+1F600 + isolated U+D800"
+        },
+        "iterations": 20000,
+        "warmup": 2000,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              102.78750000000088,
+              85.30000000000086,
+              86.03959999999944
+            ],
+            "median": 86.03959999999944,
+            "min": 85.30000000000086,
+            "max": 102.78750000000088,
+            "spread_percent": 20.324943398156343
+          },
+          "javascript": {
+            "samples": [
+              28.168749999998965,
+              16.802099999999598,
+              16.627099999999473
+            ],
+            "median": 16.802099999999598,
+            "min": 16.627099999999473,
+            "max": 28.168749999998965,
+            "spread_percent": 68.69171115515185
+          },
+          "dart_javascript": {
+            "samples": [
+              44.660399999999356,
+              27.772950000000662,
+              28.21045000000026
+            ],
+            "median": 28.21045000000026,
+            "min": 27.772950000000662,
+            "max": 44.660399999999356,
+            "spread_percent": 59.86239141877757
+          }
+        }
+      },
+      {
+        "case": "string/async-echo/16",
+        "input": {
+          "utf16_code_units": 16,
+          "pattern": "Aé + non-BMP U+1F600 + isolated U+D800"
+        },
+        "iterations": 2000,
+        "warmup": 200,
+        "completion": "sequential await per fulfilled/rejected call",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              791.5624999999977,
+              742.3330000000021,
+              622.4165000000141
+            ],
+            "median": 742.3330000000021,
+            "min": 622.4165000000141,
+            "max": 791.5624999999977,
+            "spread_percent": 22.78573093207268
+          },
+          "javascript": {
+            "samples": [
+              187.14599999999848,
+              162.31249999999875,
+              152.70850000001698
+            ],
+            "median": 162.31249999999875,
+            "min": 152.70850000001698,
+            "max": 187.14599999999848,
+            "spread_percent": 21.21678860222211
+          },
+          "dart_javascript": {
+            "samples": [
+              14371.083499999999,
+              14105.228999999994,
+              14088.417000000007
+            ],
+            "median": 14105.228999999994,
+            "min": 14088.417000000007,
+            "max": 14371.083499999999,
+            "spread_percent": 2.0039837708412405
+          }
+        }
+      },
+      {
+        "case": "string/echo/1024",
+        "input": {
+          "utf16_code_units": 1024,
+          "pattern": "Aé + non-BMP U+1F600 + isolated U+D800"
+        },
+        "iterations": 1250,
+        "warmup": 125,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              79.93279999996048,
+              95.90000000002874,
+              82.8335999999581
+            ],
+            "median": 82.8335999999581,
+            "min": 79.93279999996048,
+            "max": 95.90000000002874,
+            "spread_percent": 19.27623573052039
+          },
+          "javascript": {
+            "samples": [
+              26.733599999988655,
+              27.433599999994843,
+              27.39999999998872
+            ],
+            "median": 27.39999999998872,
+            "min": 26.733599999988655,
+            "max": 27.433599999994843,
+            "spread_percent": 2.5547445255710817
+          },
+          "dart_javascript": {
+            "samples": [
+              40.399999999999636,
+              41.167200000018056,
+              51.03279999998449
+            ],
+            "median": 41.167200000018056,
+            "min": 40.399999999999636,
+            "max": 51.03279999998449,
+            "spread_percent": 25.828329349531156
+          }
+        }
+      },
+      {
+        "case": "string/length/1024",
+        "input": {
+          "utf16_code_units": 1024,
+          "pattern": "Aé + non-BMP U+1F600 + isolated U+D800"
+        },
+        "iterations": 1250,
+        "warmup": 125,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              86.03360000001885,
+              84.0664000000288,
+              84.00000000001455
+            ],
+            "median": 84.0664000000288,
+            "min": 84.00000000001455,
+            "max": 86.03360000001885,
+            "spread_percent": 2.419040187284815
+          },
+          "javascript": {
+            "samples": [
+              28.999999999996362,
+              28.432799999973213,
+              27.167199999985314
+            ],
+            "median": 28.432799999973213,
+            "min": 27.167199999985314,
+            "max": 28.999999999996362,
+            "spread_percent": 6.446076362555832
+          },
+          "dart_javascript": {
+            "samples": [
+              41.49999999999636,
+              40.36639999999352,
+              40.433600000005754
+            ],
+            "median": 40.433600000005754,
+            "min": 40.36639999999352,
+            "max": 41.49999999999636,
+            "spread_percent": 2.8036088797502132
+          }
+        }
+      },
+      {
+        "case": "string/async-echo/1024",
+        "input": {
+          "utf16_code_units": 1024,
+          "pattern": "Aé + non-BMP U+1F600 + isolated U+D800"
+        },
+        "iterations": 125,
+        "warmup": 50,
+        "completion": "sequential await per fulfilled/rejected call",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              629.0000000003602,
+              610.3280000002087,
+              588.6640000003354
+            ],
+            "median": 610.3280000002087,
+            "min": 588.6640000003354,
+            "max": 629.0000000003602,
+            "spread_percent": 6.608905375472042
+          },
+          "javascript": {
+            "samples": [
+              179.9999999998363,
+              165.67200000008597,
+              178.66400000002614
+            ],
+            "median": 178.66400000002614,
+            "min": 165.67200000008597,
+            "max": 179.9999999998363,
+            "spread_percent": 8.019522679302055
+          },
+          "dart_javascript": {
+            "samples": [
+              14134.000000000015,
+              14811.327999999776,
+              14756.32799999994
+            ],
+            "median": 14756.32799999994,
+            "min": 14134.000000000015,
+            "max": 14811.327999999776,
+            "spread_percent": 4.5900850130179
+          }
+        }
+      },
+      {
+        "case": "string/echo/65536",
+        "input": {
+          "utf16_code_units": 65536,
+          "pattern": "Aé + non-BMP U+1F600 + isolated U+D800"
+        },
+        "iterations": 50,
+        "warmup": 50,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              95.84000000018023,
+              92.50000000065484,
+              84.18000000006032
+            ],
+            "median": 92.50000000065484,
+            "min": 84.18000000006032,
+            "max": 95.84000000018023,
+            "spread_percent": 12.605405405445797
+          },
+          "javascript": {
+            "samples": [
+              35.84000000046217,
+              37.500000000818545,
+              29.999999999290594
+            ],
+            "median": 35.84000000046217,
+            "min": 29.999999999290594,
+            "max": 37.500000000818545,
+            "spread_percent": 20.92633928970769
+          },
+          "dart_javascript": {
+            "samples": [
+              51.68000000026041,
+              50.840000000107466,
+              49.999999999954525
+            ],
+            "median": 50.840000000107466,
+            "min": 49.999999999954525,
+            "max": 51.68000000026041,
+            "spread_percent": 3.304484658344473
+          }
+        }
+      },
+      {
+        "case": "string/length/65536",
+        "input": {
+          "utf16_code_units": 65536,
+          "pattern": "Aé + non-BMP U+1F600 + isolated U+D800"
+        },
+        "iterations": 50,
+        "warmup": 50,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              84.16000000011081,
+              84.18000000006032,
+              84.99999999912689
+            ],
+            "median": 84.18000000006032,
+            "min": 84.16000000011081,
+            "max": 84.99999999912689,
+            "spread_percent": 0.9978617237057144
+          },
+          "javascript": {
+            "samples": [
+              28.32000000012158,
+              29.160000000274522,
+              28.32000000012158
+            ],
+            "median": 28.32000000012158,
+            "min": 28.32000000012158,
+            "max": 29.160000000274522,
+            "spread_percent": 2.966101695442565
+          },
+          "dart_javascript": {
+            "samples": [
+              40.839999999207066,
+              40.840000000343935,
+              47.49999999944521
+            ],
+            "median": 40.840000000343935,
+            "min": 40.839999999207066,
+            "max": 47.49999999944521,
+            "spread_percent": 16.30754162630278
+          }
+        }
+      },
+      {
+        "case": "string/async-echo/65536",
+        "input": {
+          "utf16_code_units": 65536,
+          "pattern": "Aé + non-BMP U+1F600 + isolated U+D800"
+        },
+        "iterations": 50,
+        "warmup": 50,
+        "completion": "sequential await per fulfilled/rejected call",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              601.6599999998107,
+              618.3399999997619,
+              843.320000000176
+            ],
+            "median": 618.3399999997619,
+            "min": 601.6599999998107,
+            "max": 843.320000000176,
+            "spread_percent": 39.08205841453867
+          },
+          "javascript": {
+            "samples": [
+              167.5000000000182,
+              170.81999999959407,
+              221.67999999965105
+            ],
+            "median": 170.81999999959407,
+            "min": 167.5000000000182,
+            "max": 221.67999999965105,
+            "spread_percent": 31.71759747088257
+          },
+          "dart_javascript": {
+            "samples": [
+              15004.179999999678,
+              14501.659999999674,
+              14753.339999999753
+            ],
+            "median": 14753.339999999753,
+            "min": 14501.659999999674,
+            "max": 15004.179999999678,
+            "spread_percent": 3.406143964688759
+          }
+        }
+      },
+      {
+        "case": "bytes/echo/Uint8Array/32",
+        "input": {
+          "bytes": 32,
+          "kind": "Uint8Array",
+          "pattern": "i & 255",
+          "ownership_copies": 2
+        },
+        "iterations": 20000,
+        "warmup": 2000,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              273.22289999999896,
+              217.05624999999884,
+              216.91874999999925
+            ],
+            "median": 217.05624999999884,
+            "min": 216.91874999999925,
+            "max": 273.22289999999896,
+            "spread_percent": 25.939888853695763
+          },
+          "javascript": {
+            "samples": [
+              73.88750000000073,
+              68.96455000000117,
+              56.75209999999993
+            ],
+            "median": 68.96455000000117,
+            "min": 56.75209999999993,
+            "max": 73.88750000000073,
+            "spread_percent": 24.846678474666348
+          },
+          "dart_javascript": {
+            "samples": [
+              117.43955000000028,
+              98.93539999999916,
+              98.09999999999945
+            ],
+            "median": 98.93539999999916,
+            "min": 98.09999999999945,
+            "max": 117.43955000000028,
+            "spread_percent": 19.54765432797663
+          }
+        }
+      },
+      {
+        "case": "bytes/echo/Buffer/32",
+        "input": {
+          "bytes": 32,
+          "kind": "Buffer",
+          "pattern": "i & 255",
+          "ownership_copies": 2
+        },
+        "iterations": 20000,
+        "warmup": 2000,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              237.9458499999998,
+              217.1416499999992,
+              241.69375000000173
+            ],
+            "median": 237.9458499999998,
+            "min": 217.1416499999992,
+            "max": 241.69375000000173,
+            "spread_percent": 10.318356046135095
+          },
+          "javascript": {
+            "samples": [
+              58.833300000000584,
+              64.35830000000067,
+              54.856250000000266
+            ],
+            "median": 58.833300000000584,
+            "min": 54.856250000000266,
+            "max": 64.35830000000067,
+            "spread_percent": 16.1508023517299
+          },
+          "dart_javascript": {
+            "samples": [
+              102.4083499999989,
+              96.66875000000061,
+              98.27914999999905
+            ],
+            "median": 98.27914999999905,
+            "min": 96.66875000000061,
+            "max": 102.4083499999989,
+            "spread_percent": 5.840099349656917
+          }
+        }
+      },
+      {
+        "case": "bytes/echo/subarray/32",
+        "input": {
+          "bytes": 32,
+          "kind": "subarray",
+          "pattern": "i & 255",
+          "ownership_copies": 2
+        },
+        "iterations": 20000,
+        "warmup": 2000,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              208.19165000000055,
+              215.26250000000005,
+              211.08335000000125
+            ],
+            "median": 211.08335000000125,
+            "min": 208.19165000000055,
+            "max": 215.26250000000005,
+            "spread_percent": 3.349790497450156
+          },
+          "javascript": {
+            "samples": [
+              53.381249999998204,
+              54.208299999999106,
+              56.116649999998465
+            ],
+            "median": 54.208299999999106,
+            "min": 53.381249999998204,
+            "max": 56.116649999998465,
+            "spread_percent": 5.04609072780424
+          },
+          "dart_javascript": {
+            "samples": [
+              93.04170000000056,
+              93.19789999999841,
+              96.96664999999882
+            ],
+            "median": 93.19789999999841,
+            "min": 93.04170000000056,
+            "max": 96.96664999999882,
+            "spread_percent": 4.211414634877319
+          }
+        }
+      },
+      {
+        "case": "bytes/sum/32",
+        "input": {
+          "bytes": 32,
+          "ownership_copies": 1,
+          "work": "sum each byte"
+        },
+        "iterations": 20000,
+        "warmup": 2000,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              223.70209999999986,
+              218.7812500000007,
+              224.5895999999988
+            ],
+            "median": 223.70209999999986,
+            "min": 218.7812500000007,
+            "max": 224.5895999999988,
+            "spread_percent": 2.5964664614226196
+          },
+          "javascript": {
+            "samples": [
+              184.9958000000015,
+              159.13335000000188,
+              158.50210000000118
+            ],
+            "median": 159.13335000000188,
+            "min": 158.50210000000118,
+            "max": 184.9958000000015,
+            "spread_percent": 16.648741448602706
+          },
+          "dart_javascript": {
+            "samples": [
+              112.7895499999994,
+              84.62920000000054,
+              84.83955000000094
+            ],
+            "median": 84.83955000000094,
+            "min": 84.62920000000054,
+            "max": 112.7895499999994,
+            "spread_percent": 33.19247921517564
+          }
+        }
+      },
+      {
+        "case": "async/bytes-echo/32",
+        "input": {
+          "bytes": 32,
+          "kind": "Uint8Array",
+          "ownership_copies": 2
+        },
+        "iterations": 2000,
+        "warmup": 200,
+        "completion": "sequential await per fulfilled/rejected call",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              744.6250000000134,
+              812.0414999999923,
+              790.291499999995
+            ],
+            "median": 790.291499999995,
+            "min": 744.6250000000134,
+            "max": 812.0414999999923,
+            "spread_percent": 8.53058649877663
+          },
+          "javascript": {
+            "samples": [
+              193.27100000000996,
+              167.5209999999936,
+              198.3124999999859
+            ],
+            "median": 193.27100000000996,
+            "min": 167.5209999999936,
+            "max": 198.3124999999859,
+            "spread_percent": 15.931774554894798
+          },
+          "dart_javascript": {
+            "samples": [
+              15283.25000000001,
+              15638.562500000005,
+              14425.062499999996
+            ],
+            "median": 15283.25000000001,
+            "min": 14425.062499999996,
+            "max": 15638.562500000005,
+            "spread_percent": 7.940065103953729
+          }
+        }
+      },
+      {
+        "case": "bytes/echo/Uint8Array/1024",
+        "input": {
+          "bytes": 1024,
+          "kind": "Uint8Array",
+          "pattern": "i & 255",
+          "ownership_copies": 2
+        },
+        "iterations": 1250,
+        "warmup": 125,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              503.43360000001667,
+              586.0335999999734,
+              352.3000000000138
+            ],
+            "median": 503.43360000001667,
+            "min": 352.3000000000138,
+            "max": 586.0335999999734,
+            "spread_percent": 46.427890391096625
+          },
+          "javascript": {
+            "samples": [
+              412.2663999999986,
+              395.8336000000145,
+              276.46639999998115
+            ],
+            "median": 395.8336000000145,
+            "min": 276.46639999998115,
+            "max": 412.2663999999986,
+            "spread_percent": 34.307345308738945
+          },
+          "dart_javascript": {
+            "samples": [
+              448.4664000000066,
+              517.7664000000277,
+              561.6664000000128
+            ],
+            "median": 517.7664000000277,
+            "min": 448.4664000000066,
+            "max": 561.6664000000128,
+            "spread_percent": 21.863141370316832
+          }
+        }
+      },
+      {
+        "case": "bytes/echo/Buffer/1024",
+        "input": {
+          "bytes": 1024,
+          "kind": "Buffer",
+          "pattern": "i & 255",
+          "ownership_copies": 2
+        },
+        "iterations": 1250,
+        "warmup": 125,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              407.56639999999607,
+              1060.7664000000113,
+              467.06639999997606
+            ],
+            "median": 467.06639999997606,
+            "min": 407.56639999999607,
+            "max": 1060.7664000000113,
+            "spread_percent": 139.85163565609702
+          },
+          "javascript": {
+            "samples": [
+              351.9335999999839,
+              497.46639999998484,
+              367.6672000000053
+            ],
+            "median": 367.6672000000053,
+            "min": 351.9335999999839,
+            "max": 497.46639999998484,
+            "spread_percent": 39.58275309845393
+          },
+          "dart_javascript": {
+            "samples": [
+              466.56639999996514,
+              565.9335999999712,
+              390.29999999997926
+            ],
+            "median": 466.56639999996514,
+            "min": 390.29999999997926,
+            "max": 565.9335999999712,
+            "spread_percent": 37.64385948066664
+          }
+        }
+      },
+      {
+        "case": "bytes/echo/subarray/1024",
+        "input": {
+          "bytes": 1024,
+          "kind": "subarray",
+          "pattern": "i & 255",
+          "ownership_copies": 2
+        },
+        "iterations": 1250,
+        "warmup": 125,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              501.6663999999764,
+              379.0336000000025,
+              388.0000000000109
+            ],
+            "median": 388.0000000000109,
+            "min": 379.0336000000025,
+            "max": 501.6663999999764,
+            "spread_percent": 31.606391752569714
+          },
+          "javascript": {
+            "samples": [
+              476.8000000000029,
+              523.2336000000032,
+              264.966400000003
+            ],
+            "median": 476.8000000000029,
+            "min": 264.966400000003,
+            "max": 523.2336000000032,
+            "spread_percent": 54.16677852348965
+          },
+          "dart_javascript": {
+            "samples": [
+              540.9328000000187,
+              375.4664000000048,
+              342.3671999999897
+            ],
+            "median": 375.4664000000048,
+            "min": 342.3671999999897,
+            "max": 540.9328000000187,
+            "spread_percent": 52.88505176495859
+          }
+        }
+      },
+      {
+        "case": "bytes/sum/1024",
+        "input": {
+          "bytes": 1024,
+          "ownership_copies": 1,
+          "work": "sum each byte"
+        },
+        "iterations": 1250,
+        "warmup": 125,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              1367.6664000000073,
+              1191.433599999982,
+              1178.7999999999556
+            ],
+            "median": 1191.433599999982,
+            "min": 1178.7999999999556,
+            "max": 1367.6664000000073,
+            "spread_percent": 15.852029017819756
+          },
+          "javascript": {
+            "samples": [
+              4792.300000000023,
+              4676.667199999974,
+              4728.400000000056
+            ],
+            "median": 4728.400000000056,
+            "min": 4676.667199999974,
+            "max": 4792.300000000023,
+            "spread_percent": 2.445495304966736
+          },
+          "dart_javascript": {
+            "samples": [
+              852.2335999999997,
+              820.6335999999283,
+              814.6335999999792
+            ],
+            "median": 820.6335999999283,
+            "min": 814.6335999999792,
+            "max": 852.2335999999997,
+            "spread_percent": 4.58182555528116
+          }
+        }
+      },
+      {
+        "case": "async/bytes-echo/1024",
+        "input": {
+          "bytes": 1024,
+          "kind": "Uint8Array",
+          "ownership_copies": 2
+        },
+        "iterations": 125,
+        "warmup": 50,
+        "completion": "sequential await per fulfilled/rejected call",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              894.6639999994659,
+              969.000000000051,
+              860.3359999997338
+            ],
+            "median": 894.6639999994659,
+            "min": 860.3359999997338,
+            "max": 969.000000000051,
+            "spread_percent": 12.14578881014349
+          },
+          "javascript": {
+            "samples": [
+              392.6639999999679,
+              400.99999999983993,
+              405.6639999998879
+            ],
+            "median": 400.99999999983993,
+            "min": 392.6639999999679,
+            "max": 405.6639999998879,
+            "spread_percent": 3.2418952618267216
+          },
+          "dart_javascript": {
+            "samples": [
+              15171.99999999957,
+              14865.671999999902,
+              15817.32799999918
+            ],
+            "median": 15171.99999999957,
+            "min": 14865.671999999902,
+            "max": 15817.32799999918,
+            "spread_percent": 6.272449248611283
+          }
+        }
+      },
+      {
+        "case": "bytes/echo/Uint8Array/65536",
+        "input": {
+          "bytes": 65536,
+          "kind": "Uint8Array",
+          "pattern": "i & 255",
+          "ownership_copies": 2
+        },
+        "iterations": 50,
+        "warmup": 50,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              8566.659999999047,
+              8135.8399999999165,
+              20275.000000001455
+            ],
+            "median": 8566.659999999047,
+            "min": 8135.8399999999165,
+            "max": 20275.000000001455,
+            "spread_percent": 141.7023670835879
+          },
+          "javascript": {
+            "samples": [
+              7944.999999999709,
+              7738.34000000079,
+              2212.5000000005457
+            ],
+            "median": 7738.34000000079,
+            "min": 2212.5000000005457,
+            "max": 7944.999999999709,
+            "spread_percent": 74.0791952795894
+          },
+          "dart_javascript": {
+            "samples": [
+              7804.159999998319,
+              7830.839999999171,
+              14237.499999999274
+            ],
+            "median": 7830.839999999171,
+            "min": 7804.159999998319,
+            "max": 14237.499999999274,
+            "spread_percent": 82.15389409056546
+          }
+        }
+      },
+      {
+        "case": "bytes/echo/Buffer/65536",
+        "input": {
+          "bytes": 65536,
+          "kind": "Buffer",
+          "pattern": "i & 255",
+          "ownership_copies": 2
+        },
+        "iterations": 50,
+        "warmup": 50,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              3202.500000002147,
+              5213.340000000244,
+              2594.9999999988904
+            ],
+            "median": 3202.500000002147,
+            "min": 2594.9999999988904,
+            "max": 5213.340000000244,
+            "spread_percent": 81.75925058546754
+          },
+          "javascript": {
+            "samples": [
+              2785.840000001371,
+              2714.160000000447,
+              2509.9999999997635
+            ],
+            "median": 2714.160000000447,
+            "min": 2509.9999999997635,
+            "max": 2785.840000001371,
+            "spread_percent": 10.162997023077574
+          },
+          "dart_javascript": {
+            "samples": [
+              2756.6600000000103,
+              2699.1799999996147,
+              2542.4999999995634
+            ],
+            "median": 2699.1799999996147,
+            "min": 2542.4999999995634,
+            "max": 2756.6600000000103,
+            "spread_percent": 7.9342615164782435
+          }
+        }
+      },
+      {
+        "case": "bytes/echo/subarray/65536",
+        "input": {
+          "bytes": 65536,
+          "kind": "subarray",
+          "pattern": "i & 255",
+          "ownership_copies": 2
+        },
+        "iterations": 50,
+        "warmup": 50,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              2537.5000000008185,
+              10021.659999999883,
+              8232.499999999163
+            ],
+            "median": 8232.499999999163,
+            "min": 2537.5000000008185,
+            "max": 10021.659999999883,
+            "spread_percent": 90.90993015487186
+          },
+          "javascript": {
+            "samples": [
+              2457.5000000004366,
+              4273.340000002008,
+              7960.000000000491
+            ],
+            "median": 4273.340000002008,
+            "min": 2457.5000000004366,
+            "max": 7960.000000000491,
+            "spread_percent": 128.76344966694597
+          },
+          "dart_javascript": {
+            "samples": [
+              2793.3200000006764,
+              12812.5,
+              8840.000000000146
+            ],
+            "median": 8840.000000000146,
+            "min": 2793.3200000006764,
+            "max": 12812.5,
+            "spread_percent": 113.3391402714837
+          }
+        }
+      },
+      {
+        "case": "bytes/sum/65536",
+        "input": {
+          "bytes": 65536,
+          "ownership_copies": 1,
+          "work": "sum each byte"
+        },
+        "iterations": 50,
+        "warmup": 50,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              69749.15999999894,
+              67204.15999999887,
+              71538.31999999966
+            ],
+            "median": 69749.15999999894,
+            "min": 67204.15999999887,
+            "max": 71538.31999999966,
+            "spread_percent": 6.213924296723939
+          },
+          "javascript": {
+            "samples": [
+              293901.65999999904,
+              297519.99999999953,
+              294445.8400000008
+            ],
+            "median": 294445.8400000008,
+            "min": 293901.65999999904,
+            "max": 297519.99999999953,
+            "spread_percent": 1.2288643643260444
+          },
+          "dart_javascript": {
+            "samples": [
+              44094.15999999965,
+              45347.500000000306,
+              43632.4999999988
+            ],
+            "median": 44094.15999999965,
+            "min": 43632.4999999988,
+            "max": 45347.500000000306,
+            "spread_percent": 3.8894039482814047
+          }
+        }
+      },
+      {
+        "case": "async/bytes-echo/65536",
+        "input": {
+          "bytes": 65536,
+          "kind": "Uint8Array",
+          "ownership_copies": 2
+        },
+        "iterations": 50,
+        "warmup": 50,
+        "completion": "sequential await per fulfilled/rejected call",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              3458.33999999968,
+              3733.3399999988615,
+              3557.499999999436
+            ],
+            "median": 3557.499999999436,
+            "min": 3458.33999999968,
+            "max": 3733.3399999988615,
+            "spread_percent": 7.730147575522841
+          },
+          "javascript": {
+            "samples": [
+              2600.840000000062,
+              3092.5000000002,
+              2756.6600000000103
+            ],
+            "median": 2756.6600000000103,
+            "min": 2600.840000000062,
+            "max": 3092.5000000002,
+            "spread_percent": 17.835351476066553
+          },
+          "dart_javascript": {
+            "samples": [
+              17839.99999999878,
+              17689.1599999999,
+              21258.31999999946
+            ],
+            "median": 17839.99999999878,
+            "min": 17689.1599999999,
+            "max": 21258.31999999946,
+            "spread_percent": 20.006502242151367
+          }
+        }
+      },
+      {
+        "case": "error/invalid-number",
+        "input": "['wrong', 1]",
+        "iterations": 2000,
+        "warmup": 200,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              24840.06249999999,
+              25071.06249999998,
+              24962.854499999994
+            ],
+            "median": 24962.854499999994,
+            "min": 24840.06249999999,
+            "max": 25071.06249999998,
+            "spread_percent": 0.9253749405942048
+          },
+          "javascript": {
+            "samples": [
+              9825.812499999984,
+              9957.333000000006,
+              9893.167000000005
+            ],
+            "median": 9893.167000000005,
+            "min": 9825.812499999984,
+            "max": 9957.333000000006,
+            "spread_percent": 1.3294074587037932
+          }
+        }
+      },
+      {
+        "case": "error/dart-business",
+        "input": "StateError(\"benchmark failure\")",
+        "iterations": 2000,
+        "warmup": 200,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              26333.416999999998,
+              26656.271000000004,
+              26372.000000000015
+            ],
+            "median": 26372.000000000015,
+            "min": 26333.416999999998,
+            "max": 26656.271000000004,
+            "spread_percent": 1.2242302441984168
+          },
+          "javascript": {
+            "samples": [
+              9735.312499999964,
+              9563.750000000027,
+              9765.354499999945
+            ],
+            "median": 9735.312499999964,
+            "min": 9563.750000000027,
+            "max": 9765.354499999945,
+            "spread_percent": 2.070858023303498
+          }
+        }
+      },
+      {
+        "case": "async/rejected-business",
+        "input": "Future failure",
+        "iterations": 2000,
+        "warmup": 200,
+        "completion": "sequential await per fulfilled/rejected call",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              9924.56249999998,
+              10148.66649999999,
+              9669.58299999999
+            ],
+            "median": 9924.56249999998,
+            "min": 9669.58299999999,
+            "max": 10148.66649999999,
+            "spread_percent": 4.82725057149876
+          },
+          "javascript": {
+            "samples": [
+              10833.25000000002,
+              10726.583499999948,
+              10787.43750000001
+            ],
+            "median": 10787.43750000001,
+            "min": 10726.583499999948,
+            "max": 10833.25000000002,
+            "spread_percent": 0.9888029478740621
+          }
+        }
+      }
+    ]
+  }
+}
