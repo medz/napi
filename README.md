@@ -432,6 +432,12 @@ Tested compiler: **Dart 3.13.5**. The consumer matrix covers **Node 22.19.0, 24.
 
 An **esbuild 0.28.2 Node application bundle** is tested with the generated Wasm package kept external. Node still loads the original Wasm and its companion host module. Native browser instance imports and bundler transformations of Wasm are unsupported; Chrome 155.0.8059.27 rejected the direct import even with HTTP 200 and the correct Wasm MIME type. A browser's support for WasmGC or source-phase imports alone does not establish support for `import { add } from './module.wasm'`. See [tested platforms and the bundler example](doc/platforms.md).
 
+A separate manual **Webpack 5.111.1 / Node 26.11.1** check also passed with native
+Wasm imports kept external in an ESM application bundle. Its built-in
+`asyncWebAssembly` transformation failed while parsing Dart GC types. See the
+[recorded result and external-Wasm configuration](doc/platforms.md#webpack-with-external-wasm);
+this check does not expand the automated matrix or establish browser support.
+
 The build checks signatures before compiling, supports Dart workspaces, and refuses to overwrite unrelated output directories. Rebuilds stage a complete replacement on the destination filesystem and restore the old package if installation fails. Run `dart pub get` in the source package or workspace first. Use `dart run napi:build --help` for options.
 
 ## Development
