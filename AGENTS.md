@@ -27,9 +27,9 @@ Documentation, CI, tests, benchmarks, examples and non-urgent fixes normally wai
 for that milestone. Ship an urgent patch only for a concrete user-impacting
 failure, security defect or compatibility break.
 
-Merge independently reviewed changes after required checks pass without
-publishing each PR. Publish a planned milestone only after final release review,
-CI and package validation; verify the public package with a fresh consumer before
-announcing it. A recovered registry quota is not a release trigger and a registry
+Merge the independently reviewed final commit by its exact SHA after required
+checks pass, without publishing each PR. Publish a planned milestone only after
+final release review, CI and package validation; verify the public package with a
+fresh consumer before announcing it. A recovered registry quota is not a release trigger and a registry
 limit does not block independent development. Preserve unpublished tags and
 release evidence; do not rewrite published history or retry uploads in a loop.
