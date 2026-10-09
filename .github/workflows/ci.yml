@@ -85,7 +85,7 @@ jobs:
           cat .dart_tool/runtime-fixtures/metadata.json
           node -p 'JSON.stringify({node: process.version, v8: process.versions.v8})'
           tsc_path="$GITHUB_WORKSPACE/.dart_tool/js/node_modules/typescript/bin/tsc"
-          for fixture in integration async collections records batch requests; do
+          for fixture in integration async collections records batch requests checksum; do
             case "$fixture" in
               integration) runtime_script=node.mjs; package_consumer=consumer.ts; relative_consumer=relative.ts ;;
               async) runtime_script=async-node.mjs; package_consumer=async-consumer.ts; relative_consumer=async-relative.ts ;;
@@ -93,19 +93,21 @@ jobs:
               records) runtime_script=records-node.mjs; package_consumer=records-consumer.ts; relative_consumer=records-relative.ts ;;
               batch) runtime_script=batch-node.mjs; package_consumer=batch-consumer.ts; relative_consumer=batch-relative.ts ;;
               requests) runtime_script=requests-node.mjs; package_consumer=requests-consumer.ts; relative_consumer=consumer.mts ;;
+              checksum) runtime_script=checksum-node.mjs; package_consumer=checksum-consumer.ts; relative_consumer=consumer.mts ;;
             esac
             (
               cd ".dart_tool/runtime-fixtures/$fixture"
               node --expose-gc "$runtime_script"
               type_args=()
               case "$fixture" in
-                records|batch) type_args=(--types node) ;;
+                records|batch|checksum) type_args=(--types node) ;;
               esac
               for resolution in NodeNext Bundler; do
                 module_mode=ESNext
                 if [ "$resolution" = NodeNext ]; then module_mode=NodeNext; fi
                 node "$tsc_path" --strict --noEmit --target ES2022 --module "$module_mode" --moduleResolution "$resolution" "${type_args[@]}" "$package_consumer"
                 node "$tsc_path" --strict --noEmit --target ES2022 --module "$module_mode" --moduleResolution "$resolution" "${type_args[@]}" --allowArbitraryExtensions "$relative_consumer"
+                if [ "$fixture" = checksum ]; then continue; fi
                 if node "$tsc_path" --strict --noEmit --target ES2022 --module "$module_mode" --moduleResolution "$resolution" "${type_args[@]}" "$relative_consumer" > without-extension-option.log 2>&1; then
                   echo "Relative Wasm declarations unexpectedly passed without allowArbitraryExtensions"
                   exit 1

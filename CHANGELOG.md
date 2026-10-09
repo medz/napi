@@ -1,3 +1,9 @@
+## 0.11.0
+
+- Add a complete binary-file checksum application: Node file/stdin I/O, one native Wasm call, Dart CRC32/counting and precise input/result record types.
+- Verify the shipped application against Node's built-in CRC32, reuse its packed artifact across the Node matrix, and check its real Buffer-based TypeScript consumers.
+- Preserve the existing byte ownership, native import API, SDK/runtime scope and zero generated runtime dependencies; no application speedup claim.
+
 ## 0.10.0
 
 - Export SDK `Uint8List` and nullable byte fields in flat named records, record batches and Future completions, with precise `Uint8Array` declarations.
