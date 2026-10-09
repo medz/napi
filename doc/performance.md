@@ -352,3 +352,55 @@ Spread is `(max - min) / median * 100`, not a confidence interval. Short samples
 can vary widely. Retain raw samples, increase counts and repeat on the same
 machine before claiming a regression or improvement. Build/import and old
 first-call scopes must be compared separately.
+
+## File CRC32 word reads (unreleased)
+
+The existing file-checksum example now uses slicing-by-four over a `ByteData`
+view of its already-owned input. It reads a little-endian word for each complete
+four-byte block; a byte loop handles the tail. The view is skipped for inputs
+shorter than four bytes and does not copy the payload. Four 256-entry tables
+replace one, adding 3 KiB of persistent table storage after first use.
+
+[`benchmark/checksum-word-baseline.json`](../benchmark/checksum-word-baseline.json)
+contains source/driver/artifact hashes and all 14 interleaved pairs per size,
+seven in each order. Both phases use the same inputs, counts, warmups, result
+consumption and explicit GC outside timed batches. Native calls include input
+ownership conversion and result construction; preflight compares CRCs with
+Node's built-in function and verifies unchanged bytes. The baseline is the
+previously verified 0.12.0 artifact, not rebuilt. The final measured source is
+byte-identical to the updated example. Dart 3.13.5, Node 26.11.1 /
+V8 14.6.202.34-node.37, Apple M3 Max and macOS 27.0.1 were used.
+
+Median **microseconds per synchronous call** in this run:
+
+| Bytes | Calls / sample | Byte loop | Word loop |
+| --- | ---: | ---: | ---: |
+| 0 | 5,000 | 0.744 | 0.759 |
+| 32 | 5,000 | 0.944 | 0.920 |
+| 1,024 | 1,000 | 6.152 | 2.887 |
+| 65,536 | 100 | 340.105 | 129.112 |
+| 1,048,576 | 20 | 5,389.396 | 2,076.151 |
+
+The 1 KiB–1 MiB cases are about 2.1–2.6 times as fast in this comparison and
+improve in both orders. The few-percent differences at 0/32 bytes do not
+establish a small-input speedup. This measures warm calls on one host and SDK;
+it does not measure module startup, file I/O, CLI latency or a speed advantage
+over Node's built-in CRC32. No timing threshold is enforced in CI.
+
+The measured packages contain 27,860 / 29,766 Wasm bytes and 24,665 / 25,822 host
+bytes before / after: 3,063 additional bytes combined. Both declarations remain
+identical at 215 bytes.
+The earlier unguarded-word prototype and the rejected extra-copy experiment are
+excluded from these figures. Each distinct candidate was compiled once; the
+two word candidates reused the baseline and their compiled artifacts throughout.
+
+To compare two already-built packages without rebuilding or packing them:
+
+```sh
+node --expose-gc benchmark/checksum.mjs before/module.wasm after/module.wasm > checksum-comparison.json
+```
+
+Build both phases with the same SDK. The before source is
+`example/checksum/checksum.dart` at `v0.12.0`; the after source is the current
+example. The command checks native function identity and declaration equality,
+uses Node CRC32 as a correctness reference, and emits raw samples and hashes.

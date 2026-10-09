@@ -5,6 +5,40 @@ import 'package:test/test.dart';
 import '../example/checksum/checksum.dart';
 
 void main() {
+  int reference(Uint8List bytes) {
+    var crc = 0xffffffff;
+    for (final byte in bytes) {
+      crc ^= byte;
+      for (var bit = 0; bit < 8; bit++) {
+        crc = (crc & 1) == 0 ? crc >> 1 : (crc >> 1) ^ 0xedb88320;
+      }
+    }
+    return crc ^ 0xffffffff;
+  }
+
+  test(
+    'word blocks and tails match a bitwise reference at every alignment',
+    () {
+      for (var length = 0; length <= 67; length++) {
+        for (var offset = 0; offset < 4; offset++) {
+          final backing = Uint8List(length + offset + 4)
+            ..fillRange(0, length + offset + 4, 0xa5);
+          final bytes = Uint8List.sublistView(backing, offset, offset + length);
+          for (var index = 0; index < length; index++) {
+            bytes[index] = (index * 31 + length * 7) & 0xff;
+          }
+          final original = Uint8List.fromList(backing);
+          expect(checksum((name: 'view', bytes: bytes)), (
+            name: 'view',
+            byteCount: length,
+            crc32: reference(bytes),
+          ), reason: 'length $length, offset $offset');
+          expect(backing, original);
+        }
+      }
+    },
+  );
+
   test('empty data has zero bytes and CRC32', () {
     final bytes = Uint8List(0);
     expect(checksum((name: '', bytes: bytes)), (
