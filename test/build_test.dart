@@ -130,6 +130,41 @@ void main() {
     }
   });
 
+  test('rejects npm package name prefixes before source checks', () async {
+    final source = p.join(work.path, 'missing.dart');
+    final output = p.join(work.path, 'dist');
+    for (final name in [
+      '-math',
+      '@example/.math',
+      '@example/.',
+      '@example/..',
+    ]) {
+      final result = await build([source, '--name', name, '--out', output]);
+      expect(result.exitCode, isNot(0));
+      expect(result.stderr, contains('Invalid npm package name: $name'));
+      expect(result.stdout, isEmpty);
+      expect(work.listSync(), isEmpty);
+    }
+  });
+
+  test('accepts valid scoped punctuation before source checks', () async {
+    final source = p.join(work.path, 'missing.dart');
+    final output = p.join(work.path, 'dist');
+    for (final name in [
+      '@example/_math',
+      '@.scope/math',
+      '@_scope/math',
+      '@example/-math',
+      '@-scope/-math',
+    ]) {
+      final result = await build([source, '--name', name, '--out', output]);
+      expect(result.exitCode, isNot(0));
+      expect(result.stderr, contains('Dart source file not found: $source'));
+      expect(result.stdout, isEmpty);
+      expect(work.listSync(), isEmpty);
+    }
+  });
+
   test(
     'resolves output ancestors before checking source containment',
     () async {
