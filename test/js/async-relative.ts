@@ -1,6 +1,6 @@
 import {
   asyncBool, asyncInt, asyncDouble, asyncString, asyncBytes, nullableString,
-  asyncVoid,
+  asyncVoid, countedAdd, calls,
 } from './dist/module.wasm';
 
 const bool: Promise<boolean> = asyncBool(true);
@@ -11,7 +11,9 @@ const bytes: Promise<Uint8Array> = asyncBytes(new Uint8Array([1, 2]));
 const nullable: Promise<string | null> = nullableString(null);
 const nothing: Promise<void> = asyncVoid();
 const completed: number = await asyncInt(42);
-void [bool, int, double, text, bytes, nullable, nothing, completed];
+const sum: Promise<number> = countedAdd(1, 2);
+const count: number = calls();
+void [bool, int, double, text, bytes, nullable, nothing, completed, sum, count];
 
 // @ts-expect-error The Wasm companion declaration preserves Promise returns.
 const synchronous: number = asyncInt(1);
@@ -20,3 +22,5 @@ asyncInt('42');
 // @ts-expect-error Nullable completed results cannot become nonnullable values.
 const wrong: string = await nullableString(null);
 
+// @ts-expect-error Async relative Wasm declarations preserve both input types.
+countedAdd('1', 2);

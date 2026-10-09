@@ -14,6 +14,7 @@ const publicNames = [
   'microtaskOrder', 'delayedValue', 'canceledTimer', 'retainBytes',
   'readRetainedBytes', 'freshBytes', 'javascriptFailure',
   'badErrorFormatter', 'badStackFormatter', 'syncBadErrorFormatter',
+  'countedAdd', 'calls',
 ];
 for (const name of publicNames) {
   assert.equal(typeof api[name], 'function', `${name} is a named Wasm export`);
@@ -46,10 +47,16 @@ async function bounded(promise) {
     clearTimeout(timer);
   }
 }
-async function rejection(name, args, errorType, message) {
+async function rejection(name, args, errorType, message, parameter) {
   await assert.rejects(bounded(invoke(name, ...args)), (error) => {
     assert.ok(error instanceof errorType, `${name} rejected with ${error?.constructor?.name}`);
     if (message) assert.match(error.message, message);
+    if (parameter) {
+      const context = `parameter ${parameter}:`;
+      assert.equal(error.message.split(context).length - 1, 1, `${name}: ${context} must occur exactly once`);
+    } else {
+      assert.equal(error.message.includes('parameter '), false, `${name}: result and business errors have no argument context`);
+    }
     return true;
   });
 }
@@ -85,8 +92,8 @@ try {
   for (const [name, value] of nullableValues) {
     assert.equal(await invoke(name, null), null);
     assert.deepEqual(await invoke(name, value), value);
-    await rejection(name, [undefined], TypeError);
-    await rejection(name, [], TypeError);
+    await rejection(name, [undefined], TypeError, null, 'value');
+    await rejection(name, [], TypeError, null, 'value');
   }
   assert.ok(Number.isNaN(await invoke('nullableDouble', NaN)));
   assert.ok(Object.is(await invoke('nullableDouble', -0), -0));
@@ -100,16 +107,50 @@ try {
     ['asyncInt', []], ['asyncBool', [undefined]], ['asyncDouble', [null]],
     ['asyncInt', [Promise.resolve(1)]], ['asyncString', [Symbol('text')]],
   ];
-  for (const [name, args] of invalid) await rejection(name, args, TypeError);
-  await rejection('asyncInt', [Number.MAX_SAFE_INTEGER + 1], RangeError);
-  await rejection('asyncInt', [Number.MIN_SAFE_INTEGER - 1], RangeError);
-  await rejection('nullableInt', [Number.MAX_SAFE_INTEGER + 1], RangeError);
+  for (const [name, args] of invalid) await rejection(name, args, TypeError, null, 'value');
+  for (const name of ['asyncBool', 'asyncInt', 'asyncDouble', 'asyncString', 'asyncBytes']) {
+    await rejection(name, [], TypeError, null, 'value');
+  }
+  await rejection('asyncInt', [Number.MAX_SAFE_INTEGER + 1], RangeError, null, 'value');
+  await rejection('asyncInt', [Number.MIN_SAFE_INTEGER - 1], RangeError, null, 'value');
+  await rejection('nullableInt', [Number.MAX_SAFE_INTEGER + 1], RangeError, null, 'value');
+  for (const [args, parameter] of [
+    [['1', 2], 'a'], [[1, '2'], 'b'], [['1', '2'], 'a'], [[], 'a'], [[1], 'b'],
+  ]) {
+    const before = api.calls();
+    await rejection('countedAdd', args, TypeError, /Expected a number/, parameter);
+    assert.equal(api.calls(), before, 'invalid arguments reject before Dart business entry');
+  }
+  const beforeAdd = api.calls();
+  assert.equal(await invoke('countedAdd', 1, 2), 3);
+  assert.equal(api.calls(), beforeAdd + 1, 'valid arguments enter async Dart business once');
   await rejection('oversizedResult', [], RangeError);
   await rejection('nullableOversizedResult', [], RangeError);
   await rejection('throwBeforeFuture', ['before Future'], Error, /before Future/);
   await rejection('asyncFailure', [0], TypeError, /argument failure/);
   await rejection('asyncFailure', [1], RangeError, /range failure/);
   await rejection('asyncFailure', [2], Error, /state failure/);
+
+  const byteInput = new Uint8Array([1, 2]);
+  const OriginalUint8Array = globalThis.Uint8Array;
+  try {
+    const copyError = new TypeError('owned copy');
+    globalThis.Uint8Array = class { constructor() { throw copyError; } };
+    await rejection('asyncBytes', [byteInput], TypeError, /^parameter value: owned copy$/, 'value');
+    const diagnosticFailure = { message: 'copy diagnostic failed' };
+    for (const descriptor of [
+      { get() { throw diagnosticFailure; } },
+      { value: { toString() { throw diagnosticFailure; } } },
+    ]) {
+      const original = new TypeError('original copy failure');
+      Object.defineProperty(original, 'message', descriptor);
+      globalThis.Uint8Array = class { constructor() { throw original; } };
+      await assert.rejects(bounded(invoke('asyncBytes', byteInput)), (error) => error === original);
+    }
+  } finally {
+    globalThis.Uint8Array = OriginalUint8Array;
+  }
+  assert.deepEqual(await invoke('asyncBytes', byteInput), new Uint8Array([1, 2]), 'byte Promise calls recover after diagnostic failures');
 
   // An immediate caller mutation or transfer must not affect the owned input.
   const original = new Uint8Array([1, 128, 255]);
@@ -126,7 +167,12 @@ try {
   structuredClone(transferred.buffer, { transfer: [transferred.buffer] });
   assert.equal(transferred.byteLength, 0);
   assert.deepEqual(await transferredSnapshot, new Uint8Array([3, 128, 255]));
-  await rejection('asyncBytes', [transferred], TypeError);
+  for (const name of ['asyncBytes', 'nullableBytes']) {
+    await rejection(name, [transferred], TypeError, null, 'value');
+    const outOfBounds = new Uint8Array(new ArrayBuffer(8, { maxByteLength: 16 }), 2, 3);
+    outOfBounds.buffer.resize(1);
+    await rejection(name, [outOfBounds], TypeError, null, 'value');
+  }
   const buffer = Buffer.from([99, 4, 128, 255, 88]).subarray(1, 4);
   const bufferSnapshot = invoke('asyncBytes', buffer);
   buffer.fill(9);

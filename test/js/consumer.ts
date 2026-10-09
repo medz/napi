@@ -1,7 +1,7 @@
 import {
   identityBool, identityInt, identityDouble, identityString, identityBytes,
   nullableBool, nullableInt, nullableDouble, nullableString, nullableBytes,
-  incrementCounter, counter, oversizedInt, throwError,
+  incrementCounter, counter, countedAdd, oversizedInt, throwError,
   readFile, response, instantiate, $napiReadFile, fetch, URL, Error,
 } from '@napi/integration';
 import { identityInt as subpathInt } from '@napi/integration/module.wasm';
@@ -18,6 +18,7 @@ const maybeString: string | null = nullableString(null);
 const maybeBytes: Uint8Array | null = nullableBytes(null);
 const voidResult: void = incrementCounter();
 const count: number = counter();
+const sum: number = countedAdd(1, 2);
 const unsafe: number = oversizedInt();
 const exception: number = throwError('error');
 const readFileResult: string = readFile('name');
@@ -28,7 +29,7 @@ const fetchResult: string = fetch('body');
 const urlResult: number = URL();
 const errorResult: string = Error();
 const subpathResult: number = subpathInt(42);
-void [bool, int, double, string, bytes, maybeBool, maybeInt, maybeDouble, maybeString, maybeBytes, voidResult, count, unsafe, exception, readFileResult, responseResult, instantiateResult, dollarResult, fetchResult, urlResult, errorResult, subpathResult];
+void [bool, int, double, string, bytes, maybeBool, maybeInt, maybeDouble, maybeString, maybeBytes, voidResult, count, sum, unsafe, exception, readFileResult, responseResult, instantiateResult, dollarResult, fetchResult, urlResult, errorResult, subpathResult];
 
 // @ts-expect-error Wrong input type must not be accepted by generated declarations.
 identityBool(1);
@@ -48,3 +49,8 @@ identityInt(1, 2);
 nullableInt(undefined);
 // @ts-expect-error Nullable results cannot be assigned to a nonnullable value.
 const nonnullable: string = nullableString('value');
+
+// @ts-expect-error Two-argument exports preserve the required second argument.
+countedAdd(1);
+// @ts-expect-error Both add arguments must be numbers.
+countedAdd(1, '2');

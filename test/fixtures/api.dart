@@ -82,3 +82,9 @@ void incrementCounter() {
 
 @napi
 int counter() => _counter;
+
+@napi
+double countedAdd(double a, double b) {
+  _counter++;
+  return a + b;
+}

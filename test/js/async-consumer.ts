@@ -4,7 +4,7 @@ import {
   asyncVoid, throwBeforeFuture, asyncFailure, oversizedResult,
   nullableOversizedResult, completerSync, microtaskOrder, delayedValue,
   canceledTimer, retainBytes, readRetainedBytes, freshBytes,
-  javascriptFailure, badErrorFormatter, badStackFormatter,
+  javascriptFailure, badErrorFormatter, badStackFormatter, countedAdd, calls,
 } from '@napi/async';
 import { asyncInt as subpathInt } from '@napi/async/module.wasm';
 
@@ -33,13 +33,15 @@ const fresh: Promise<Uint8Array> = freshBytes();
 const jsError: Promise<void> = javascriptFailure();
 const badError: Promise<number> = badErrorFormatter();
 const badStack: Promise<number> = badStackFormatter();
+const sum: Promise<number> = countedAdd(1, 2);
+const count: number = calls();
 const subpath: Promise<number> = subpathInt(42);
 const value: number = await asyncInt(42);
 const nullable: string | null = await nullableString(null);
 const voidValue: void = await asyncVoid();
 void [bool, int, double, text, bytes, maybeBool, maybeInt, maybeDouble, maybeText,
   maybeBytes, nothing, thrown, failure, unsafe, nullableUnsafe, completed,
-  ordered, delayed, canceled, retained, read, fresh, jsError, badError, badStack,
+  ordered, delayed, canceled, retained, read, fresh, jsError, badError, badStack, sum, count,
   subpath, value, nullable, voidValue];
 
 // @ts-expect-error Async exports return Promise rather than a completed value.
@@ -63,3 +65,7 @@ nullableInt(undefined);
 // @ts-expect-error Nonnullable string input rejects null.
 asyncString(null);
 
+// @ts-expect-error Async two-argument exports require both numeric inputs.
+countedAdd(1, '2');
+// @ts-expect-error Async two-argument exports cannot omit the second input.
+countedAdd(1);

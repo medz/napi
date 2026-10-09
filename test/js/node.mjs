@@ -11,7 +11,7 @@ const publicNames = [
   'incrementFirst', 'nullableBool', 'nullableInt', 'nullableDouble', 'nullableString',
   'nullableBytes', 'oversizedInt', 'throwError', 'throwRange', 'throwArgument',
   'readFile', 'response', 'instantiate', '$napiReadFile', 'fetch', 'URL', 'Error',
-  'incrementCounter', 'counter',
+  'incrementCounter', 'counter', 'countedAdd',
 ];
 for (const name of publicNames) {
   assert.equal(typeof api[name], 'function', `${name} is a named function export`);
@@ -26,6 +26,41 @@ assert.equal(relative.identityString('relative 你好'), 'relative 你好');
 assert.deepEqual(relative.identityBytes(new Uint8Array([1, 128, 255])), new Uint8Array([1, 128, 255]));
 assert.deepEqual(api.identityBytes(Buffer.from([1, 128, 255])), new Uint8Array([1, 128, 255]));
 assert.deepEqual(api.identityBytes(runInNewContext('new Uint8Array([5, 128, 255])')), new Uint8Array([5, 128, 255]));
+
+// A type probe failure is an original JS exception, not an owned-copy failure.
+const originalApply = Reflect.apply;
+const reflection = new TypeError('byte kind reflection');
+const byteInput = new Uint8Array([1, 2]);
+try {
+  Reflect.apply = () => { throw reflection; };
+  assert.throws(() => api.identityBytes(byteInput), (error) => error === reflection);
+} finally {
+  Reflect.apply = originalApply;
+}
+const OriginalUint8Array = globalThis.Uint8Array;
+try {
+  for (const reason of [new RangeError('byte copy range'), new Error('byte copy JS'), Symbol('byte copy'), { original: true }]) {
+    globalThis.Uint8Array = class { constructor() { throw reason; } };
+    assert.throws(() => api.identityBytes(byteInput), (error) => error === reason);
+  }
+  const copyError = new TypeError('owned copy');
+  globalThis.Uint8Array = class { constructor() { throw copyError; } };
+  assert.throws(() => api.identityBytes(byteInput), (error) =>
+    error instanceof TypeError && error !== copyError && error.message === 'parameter value: owned copy');
+  const diagnosticFailure = { message: 'copy diagnostic failed' };
+  for (const descriptor of [
+    { get() { throw diagnosticFailure; } },
+    { value: { toString() { throw diagnosticFailure; } } },
+  ]) {
+    const original = new TypeError('original copy failure');
+    Object.defineProperty(original, 'message', descriptor);
+    globalThis.Uint8Array = class { constructor() { throw original; } };
+    assert.throws(() => api.identityBytes(byteInput), (error) => error === original);
+  }
+} finally {
+  globalThis.Uint8Array = OriginalUint8Array;
+}
+assert.deepEqual(api.identityBytes(byteInput), new Uint8Array([1, 2]), 'byte calls recover after original JS exceptions');
 
 // GC before measurements separates retained host objects from temporary copies.
 // Wasm allocation may retain its high-water mark, so warm up with the same work.
