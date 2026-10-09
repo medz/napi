@@ -72,7 +72,7 @@ void main() {
       expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
       final report = jsonDecode((result.stdout as String).trim()) as Map;
       expect(report['checks'] as int, greaterThan(600));
-      expect(report['nativeFunctions'], 26);
+      expect(report['nativeFunctions'], 28);
       expect(report['retained'], isA<Map>());
     },
   );

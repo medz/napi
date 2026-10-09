@@ -194,7 +194,13 @@ napi.copyRecordBytes = (value, context, suffix) => {
     return napi.copyBytes(value);
   } catch (error) {
     if (error instanceof TypeError) {
-      throw new TypeError(context + suffix + ': ' + error.message);
+      let diagnostic;
+      try {
+        diagnostic = new TypeError(context + suffix + ': ' + error.message);
+      } catch {
+        throw error;
+      }
+      throw diagnostic;
     }
     throw error;
   }

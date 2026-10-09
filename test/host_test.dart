@@ -275,6 +275,16 @@ try {
   assert.throws(() => copy(buffer, context, suffix), error =>
     error instanceof TypeError && error !== original &&
     error.message === 'parameter packets[1]["payload"]: owned copy');
+  const diagnosticFailure = {message: 'copy diagnostic failed'};
+  for (const descriptor of [
+    {get() {throw diagnosticFailure;}},
+    {value: {toString() {throw diagnosticFailure;}}},
+  ]) {
+    const copyError = new TypeError('original copy failure');
+    Object.defineProperty(copyError, 'message', descriptor);
+    napi.copyBytes = () => {throw copyError;};
+    assert.throws(() => copy(buffer, context, suffix), error => error === copyError);
+  }
 } finally {
   napi.copyBytes = originalCopy;
 }

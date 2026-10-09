@@ -151,3 +151,15 @@ Future<int> badStackFormatter() =>
 
 @napi
 int syncBadErrorFormatter() => throw _BadError();
+
+var _calls = 0;
+
+@napi
+Future<double> countedAdd(double a, double b) async {
+  _calls++;
+  await Future<void>.value();
+  return a + b;
+}
+
+@napi
+int calls() => _calls;
