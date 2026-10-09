@@ -52,7 +52,7 @@ complete call-time snapshots, independent result objects, accurate public types,
 index/field diagnostics, real native imports and external-Wasm bundles, and
 measured normalization/aggregation costs. See the [0.6.0 requirements](requirements.md#060-contract).
 
-## 0.7.0 — measured record conversion
+## 0.7.0 — released: measured record conversion
 
 - [#43: Reduce measured record conversion costs and focus benchmark runs](https://github.com/medz/napi/issues/43).
 
@@ -60,6 +60,16 @@ Acceptance preserves the complete value/error/ownership contract, measures the
 same compiled fixtures before and after a minimal change in both run orders,
 and retains raw samples, JS controls and size observations. See the
 [0.7.0 requirements](requirements.md#070-contract) and [measurements](performance.md#record-conversion-optimization-070).
+
+## 0.8.0 — runnable request-summary application
+
+- [#45: Ship a complete Dart-to-Node application](https://github.com/medz/napi/issues/45).
+
+Acceptance covers a real stdin NDJSON command with all aggregation in Dart
+Wasm, deterministic summaries, safe integer totals, readable errors without
+partial output, strict types and one packed artifact reused across the Node
+matrix. See the [application](../example/requests/README.md) and
+[0.8.0 requirements](requirements.md#080-contract).
 
 ## Next — compiler compatibility and real applications
 

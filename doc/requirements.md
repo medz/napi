@@ -82,6 +82,14 @@ The project name is `napi`; the primary backend is Wasm ESM integration, not the
 - Compare frozen before/after native artifacts using the same harness, inputs and counts in both run orders. Retain all samples, controls, variance, artifact hashes and size observations. Claim only demonstrated improvements; correctness CI has no timing threshold.
 - Require the full regression/runtime/TypeScript/bundle matrix, retained-memory controls, final-head Codex review and CI, exact-SHA merge and independent hosted-consumer verification before publication is considered complete. Platform support remains unchanged.
 
+## 0.8.0 contract
+
+- Ship one complete request-summary example with a single annotated Dart function, input/output record aliases, a Node stdin NDJSON command, sample data, a strict TypeScript consumer and runnable root commands. Reuse the current native Wasm API without a loader, framework or new production dependency.
+- Keep all grouping, counting, duration aggregation and deterministic UTF-16 operation sorting in Dart. Preserve exact names, empty input and independent results; require nonnegative safe durations and check each operation's safe integer total before adding.
+- Parse the complete batch before one native call, ignore blank lines/accept CRLF and write one JSON array only on success. Malformed JSON, boundary validation or domain errors must be readable, return nonzero and publish no partial summary. Node reports native import failures and experimental warnings.
+- Verify direct business tests and the real shipped CLI, native package/subpath/relative function identity, required alias/signature types and positive/negative TypeScript consumers on all four Node versions. Build/pack/install the actual example once; preserve all existing regressions and external-Wasm bundle checks.
+- Gate release on final-head review/CI, exact-SHA merge and independent hosted-package validation including the complete application. This example expands no exported value support and makes no application speedup claim.
+
 ## Iteration priorities
 
 After publishing the first complete workflow, prioritize Future-to-Promise support, useful typed data structures, clear diagnostics, compiler/runtime compatibility, reproducible performance and size measurements, and real applications. Define consumer syntax, type and ownership rules, and acceptance cases before implementing each addition.

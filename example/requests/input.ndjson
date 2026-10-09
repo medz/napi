@@ -1,0 +1,5 @@
+{"operation":"GET /articles","durationUs":800,"success":true}
+{"operation":"POST /login","durationUs":1200,"success":false}
+{"operation":"GET /status","durationUs":50,"success":true}
+{"operation":"GET /articles","durationUs":200,"success":false}
+{"operation":"POST /login","durationUs":400,"success":true}

@@ -85,13 +85,14 @@ jobs:
           cat .dart_tool/runtime-fixtures/metadata.json
           node -p 'JSON.stringify({node: process.version, v8: process.versions.v8})'
           tsc_path="$GITHUB_WORKSPACE/.dart_tool/js/node_modules/typescript/bin/tsc"
-          for fixture in integration async collections records batch; do
+          for fixture in integration async collections records batch requests; do
             case "$fixture" in
               integration) runtime_script=node.mjs; package_consumer=consumer.ts; relative_consumer=relative.ts ;;
               async) runtime_script=async-node.mjs; package_consumer=async-consumer.ts; relative_consumer=async-relative.ts ;;
               collections) runtime_script=collections-node.mjs; package_consumer=collections-consumer.ts; relative_consumer=collections-relative.ts ;;
               records) runtime_script=records-node.mjs; package_consumer=records-consumer.ts; relative_consumer=records-relative.ts ;;
               batch) runtime_script=batch-node.mjs; package_consumer=batch-consumer.ts; relative_consumer=batch-relative.ts ;;
+              requests) runtime_script=requests-node.mjs; package_consumer=requests-consumer.ts; relative_consumer=consumer.mts ;;
             esac
             (
               cd ".dart_tool/runtime-fixtures/$fixture"
