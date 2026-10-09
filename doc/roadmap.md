@@ -115,8 +115,9 @@ boundary and one packed artifact across the Node matrix; verify application
 results against Node's built-in CRC32 without a speedup claim or new core API.
 See the [0.11.0 requirements](requirements.md#0110-contract).
 
-## Unreleased — build diagnostics and model reuse
+## 0.12.0 — planned: build diagnostics and model reuse
 
+- [#70: Prepare the complete upgrade milestone](https://github.com/medz/napi/issues/70).
 - [#57: Reject non-directory output paths before compilation](https://github.com/medz/napi/issues/57).
 - [#64: Identify top-level arguments in conversion errors](https://github.com/medz/napi/issues/64).
 - [#66: Match export analysis to the Wasm compilation environment](https://github.com/medz/napi/issues/66).
@@ -126,16 +127,18 @@ Acceptance covers clear preflight errors for existing output files and file
 ancestors, preserved contents, precise argument errors, correct conditional
 import selection and ordinary Dart model typedefs using the existing native
 value/ownership boundary. Verify complete direct-Wasm and packed npm workflows
-with accurate TS declarations. See the [output-path requirements](requirements.md#0111-contract)
-and [leaf typedef contract](requirements.md#unreleased-sdk-leaf-typedefs).
+with accurate TS declarations. See the [milestone contract](requirements.md#0120-contract).
 
 [#61: Reduce documentation-only CI cost](https://github.com/medz/napi/issues/61)
 keeps light documentation checks separate from the complete source/runtime
 validation needed by these changes.
 
-The output-path fix is merged and its existing `v0.11.1` tag is retained, but the package was
-not published. It will join the next suitable milestone; quota recovery does not
-trigger an immediate standalone release. The published baseline remains 0.11.0.
+The old output-path candidate was not published; its existing `v0.11.1` tag and
+frozen evidence are retained. This fix joins the complete 0.12.0 milestone.
+Publication remains pending release review, full CI and package validation;
+public consumer acceptance must pass before the GitHub Release is announced.
+Quota recovery does not trigger publication. The published baseline remains
+0.11.0 until the planned upload is independently confirmed.
 
 ## Next — compiler compatibility and real applications
 

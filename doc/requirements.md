@@ -124,17 +124,24 @@ The project name is `napi`; the primary backend is Wasm ESM integration, not the
 
 ## 0.11.1 contract
 
+This unpublished output-path candidate is included in the 0.12.0 milestone.
+Its existing tag and frozen evidence are retained.
+
 - Reject an output path that names an existing non-directory component before source-package analysis or Wasm compilation. Identify the blocking component, preserve its contents and create no staged output.
 - Cover both the output file itself and missing descendants beneath a file with real CLI regressions. Retain valid missing/empty/generated directories, directory-ancestor resolution and existing symbolic-link safeguards; recheck the destination before installation.
 - Preserve the native Wasm value, declaration and runtime contracts without a new dependency or API. Release only after final-head Codex review, CI, exact-SHA merge and a fresh hosted consumer.
 
-## Unreleased: SDK leaf typedefs
+## 0.12.0 contract
 
+- Ship one complete upgrade from 0.11.0: reusable Dart model typedefs, compiler-matched conditional signatures, precise top-level argument errors and early output-path diagnostics. Concentrate versions/changelog in the release-preparation PR for #70; do not publish individual development PRs.
+- Analyze conditional imports/exports with the selected SDK's Wasm library conditions, matching actual compilation while preserving diagnostics at the selected source. Do not infer runtime support for dart:io/isolates or experimental ffi from this selection.
+- Identify invalid scalar and byte parameters without changing safe-integer/nullable/Future behavior or original exception identity when diagnostic formatting throws. Reject output files/file ancestors before compilation, preserve contents and recheck before installation.
 - Accept non-generic aliases and chains resolving to SDK bool/int/double/String/Uint8List in existing supported positions: direct values, Future completion values, scalar List/Map leaves, non-null String Map keys and named-record fields. Preserve analyzer-resolved effective nullability and SDK type provenance.
 - Expand leaf aliases into the existing TS primitive/Uint8Array types. Preserve outer public record names and their naming/conflict rules; private or same-named leaf aliases emit no separate TS binding. Add no brands, runtime tags, dependencies or value model.
 - Preserve existing value/error rules, safe integers, UTF-16, real Promises, precise paths, call-time snapshots, independent objects and byte ownership. Generated conversion paths remain the existing paths for each underlying type.
 - Reject generic alias chains and aliases for collection/Future/void/function/class types. Preserve unsupported combinations such as List<Uint8List>, nullable Map keys, Map record values and nested structures. Locate invalid imported record fields at their declarations.
-- Verify imported/prefixed/re-exported aliases, nullable chains, unchanged precise positive/negative TS consumers, native package/subpath/relative imports and the checksum application. Reuse the existing seven fixture groups and Node matrix; require independent final-SHA review and full CI before exact-SHA merge. Accumulate this feature into the next milestone without a standalone publication.
+- Verify imported/prefixed/re-exported aliases, nullable chains, precise positive/negative TS consumers, native package/subpath/relative imports and both complete applications. Build each of the existing seven fixture groups once and reuse artifacts across Node 22.19.0/24.5.0/24.21.0/26.11.1, with Dart 3.13.5, TypeScript 7.0.2 NodeNext/Bundler and esbuild 0.28.2 external-Wasm checks.
+- Require independent final-SHA review, complete CI, zero-warning pub dry-run and exact-SHA merge. Verify package/generator metadata and main/tag source identity before publication. Validate the real public package with a new ordinary-constraint consumer and empty pub cache, freeze expectations before execution and independently inspect actual source/archive/compiled/packed artifacts and logs before announcing the GitHub Release. Preserve the unpublished v0.11.1 tag; quota recovery does not trigger publication.
 
 ## Iteration priorities
 

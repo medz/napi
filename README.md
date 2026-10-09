@@ -97,6 +97,38 @@ node example/checksum/main.mjs example/checksum/sample.txt
 
 The example reuses byte records and makes no speedup claim over Node's built-ins.
 
+## Upgrading to 0.12.0
+
+Use `napi: ^0.12.0` in your Dart dependencies and rebuild generated packages
+with the existing build command; the `^0.11.0` range excludes this release.
+SDK and tested runtime requirements are
+unchanged; the generated npm package's version is still set by `--version`.
+
+Ordinary model definitions can now reuse SDK leaf typedefs:
+
+```dart
+typedef UserId = int;
+typedef User = ({UserId id, String name});
+
+@napi
+User normalize(User user) => (id: user.id, name: user.name.trim());
+```
+
+```ts
+import { normalize } from './dist/module.wasm';
+
+normalize({ id: 7, name: ' Ada ' }); // { id: 7, name: 'Ada' }
+```
+
+The declaration exports `User` with `id: number`; leaf names expand to existing
+types. Nullability, safe integers and output ownership keep their existing
+rules. Build analysis now selects the same conditional Wasm imports as the
+compiler, invalid values identify their argument, and output-file failures
+are diagnosed before compilation. Error categories are unchanged; tests that
+compare exact parameter-error messages need to account for the added names.
+See the [milestone contract](doc/requirements.md#0120-contract)
+and [tested platforms](doc/platforms.md).
+
 ## Async functions
 
 Return a Dart `Future<T>` to export a JavaScript `Promise<T>`. Both `async` functions and ordinary functions returning a Future are supported:
