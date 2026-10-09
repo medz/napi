@@ -71,7 +71,7 @@ partial output, strict types and one packed artifact reused across the Node
 matrix. See the [application](../example/requests/README.md) and
 [0.8.0 requirements](requirements.md#080-contract).
 
-## 0.9.0 — readonly array inputs
+## 0.9.0 — released: readonly array inputs
 
 - [#47: Accept readonly array inputs in TypeScript declarations](https://github.com/medz/napi/issues/47).
 
@@ -79,6 +79,15 @@ Acceptance covers mutable/readonly/frozen/`as const` List inputs, scalar and
 record element/container nullability, precise input types and mutable sync/Future
 results. The native snapshot behavior and valid public record aliases remain
 unchanged. See the [0.9.0 requirements](requirements.md#090-contract).
+
+## 0.9.1 — type alias diagnostics
+
+- [#49: Diagnose TypeScript operator record aliases before compilation](https://github.com/medz/napi/issues/49).
+
+Acceptance covers source diagnostics for `keyof`, `infer` and `unique` record
+aliases in scalar, List and nullable Future signatures. Valid aliases and
+ordinary functions or parameters with these names remain supported. See the
+[0.9.1 requirements](requirements.md#091-contract).
 
 ## Next — compiler compatibility and real applications
 
