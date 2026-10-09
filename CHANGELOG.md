@@ -1,3 +1,9 @@
+## 0.7.0
+
+- Compose record field diagnostic paths only when conversion fails; preserve exact sync/Future errors, snapshots and independent ownership.
+- Add focused `records` and `batch` benchmark groups that skip unrelated builds and measurements.
+- Retain paired measurements in both run orders: modest batch conversion improvements and smaller record artifacts, without a stable direct-record speedup claim.
+
 ## 0.6.0
 
 - Export one List layer of flat named records with independent container, element and field nullability, including Future completion values.

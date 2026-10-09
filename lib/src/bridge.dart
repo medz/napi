@@ -194,9 +194,9 @@ String _generateRecord(ValueType type, int index) {
       '  final snapshot = _snapshotRecord(value, externRefForJSAny(_recordNames$index)!, externRefForJSAny(context.toJS));',
     );
   for (final (fieldIndex, field) in fields.indexed) {
-    final fieldContext = 'context + ${_literal('[${jsonEncode(field.name)}]')}';
+    final fieldSuffix = _literal('[${jsonEncode(field.name)}]');
     output.writeln(
-      '  final field$fieldIndex = _readRecordField<${_leafType(field.type)}>(snapshot, $fieldIndex, ${field.type.kind.index}, ${field.type.nullable}, $fieldContext);',
+      '  final field$fieldIndex = _readRecordField<${_leafType(field.type)}>(snapshot, $fieldIndex, ${field.type.kind.index}, ${field.type.nullable}, context, $fieldSuffix);',
     );
   }
   output
@@ -210,9 +210,9 @@ String _generateRecord(ValueType type, int index) {
     ..writeln('  final result = _newMap();')
     ..writeln('  final names = externRefForJSAny(_recordNames$index)!;');
   for (final (fieldIndex, field) in fields.indexed) {
-    final fieldContext = 'context + ${_literal('[${jsonEncode(field.name)}]')}';
+    final fieldSuffix = _literal('[${jsonEncode(field.name)}]');
     output.writeln(
-      '  _writeRecordField(result, _arrayGet(names, WasmI32.fromInt($fieldIndex)), value.${field.name}, ${field.type.kind.index}, ${field.type.nullable}, $fieldContext);',
+      '  _writeRecordField(result, _arrayGet(names, WasmI32.fromInt($fieldIndex)), value.${field.name}, ${field.type.kind.index}, ${field.type.nullable}, context, $fieldSuffix);',
     );
   }
   output
@@ -518,19 +518,19 @@ const _recordHelpers = r'''
 @pragma('wasm:import', 'napi.snapshotRecord')
 external WasmExternRef _snapshotRecord(WasmExternRef? value, WasmExternRef names, WasmExternRef? context);
 
-T _readRecordField<T>(WasmExternRef snapshot, int index, int kind, bool nullable, String context) {
+T _readRecordField<T>(WasmExternRef snapshot, int index, int kind, bool nullable, String context, String suffix) {
   try {
     return _readLeaf<T>(_arrayGet(snapshot, WasmI32.fromInt(index)), kind, nullable);
   } catch (error) {
-    _conversionError(error, context);
+    _conversionError(error, context + suffix);
   }
 }
 
-void _writeRecordField(WasmExternRef result, WasmExternRef? key, Object? value, int kind, bool nullable, String context) {
+void _writeRecordField(WasmExternRef result, WasmExternRef? key, Object? value, int kind, bool nullable, String context, String suffix) {
   try {
     _mapSet(result, key, _writeLeaf(value, kind, nullable));
   } catch (error) {
-    _conversionError(error, context);
+    _conversionError(error, context + suffix);
   }
 }
 ''';

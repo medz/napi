@@ -48,14 +48,17 @@ async function bounded(promise) {
 }
 async function failure(name, args, type, context = []) {
   let caught = false;
+  let caughtError;
   try {
     await invoke(name, ...args);
   } catch (error) {
     caught = true;
+    caughtError = error;
     assert(error instanceof type, `${name}: ${error?.constructor?.name}: ${error?.message}`);
-    for (const part of context) assert(error.message.includes(part), `${name}: ${error.message} lacks ${part}`);
+    for (const part of context) assert.equal(error.message.split(part).length - 1, 1, `${name}: ${error.message} must contain ${part} exactly once`);
   }
   assert(caught, `${name} must fail`);
+  return caughtError;
 }
 async function identicalFailure(name, input, reason) {
   let caught = false;
@@ -169,12 +172,14 @@ try {
     }
     for (const [key, values] of Object.entries(invalid)) {
       for (const value of [...values, undefined]) {
-        await failure(name, [[mixed(), { ...mixed(), [key]: value }]], TypeError, [`parameter values[1]["${key}"]`]);
+        const error = await failure(name, [[mixed(), { ...mixed(), [key]: value }]], TypeError, [`parameter values[1]["${key}"]`]);
+        if (key === 'count' && value === 1.5) assert.equal(error.message, 'parameter values[1]["count"]: Expected an integer');
       }
     }
     for (const key of ['count', 'maybeCount']) {
       for (const value of [Number.MIN_SAFE_INTEGER - 1, Number.MAX_SAFE_INTEGER + 1]) {
-        await failure(name, [[mixed(), { ...mixed(), [key]: value }]], RangeError, [`parameter values[1]["${key}"]`]);
+        const error = await failure(name, [[mixed(), { ...mixed(), [key]: value }]], RangeError, [`parameter values[1]["${key}"]`]);
+        assert.equal(error.message, `RangeError: parameter values[1]["${key}"]: Integer must be within the JavaScript safe integer range`);
       }
     }
   }
@@ -189,7 +194,11 @@ try {
     assert.equal(await invoke(name, null), null);
   }
   const special = [{ constructor: 'own', prototype: '\ud800', then: 'scalar', $value: -0 }];
-  for (const name of ['echoSpecial', 'echoSpecialAsync']) equalBatch(await invoke(name, special), special);
+  for (const name of ['echoSpecial', 'echoSpecialAsync']) {
+    equalBatch(await invoke(name, special), special);
+    const error = await failure(name, [[special[0], { ...special[0], $value: 'bad' }]], TypeError, ['parameter values[1]["$value"]']);
+    assert.equal(error.message, 'parameter values[1]["$value"]: Expected a number');
+  }
 
   // Dense own Array slots and fixed record fields; no getters or extra reflection.
   let getterCalls = 0;
@@ -307,8 +316,14 @@ try {
     output[0].name = 'mutated';
     equalRecord(output[1], user());
   }
-  for (const name of ['unsafeUsers', 'unsafeUsersAsync']) await failure(name, [], RangeError, ['result[2]["age"]']);
-  for (const name of ['unsafeMixed', 'unsafeMixedAsync']) await failure(name, [], RangeError, ['result[0]["count"]']);
+  for (const name of ['unsafeUsers', 'unsafeUsersAsync']) {
+    const error = await failure(name, [], RangeError, ['result[2]["age"]']);
+    assert.equal(error.message, 'RangeError: result[2]["age"]: Integer must be within the JavaScript safe integer range');
+  }
+  for (const name of ['unsafeMixed', 'unsafeMixedAsync']) {
+    const error = await failure(name, [], RangeError, ['result[0]["count"]']);
+    assert.equal(error.message, 'RangeError: result[0]["count"]: Integer must be within the JavaScript safe integer range');
+  }
   for (const name of ['invalidLengthUsers', 'invalidLengthUsersAsync']) {
     for (const length of [-1, 0x100000000]) {
       const before = invoke('invalidIndexReads');
