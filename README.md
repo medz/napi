@@ -279,7 +279,7 @@ returns the same bytes in multiple fields or rows. Nullable byte fields remain
 required; pass `null`, never `undefined`. Detached and out-of-bounds resizable
 views fail with a `TypeError` containing the field path. These copies do not
 make Proxy traps or concurrent shared-buffer writes an atomic transaction.
-Byte type aliases, `List<Uint8List>` and Map byte values remain unsupported.
+`List<Uint8List>` and Map byte values remain unsupported.
 
 ## Batches of data objects
 
