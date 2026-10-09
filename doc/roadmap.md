@@ -115,7 +115,7 @@ boundary and one packed artifact across the Node matrix; verify application
 results against Node's built-in CRC32 without a speedup claim or new core API.
 See the [0.11.0 requirements](requirements.md#0110-contract).
 
-## 0.12.0 — planned: build diagnostics and model reuse
+## 0.12.0 — released: build diagnostics and model reuse
 
 - [#70: Prepare the complete upgrade milestone](https://github.com/medz/napi/issues/70).
 - [#57: Reject non-directory output paths before compilation](https://github.com/medz/napi/issues/57).
@@ -133,12 +133,12 @@ with accurate TS declarations. See the [milestone contract](requirements.md#0120
 keeps light documentation checks separate from the complete source/runtime
 validation needed by these changes.
 
-The old output-path candidate was not published; its existing `v0.11.1` tag and
-frozen evidence are retained. This fix joins the complete 0.12.0 milestone.
-Publication remains pending release review, full CI and package validation;
-public consumer acceptance must pass before the GitHub Release is announced.
-Quota recovery does not trigger publication. The published baseline remains
-0.11.0 until the planned upload is independently confirmed.
+The output-path fix is included in 0.12.0. The unpublished `v0.11.1` tag and
+frozen evidence are retained. The public baseline is
+[0.12.0](https://pub.dev/packages/napi/versions/0.12.0), verified with a fresh
+ordinary-constraint consumer before the
+[GitHub Release](https://github.com/medz/napi/releases/tag/v0.12.0) was announced.
+Quota recovery does not trigger publication.
 
 ## Next — compiler compatibility and real applications
 
