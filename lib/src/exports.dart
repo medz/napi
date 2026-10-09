@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:analyzer/dart/analysis/analysis_context_collection.dart';
 import 'package:analyzer/dart/analysis/results.dart';
 import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/ast/visitor.dart';
@@ -8,7 +7,14 @@ import 'package:analyzer/dart/element/element.dart';
 import 'package:analyzer/dart/element/nullability_suffix.dart';
 import 'package:analyzer/dart/element/type.dart';
 import 'package:analyzer/error/error.dart';
+// The public factory omits declaredVariables; use the same SDK lookup as it.
+// ignore: implementation_imports
+import 'package:analyzer/src/dart/analysis/analysis_context_collection.dart';
+// ignore: implementation_imports
+import 'package:analyzer/src/util/sdk.dart';
 import 'package:path/path.dart' as path;
+
+import 'sdk.dart';
 
 enum ValueKind {
   voidType,
@@ -184,7 +190,13 @@ Future<List<Export>> readExports(String sourcePath) async {
     throw ExportError(absolutePath, 1, 1, 'Dart source file does not exist.');
   }
 
-  final contexts = AnalysisContextCollection(includedPaths: [absolutePath]);
+  final sdkPath = getSdkPath();
+  // The public analyzer factory cannot set the compiler's environment.
+  final contexts = AnalysisContextCollectionImpl(
+    includedPaths: [absolutePath],
+    sdkPath: sdkPath,
+    declaredVariables: wasmLibraryVariables(sdkPath),
+  );
   try {
     final session = contexts.contextFor(absolutePath).currentSession;
     final result = await session.getResolvedLibrary(absolutePath);

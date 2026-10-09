@@ -364,6 +364,12 @@ Invalid arguments throw `TypeError`; unsafe integers throw `RangeError`. Dart `A
 
 The export name `then` is reserved because dynamic ESM imports treat it as a promise callback; a scalar record field named `then` is allowed. Dart compiler helper names such as `$invokeMain` and `$wasmI16ArrayGet` are also reserved; other `$` names are allowed. Classes, generics, non-record type aliases, optional/named parameters, generators, streams, and callbacks are not supported. Future parameters, nullable Futures, `FutureOr`, nested Futures, and `async void` exports are also rejected. Ordinary Dart helpers and Wasm-compatible dependencies can be used inside exported functions.
 
+Conditional imports and exports are analyzed using the build SDK's Wasm library
+conditions, so signatures and compilation select the same branch. Use
+[`dart.library.js_interop`](https://dart.dev/interop/js-interop/package-web#conditional-imports)
+for modern Web implementations; the selected signatures must still use the
+supported types above.
+
 ## Status and platforms
 
 **napi is experimental and targets Node's native Wasm ESM integration.** [Node documents instance-phase Wasm imports](https://nodejs.org/api/esm.html#wasm-instance-phase-imports) as experimental. Synchronous CommonJS `require` is not supported.

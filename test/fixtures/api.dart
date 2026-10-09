@@ -2,6 +2,8 @@ import 'dart:typed_data';
 
 import 'package:napi/napi.dart';
 
+import 'conditional_profile/profile.dart';
+
 @napi
 bool identityBool(bool value) => value;
 
@@ -88,3 +90,6 @@ double countedAdd(double a, double b) {
   _counter++;
   return a + b;
 }
+
+@napi
+Profile conditionalProfile(Profile value) => echoProfile(value);

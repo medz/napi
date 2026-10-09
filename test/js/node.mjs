@@ -11,7 +11,7 @@ const publicNames = [
   'incrementFirst', 'nullableBool', 'nullableInt', 'nullableDouble', 'nullableString',
   'nullableBytes', 'oversizedInt', 'throwError', 'throwRange', 'throwArgument',
   'readFile', 'response', 'instantiate', '$napiReadFile', 'fetch', 'URL', 'Error',
-  'incrementCounter', 'counter', 'countedAdd',
+  'incrementCounter', 'counter', 'countedAdd', 'conditionalProfile',
 ];
 for (const name of publicNames) {
   assert.equal(typeof api[name], 'function', `${name} is a named function export`);
