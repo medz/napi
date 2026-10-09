@@ -1,3 +1,9 @@
+## 0.8.0
+
+- Add a complete request-summary application: ordinary Dart grouping/counting/safe-integer aggregation, a Node stdin NDJSON command, sample data and a strict TypeScript consumer.
+- Preserve exact operation names and UTF-16 sorting, independent results and readable failures with no partial summary output.
+- Build/pack/install the actual example once and verify native package/subpath/relative imports and the shipped CLI across the Node matrix. The exported value API and platform support remain unchanged.
+
 ## 0.7.0
 
 - Compose record field diagnostic paths only when conversion fails; preserve exact sync/Future errors, snapshots and independent ownership.

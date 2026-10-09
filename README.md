@@ -71,6 +71,21 @@ add(20, 22);
 
 Both package entries point to `module.wasm`. The generated package has no npm runtime dependencies. Keep `module.imports.mjs` beside the Wasm file: the Wasm module imports these compiler and value-conversion helpers automatically.
 
+## Complete application example
+
+The [request-summary application](example/requests/README.md) reads NDJSON on
+stdin, groups requests and checks safe totals in Dart, then prints one JSON
+array from Node. It includes a dataset, typed consumer and exact expected output.
+
+```sh
+dart pub get
+dart run napi:build example/requests/summary.dart --name @napi/requests --out example/requests/dist
+node example/requests/main.mjs < example/requests/input.ndjson
+```
+
+The Node command directly imports `summarize` from `./dist/module.wasm`. The
+example uses the existing typed record/batch API and adds no runtime dependency.
+
 ## Async functions
 
 Return a Dart `Future<T>` to export a JavaScript `Promise<T>`. Both `async` functions and ordinary functions returning a Future are supported:
@@ -283,7 +298,7 @@ The export name `then` is reserved because dynamic ESM imports treat it as a pro
 
 ## Status and platforms
 
-**0.7.0 is experimental and targets Node's native Wasm ESM integration.** [Node documents instance-phase Wasm imports](https://nodejs.org/api/esm.html#wasm-instance-phase-imports) as experimental. Synchronous CommonJS `require` is not supported.
+**0.8.0 is experimental and targets Node's native Wasm ESM integration.** [Node documents instance-phase Wasm imports](https://nodejs.org/api/esm.html#wasm-instance-phase-imports) as experimental. Synchronous CommonJS `require` is not supported.
 
 The backend uses Dart's experimental Wasm interop and compiler-generated JavaScript helpers. It rewrites the Wasm import section so Node resolves the helpers, string constants, and built-in string operations through ESM; business logic remains Dart Wasm. It does not implement the Node-API C ABI or produce `.node` addons.
 
@@ -297,7 +312,7 @@ The build checks signatures before compiling, supports Dart workspaces, and refu
 
 ```sh
 dart pub get
-dart format bin lib test example benchmark
+dart format bin lib test example benchmark tool
 dart analyze --fatal-infos
 dart test
 dart pub publish --dry-run
@@ -305,8 +320,8 @@ dart pub publish --dry-run
 
 Integration tests build a real package and verify native functions through package, subpath, and relative Wasm imports. Set `NAPI_TSC` to TypeScript's `bin/tsc` to include the TypeScript consumer checks; CI supplies it. `test/js/browser.html` probes native browser loading without a fallback loader.
 
-CI compiles, packs and installs the five runtime fixtures once with `dart run tool/runtime_fixtures.dart`, then sets `NAPI_RUNTIME_FIXTURES` to that output for the full test suite and reuses the same artifacts on other Node versions. The tool requires a new or empty output directory. Rebuild fixtures after changing the generator or fixture source; this environment variable is for development tests, not consumer initialization.
+CI compiles, packs and installs the six runtime fixtures once with `dart run tool/runtime_fixtures.dart`, then sets `NAPI_RUNTIME_FIXTURES` to that output for the full test suite and reuses the same artifacts on other Node versions. The tool requires a new or empty output directory. Rebuild fixtures after changing the generator or fixture source; this environment variable is for development tests, not consumer initialization.
 
-See the [requirements](doc/requirements.md), [0.7.0 milestone](https://github.com/medz/napi/milestone/7), and [performance measurements](doc/performance.md).
+See the [requirements](doc/requirements.md), [0.8.0 milestone](https://github.com/medz/napi/milestone/8), and [performance measurements](doc/performance.md).
 
 MIT licensed. Generated host helpers include the Dart SDK's BSD license notice.

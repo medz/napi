@@ -45,41 +45,66 @@ Future<void> main(List<String> arguments) async {
   for (final fixture in [
     (
       name: 'integration',
-      source: 'api',
+      source: 'test/fixtures/api.dart',
       version: '0.1.0',
-      files: ['node.mjs', 'assertions.mjs', 'consumer.ts', 'relative.ts'],
+      files: [
+        'test/js/node.mjs',
+        'test/js/assertions.mjs',
+        'test/js/consumer.ts',
+        'test/js/relative.ts',
+      ],
     ),
     (
       name: 'async',
-      source: 'async',
+      source: 'test/fixtures/async.dart',
       version: '0.2.0',
-      files: ['async-node.mjs', 'async-consumer.ts', 'async-relative.ts'],
+      files: [
+        'test/js/async-node.mjs',
+        'test/js/async-consumer.ts',
+        'test/js/async-relative.ts',
+      ],
     ),
     (
       name: 'collections',
-      source: 'collections',
+      source: 'test/fixtures/collections.dart',
       version: '0.3.0',
       files: [
-        'collections-node.mjs',
-        'collections-consumer.ts',
-        'collections-relative.ts',
+        'test/js/collections-node.mjs',
+        'test/js/collections-consumer.ts',
+        'test/js/collections-relative.ts',
       ],
     ),
     (
       name: 'records',
-      source: 'records',
+      source: 'test/fixtures/records.dart',
       version: '0.5.0',
-      files: ['records-node.mjs', 'records-consumer.ts', 'records-relative.ts'],
+      files: [
+        'test/js/records-node.mjs',
+        'test/js/records-consumer.ts',
+        'test/js/records-relative.ts',
+      ],
     ),
     (
       name: 'batch',
-      source: 'batch',
+      source: 'test/fixtures/batch.dart',
       version: '0.6.0',
       files: [
-        'batch-node.mjs',
-        'batch-consumer.ts',
-        'batch-relative.ts',
-        'batch-bundler-consumer.ts',
+        'test/js/batch-node.mjs',
+        'test/js/batch-consumer.ts',
+        'test/js/batch-relative.ts',
+        'test/js/batch-bundler-consumer.ts',
+      ],
+    ),
+    (
+      name: 'requests',
+      source: 'example/requests/summary.dart',
+      version: '0.1.0',
+      files: [
+        'example/requests/main.mjs',
+        'example/requests/consumer.mts',
+        'example/requests/input.ndjson',
+        'test/js/requests-node.mjs',
+        'test/js/requests-consumer.ts',
       ],
     ),
   ]) {
@@ -89,7 +114,7 @@ Future<void> main(List<String> arguments) async {
     await run(Platform.resolvedExecutable, [
       'run',
       'napi:build',
-      'test/fixtures/${fixture.source}.dart',
+      fixture.source,
       '--name',
       '@napi/${fixture.name}',
       '--out',
@@ -129,8 +154,8 @@ Future<void> main(List<String> arguments) async {
     await output.delete(recursive: true);
     await Link(output.path).create(p.relative(installed, from: consumer.path));
     for (final filename in fixture.files) {
-      await File(p.join(root, 'test', 'js', filename))
-          .copy(p.join(consumer.path, filename));
+      await File(p.join(root, filename))
+          .copy(p.join(consumer.path, p.basename(filename)));
     }
     stdout.writeln('${fixture.name}: built, packed and installed');
   }
