@@ -7,11 +7,13 @@ Future<void> main(List<String> arguments) async {
   var runs = 3;
   var buildRuns = 1;
   var node = 'node';
+  var group = 'all';
   String? output;
   for (var i = 0; i < arguments.length; i++) {
     if (arguments[i] == '--help') {
       stdout.writeln('''Usage: dart run benchmark/run.dart [options]
   --node <path>          Node executable (default: node)
+  --group <name>         all, records, or batch (default: all)
   --iterations <count>   Small-input calls per sample (default: 20000)
   --warmup <count>       Small-input warmup calls (default: 2000)
   --runs <count>         Runtime and cold-import samples (default: 3)
@@ -29,6 +31,8 @@ Run from the napi repository root. No timing assertions are made.''');
     switch (option) {
       case '--node':
         node = value;
+      case '--group':
+        group = value;
       case '--out':
         output = value;
       case '--iterations':
@@ -42,6 +46,9 @@ Run from the napi repository root. No timing assertions are made.''');
       default:
         throw FormatException('Unknown option $option');
     }
+  }
+  if (!['all', 'records', 'batch'].contains(group)) {
+    throw FormatException('Unknown group $group; use all, records, or batch.');
   }
   if ([iterations, warmup, runs, buildRuns].any((v) => v < 1)) {
     throw const FormatException('Counts must be positive integers.');
@@ -68,11 +75,12 @@ Run from the napi repository root. No timing assertions are made.''');
       'os': Platform.operatingSystemVersion,
     },
     'configuration': {
+      'group': group,
       'iterations': iterations,
       'warmup': warmup,
       'runs': runs,
       'build_runs': buildRuns,
-      'dart_js_optimization': '-O2',
+      if (group == 'all') 'dart_js_optimization': '-O2',
       'cold_import': 'fresh Node process, filesystem caches uncontrolled',
       'build_cache':
           'no result reuse; existing SDK/pub/filesystem caches uncontrolled',
@@ -81,14 +89,13 @@ Run from the napi repository root. No timing assertions are made.''');
   final work = await Directory.systemTemp.createTemp('napi-benchmark-');
   try {
     final builds = <Map<String, Object?>>[];
-    for (final fixture in [
+    final fixtures = [
       'minimal',
-      'minimal_async',
-      'api',
-      'collections',
+      if (group == 'all') ...['minimal_async', 'api', 'collections'],
       'records',
-      'batch',
-    ]) {
+      if (group != 'records') 'batch',
+    ];
+    for (final fixture in fixtures) {
       final directory = Directory('${work.path}/$fixture');
       final times = <double>[];
       for (var run = 0; run < buildRuns; run++) {
@@ -155,45 +162,56 @@ Run from the napi repository root. No timing assertions are made.''');
         'npm_tgz_bytes': pack['size'],
         'npm_unpacked_bytes': pack['unpackedSize'],
         'cold_import_ms': _summary(coldImport),
+        'first_call': fixture == 'api'
+            ? 'add(1.5, 2.5)'
+            : 'answer() smoke call; conversion cases are measured in runtime',
         'first_call_ms': _summary(firstCall),
       });
     }
     report['wasm_builds'] = builds;
-    stderr.writeln('Compiling the Dart JavaScript comparison (-O2)...');
     final jsFile = File('${work.path}/dart.mjs');
-    final jsTimes = <double>[];
-    for (var run = 0; run < buildRuns; run++) {
-      final timer = Stopwatch()..start();
-      await _run(Platform.resolvedExecutable, [
-        'compile',
-        'js',
-        '-O2',
-        '--no-source-maps',
-        'benchmark/fixtures/javascript.dart',
-        '-o',
-        jsFile.path,
-      ]);
-      jsTimes.add(timer.elapsedMicroseconds / 1000);
+    if (group == 'all') {
+      stderr.writeln('Compiling the Dart JavaScript comparison (-O2)...');
+      final jsTimes = <double>[];
+      for (var run = 0; run < buildRuns; run++) {
+        final timer = Stopwatch()..start();
+        await _run(Platform.resolvedExecutable, [
+          'compile',
+          'js',
+          '-O2',
+          '--no-source-maps',
+          'benchmark/fixtures/javascript.dart',
+          '-o',
+          jsFile.path,
+        ]);
+        jsTimes.add(timer.elapsedMicroseconds / 1000);
+      }
+      report['dart_js_build'] = {
+        'build_ms': _summary(jsTimes),
+        'file_bytes': await jsFile.length(),
+        'gzip_bytes': gzip.encode(await jsFile.readAsBytes()).length,
+      };
     }
-    report['dart_js_build'] = {
-      'build_ms': _summary(jsTimes),
-      'file_bytes': await jsFile.length(),
-      'gzip_bytes': gzip.encode(await jsFile.readAsBytes()).length,
-    };
-    stderr.writeln('Measuring warmed calls, conversions, and errors...');
+    stderr.writeln('Measuring warmed calls and conversions...');
     final measured = await _run(node, [
       '--expose-gc',
       'benchmark/measure.mjs',
-      '--wasm',
-      File('${work.path}/api/module.wasm').uri.toString(),
-      '--dart-js',
-      jsFile.uri.toString(),
-      '--collections',
-      File('${work.path}/collections/module.wasm').uri.toString(),
+      '--group',
+      group,
+      if (group == 'all') ...[
+        '--wasm',
+        File('${work.path}/api/module.wasm').uri.toString(),
+        '--dart-js',
+        jsFile.uri.toString(),
+        '--collections',
+        File('${work.path}/collections/module.wasm').uri.toString(),
+      ],
       '--records',
       File('${work.path}/records/module.wasm').uri.toString(),
-      '--batch',
-      File('${work.path}/batch/module.wasm').uri.toString(),
+      if (group != 'records') ...[
+        '--batch',
+        File('${work.path}/batch/module.wasm').uri.toString(),
+      ],
       '--iterations',
       '$iterations',
       '--warmup',

@@ -130,6 +130,39 @@ void main() {
     },
   );
 
+  test('record field paths are composed only when conversion fails', () {
+    const record = ValueType(ValueKind.recordType, recordFields: fields);
+    final source = generateBridge([
+      const Export(
+        name: 'record',
+        parameters: [Parameter(name: 'value', type: record)],
+        returnType: record,
+      ),
+    ], 'file:///business.dart');
+    final conversions = source.substring(source.indexOf('final _recordNames0'));
+    expect(conversions, isNot(contains('context +')));
+    for (final field in fields) {
+      expect(
+        conversions,
+        contains('${field.type.nullable}, context, "[\\"${field.name}\\"]")'),
+      );
+    }
+    for (final signature in [
+      'T _readRecordField<T>(',
+      'void _writeRecordField(',
+    ]) {
+      final start = source.indexOf(signature);
+      final end = source.indexOf('\n}', start);
+      final helper = source.substring(start, end);
+      final catchStart = helper.indexOf('} catch (error) {');
+      expect(helper.substring(0, catchStart), isNot(contains('context +')));
+      expect(
+        helper.substring(catchStart),
+        contains('_conversionError(error, context + suffix);'),
+      );
+    }
+  });
+
   test('record dollar fields are literal keys and static Dart accesses', () {
     const record = ValueType(
       ValueKind.recordType,
@@ -148,7 +181,7 @@ void main() {
     ], 'file:///business.dart');
     expect(source, contains(r'"\$value".toJS'));
     expect(source, contains(r'value.$value, 2, false'));
-    expect(source, contains(r'context + "[\"\$value\"]"'));
+    expect(source, contains(r'context, "[\"\$value\"]"'));
     expect(source, contains('value.constructor, 4, false'));
     expect(source, contains('value.then, 1, false'));
   });

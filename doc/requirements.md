@@ -74,6 +74,14 @@ The project name is `napi`; the primary backend is Wasm ESM integration, not the
 - Build/pack/install a fifth batch fixture once, reuse it across the Node matrix, and run real external-Wasm batch bundles plus strict TS and negative consumers. Preserve all existing suites, output safety and scalar-only helper footprint.
 - Measure 0/1/16/256/4096-record conversions, representative widths, normalization and aggregation against single-record calls and a JS reference. Include per-record allocation/copy costs, raw samples and variance; publication requires normal final-head review/CI, exact-SHA merge and a fresh hosted consumer. Platform support remains unchanged.
 
+## 0.7.0 contract
+
+- Compose a record field error suffix only on conversion failure. Preserve exact parameter/result/index/field paths and error categories for sync/Future calls, including unsafe integers and escaped field names.
+- Preserve all 0.6 value types, complete snapshots, independent ownership, native exports and declarations. Add no runtime dependency, host API or wrapper layer; retain scalar-only helper isolation.
+- Provide `records`, `batch` and default `all` benchmark groups. Focused groups build and preflight only their required fixtures; batch single-record controls must still validate the scalar record implementation.
+- Compare frozen before/after native artifacts using the same harness, inputs and counts in both run orders. Retain all samples, controls, variance, artifact hashes and size observations. Claim only demonstrated improvements; correctness CI has no timing threshold.
+- Require the full regression/runtime/TypeScript/bundle matrix, retained-memory controls, final-head Codex review and CI, exact-SHA merge and independent hosted-consumer verification before publication is considered complete. Platform support remains unchanged.
+
 ## Iteration priorities
 
 After publishing the first complete workflow, prioritize Future-to-Promise support, useful typed data structures, clear diagnostics, compiler/runtime compatibility, reproducible performance and size measurements, and real applications. Define consumer syntax, type and ownership rules, and acceptance cases before implementing each addition.

@@ -158,7 +158,7 @@ Future<void> _build(List<String> arguments) async {
       },
       'files': assets,
       'engines': {'node': '^22.19.0 || >=24.5.0'},
-      'napi': {'generator': 'napi', 'version': '0.6.0'},
+      'napi': {'generator': 'napi', 'version': '0.7.0'},
     };
     await File(p.join(work.path, 'package.json')).writeAsString(
       '${const JsonEncoder.withIndent('  ').convert(manifest)}\n',

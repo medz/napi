@@ -43,7 +43,7 @@ nullable records and Future completions, call-time snapshots, independent output
 objects, imported public type aliases, precise TypeScript consumers, and measured
 conversion/size costs. See the [0.5.0 requirements](requirements.md#050-contract).
 
-## 0.6.0 — batch data objects
+## 0.6.0 — released: batch data objects
 
 - [#41: Lists of named records](https://github.com/medz/napi/issues/41).
 
@@ -51,6 +51,15 @@ Acceptance covers ordered heterogeneous batches with independent nullability,
 complete call-time snapshots, independent result objects, accurate public types,
 index/field diagnostics, real native imports and external-Wasm bundles, and
 measured normalization/aggregation costs. See the [0.6.0 requirements](requirements.md#060-contract).
+
+## 0.7.0 — measured record conversion
+
+- [#43: Reduce measured record conversion costs and focus benchmark runs](https://github.com/medz/napi/issues/43).
+
+Acceptance preserves the complete value/error/ownership contract, measures the
+same compiled fixtures before and after a minimal change in both run orders,
+and retains raw samples, JS controls and size observations. See the
+[0.7.0 requirements](requirements.md#070-contract) and [measurements](performance.md#record-conversion-optimization-070).
 
 ## Next — compiler compatibility and real applications
 

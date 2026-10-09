@@ -8,7 +8,24 @@ dart run benchmark/run.dart --out benchmark/results.json
 ```
 
 Defaults: one build per fixture, three runtime/import samples, 20,000 small sync
-calls, and 2,000 warmup calls. The recorded **0.3.0** run used five samples:
+calls, and 2,000 warmup calls.
+
+For focused investigations, `--group records` builds only `minimal` and
+`records` and measures six record cases. `--group batch` also builds `batch`
+and measures 37 cases, including single-record loop controls. Both groups skip
+unrelated fixtures and Dart JavaScript compilation. Default `--group all`
+retains the full 98-case suite.
+
+```sh
+dart run benchmark/run.dart --group records --runs 7 --out benchmark/results.json
+dart run benchmark/run.dart --group batch --iterations 2000 --warmup 500 --runs 5 --out benchmark/results.json
+```
+
+Each selected fixture still receives a fresh-process native import and cold
+smoke call: `answer()` for focused groups, or `add(1.5, 2.5)` for the full suite's
+`api` fixture. This first call does not measure record conversion.
+
+The recorded **0.3.0** full-suite run used five samples:
 
 ```sh
 dart run benchmark/run.dart --runs 5 --out benchmark/baseline.json
@@ -218,6 +235,63 @@ The cold first call measures `answer()`, not DTO conversion. The scalar-only
 fixture remains 17,295 Wasm / 16,703 host bytes with no collection or record
 helpers. Fixtures export different functions, so their sizes cannot isolate
 one record or one List layer.
+
+## Record conversion optimization (0.7.0)
+
+[`benchmark/conversion-baseline.json`](../benchmark/conversion-baseline.json)
+retains eight raw reports, artifact hashes, build observations and the comparison
+method. Before artifacts use commit `08337d2962bc550bae95cbad123676119b353aa8`
+(0.6.0); after artifacts use the recorded candidate bridge hash. Both were
+compiled once with Dart 3.13.5 and reused with the same measurement script on
+Node 22.19.0 / V8 12.4.254.21-node.29, Apple M3 Max, macOS 27.0.1, npm 11.12.1.
+Paired artifact manifests still contain generator version 0.6.0; only the bridge
+changes. Declarations and npm metadata are byte-identical between phases.
+
+The bridge passes each static field suffix separately and composes its full
+diagnostic path on conversion failure. Successful calls retain per-record and
+list-index contexts, descriptor validation and ownership copies. The compiler
+already folds constant paths for direct record calls; this change does not
+remove every conversion allocation.
+
+The first round runs before then after; the second reverses that order. Record
+sync cases use 20,000 calls and 2,000 warmups; Future cases use 2,000 and 200,
+with seven samples each. Batch base sync counts are 2,000 calls and 500 warmups;
+Future base counts are 200 and 50, with five samples each. Large inputs use the
+scaled counts retained in each row. Native artifacts are imported directly,
+with no concurrent heavy work. JS controls, inputs, counts, preflight and result
+consumption are identical between phases. To reproduce, build the same benchmark fixtures in the base
+and candidate checkouts, then run the recorded `benchmark/measure.mjs` command
+against both artifact file URIs in both orders.
+
+Selected medians in **microseconds per completed batch or loop**:
+
+| Case / round | Before Wasm | After Wasm | Change | Before JS | After JS |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| normalize / 256 / forward | 421.724 | 409.832 | −2.82% | 145.310 | 145.167 |
+| normalize / 256 / reverse | 421.478 | 409.702 | −2.79% | 147.793 | 148.515 |
+| single-record normalize loop / 256 / forward | 323.707 | 310.068 | −4.21% | 135.905 | 136.122 |
+| single-record normalize loop / 256 / reverse | 326.245 | 309.256 | −5.21% | 137.798 | 138.604 |
+
+Those four Wasm sample ranges do not overlap their corresponding before ranges;
+the JSON retains every minimum, maximum and spread. Across 37 batch cases,
+29 improve in both rounds, five regress nominally in both and three change
+direction. Most ranges overlap. Four of the five nominal regressions are empty
+batches, which do no field conversion; the remaining one-row Future echo also
+has overlapping ranges. All six direct-record ranges overlap in the reverse
+round, so there is **no stable direct-record speedup claim**. These are modest
+batch improvements in one environment, not application performance guarantees.
+
+The unchanged record fixture shrinks from 45,826 to 45,416 Wasm bytes and from
+28,950 to 27,840 host bytes: 1,520 bytes combined. Its generated host has changed
+compiler string constants, with no new host API. The batch fixture shrinks from
+47,589 to 47,546 Wasm bytes; host size remains 29,877 bytes. Each declaration
+remains 845 and 979 bytes respectively. The scalar-only fixture remains
+17,295 Wasm / 16,703 host bytes, with no collection or record helpers.
+Packing those same five-file artifacts gives record archives of 22,638 → 22,507
+bytes and batch archives of 23,719 → 23,781 bytes. Compressed batch size increases
+by 62 bytes despite the smaller raw Wasm; archive contents were checked against
+all compiled files. Single build observations do not establish build-time
+improvements. This paired run makes no cold-import improvement claim.
 
 ## Scope and interpretation
 
