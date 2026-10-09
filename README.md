@@ -214,7 +214,9 @@ path, for example `parameter user["age"]`.
 
 Positional, mixed, empty and nested records, generic aliases, collection/byte
 fields, Map record values and class wrappers are unsupported. Scalar,
-collection, and Future aliases remain unsupported. Type aliases with conflicting
+collection, and Future aliases remain unsupported. The record alias `readonly`
+is rejected before compilation because TypeScript parses it as an operator;
+`ReadonlyArray` remains a valid alias. Type aliases with conflicting
 public names or names that shadow generated TypeScript built-ins fail before
 compilation. Dart itself prohibits private and Object-member record field names;
 use Maps for arbitrary keys such as `__proto__`.
@@ -299,7 +301,7 @@ Annotate public top-level functions in the entry library. Use explicit return ty
 | `double` | `number` | Preserves NaN, Infinity, and negative zero |
 | `String` | `string` | Preserves UTF-16 code units |
 | `Uint8List` | `Uint8Array` | Copies in and out; Node `Buffer` and cross-realm arrays accepted |
-| `List<T>` | `T[]` | Scalars or flat named records; independent input/output Arrays and record objects |
+| `List<T>` | `readonly T[]` → `T[]` | Scalars or flat named records; independent input/output Arrays and record objects |
 | `Map<String,T>` | `Record<string,T>` | Flat scalar values; output has a null prototype |
 | Named record / record typedef | Object shape / exported type | Required flat scalar fields; independent null-prototype output |
 | `T?` | `T \| null` | Accepts `null`; rejects `undefined` |

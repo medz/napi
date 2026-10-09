@@ -2,6 +2,7 @@
 
 - Generate readonly array parameters for scalar Lists and record batches, including nullable containers and elements. Mutable arrays, frozen arrays and `as const` tuples share the existing snapshot semantics.
 - Preserve mutable result arrays and Future completion values, public record aliases and precise errors. Keep the valid `ReadonlyArray` record alias without introducing a conflicting global type.
+- Reject the record alias `readonly` with a source diagnostic before compilation; TypeScript interprets that name as an operator and previously generated unusable declarations. Functions and parameters named `readonly` remain supported.
 - Demonstrate readonly inputs in the request-summary consumer and verify real frozen inputs, independent mutable outputs and strict native-import declarations across the Node matrix.
 
 ## 0.8.0

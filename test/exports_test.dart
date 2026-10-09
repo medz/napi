@@ -606,6 +606,7 @@ second.User echo(first.User value) => value;
     'symbol',
     'object',
     'undefined',
+    'readonly',
     'Promise',
     'Array',
     'Record',
@@ -630,6 +631,43 @@ $name echo($name value) => value;
       );
     });
   }
+
+  for (final signature in [
+    'List<readonly> echo(List<readonly> values) => values;',
+    'Future<List<readonly?>?> echo(List<readonly?>? values) async => values;',
+  ]) {
+    test('rejects readonly record aliases in $signature', () async {
+      await expectLater(
+        analyze('''
+import 'package:napi/napi.dart';
+typedef readonly = ({int count});
+@napi
+$signature
+'''),
+        throwsA(
+          isA<ExportError>()
+              .having((error) => error.line, 'line', 4)
+              .having(
+                (error) => error.message,
+                'message',
+                '"readonly" is a reserved or invalid TypeScript record alias name.',
+              ),
+        ),
+      );
+    });
+  }
+
+  test('readonly remains a valid function and parameter name', () async {
+    final exports = await analyze('''
+import 'package:napi/napi.dart';
+@napi
+int readonly(int readonly) => readonly;
+''');
+    expect(
+      generateTypescript(exports),
+      'export declare function readonly(readonly: number): number;\n',
+    );
+  });
 
   for (final entry in {
     'positional': '(int, String)',

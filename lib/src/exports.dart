@@ -141,6 +141,7 @@ const _reservedTypeNames = {
   'void',
   'object',
   'undefined',
+  'readonly',
   'Promise',
   'Array',
   'Record',

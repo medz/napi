@@ -94,7 +94,7 @@ The project name is `napi`; the primary backend is Wasm ESM integration, not the
 
 - Render List parameters as readonly TypeScript arrays so mutable arrays, readonly arrays, frozen arrays and `as const` tuples are accepted. Preserve scalar/record types, required fields, public alias identity and independent element/container nullability; wrong element types and unsupported values remain rejected.
 - Keep result arrays mutable in synchronous and Future completion declarations. Readonly input declarations describe the caller's array; Dart still receives its own normal mutable List snapshot and outputs retain independent ownership.
-- Use array keyword syntax without a new global constructor or reserved-name restriction. A public named-record alias called `ReadonlyArray` must compile, run and retain accurate parameter/result types.
+- Use array keyword syntax without a new global constructor. A public named-record alias called `ReadonlyArray` must compile, run and retain accurate parameter/result types. Reject the invalid TypeScript record alias `readonly` with a source diagnostic before compilation, while preserving valid function and parameter names.
 - Demonstrate the corrected API in the request-summary TypeScript consumer. Verify strict npm root/subpath and relative Wasm imports in NodeNext/Bundler, plus real frozen scalar and record inputs, unchanged callers and independently mutable outputs across all four Nodes using reused fixtures.
 - Preserve existing value/error/platform/SDK constraints, regressions and external-Wasm bundle checks. Add no runtime conversion branch, loader, framework or dependency; release requires final-head review/CI, exact-SHA merge and a fresh hosted consumer with artifact/source verification.
 
