@@ -25,7 +25,7 @@ Future completion types, strict own-data property validation, independent
 ownership, precise declarations, real Node consumers, and measured conversion
 and package-size costs. See the [0.3.0 requirements](requirements.md#030-contract).
 
-## 0.4.0 — verified runtime consumers
+## 0.4.0 — released: verified runtime consumers
 
 - [#28: Broader tested compiler/runtime support](https://github.com/medz/napi/issues/28).
 
@@ -33,6 +33,15 @@ Acceptance covers the scalar, Future and collection workflows on Node 22.19.0,
 24.5.0, 24.21.0 and 26.11.1, accurate declarations, one compilation per fixture,
 and a real esbuild Node application bundle with external Wasm. The browser
 instance-phase probe remains a documented limitation. See [tested platforms](platforms.md).
+
+## 0.5.0 — typed data objects
+
+- [#39: Named records and exported record typedefs](https://github.com/medz/napi/issues/39).
+
+Acceptance covers required mixed scalar fields, own-data descriptor validation,
+nullable records and Future completions, call-time snapshots, independent output
+objects, imported public type aliases, precise TypeScript consumers, and measured
+conversion/size costs. See the [0.5.0 requirements](requirements.md#050-contract).
 
 ## Next — compiler compatibility and real applications
 

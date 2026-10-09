@@ -1,0 +1,380 @@
+{
+  "schema": 1,
+  "napi_version": "0.5.0",
+  "recorded_at": "2026-10-09T03:38:07.630290Z",
+  "environment": {
+    "dart": "Dart SDK version: 3.13.5 (stable) (Tue Sep 29 01:00:52 2026 -0700) on \"macos_arm64\"",
+    "node": "v22.19.0",
+    "npm": "11.12.1",
+    "os": "Version 27.0.1 (Build 26A434)",
+    "dart_executable": "/Users/seven/workspace/flutter/bin/cache/dart-sdk/bin/dart",
+    "node_executable": "/Users/seven/Documents/Codex/2026-10-08/yan/work/node22/node_modules/.bin/node"
+  },
+  "configuration": {
+    "iterations": 20000,
+    "warmup": 2000,
+    "runs": 5,
+    "build_runs": 1,
+    "dart_js_optimization": "-O2",
+    "cold_import": "fresh Node process, filesystem caches uncontrolled",
+    "build_cache": "no result reuse; existing SDK/pub/filesystem caches uncontrolled"
+  },
+  "wasm_builds": [
+    {
+      "fixture": "minimal",
+      "build_ms": {
+        "samples": [
+          2543.263
+        ],
+        "median": 2543.263,
+        "min": 2543.263,
+        "max": 2543.263,
+        "spread_percent": 0.0
+      },
+      "files_bytes": {
+        "module.wasm": 17295,
+        "module.imports.mjs": 16703,
+        "index.d.ts": 42,
+        "module.d.wasm.ts": 42,
+        "package.json": 528
+      },
+      "collection_host_helpers": [],
+      "npm_tgz_bytes": 9649,
+      "npm_unpacked_bytes": 34610,
+      "cold_import_ms": {
+        "samples": [
+          2.287457999999999,
+          2.9195829999999976,
+          2.131874999999999,
+          2.251584000000001,
+          2.63875
+        ],
+        "median": 2.287457999999999,
+        "min": 2.131874999999999,
+        "max": 2.9195829999999976,
+        "spread_percent": 34.435954671080246
+      },
+      "first_call_ms": {
+        "samples": [
+          0.06695900000000066,
+          0.13104200000000077,
+          0.06579200000000007,
+          0.061332999999999416,
+          0.07870800000000067
+        ],
+        "median": 0.06695900000000066,
+        "min": 0.061332999999999416,
+        "max": 0.13104200000000077,
+        "spread_percent": 104.10699084514505
+      }
+    },
+    {
+      "fixture": "records",
+      "build_ms": {
+        "samples": [
+          2655.887
+        ],
+        "median": 2655.887,
+        "min": 2655.887,
+        "max": 2655.887,
+        "spread_percent": 0.0
+      },
+      "files_bytes": {
+        "module.wasm": 45826,
+        "module.imports.mjs": 28944,
+        "index.d.ts": 845,
+        "module.d.wasm.ts": 845,
+        "package.json": 528
+      },
+      "collection_host_helpers": [
+        "newMap",
+        "arrayGet",
+        "mapSet",
+        "snapshotRecord"
+      ],
+      "npm_tgz_bytes": 22627,
+      "npm_unpacked_bytes": 76988,
+      "cold_import_ms": {
+        "samples": [
+          2.830584,
+          2.8385419999999986,
+          2.9422500000000014,
+          2.853416000000001,
+          2.9315420000000003
+        ],
+        "median": 2.853416000000001,
+        "min": 2.830584,
+        "max": 2.9422500000000014,
+        "spread_percent": 3.9134146580800464
+      },
+      "first_call_ms": {
+        "samples": [
+          0.054957999999999174,
+          0.047708000000000084,
+          0.06104099999999946,
+          0.049374999999997726,
+          0.055916999999999106
+        ],
+        "median": 0.054957999999999174,
+        "min": 0.047708000000000084,
+        "max": 0.06104099999999946,
+        "spread_percent": 24.260344262890886
+      }
+    }
+  ],
+  "runtime": {
+    "environment": {
+      "node": "v22.19.0",
+      "v8": "12.4.254.21-node.29",
+      "os": "darwin 27.0.0",
+      "arch": "arm64",
+      "cpu": "Apple M3 Max"
+    },
+    "ownership_preflight": "scalar/bytes: all three implementations; collections/records: Wasm and JavaScript sync independence and async input snapshots",
+    "dart_js_errors": "omitted: hand-written dart:js_interop entry is not napi error mapping",
+    "notes": "loop, dispatch, result consumption, validation and ownership copies are included; no concurrent Promise batching",
+    "sink": 1291024568,
+    "cases": [
+      {
+        "case": "record/echo/1",
+        "input": {
+          "fields": 1,
+          "ownership_copies": 2,
+          "validation": "fixed own data descriptors",
+          "scalars": "int"
+        },
+        "iterations": 20000,
+        "warmup": 2000,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              421.71664999999905,
+              365.02704999999764,
+              331.92499999999825,
+              335.1270999999997,
+              337.64790000000175
+            ],
+            "median": 337.64790000000175,
+            "min": 331.92499999999825,
+            "max": 421.71664999999905,
+            "spread_percent": 26.59327956726529
+          },
+          "javascript": {
+            "samples": [
+              230.94164999999975,
+              163.0646000000013,
+              165.20000000000152,
+              156.3583499999993,
+              158.80829999999833
+            ],
+            "median": 163.0646000000013,
+            "min": 156.3583499999993,
+            "max": 230.94164999999975,
+            "spread_percent": 45.73849872995112
+          }
+        }
+      },
+      {
+        "case": "async/record/echo/1",
+        "input": {
+          "fields": 1,
+          "ownership_copies": 2,
+          "validation": "fixed own data descriptors",
+          "scalars": "int"
+        },
+        "iterations": 2000,
+        "warmup": 200,
+        "completion": "sequential await per fulfilled/rejected call",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              2000.2500000000225,
+              1440.8960000000093,
+              1276.7080000000135,
+              1207.0830000000115,
+              1217.3540000000003
+            ],
+            "median": 1276.7080000000135,
+            "min": 1207.0830000000115,
+            "max": 2000.2500000000225,
+            "spread_percent": 62.12595205794924
+          },
+          "javascript": {
+            "samples": [
+              452.3539999999855,
+              487.0625000000075,
+              449.52100000000434,
+              475.9999999999991,
+              414.5625000000166
+            ],
+            "median": 452.3539999999855,
+            "min": 414.5625000000166,
+            "max": 487.0625000000075,
+            "spread_percent": 16.027270677388337
+          }
+        }
+      },
+      {
+        "case": "record/echo/4",
+        "input": {
+          "fields": 4,
+          "ownership_copies": 2,
+          "validation": "fixed own data descriptors",
+          "scalars": "bool/int/String/double"
+        },
+        "iterations": 20000,
+        "warmup": 2000,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              1284.5228999999988,
+              1221.41455,
+              1221.0292000000009,
+              1180.6270500000012,
+              1219.674999999998
+            ],
+            "median": 1221.0292000000009,
+            "min": 1180.6270500000012,
+            "max": 1284.5228999999988,
+            "spread_percent": 8.508875135827836
+          },
+          "javascript": {
+            "samples": [
+              561.9875000000008,
+              567.5833499999982,
+              559.760399999999,
+              562.3354000000006,
+              561.3583000000006
+            ],
+            "median": 561.9875000000008,
+            "min": 559.760399999999,
+            "max": 567.5833499999982,
+            "spread_percent": 1.3920149469515222
+          }
+        }
+      },
+      {
+        "case": "async/record/echo/4",
+        "input": {
+          "fields": 4,
+          "ownership_copies": 2,
+          "validation": "fixed own data descriptors",
+          "scalars": "bool/int/String/double"
+        },
+        "iterations": 2000,
+        "warmup": 200,
+        "completion": "sequential await per fulfilled/rejected call",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              2157.4999999999704,
+              2164.9584999999547,
+              2183.5209999999847,
+              2157.9794999999535,
+              2405.64599999999
+            ],
+            "median": 2164.9584999999547,
+            "min": 2157.4999999999704,
+            "max": 2405.64599999999,
+            "spread_percent": 11.461928715955754
+          },
+          "javascript": {
+            "samples": [
+              904.0835000000129,
+              951.2710000000197,
+              951.5414999999621,
+              957.7290000000289,
+              873.5209999999825
+            ],
+            "median": 951.2710000000197,
+            "min": 873.5209999999825,
+            "max": 957.7290000000289,
+            "spread_percent": 8.85215674608442
+          }
+        }
+      },
+      {
+        "case": "record/echo/16",
+        "input": {
+          "fields": 16,
+          "ownership_copies": 2,
+          "validation": "fixed own data descriptors",
+          "scalars": "bool/int/String/double"
+        },
+        "iterations": 20000,
+        "warmup": 2000,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              4756.766649999997,
+              4770.512500000001,
+              4714.831249999997,
+              4778.391650000003,
+              4736.702100000002
+            ],
+            "median": 4756.766649999997,
+            "min": 4714.831249999997,
+            "max": 4778.391650000003,
+            "spread_percent": 1.3362101754561746
+          },
+          "javascript": {
+            "samples": [
+              2245.0770999999972,
+              2204.6479000000036,
+              2200.0770999999986,
+              2191.9375000000005,
+              2229.5395999999982
+            ],
+            "median": 2204.6479000000036,
+            "min": 2191.9375000000005,
+            "max": 2245.0770999999972,
+            "spread_percent": 2.410344073536491
+          }
+        }
+      },
+      {
+        "case": "async/record/echo/16",
+        "input": {
+          "fields": 16,
+          "ownership_copies": 2,
+          "validation": "fixed own data descriptors",
+          "scalars": "bool/int/String/double"
+        },
+        "iterations": 2000,
+        "warmup": 200,
+        "completion": "sequential await per fulfilled/rejected call",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              5922.125000000051,
+              5875.72949999992,
+              5644.083000000023,
+              5810.500000000047,
+              5667.291999999975
+            ],
+            "median": 5810.500000000047,
+            "min": 5644.083000000023,
+            "max": 5922.125000000051,
+            "spread_percent": 4.78516478788444
+          },
+          "javascript": {
+            "samples": [
+              2516.208000000006,
+              2498.9164999999502,
+              2561.354000000051,
+              2549.50000000008,
+              2515.2289999999766
+            ],
+            "median": 2516.208000000006,
+            "min": 2498.9164999999502,
+            "max": 2561.354000000051,
+            "spread_percent": 2.4814125064422656
+          }
+        }
+      }
+    ]
+  }
+}

@@ -83,7 +83,13 @@ Run from the napi repository root. No timing assertions are made.''');
   final work = await Directory.systemTemp.createTemp('napi-benchmark-');
   try {
     final builds = <Map<String, Object?>>[];
-    for (final fixture in ['minimal', 'minimal_async', 'api', 'collections']) {
+    for (final fixture in [
+      'minimal',
+      'minimal_async',
+      'api',
+      'collections',
+      'records',
+    ]) {
       final directory = Directory('${work.path}/$fixture');
       final times = <double>[];
       for (var run = 0; run < buildRuns; run++) {
@@ -116,7 +122,9 @@ Run from the napi repository root. No timing assertions are made.''');
         r'^napi\.(\w+)\s*=',
         multiLine: true,
       ).allMatches(host).map((match) => match.group(1)!).toList();
-      if (fixture != 'collections' && collectionHelpers.isNotEmpty) {
+      if (fixture != 'collections' &&
+          fixture != 'records' &&
+          collectionHelpers.isNotEmpty) {
         throw StateError('Unexpected collection helpers in $fixture');
       }
       final packed = await _run(
@@ -182,6 +190,8 @@ Run from the napi repository root. No timing assertions are made.''');
       jsFile.uri.toString(),
       '--collections',
       File('${work.path}/collections/module.wasm').uri.toString(),
+      '--records',
+      File('${work.path}/records/module.wasm').uri.toString(),
       '--iterations',
       '$iterations',
       '--warmup',

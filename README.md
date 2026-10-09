@@ -140,8 +140,62 @@ Proxy reflection traps still execute as ordinary JavaScript operations; thrown
 exceptions follow the existing error policy.
 
 Nested collections, byte-array elements, non-String or nullable Map keys,
-raw List/Map types, and aliases in exported signatures are rejected before
-compilation. Arbitrary objects and class wrappers are outside this release.
+raw List/Map types, and collection aliases are rejected before compilation.
+
+## Data objects
+
+Use a named record for fields with different scalar types. A public non-generic
+typedef also becomes an exported TypeScript type:
+
+```dart
+typedef User = ({String name, int age, bool? active});
+
+@napi
+User normalize(User user) => (
+  name: user.name.trim(), age: user.age, active: user.active,
+);
+
+@napi
+Future<User?> normalizeLater(User? user) async =>
+    user == null ? null : normalize(user);
+```
+
+```ts
+import { normalize, normalizeLater } from './dist/module.wasm';
+import type { User } from './dist/module.wasm';
+
+const user: User = normalize({ name: ' Dart ', age: 20, active: null });
+const later: User | null = await normalizeLater(user);
+```
+
+See [example/users.dart](example/users.dart) for the complete Dart source.
+Inline record annotations produce inline object types; imported public aliases,
+non-generic alias chains, and nullable record typedef definitions retain their
+outer type names. Unused aliases are not exported. These are type-only exports,
+with no JavaScript constructor or runtime schema.
+
+Fields must be `bool`, `int`, `double`, or `String`, independently nullable.
+All declared fields are required: `active: null` is valid, but missing `active`
+or `active: undefined` is rejected. Inputs must be ordinary or null-prototype
+objects, including cross-realm objects. Declared fields must be own data
+properties; non-enumerable data fields are accepted, inherited fields and
+accessors are rejected without calling getters. Unknown properties are ignored
+without enumerating or reading them. TypeScript is structural and cannot express
+all these descriptor/prototype checks.
+
+Declared descriptors are snapshotted and all inputs validated before business
+code runs or a Promise returns. Outputs are fresh null-prototype objects with
+exactly the declared mutable data fields. Mutating input or output cannot change
+another snapshot. Proxy reflection traps still execute; the snapshot is not an
+atomic transaction across arbitrary traps. Conversion errors include the field
+path, for example `parameter user["age"]`.
+
+Positional, mixed, empty, nested, and generic records, collection/byte fields,
+record collection elements, and class wrappers are unsupported. Scalar,
+collection, and Future aliases remain unsupported. Type aliases with conflicting
+public names or names that shadow generated TypeScript built-ins fail before
+compilation. Dart itself prohibits private and Object-member record field names;
+use Maps for arbitrary keys such as `__proto__`.
 
 ## TypeScript
 
@@ -176,16 +230,17 @@ Annotate public top-level functions in the entry library. Use explicit return ty
 | `Uint8List` | `Uint8Array` | Copies in and out; Node `Buffer` and cross-realm arrays accepted |
 | `List<T>` | `T[]` | Flat scalar elements; independent input/output Arrays |
 | `Map<String,T>` | `Record<string,T>` | Flat scalar values; output has a null prototype |
+| Named record / record typedef | Object shape / exported type | Required flat scalar fields; independent null-prototype output |
 | `T?` | `T \| null` | Accepts `null`; rejects `undefined` |
 | `Future<T>` | `Promise<T>` | Return type only; completion uses the same value rules |
 
 Invalid arguments throw `TypeError`; unsafe integers throw `RangeError`. Dart `ArgumentError` and `TypeError` become JavaScript `TypeError`, Dart `RangeError` becomes JavaScript `RangeError`, and other Dart exceptions become JavaScript `Error` with a readable message.
 
-The export name `then` is reserved because dynamic ESM imports treat it as a promise callback. Dart compiler helper names such as `$invokeMain` and `$wasmI16ArrayGet` are also reserved; other `$` names are allowed. Classes, generics, type aliases in exported signatures, optional/named parameters, generators, streams, and callbacks are not supported. Future parameters, nullable Futures, `FutureOr`, nested Futures, and `async void` exports are also rejected. Ordinary Dart helpers and Wasm-compatible dependencies can be used inside exported functions.
+The export name `then` is reserved because dynamic ESM imports treat it as a promise callback; a scalar record field named `then` is allowed. Dart compiler helper names such as `$invokeMain` and `$wasmI16ArrayGet` are also reserved; other `$` names are allowed. Classes, generics, non-record type aliases, optional/named parameters, generators, streams, and callbacks are not supported. Future parameters, nullable Futures, `FutureOr`, nested Futures, and `async void` exports are also rejected. Ordinary Dart helpers and Wasm-compatible dependencies can be used inside exported functions.
 
 ## Status and platforms
 
-**0.4.0 is experimental and targets Node's native Wasm ESM integration.** [Node documents instance-phase Wasm imports](https://nodejs.org/api/esm.html#wasm-instance-phase-imports) as experimental. Synchronous CommonJS `require` is not supported.
+**0.5.0 is experimental and targets Node's native Wasm ESM integration.** [Node documents instance-phase Wasm imports](https://nodejs.org/api/esm.html#wasm-instance-phase-imports) as experimental. Synchronous CommonJS `require` is not supported.
 
 The backend uses Dart's experimental Wasm interop and compiler-generated JavaScript helpers. It rewrites the Wasm import section so Node resolves the helpers, string constants, and built-in string operations through ESM; business logic remains Dart Wasm. It does not implement the Node-API C ABI or produce `.node` addons.
 
@@ -207,8 +262,8 @@ dart pub publish --dry-run
 
 Integration tests build a real package and verify native functions through package, subpath, and relative Wasm imports. Set `NAPI_TSC` to TypeScript's `bin/tsc` to include the TypeScript consumer checks; CI supplies it. `test/js/browser.html` probes native browser loading without a fallback loader.
 
-CI compiles, packs and installs the three runtime fixtures once with `dart run tool/runtime_fixtures.dart`, then sets `NAPI_RUNTIME_FIXTURES` to that output for the full test suite and reuses the same artifacts on other Node versions. The tool requires a new or empty output directory. Rebuild fixtures after changing the generator or fixture source; this environment variable is for development tests, not consumer initialization.
+CI compiles, packs and installs the four runtime fixtures once with `dart run tool/runtime_fixtures.dart`, then sets `NAPI_RUNTIME_FIXTURES` to that output for the full test suite and reuses the same artifacts on other Node versions. The tool requires a new or empty output directory. Rebuild fixtures after changing the generator or fixture source; this environment variable is for development tests, not consumer initialization.
 
-See the [requirements](doc/requirements.md), [0.3.0 milestone](https://github.com/medz/napi/milestone/3), and [performance measurements](doc/performance.md).
+See the [requirements](doc/requirements.md), [0.5.0 milestone](https://github.com/medz/napi/milestone/5), and [performance measurements](doc/performance.md).
 
 MIT licensed. Generated host helpers include the Dart SDK's BSD license notice.

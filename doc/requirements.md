@@ -56,6 +56,15 @@ The project name is `napi`; the primary backend is Wasm ESM integration, not the
 - Record actual browser instance-phase results with exact versions and correct HTTP MIME types. Keep native browser loading unsupported when the direct named-import probe fails; do not equate source-phase imports or WasmGC with instance-phase loading.
 - Add no production dependencies or wrapper APIs, preserve SDK ^3.13.5 and the existing generated engine requirement, and publish only after final-head review/CI and independent hosted-package validation.
 
+## 0.5.0 contract
+
+- Resolve nonempty named-only records with mixed SDK bool/int/double/String fields, nullable leaves and records, and Future completion values. Emit inline object types or public non-generic record typedef exports from the same signature model; retain outer alias names and effective nullability, including imported aliases and non-generic chains.
+- Require every declared field, even when nullable, as an own data property. Accept non-enumerable data fields and ordinary/null-prototype inputs across realms. Ignore unknown fields without enumerating or reading them; reject missing/inherited/accessor/undefined fields without invoking getters.
+- Snapshot declared descriptors and validate all arguments before business code or Promise return. Emit new null-prototype outputs with exactly the declared mutable own data fields. Preserve the scalar, safe-integer, UTF-16, exception identity, contextual error and Future contracts. Arbitrary Proxy traps are observable reflection operations, not a transaction.
+- Diagnose unsupported positional/mixed/empty/nested records, collection/byte fields, record collection elements, generic aliases, conflicting alias names and TypeScript built-in shadowing before compilation. Scalar/collection/Future aliases remain unsupported. Keep type and function value namespaces separate.
+- Reuse a fourth compiled/packed/installed fixture across the tested Node matrix, with real native npm/subpath/relative imports and strict TS positive/negative consumers. Measure representative 1/4/16-field conversion and package costs; emit no record helpers for scalar-only modules.
+- Preserve one annotation and native import API, zero runtime dependencies and the documented platform limits. Gate publication on the normal final-head review/CI and independent hosted-consumer validation.
+
 ## Iteration priorities
 
 After publishing the first complete workflow, prioritize Future-to-Promise support, useful typed data structures, clear diagnostics, compiler/runtime compatibility, reproducible performance and size measurements, and real applications. Define consumer syntax, type and ownership rules, and acceptance cases before implementing each addition.

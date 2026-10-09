@@ -24,6 +24,7 @@ async function measure() {
   const runs = Number(args['--runs']);
   const wasm = await import(args['--wasm']);
   const collections = await import(args['--collections']);
+  const records = await import(args['--records']);
   globalThis.self = globalThis; // dart compile js emits a browser-compatible global.
   await import(args['--dart-js']);
   const dart = globalThis.dartBaseline;
@@ -107,7 +108,7 @@ async function measure() {
     echoStringAsync: value => dart.echoStringAsync(string(value)),
     echoBytesAsync: value => dart.echoBytesAsync(bytes(value)),
   };
-  const implementations = [['wasm', { ...wasm, ...collections }], ['javascript', js], ['dart_javascript', dartJs]];
+  const implementations = [['wasm', { ...wasm, ...collections, ...records }], ['javascript', js], ['dart_javascript', dartJs]];
   for (const [, api] of implementations) {
     assert.equal(api.add(1.5, 2.5), 4);
     assert.equal(api.identityInt(Number.MAX_SAFE_INTEGER), Number.MAX_SAFE_INTEGER);
@@ -132,6 +133,59 @@ async function measure() {
     { name: 'numeric/int-safe53', count: iterations, warmup, input: 'MAX_SAFE_INTEGER - (i & 1023)', call: (api, i) => api.identityInt(Number.MAX_SAFE_INTEGER - (i & 1023)) },
     { name: 'async/add', count: Math.max(50, Math.floor(iterations / 10)), warmup: Math.max(10, Math.floor(warmup / 10)), async: true, input: '[i & 1023, 0.25]', call: (api, i) => api.addAsync(i & 1023, 0.25) },
   ];
+  for (const [fields, method, input] of [
+    [1, 'echoOne', { id: 42 }],
+    [4, 'echoFour', { active: true, id: 42, name: 'Aé😀\ud800', score: 1.25 }],
+    [16, 'echoSixteen', Object.fromEntries(Array.from({ length: 4 }, (_, i) => [
+      [`active${i}`, true], [`id${i}`, 42 + i],
+      [`name${i}`, `Aé😀\ud800:${i}`], [`score${i}`, 1.25 + i],
+    ]).flat())],
+  ]) {
+    const keys = Object.keys(input).sort();
+    // This reference covers the measured valid, current-realm data shapes.
+    // It does not duplicate napi's complete Proxy/error/cross-realm contract.
+    js[method] = value => {
+      const proto = Object.getPrototypeOf(value);
+      if (proto !== null && proto !== Object.prototype) throw new TypeError('Expected ordinary object');
+      const snapshot = keys.map(key => {
+        const field = Object.getOwnPropertyDescriptor(value, key);
+        if (!field || !Object.hasOwn(field, 'value')) throw new TypeError('Expected own data property');
+        return field.value;
+      });
+      const output = Object.create(null);
+      for (let i = 0; i < keys.length; i++) {
+        const key = keys[i];
+        let value = snapshot[i];
+        if (key.startsWith('id')) value = integer(value);
+        else if (key.startsWith('score')) value = number(value);
+        else if (key.startsWith('name')) value = string(value);
+        else if (typeof value !== 'boolean') throw new TypeError('Expected a boolean');
+        Object.defineProperty(output, key, { value, writable: true, enumerable: true, configurable: true });
+      }
+      return output;
+    };
+    js[`${method}Async`] = async value => js[method](value);
+    for (const [, api] of implementations.slice(0, 2)) {
+      const output = api[method](input);
+      assert.deepEqual({ ...output }, input);
+      assert.equal(Object.getPrototypeOf(output), null);
+      assert.notEqual(output, input);
+      output[keys[0]] = 'changed output';
+      assert.deepEqual({ ...api[method](input) }, input);
+      const owned = { ...input };
+      const pending = api[`${method}Async`](owned);
+      owned[keys[0]] = 'changed input';
+      assert.deepEqual({ ...await pending }, input);
+    }
+    for (const asynchronous of [false, true]) {
+      const count = asynchronous ? Math.max(50, Math.floor(iterations / 10)) : iterations;
+      const warm = asynchronous ? Math.max(10, Math.floor(warmup / 10)) : warmup;
+      cases.push({ name: `${asynchronous ? 'async/' : ''}record/echo/${fields}`, count, warmup: warm,
+        async: asynchronous, implementations: ['wasm', 'javascript'],
+        input: { fields, ownership_copies: 2, validation: 'fixed own data descriptors', scalars: fields === 1 ? 'int' : 'bool/int/String/double' },
+        call: api => api[asynchronous ? `${method}Async` : method](input) });
+    }
+  }
   for (const size of [0, 1, 16, 256, 4096]) {
     const list = Array.from({ length: size }, (_, i) => i & 255);
     const map = Object.create(null);
@@ -205,7 +259,7 @@ async function measure() {
     if (typeof value === 'number') sink = (sink + value) | 0;
     else if (typeof value === 'string') sink = (sink + value.length) | 0;
     else if (typeof value.length === 'number') sink = (sink + value.length + (value[0] || 0)) | 0;
-    else sink = (sink + (value.key0?.length || 0)) | 0;
+    else sink = (sink + (value.id ?? value.id0 ?? value.key0?.length ?? 0)) | 0;
   };
   const rows = [];
   for (const benchmark of cases) {
@@ -232,7 +286,7 @@ async function measure() {
   }
   console.log(JSON.stringify({
     environment: { node: process.version, v8: process.versions.v8, os: `${platform()} ${release()}`, arch: arch(), cpu: cpus()[0]?.model },
-    ownership_preflight: 'scalar/bytes: all three implementations; collections: Wasm and JavaScript sync independence and async input snapshots',
+    ownership_preflight: 'scalar/bytes: all three implementations; collections/records: Wasm and JavaScript sync independence and async input snapshots',
     dart_js_errors: 'omitted: hand-written dart:js_interop entry is not napi error mapping',
     notes: 'loop, dispatch, result consumption, validation and ownership copies are included; no concurrent Promise batching',
     sink, cases: rows,

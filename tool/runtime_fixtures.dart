@@ -65,6 +65,12 @@ Future<void> main(List<String> arguments) async {
         'collections-relative.ts',
       ],
     ),
+    (
+      name: 'records',
+      source: 'records',
+      version: '0.5.0',
+      files: ['records-node.mjs', 'records-consumer.ts', 'records-relative.ts'],
+    ),
   ]) {
     final consumer = Directory(p.join(fixtures.path, fixture.name));
     final output = Directory(p.join(consumer.path, 'dist'));

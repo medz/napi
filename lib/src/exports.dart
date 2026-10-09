@@ -19,14 +19,26 @@ enum ValueKind {
   uint8ListType,
   listType,
   mapType,
+  recordType,
 }
 
+typedef RecordField = ({String name, ValueType type});
+typedef RecordAlias = ({String name, String libraryUri, bool nullable});
+
 final class ValueType {
-  const ValueType(this.kind, {this.nullable = false, this.elementType});
+  const ValueType(
+    this.kind, {
+    this.nullable = false,
+    this.elementType,
+    this.recordFields = const <RecordField>[],
+    this.recordAlias,
+  });
 
   final ValueKind kind;
   final bool nullable;
   final ValueType? elementType;
+  final List<RecordField> recordFields;
+  final RecordAlias? recordAlias;
 }
 
 final class Parameter {
@@ -116,6 +128,25 @@ const javascriptKeywords = {
   'yield',
 };
 
+// Type keywords and global constructors used by the generated declarations.
+const _reservedTypeNames = {
+  'any',
+  'unknown',
+  'never',
+  'number',
+  'bigint',
+  'boolean',
+  'string',
+  'symbol',
+  'void',
+  'object',
+  'undefined',
+  'Promise',
+  'Array',
+  'Record',
+  'Uint8Array',
+};
+
 // Fixed strong and weak export names in the Dart 3.13.5 Wasm runtime.
 const _dartWasmExportNames = {
   r'$invokeMain',
@@ -157,6 +188,7 @@ Future<List<Export>> readExports(String sourcePath) async {
 
     final exports = <Export>[];
     final names = <String>{};
+    final recordAliases = <String, RecordAlias>{};
     for (final unit in result.units) {
       final errors =
           unit.diagnostics
@@ -169,7 +201,7 @@ Future<List<Export>> readExports(String sourcePath) async {
       if (errors.isNotEmpty) {
         _fail(unit, errors.first.offset, errors.first.message);
       }
-      unit.unit.accept(_ExportVisitor(unit, exports, names));
+      unit.unit.accept(_ExportVisitor(unit, exports, names, recordAliases));
     }
     if (exports.isEmpty) {
       throw ExportError(absolutePath, 1, 1, 'No @napi functions found.');
@@ -180,7 +212,7 @@ Future<List<Export>> readExports(String sourcePath) async {
   }
 }
 
-Never _fail(ResolvedUnitResult unit, int offset, String message) {
+Never _fail(FileResult unit, int offset, String message) {
   final location = unit.lineInfo.getLocation(offset);
   throw ExportError(
     unit.path,
@@ -191,11 +223,12 @@ Never _fail(ResolvedUnitResult unit, int offset, String message) {
 }
 
 class _ExportVisitor extends RecursiveAstVisitor<void> {
-  _ExportVisitor(this.unit, this.exports, this.names);
+  _ExportVisitor(this.unit, this.exports, this.names, this.recordAliases);
 
   final ResolvedUnitResult unit;
   final List<Export> exports;
   final Set<String> names;
+  final Map<String, RecordAlias> recordAliases;
 
   @override
   void visitAnnotation(Annotation node) {
@@ -288,7 +321,11 @@ class _ExportVisitor extends RecursiveAstVisitor<void> {
       parameters.add(
         Parameter(
           name: parameter.name!,
-          type: _valueType(parameter.type, parameterNode.offset),
+          type: _valueType(
+            parameter.type,
+            parameterNode.offset,
+            annotation: parameterNode.type,
+          ),
         ),
       );
     }
@@ -301,6 +338,7 @@ class _ExportVisitor extends RecursiveAstVisitor<void> {
         declaredReturnType.element.name == 'Future' &&
         declaredReturnType.element.library.uri.toString() == 'dart:async';
     var returnType = declaredReturnType;
+    var returnAnnotation = declaration.returnType;
     if (isAsync) {
       if (declaredReturnType.alias != null) {
         _fail(
@@ -313,6 +351,9 @@ class _ExportVisitor extends RecursiveAstVisitor<void> {
         _fail(unit, returnOffset, 'Nullable Future returns are not supported.');
       }
       returnType = declaredReturnType.typeArguments.single;
+      returnAnnotation = returnAnnotation is NamedType
+          ? returnAnnotation.typeArguments?.arguments.single
+          : null;
     } else if (expression.body.isAsynchronous) {
       _fail(unit, returnOffset, 'Async @napi functions must return Future<T>.');
     }
@@ -321,13 +362,26 @@ class _ExportVisitor extends RecursiveAstVisitor<void> {
       Export(
         name: name,
         parameters: List.unmodifiable(parameters),
-        returnType: _valueType(returnType, returnOffset, allowVoid: true),
+        returnType: _valueType(
+          returnType,
+          returnOffset,
+          allowVoid: true,
+          annotation: returnAnnotation,
+        ),
         isAsync: isAsync,
       ),
     );
   }
 
-  ValueType _valueType(DartType type, int offset, {bool allowVoid = false}) {
+  ValueType _valueType(
+    DartType type,
+    int offset, {
+    bool allowVoid = false,
+    TypeAnnotation? annotation,
+  }) {
+    if (type is RecordType) {
+      return _recordType(type, offset, annotation);
+    }
     if (type.alias != null) {
       _fail(
         unit,
@@ -409,5 +463,139 @@ class _ExportVisitor extends RecursiveAstVisitor<void> {
       kind,
       nullable: type.nullabilitySuffix == NullabilitySuffix.question,
     );
+  }
+
+  ValueType _recordType(
+    RecordType type,
+    int offset,
+    TypeAnnotation? annotation,
+  ) {
+    if (type.positionalFields.isNotEmpty || type.namedFields.isEmpty) {
+      _fail(
+        unit,
+        offset,
+        '@napi records must have named fields only and at least one field.',
+      );
+    }
+    RecordAlias? alias;
+    final instantiated = type.alias;
+    if (instantiated != null) {
+      final element = instantiated.element;
+      var current = element;
+      final visited = <TypeAliasElement>{};
+      while (visited.add(current)) {
+        if (current.typeParameters.isNotEmpty) {
+          _fail(
+            unit,
+            offset,
+            'Generic @napi record aliases are not supported.',
+          );
+        }
+        final next = current.aliasedType.alias;
+        if (next == null) break;
+        current = next.element;
+      }
+      final name = element.name!;
+      if (!element.isPublic) {
+        _fail(unit, offset, '@napi record aliases must be public: "$name".');
+      }
+      if (javascriptKeywords.contains(name) ||
+          _reservedTypeNames.contains(name) ||
+          !RegExp(r'^[A-Za-z$][A-Za-z0-9_$]*$').hasMatch(name)) {
+        _fail(
+          unit,
+          offset,
+          '"$name" is a reserved or invalid TypeScript record alias name.',
+        );
+      }
+      alias = (
+        name: name,
+        libraryUri: element.library.uri.toString(),
+        nullable:
+            element.aliasedType.nullabilitySuffix == NullabilitySuffix.question,
+      );
+      final previous = recordAliases[name];
+      if (previous != null && previous.libraryUri != alias.libraryUri) {
+        _fail(
+          unit,
+          offset,
+          'Conflicting @napi record alias "$name" from '
+          '"${previous.libraryUri}" and "${alias.libraryUri}".',
+        );
+      }
+      recordAliases[name] = alias;
+    }
+
+    final fields = <RecordField>[];
+    for (final field in type.namedFields) {
+      final leaf = field.type;
+      if (leaf.alias != null ||
+          (!leaf.isDartCoreBool &&
+              !leaf.isDartCoreInt &&
+              !leaf.isDartCoreDouble &&
+              !leaf.isDartCoreString)) {
+        final source = _recordSource(type, annotation);
+        final fieldName = alias == null
+            ? field.name
+            : '${alias.name}.${field.name}';
+        final message = leaf.alias != null
+            ? 'Type aliases are not supported in @napi record fields: "$fieldName".'
+            : 'Unsupported @napi record field "$fieldName" type '
+                  '"${leaf.getDisplayString()}". Use bool, int, double, or String '
+                  '(optionally nullable).';
+        final node = source?.annotation.namedFields?.fields
+            .where((node) => node.name.lexeme == field.name)
+            .firstOrNull;
+        _fail(
+          node != null ? source!.unit : unit,
+          node?.type.offset ?? offset,
+          message,
+        );
+      }
+      fields.add((name: field.name, type: _valueType(leaf, offset)));
+    }
+    fields.sort((a, b) => a.name.compareTo(b.name));
+    return ValueType(
+      ValueKind.recordType,
+      nullable: type.nullabilitySuffix == NullabilitySuffix.question,
+      recordFields: List.unmodifiable(fields),
+      recordAlias: alias,
+    );
+  }
+
+  ({FileResult unit, RecordTypeAnnotation annotation})? _recordSource(
+    RecordType type,
+    TypeAnnotation? annotation,
+  ) {
+    if (annotation is RecordTypeAnnotation) {
+      return (unit: unit, annotation: annotation);
+    }
+    var element = type.alias?.element;
+    if (element == null) return null;
+    final visited = <TypeAliasElement>{};
+    while (visited.add(element!)) {
+      final next = element.aliasedType.alias?.element;
+      if (next == null) break;
+      element = next;
+    }
+    // This optional lookup improves field locations without changing admission.
+    try {
+      final library = unit.session.getParsedLibraryByElement(element.library);
+      if (library is! ParsedLibraryResult) return null;
+      final declaration = library.getFragmentDeclaration(element.firstFragment);
+      final node = declaration?.node;
+      if (node is GenericTypeAlias && node.type is RecordTypeAnnotation) {
+        final sourceUnit = declaration!.parsedUnit;
+        if (sourceUnit != null) {
+          return (
+            unit: sourceUnit,
+            annotation: node.type as RecordTypeAnnotation,
+          );
+        }
+      }
+    } catch (_) {
+      // Keep the signature location if the declaration cannot be recovered.
+    }
+    return null;
   }
 }
