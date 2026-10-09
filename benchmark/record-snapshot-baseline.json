@@ -1,0 +1,3397 @@
+{
+  "schema": 1,
+  "baselineSource": "e06a091529ea3c1e271e5ed5fec9377198d0f637",
+  "change": "host snapshotRecord only; single-slot literal and multi-field Array.from own data slots",
+  "rounds": [
+    {
+      "schema": 1,
+      "recordedAt": "2026-10-09T23:47:10.747Z",
+      "direction": "forward",
+      "configuration": {
+        "sizes": [
+          0,
+          1,
+          16,
+          256
+        ],
+        "runs": 5,
+        "iterations": 20000,
+        "workBudget": 65536,
+        "warmup": "max(100, floor(calls / 10))",
+        "keys": "non-numeric ASCII user_0000, user_0001, ...",
+        "record": "own data fields: string name, safe integer age, nullable bool active",
+        "samples": "rotate implementation order each sample; reverse variant reverses base order"
+      },
+      "driver_sha256": "608232e4946440b2cb96e9d61ec9b68e8762fde16d2c1aaf4575ccb3f85a0706",
+      "comparison": "before_*: baseline artifacts; wasm_*: candidate artifacts; same-process rotated samples",
+      "environment": {
+        "node": "v26.11.1",
+        "v8": "14.6.202.34-node.37",
+        "os": "darwin 27.0.0",
+        "arch": "arm64",
+        "cpu": "Apple M3 Max"
+      },
+      "artifacts": {
+        "record-maps": {
+          "module.wasm": {
+            "sha256": "32dd55b7f651b96cc82dc9c165e525eb657e94262aa630172840cc0ceb524a7f",
+            "bytes": 83054
+          },
+          "module.imports.mjs": {
+            "sha256": "e071b5bf0633f028ad401044cd887cdb51b558d8503946b50e0207a35961b29a",
+            "bytes": 35368
+          },
+          "index.d.ts": {
+            "sha256": "673dc6f8966c30f456a14c6cdba19139a225cbbda4101d029333e10a0043e0cf",
+            "bytes": 4411
+          },
+          "module.d.wasm.ts": {
+            "sha256": "673dc6f8966c30f456a14c6cdba19139a225cbbda4101d029333e10a0043e0cf",
+            "bytes": 4411
+          },
+          "package.json": {
+            "sha256": "51d660ea66f2ea7cf0ede936ba6134508f0d12cd9f672d0540762eb9b9441a39",
+            "bytes": 523
+          }
+        },
+        "batch": {
+          "module.wasm": {
+            "sha256": "a3a21a7452cf48dc73024f570164f54fd05eb7a18c603e87d773bc946eefa10d",
+            "bytes": 74059
+          },
+          "module.imports.mjs": {
+            "sha256": "01bc4ff29103bab4032353a0410646e343effdb15d98f65fe05011d7d4173d85",
+            "bytes": 33784
+          },
+          "index.d.ts": {
+            "sha256": "8fa813613d79ae57bbace7b876d313afe45e9b5566ebf8f803f3531472d6e404",
+            "bytes": 6650
+          },
+          "module.d.wasm.ts": {
+            "sha256": "8fa813613d79ae57bbace7b876d313afe45e9b5566ebf8f803f3531472d6e404",
+            "bytes": 6650
+          },
+          "package.json": {
+            "sha256": "f0e81cdcb89bad1b7adba95914129079f3415071f4f685522b21453987e9196d",
+            "bytes": 517
+          }
+        },
+        "records": {
+          "module.wasm": {
+            "sha256": "276de10b73d6e1efae1f7cafe41fabd4d3a248e9482f38a6e6207c9f7e9dd6c8",
+            "bytes": 70425
+          },
+          "module.imports.mjs": {
+            "sha256": "eb99e3dd88add2bf25c630da796f4d9689ee1c7ab0ed0cdcb0c04c20e6c3d69c",
+            "bytes": 33077
+          },
+          "index.d.ts": {
+            "sha256": "cef835a128b1d9099eaf9af860b37236b220f1c0086d0d079307b6a21cadff31",
+            "bytes": 5486
+          },
+          "module.d.wasm.ts": {
+            "sha256": "cef835a128b1d9099eaf9af860b37236b220f1c0086d0d079307b6a21cadff31",
+            "bytes": 5486
+          },
+          "package.json": {
+            "sha256": "fd3439f8f6e1456f8ce80e828e94db3a78a40b4fdfaad3fa3423a4aab478729a",
+            "bytes": 519
+          }
+        },
+        "before/record-maps": {
+          "module.wasm": {
+            "sha256": "32dd55b7f651b96cc82dc9c165e525eb657e94262aa630172840cc0ceb524a7f",
+            "bytes": 83054
+          },
+          "module.imports.mjs": {
+            "sha256": "5264d9b387429d672d5fca5cf4c9cb5d6555aa5595c4845fff2bfb50429e8056",
+            "bytes": 35450
+          },
+          "index.d.ts": {
+            "sha256": "673dc6f8966c30f456a14c6cdba19139a225cbbda4101d029333e10a0043e0cf",
+            "bytes": 4411
+          },
+          "module.d.wasm.ts": {
+            "sha256": "673dc6f8966c30f456a14c6cdba19139a225cbbda4101d029333e10a0043e0cf",
+            "bytes": 4411
+          },
+          "package.json": {
+            "sha256": "51d660ea66f2ea7cf0ede936ba6134508f0d12cd9f672d0540762eb9b9441a39",
+            "bytes": 523
+          }
+        },
+        "before/batch": {
+          "module.wasm": {
+            "sha256": "a3a21a7452cf48dc73024f570164f54fd05eb7a18c603e87d773bc946eefa10d",
+            "bytes": 74059
+          },
+          "module.imports.mjs": {
+            "sha256": "13621bad5de4552d4b108afc2a0b01c8a43d29832ad819d780111b5dca03fe2a",
+            "bytes": 33866
+          },
+          "index.d.ts": {
+            "sha256": "8fa813613d79ae57bbace7b876d313afe45e9b5566ebf8f803f3531472d6e404",
+            "bytes": 6650
+          },
+          "module.d.wasm.ts": {
+            "sha256": "8fa813613d79ae57bbace7b876d313afe45e9b5566ebf8f803f3531472d6e404",
+            "bytes": 6650
+          },
+          "package.json": {
+            "sha256": "f0e81cdcb89bad1b7adba95914129079f3415071f4f685522b21453987e9196d",
+            "bytes": 517
+          }
+        },
+        "before/records": {
+          "module.wasm": {
+            "sha256": "276de10b73d6e1efae1f7cafe41fabd4d3a248e9482f38a6e6207c9f7e9dd6c8",
+            "bytes": 70425
+          },
+          "module.imports.mjs": {
+            "sha256": "d88788588bd37b8c2c60f4432e50057aa8481ddb619a930a03aac251753ffa95",
+            "bytes": 33159
+          },
+          "index.d.ts": {
+            "sha256": "cef835a128b1d9099eaf9af860b37236b220f1c0086d0d079307b6a21cadff31",
+            "bytes": 5486
+          },
+          "module.d.wasm.ts": {
+            "sha256": "cef835a128b1d9099eaf9af860b37236b220f1c0086d0d079307b6a21cadff31",
+            "bytes": 5486
+          },
+          "package.json": {
+            "sha256": "fd3439f8f6e1456f8ce80e828e94db3a78a40b4fdfaad3fa3423a4aab478729a",
+            "bytes": 519
+          }
+        }
+      },
+      "correctness": "equal values, fresh outer container and null-prototype records; output mutation leaves input and next call unchanged",
+      "notes": [
+        "Reuse supplied fixture artifacts; this driver performs no compilation or download. Warmed synchronous calls only; no async timer or cold import measurement.",
+        "Map/List/one-record fixtures have different export sets; User type and echo/normalize business logic are equivalent.",
+        "Per-row controls lack outer-container validation; output is an array and includes JS Array.map dispatch/allocation.",
+        "JavaScript references validate only ordinary current-realm valid data shapes, safe integers/string/nullable bool and copy outputs; not the full Proxy/cross-realm/error contract or Dart-owned business-input representation.",
+        "Timed loop includes dispatch, validation, copies and per-call consumption of row count plus a known age; correctness traversal is outside timing. JIT/GC/system load are uncontrolled."
+      ],
+      "sink": 12525075,
+      "cases": [
+        {
+          "operation": "echo",
+          "size": 0,
+          "fields": 3,
+          "calls": 20000,
+          "warmup": 2000,
+          "orders": [
+            [
+              "before_map",
+              "before_list",
+              "before_per_row",
+              "wasm_map",
+              "wasm_list",
+              "wasm_per_row",
+              "javascript_map",
+              "javascript_list",
+              "javascript_per_row"
+            ],
+            [
+              "before_list",
+              "before_per_row",
+              "wasm_map",
+              "wasm_list",
+              "wasm_per_row",
+              "javascript_map",
+              "javascript_list",
+              "javascript_per_row",
+              "before_map"
+            ],
+            [
+              "before_per_row",
+              "wasm_map",
+              "wasm_list",
+              "wasm_per_row",
+              "javascript_map",
+              "javascript_list",
+              "javascript_per_row",
+              "before_map",
+              "before_list"
+            ],
+            [
+              "wasm_map",
+              "wasm_list",
+              "wasm_per_row",
+              "javascript_map",
+              "javascript_list",
+              "javascript_per_row",
+              "before_map",
+              "before_list",
+              "before_per_row"
+            ],
+            [
+              "wasm_list",
+              "wasm_per_row",
+              "javascript_map",
+              "javascript_list",
+              "javascript_per_row",
+              "before_map",
+              "before_list",
+              "before_per_row",
+              "wasm_map"
+            ]
+          ],
+          "ns_per_call": {
+            "before_map": {
+              "samples": [
+                151.8583500000002,
+                101.26460000000002,
+                99.7145500000002,
+                99.6729000000002,
+                100.06039999999956
+              ],
+              "median": 100.06039999999956,
+              "min": 99.6729000000002,
+              "max": 151.8583500000002,
+              "spread_percent": 52.153949014795295
+            },
+            "before_list": {
+              "samples": [
+                81.56455000000022,
+                105.81454999999984,
+                49.40624999999983,
+                50.14375000000015,
+                50.53125000000023
+              ],
+              "median": 50.53125000000023,
+              "min": 49.40624999999983,
+              "max": 105.81454999999984,
+              "spread_percent": 111.63052566481089
+            },
+            "before_per_row": {
+              "samples": [
+                28.42500000000001,
+                21.950000000000003,
+                20.702099999999746,
+                19.077099999999803,
+                20.74584999999942
+              ],
+              "median": 20.74584999999942,
+              "min": 19.077099999999803,
+              "max": 28.42500000000001,
+              "spread_percent": 45.05913230839165
+            },
+            "wasm_map": {
+              "samples": [
+                116.92920000000024,
+                100.2812500000001,
+                99.98335000000012,
+                101.34999999999934,
+                97.7521000000003
+              ],
+              "median": 100.2812500000001,
+              "min": 97.7521000000003,
+              "max": 116.92920000000024,
+              "spread_percent": 19.123315674664926
+            },
+            "wasm_list": {
+              "samples": [
+                56.81459999999987,
+                49.05834999999996,
+                50.13544999999979,
+                48.852100000000576,
+                48.69164999999995
+              ],
+              "median": 49.05834999999996,
+              "min": 48.69164999999995,
+              "max": 56.81459999999987,
+              "spread_percent": 16.557731762278845
+            },
+            "wasm_per_row": {
+              "samples": [
+                26.56665000000018,
+                22.772900000000007,
+                20.52080000000025,
+                18.81039999999956,
+                20.66664999999972
+              ],
+              "median": 20.66664999999972,
+              "min": 18.81039999999956,
+              "max": 26.56665000000018,
+              "spread_percent": 37.53027220183593
+            },
+            "javascript_map": {
+              "samples": [
+                86.84374999999989,
+                66.88749999999999,
+                67.16045000000044,
+                66.93545000000043,
+                66.75834999999992
+              ],
+              "median": 66.93545000000043,
+              "min": 66.75834999999992,
+              "max": 86.84374999999989,
+              "spread_percent": 30.00711879878276
+            },
+            "javascript_list": {
+              "samples": [
+                81.96249999999985,
+                85.1979,
+                77.23750000000038,
+                76.8895999999998,
+                74.60834999999975
+              ],
+              "median": 77.23750000000038,
+              "min": 74.60834999999975,
+              "max": 85.1979,
+              "spread_percent": 13.71037384690106
+            },
+            "javascript_per_row": {
+              "samples": [
+                26.437500000000117,
+                19.39789999999988,
+                18.820849999999467,
+                18.7791500000003,
+                18.82710000000003
+              ],
+              "median": 18.82710000000003,
+              "min": 18.7791500000003,
+              "max": 26.437500000000117,
+              "spread_percent": 40.67726840564827
+            }
+          }
+        },
+        {
+          "operation": "normalize",
+          "size": 0,
+          "fields": 3,
+          "calls": 20000,
+          "warmup": 2000,
+          "orders": [
+            [
+              "before_map",
+              "before_list",
+              "before_per_row",
+              "wasm_map",
+              "wasm_list",
+              "wasm_per_row",
+              "javascript_map",
+              "javascript_list",
+              "javascript_per_row"
+            ],
+            [
+              "before_list",
+              "before_per_row",
+              "wasm_map",
+              "wasm_list",
+              "wasm_per_row",
+              "javascript_map",
+              "javascript_list",
+              "javascript_per_row",
+              "before_map"
+            ],
+            [
+              "before_per_row",
+              "wasm_map",
+              "wasm_list",
+              "wasm_per_row",
+              "javascript_map",
+              "javascript_list",
+              "javascript_per_row",
+              "before_map",
+              "before_list"
+            ],
+            [
+              "wasm_map",
+              "wasm_list",
+              "wasm_per_row",
+              "javascript_map",
+              "javascript_list",
+              "javascript_per_row",
+              "before_map",
+              "before_list",
+              "before_per_row"
+            ],
+            [
+              "wasm_list",
+              "wasm_per_row",
+              "javascript_map",
+              "javascript_list",
+              "javascript_per_row",
+              "before_map",
+              "before_list",
+              "before_per_row",
+              "wasm_map"
+            ]
+          ],
+          "ns_per_call": {
+            "before_map": {
+              "samples": [
+                147.34789999999975,
+                107.16249999999974,
+                106.77085000000018,
+                99.90624999999937,
+                100.35830000000061
+              ],
+              "median": 106.77085000000018,
+              "min": 99.90624999999937,
+              "max": 147.34789999999975,
+              "spread_percent": 44.43314818604544
+            },
+            "before_list": {
+              "samples": [
+                61.46874999999951,
+                60.88334999999958,
+                44.37289999999976,
+                45.04164999999887,
+                44.35204999999911
+              ],
+              "median": 45.04164999999887,
+              "min": 44.35204999999911,
+              "max": 61.46874999999951,
+              "spread_percent": 38.00193820608443
+            },
+            "before_per_row": {
+              "samples": [
+                22.643750000000296,
+                21.19794999999982,
+                13.808300000000175,
+                11.412500000000136,
+                12.970849999999245
+              ],
+              "median": 13.808300000000175,
+              "min": 11.412500000000136,
+              "max": 22.643750000000296,
+              "spread_percent": 81.33694951587101
+            },
+            "wasm_map": {
+              "samples": [
+                110.81045000000033,
+                108.67085000000003,
+                104.09165000000016,
+                105.87085000000016,
+                98.35834999999946
+              ],
+              "median": 105.87085000000016,
+              "min": 98.35834999999946,
+              "max": 110.81045000000033,
+              "spread_percent": 11.761594433218256
+            },
+            "wasm_list": {
+              "samples": [
+                53.210450000000264,
+                52.67915000000016,
+                45.910450000000225,
+                47.22914999999972,
+                46.977049999999565
+              ],
+              "median": 47.22914999999972,
+              "min": 45.910450000000225,
+              "max": 53.210450000000264,
+              "spread_percent": 15.456555961731437
+            },
+            "wasm_per_row": {
+              "samples": [
+                20.356249999999676,
+                16.712499999999864,
+                11.464550000000173,
+                11.306249999999807,
+                11.495850000000019
+              ],
+              "median": 11.495850000000019,
+              "min": 11.306249999999807,
+              "max": 20.356249999999676,
+              "spread_percent": 78.72406129168226
+            },
+            "javascript_map": {
+              "samples": [
+                82.88539999999998,
+                60.92289999999992,
+                61.73959999999994,
+                58.279199999999776,
+                57.95209999999998
+              ],
+              "median": 60.92289999999992,
+              "min": 57.95209999999998,
+              "max": 82.88539999999998,
+              "spread_percent": 40.925990062849976
+            },
+            "javascript_list": {
+              "samples": [
+                83.9624999999998,
+                73.06039999999996,
+                87.54789999999986,
+                73.56875000000045,
+                73.7250000000003
+              ],
+              "median": 73.7250000000003,
+              "min": 73.06039999999996,
+              "max": 87.54789999999986,
+              "spread_percent": 19.65072906069832
+            },
+            "javascript_per_row": {
+              "samples": [
+                21.36665000000022,
+                11.591650000000442,
+                11.893749999999415,
+                13.779149999999161,
+                11.577099999999518
+              ],
+              "median": 11.893749999999415,
+              "min": 11.577099999999518,
+              "max": 21.36665000000022,
+              "spread_percent": 82.3083552285964
+            }
+          }
+        },
+        {
+          "operation": "echo",
+          "size": 1,
+          "fields": 3,
+          "calls": 20000,
+          "warmup": 2000,
+          "orders": [
+            [
+              "before_map",
+              "before_list",
+              "before_per_row",
+              "wasm_map",
+              "wasm_list",
+              "wasm_per_row",
+              "javascript_map",
+              "javascript_list",
+              "javascript_per_row"
+            ],
+            [
+              "before_list",
+              "before_per_row",
+              "wasm_map",
+              "wasm_list",
+              "wasm_per_row",
+              "javascript_map",
+              "javascript_list",
+              "javascript_per_row",
+              "before_map"
+            ],
+            [
+              "before_per_row",
+              "wasm_map",
+              "wasm_list",
+              "wasm_per_row",
+              "javascript_map",
+              "javascript_list",
+              "javascript_per_row",
+              "before_map",
+              "before_list"
+            ],
+            [
+              "wasm_map",
+              "wasm_list",
+              "wasm_per_row",
+              "javascript_map",
+              "javascript_list",
+              "javascript_per_row",
+              "before_map",
+              "before_list",
+              "before_per_row"
+            ],
+            [
+              "wasm_list",
+              "wasm_per_row",
+              "javascript_map",
+              "javascript_list",
+              "javascript_per_row",
+              "before_map",
+              "before_list",
+              "before_per_row",
+              "wasm_map"
+            ]
+          ],
+          "ns_per_call": {
+            "before_map": {
+              "samples": [
+                1719.8416499999992,
+                1606.775000000002,
+                1566.1604000000011,
+                1589.9520499999994,
+                1585.8603999999957
+              ],
+              "median": 1589.9520499999994,
+              "min": 1566.1604000000011,
+              "max": 1719.8416499999992,
+              "spread_percent": 9.665778914527522
+            },
+            "before_list": {
+              "samples": [
+                1277.4458499999994,
+                1224.0395500000006,
+                1161.262499999998,
+                1170.047900000003,
+                1175.7937499999969
+              ],
+              "median": 1175.7937499999969,
+              "min": 1161.262499999998,
+              "max": 1277.4458499999994,
+              "spread_percent": 9.881269567898425
+            },
+            "before_per_row": {
+              "samples": [
+                855.9978999999998,
+                809.0062500000016,
+                780.4874999999981,
+                775.5604500000004,
+                785.6770500000039
+              ],
+              "median": 785.6770500000039,
+              "min": 775.5604500000004,
+              "max": 855.9978999999998,
+              "spread_percent": 10.237978823487214
+            },
+            "wasm_map": {
+              "samples": [
+                1616.2729000000013,
+                1565.1354,
+                1517.5937499999975,
+                1481.1082999999996,
+                1490.7750000000021
+              ],
+              "median": 1517.5937499999975,
+              "min": 1481.1082999999996,
+              "max": 1616.2729000000013,
+              "spread_percent": 8.906507423347117
+            },
+            "wasm_list": {
+              "samples": [
+                1204.0208500000006,
+                1155.1562499999989,
+                1091.5354499999978,
+                1111.0250000000008,
+                1098.3645500000023
+              ],
+              "median": 1111.0250000000008,
+              "min": 1091.5354499999978,
+              "max": 1204.0208500000006,
+              "spread_percent": 10.124470646475343
+            },
+            "wasm_per_row": {
+              "samples": [
+                735.8583500000009,
+                734.797949999998,
+                660.5916500000035,
+                682.733300000001,
+                675.7999999999981
+              ],
+              "median": 682.733300000001,
+              "min": 660.5916500000035,
+              "max": 735.8583500000009,
+              "spread_percent": 11.024319452412426
+            },
+            "javascript_map": {
+              "samples": [
+                565.1250000000005,
+                508.86250000000075,
+                503.48125000000437,
+                513.1291499999975,
+                503.8437499999986
+              ],
+              "median": 508.86250000000075,
+              "min": 503.48125000000437,
+              "max": 565.1250000000005,
+              "spread_percent": 12.114028838830922
+            },
+            "javascript_list": {
+              "samples": [
+                550.9937500000007,
+                500.9625,
+                484.62289999999933,
+                493.6666500000001,
+                498.55210000000056
+              ],
+              "median": 498.55210000000056,
+              "min": 484.62289999999933,
+              "max": 550.9937500000007,
+              "spread_percent": 13.312720977406626
+            },
+            "javascript_per_row": {
+              "samples": [
+                343.5000000000002,
+                300.4666500000013,
+                298.1625000000008,
+                296.945850000003,
+                301.5062499999999
+              ],
+              "median": 300.4666500000013,
+              "min": 296.945850000003,
+              "max": 343.5000000000002,
+              "spread_percent": 15.493949162077389
+            }
+          }
+        },
+        {
+          "operation": "normalize",
+          "size": 1,
+          "fields": 3,
+          "calls": 20000,
+          "warmup": 2000,
+          "orders": [
+            [
+              "before_map",
+              "before_list",
+              "before_per_row",
+              "wasm_map",
+              "wasm_list",
+              "wasm_per_row",
+              "javascript_map",
+              "javascript_list",
+              "javascript_per_row"
+            ],
+            [
+              "before_list",
+              "before_per_row",
+              "wasm_map",
+              "wasm_list",
+              "wasm_per_row",
+              "javascript_map",
+              "javascript_list",
+              "javascript_per_row",
+              "before_map"
+            ],
+            [
+              "before_per_row",
+              "wasm_map",
+              "wasm_list",
+              "wasm_per_row",
+              "javascript_map",
+              "javascript_list",
+              "javascript_per_row",
+              "before_map",
+              "before_list"
+            ],
+            [
+              "wasm_map",
+              "wasm_list",
+              "wasm_per_row",
+              "javascript_map",
+              "javascript_list",
+              "javascript_per_row",
+              "before_map",
+              "before_list",
+              "before_per_row"
+            ],
+            [
+              "wasm_list",
+              "wasm_per_row",
+              "javascript_map",
+              "javascript_list",
+              "javascript_per_row",
+              "before_map",
+              "before_list",
+              "before_per_row",
+              "wasm_map"
+            ]
+          ],
+          "ns_per_call": {
+            "before_map": {
+              "samples": [
+                1681.1979499999952,
+                1673.2500000000073,
+                1686.0666499999977,
+                1664.9666499999967,
+                1694.0917000000015
+              ],
+              "median": 1681.1979499999952,
+              "min": 1664.9666499999967,
+              "max": 1694.0917000000015,
+              "spread_percent": 1.732398614928418
+            },
+            "before_list": {
+              "samples": [
+                1233.8728999999944,
+                1327.5353999999993,
+                1244.131249999998,
+                1238.5020999999938,
+                1237.1312500000045
+              ],
+              "median": 1238.5020999999938,
+              "min": 1233.8728999999944,
+              "max": 1327.5353999999993,
+              "spread_percent": 7.562562873329434
+            },
+            "before_per_row": {
+              "samples": [
+                888.3833500000037,
+                850.285400000007,
+                855.7896000000028,
+                853.0958499999996,
+                849.1666500000065
+              ],
+              "median": 853.0958499999996,
+              "min": 849.1666500000065,
+              "max": 888.3833500000037,
+              "spread_percent": 4.596986376149554
+            },
+            "wasm_map": {
+              "samples": [
+                1613.9396000000033,
+                1573.1479000000036,
+                1598.5874999999965,
+                1576.6833499999962,
+                1587.543750000009
+              ],
+              "median": 1587.543750000009,
+              "min": 1573.1479000000036,
+              "max": 1613.9396000000033,
+              "spread_percent": 2.5694850929304804
+            },
+            "wasm_list": {
+              "samples": [
+                1234.0958,
+                1174.985449999997,
+                1173.0291999999963,
+                1164.679149999995,
+                1150.9479000000056
+              ],
+              "median": 1173.0291999999963,
+              "min": 1150.9479000000056,
+              "max": 1234.0958,
+              "spread_percent": 7.0883060711527675
+            },
+            "wasm_per_row": {
+              "samples": [
+                795.6812499999955,
+                738.4667000000036,
+                752.1853999999962,
+                743.5375000000022,
+                747.8707999999983
+              ],
+              "median": 747.8707999999983,
+              "min": 738.4667000000036,
+              "max": 795.6812499999955,
+              "spread_percent": 7.650325430541223
+            },
+            "javascript_map": {
+              "samples": [
+                581.066700000008,
+                534.6958499999914,
+                530.7583500000078,
+                525.7291499999951,
+                523.3417000000031
+              ],
+              "median": 530.7583500000078,
+              "min": 523.3417000000031,
+              "max": 581.066700000008,
+              "spread_percent": 10.875947594607615
+            },
+            "javascript_list": {
+              "samples": [
+                607.8687500000001,
+                514.735399999995,
+                537.0541500000058,
+                529.1812499999992,
+                543.0208499999935
+              ],
+              "median": 537.0541500000058,
+              "min": 514.735399999995,
+              "max": 607.8687500000001,
+              "spread_percent": 17.34151947247853
+            },
+            "javascript_per_row": {
+              "samples": [
+                366.599999999994,
+                318.8083000000006,
+                330.10209999999915,
+                316.82915000000094,
+                324.17500000000246
+              ],
+              "median": 324.17500000000246,
+              "min": 316.82915000000094,
+              "max": 366.599999999994,
+              "spread_percent": 15.353080897661043
+            }
+          }
+        },
+        {
+          "operation": "echo",
+          "size": 16,
+          "fields": 3,
+          "calls": 4096,
+          "warmup": 409,
+          "orders": [
+            [
+              "before_map",
+              "before_list",
+              "before_per_row",
+              "wasm_map",
+              "wasm_list",
+              "wasm_per_row",
+              "javascript_map",
+              "javascript_list",
+              "javascript_per_row"
+            ],
+            [
+              "before_list",
+              "before_per_row",
+              "wasm_map",
+              "wasm_list",
+              "wasm_per_row",
+              "javascript_map",
+              "javascript_list",
+              "javascript_per_row",
+              "before_map"
+            ],
+            [
+              "before_per_row",
+              "wasm_map",
+              "wasm_list",
+              "wasm_per_row",
+              "javascript_map",
+              "javascript_list",
+              "javascript_per_row",
+              "before_map",
+              "before_list"
+            ],
+            [
+              "wasm_map",
+              "wasm_list",
+              "wasm_per_row",
+              "javascript_map",
+              "javascript_list",
+              "javascript_per_row",
+              "before_map",
+              "before_list",
+              "before_per_row"
+            ],
+            [
+              "wasm_list",
+              "wasm_per_row",
+              "javascript_map",
+              "javascript_list",
+              "javascript_per_row",
+              "before_map",
+              "before_list",
+              "before_per_row",
+              "wasm_map"
+            ]
+          ],
+          "ns_per_call": {
+            "before_map": {
+              "samples": [
+                22937.255859375004,
+                24064.80932617183,
+                23250.66113281249,
+                23342.030761718703,
+                22943.95947265615
+              ],
+              "median": 23250.66113281249,
+              "min": 22937.255859375004,
+              "max": 24064.80932617183,
+              "spread_percent": 4.849554429252629
+            },
+            "before_list": {
+              "samples": [
+                17711.04931640627,
+                17861.867187499935,
+                18219.014404296853,
+                18014.862060546922,
+                17460.97802734381
+              ],
+              "median": 17861.867187499935,
+              "min": 17460.97802734381,
+              "max": 18219.014404296853,
+              "spread_percent": 4.243880939186094
+            },
+            "before_per_row": {
+              "samples": [
+                12949.096679687465,
+                13055.603027343765,
+                13274.485351562504,
+                13087.605712890692,
+                12772.532226562606
+              ],
+              "median": 13055.603027343765,
+              "min": 12772.532226562606,
+              "max": 13274.485351562504,
+              "spread_percent": 3.844733360447643
+            },
+            "wasm_map": {
+              "samples": [
+                21717.570068359393,
+                21393.81909179694,
+                22063.476562499964,
+                21713.704589843786,
+                21356.54711914059
+              ],
+              "median": 21713.704589843786,
+              "min": 21356.54711914059,
+              "max": 22063.476562499964,
+              "spread_percent": 3.2556832503378033
+            },
+            "wasm_list": {
+              "samples": [
+                16565.388916015665,
+                16301.177978515601,
+                16805.78613281247,
+                16436.70654296869,
+                16165.181640625082
+              ],
+              "median": 16436.70654296869,
+              "min": 16165.181640625082,
+              "max": 16805.78613281247,
+              "spread_percent": 3.897401772750073
+            },
+            "wasm_per_row": {
+              "samples": [
+                11558.7768554688,
+                11330.312011718857,
+                11759.775878906308,
+                11632.975341796859,
+                11155.863525390552
+              ],
+              "median": 11558.7768554688,
+              "min": 11155.863525390552,
+              "max": 11759.775878906308,
+              "spread_percent": 5.224708124978009
+            },
+            "javascript_map": {
+              "samples": [
+                6679.748535156294,
+                6620.758056640641,
+                6994.903564453092,
+                6976.277587890656,
+                6670.552490234294
+              ],
+              "median": 6679.748535156294,
+              "min": 6620.758056640641,
+              "max": 6994.903564453092,
+              "spread_percent": 5.601191509579733
+            },
+            "javascript_list": {
+              "samples": [
+                6002.207519531177,
+                6523.050781250039,
+                5893.778564453167,
+                6235.819580078128,
+                5953.511474609319
+              ],
+              "median": 6002.207519531177,
+              "min": 5893.778564453167,
+              "max": 6523.050781250039,
+              "spread_percent": 10.484013002703106
+            },
+            "javascript_per_row": {
+              "samples": [
+                4639.719482421922,
+                5209.238769531277,
+                4602.508544921835,
+                4783.823730468817,
+                4611.806152343689
+              ],
+              "median": 4639.719482421922,
+              "min": 4602.508544921835,
+              "max": 5209.238769531277,
+              "spread_percent": 13.076873007260573
+            }
+          }
+        },
+        {
+          "operation": "normalize",
+          "size": 16,
+          "fields": 3,
+          "calls": 4096,
+          "warmup": 409,
+          "orders": [
+            [
+              "before_map",
+              "before_list",
+              "before_per_row",
+              "wasm_map",
+              "wasm_list",
+              "wasm_per_row",
+              "javascript_map",
+              "javascript_list",
+              "javascript_per_row"
+            ],
+            [
+              "before_list",
+              "before_per_row",
+              "wasm_map",
+              "wasm_list",
+              "wasm_per_row",
+              "javascript_map",
+              "javascript_list",
+              "javascript_per_row",
+              "before_map"
+            ],
+            [
+              "before_per_row",
+              "wasm_map",
+              "wasm_list",
+              "wasm_per_row",
+              "javascript_map",
+              "javascript_list",
+              "javascript_per_row",
+              "before_map",
+              "before_list"
+            ],
+            [
+              "wasm_map",
+              "wasm_list",
+              "wasm_per_row",
+              "javascript_map",
+              "javascript_list",
+              "javascript_per_row",
+              "before_map",
+              "before_list",
+              "before_per_row"
+            ],
+            [
+              "wasm_list",
+              "wasm_per_row",
+              "javascript_map",
+              "javascript_list",
+              "javascript_per_row",
+              "before_map",
+              "before_list",
+              "before_per_row",
+              "wasm_map"
+            ]
+          ],
+          "ns_per_call": {
+            "before_map": {
+              "samples": [
+                23995.422363281228,
+                24345.63183593763,
+                24229.61425781245,
+                24226.409912109448,
+                23809.387207031297
+              ],
+              "median": 24226.409912109448,
+              "min": 23809.387207031297,
+              "max": 24345.63183593763,
+              "spread_percent": 2.213471293731782
+            },
+            "before_list": {
+              "samples": [
+                18345.123291015676,
+                18226.13525390615,
+                18499.16577148436,
+                17846.46606445306,
+                18375.47802734374
+              ],
+              "median": 18345.123291015676,
+              "min": 17846.46606445306,
+              "max": 18499.16577148436,
+              "spread_percent": 3.5578921802665318
+            },
+            "before_per_row": {
+              "samples": [
+                13543.853759765634,
+                13369.059326171939,
+                13500.630615234322,
+                13239.339355468837,
+                13293.05004882797
+              ],
+              "median": 13369.059326171939,
+              "min": 13239.339355468837,
+              "max": 13543.853759765634,
+              "spread_percent": 2.277754903074326
+            },
+            "wasm_map": {
+              "samples": [
+                22408.07080078122,
+                22422.607421874964,
+                22787.506103515654,
+                22347.758056640687,
+                22254.821777343725
+              ],
+              "median": 22408.07080078122,
+              "min": 22254.821777343725,
+              "max": 22787.506103515654,
+              "spread_percent": 2.377198514355633
+            },
+            "wasm_list": {
+              "samples": [
+                16680.023193359484,
+                16765.289306640563,
+                16967.874999999967,
+                16801.625488281235,
+                16580.607177734353
+              ],
+              "median": 16765.289306640563,
+              "min": 16580.607177734353,
+              "max": 16967.874999999967,
+              "spread_percent": 2.309938201377898
+            },
+            "wasm_per_row": {
+              "samples": [
+                11775.838134765681,
+                11871.602294921679,
+                11886.495117187535,
+                11913.65551757806,
+                11752.807617187555
+              ],
+              "median": 11871.602294921679,
+              "min": 11752.807617187555,
+              "max": 11913.65551757806,
+              "spread_percent": 1.3548963012289499
+            },
+            "javascript_map": {
+              "samples": [
+                7029.479980468655,
+                6991.292236328217,
+                7007.781982421912,
+                7053.243164062639,
+                6963.206054687365
+              ],
+              "median": 7007.781982421912,
+              "min": 6963.206054687365,
+              "max": 7053.243164062639,
+              "spread_percent": 1.2848160744886163
+            },
+            "javascript_list": {
+              "samples": [
+                6400.085449218773,
+                6273.8749999999845,
+                6392.6086425782905,
+                6422.342773437562,
+                6286.020996093766
+              ],
+              "median": 6392.6086425782905,
+              "min": 6273.8749999999845,
+              "max": 6422.342773437562,
+              "spread_percent": 2.3224912041181476
+            },
+            "javascript_per_row": {
+              "samples": [
+                4915.201660156355,
+                4830.831054687623,
+                4939.300537109448,
+                5062.143798828079,
+                4913.828369140782
+              ],
+              "median": 4915.201660156355,
+              "min": 4830.831054687623,
+              "max": 5062.143798828079,
+              "spread_percent": 4.706068237556253
+            }
+          }
+        },
+        {
+          "operation": "echo",
+          "size": 256,
+          "fields": 3,
+          "calls": 256,
+          "warmup": 100,
+          "orders": [
+            [
+              "before_map",
+              "before_list",
+              "before_per_row",
+              "wasm_map",
+              "wasm_list",
+              "wasm_per_row",
+              "javascript_map",
+              "javascript_list",
+              "javascript_per_row"
+            ],
+            [
+              "before_list",
+              "before_per_row",
+              "wasm_map",
+              "wasm_list",
+              "wasm_per_row",
+              "javascript_map",
+              "javascript_list",
+              "javascript_per_row",
+              "before_map"
+            ],
+            [
+              "before_per_row",
+              "wasm_map",
+              "wasm_list",
+              "wasm_per_row",
+              "javascript_map",
+              "javascript_list",
+              "javascript_per_row",
+              "before_map",
+              "before_list"
+            ],
+            [
+              "wasm_map",
+              "wasm_list",
+              "wasm_per_row",
+              "javascript_map",
+              "javascript_list",
+              "javascript_per_row",
+              "before_map",
+              "before_list",
+              "before_per_row"
+            ],
+            [
+              "wasm_list",
+              "wasm_per_row",
+              "javascript_map",
+              "javascript_list",
+              "javascript_per_row",
+              "before_map",
+              "before_list",
+              "before_per_row",
+              "wasm_map"
+            ]
+          ],
+          "ns_per_call": {
+            "before_map": {
+              "samples": [
+                371807.2929687502,
+                365012.3710937514,
+                363888.34765624977,
+                364833.4960937518,
+                368409.9921875017
+              ],
+              "median": 365012.3710937514,
+              "min": 363888.34765624977,
+              "max": 371807.2929687502,
+              "spread_percent": 2.1695005264537928
+            },
+            "before_list": {
+              "samples": [
+                276740.72265625326,
+                276791.8320312468,
+                277666.5039062536,
+                281583.9843750041,
+                280888.5078125058
+              ],
+              "median": 277666.5039062536,
+              "min": 276740.72265625326,
+              "max": 281583.9843750041,
+              "spread_percent": 1.7442729499651883
+            },
+            "before_per_row": {
+              "samples": [
+                209694.98437500178,
+                203983.88671875268,
+                209300.6171874947,
+                206455.5664062553,
+                205860.1875000008
+              ],
+              "median": 206455.5664062553,
+              "min": 203983.88671875268,
+              "max": 209694.98437500178,
+              "spread_percent": 2.766259953975288
+            },
+            "wasm_map": {
+              "samples": [
+                335628.5781250001,
+                335343.42578125023,
+                336525.5546874977,
+                336620.2812499992,
+                337519.20703124936
+              ],
+              "median": 336525.5546874977,
+              "min": 335343.42578125023,
+              "max": 337519.20703124936,
+              "spread_percent": 0.6465426532078932
+            },
+            "wasm_list": {
+              "samples": [
+                249543.78515624854,
+                254464.84375000012,
+                254053.0624999988,
+                253453.77734375064,
+                254917.80859374558
+              ],
+              "median": 254053.0624999988,
+              "min": 249543.78515624854,
+              "max": 254917.80859374558,
+              "spread_percent": 2.115315353656505
+            },
+            "wasm_per_row": {
+              "samples": [
+                179973.46875000276,
+                177275.5507812498,
+                176986.00390625076,
+                192489.0937499981,
+                181013.0195312567
+              ],
+              "median": 179973.46875000276,
+              "min": 176986.00390625076,
+              "max": 192489.0937499981,
+              "spread_percent": 8.61409737303133
+            },
+            "javascript_map": {
+              "samples": [
+                108173.17578124985,
+                111462.72656250033,
+                108382.81249999681,
+                110694.00781249783,
+                111011.3945312463
+              ],
+              "median": 110694.00781249783,
+              "min": 108173.17578124985,
+              "max": 111462.72656250033,
+              "spread_percent": 2.971751449114191
+            },
+            "javascript_list": {
+              "samples": [
+                89137.36718750087,
+                90245.60546875194,
+                88169.75781250135,
+                93340.98046874572,
+                90219.726562502
+              ],
+              "median": 90219.726562502,
+              "min": 88169.75781250135,
+              "max": 93340.98046874572,
+              "spread_percent": 5.731809276391314
+            },
+            "javascript_per_row": {
+              "samples": [
+                72990.07031249971,
+                71580.8906250004,
+                72619.62890625284,
+                71784.83203124841,
+                71163.90234374847
+              ],
+              "median": 71784.83203124841,
+              "min": 71163.90234374847,
+              "max": 72990.07031249971,
+              "spread_percent": 2.5439468437514683
+            }
+          }
+        },
+        {
+          "operation": "normalize",
+          "size": 256,
+          "fields": 3,
+          "calls": 256,
+          "warmup": 100,
+          "orders": [
+            [
+              "before_map",
+              "before_list",
+              "before_per_row",
+              "wasm_map",
+              "wasm_list",
+              "wasm_per_row",
+              "javascript_map",
+              "javascript_list",
+              "javascript_per_row"
+            ],
+            [
+              "before_list",
+              "before_per_row",
+              "wasm_map",
+              "wasm_list",
+              "wasm_per_row",
+              "javascript_map",
+              "javascript_list",
+              "javascript_per_row",
+              "before_map"
+            ],
+            [
+              "before_per_row",
+              "wasm_map",
+              "wasm_list",
+              "wasm_per_row",
+              "javascript_map",
+              "javascript_list",
+              "javascript_per_row",
+              "before_map",
+              "before_list"
+            ],
+            [
+              "wasm_map",
+              "wasm_list",
+              "wasm_per_row",
+              "javascript_map",
+              "javascript_list",
+              "javascript_per_row",
+              "before_map",
+              "before_list",
+              "before_per_row"
+            ],
+            [
+              "wasm_list",
+              "wasm_per_row",
+              "javascript_map",
+              "javascript_list",
+              "javascript_per_row",
+              "before_map",
+              "before_list",
+              "before_per_row",
+              "wasm_map"
+            ]
+          ],
+          "ns_per_call": {
+            "before_map": {
+              "samples": [
+                382254.5546874991,
+                381463.8671874988,
+                389929.1992187486,
+                385525.87890625035,
+                382169.4335937522
+              ],
+              "median": 382254.5546874991,
+              "min": 381463.8671874988,
+              "max": 389929.1992187486,
+              "spread_percent": 2.2145797682307293
+            },
+            "before_list": {
+              "samples": [
+                290116.86328124854,
+                283013.83593750274,
+                288896.8124999991,
+                289571.12890625326,
+                290920.0859375005
+              ],
+              "median": 289571.12890625326,
+              "min": 283013.83593750274,
+              "max": 290920.0859375005,
+              "spread_percent": 2.73033089654369
+            },
+            "before_per_row": {
+              "samples": [
+                215618.1640624979,
+                210250.3242187481,
+                215560.38671874945,
+                213923.33984375256,
+                214109.2109375009
+              ],
+              "median": 214109.2109375009,
+              "min": 210250.3242187481,
+              "max": 215618.1640624979,
+              "spread_percent": 2.5070569454934306
+            },
+            "wasm_map": {
+              "samples": [
+                362277.3437500015,
+                354700.6835937481,
+                358209.4726562488,
+                360040.6914062475,
+                356726.8867187536
+              ],
+              "median": 358209.4726562488,
+              "min": 354700.6835937481,
+              "max": 362277.3437500015,
+              "spread_percent": 2.11514790495903
+            },
+            "wasm_list": {
+              "samples": [
+                258740.07031250556,
+                265613.2812499976,
+                261630.04296874703,
+                262067.38281250352,
+                260355.30468750067
+              ],
+              "median": 261630.04296874703,
+              "min": 258740.07031250556,
+              "max": 265613.2812499976,
+              "spread_percent": 2.627072510290071
+            },
+            "wasm_per_row": {
+              "samples": [
+                186976.23437500256,
+                190054.85156250047,
+                189854.49218750006,
+                190595.86328125276,
+                185903.6445312512
+              ],
+              "median": 189854.49218750006,
+              "min": 185903.6445312512,
+              "max": 190595.86328125276,
+              "spread_percent": 2.471481551970623
+            },
+            "javascript_map": {
+              "samples": [
+                116080.73046875233,
+                114602.70312500143,
+                116794.92187500528,
+                116599.44531250233,
+                117115.39843749818
+              ],
+              "median": 116599.44531250233,
+              "min": 114602.70312500143,
+              "max": 117115.39843749818,
+              "spread_percent": 2.15498050249072
+            },
+            "javascript_list": {
+              "samples": [
+                95881.9960937518,
+                94161.45703125522,
+                94637.85546874703,
+                97314.78124999882,
+                95698.73046874732
+              ],
+              "median": 95698.73046874732,
+              "min": 94161.45703125522,
+              "max": 97314.78124999882,
+              "spread_percent": 3.295053344279619
+            },
+            "javascript_per_row": {
+              "samples": [
+                77098.14453124863,
+                75900.06249999703,
+                75974.12109375057,
+                76647.62109374834,
+                77610.1914062508
+              ],
+              "median": 76647.62109374834,
+              "min": 75900.06249999703,
+              "max": 77610.1914062508,
+              "spread_percent": 2.2311571864208233
+            }
+          }
+        },
+        {
+          "operation": "echo_one",
+          "size": 1,
+          "fields": 1,
+          "calls": 100000,
+          "warmup": 20000,
+          "orders": [
+            [
+              "before_record_one",
+              "wasm_record_one"
+            ],
+            [
+              "wasm_record_one",
+              "before_record_one"
+            ],
+            [
+              "before_record_one",
+              "wasm_record_one"
+            ],
+            [
+              "wasm_record_one",
+              "before_record_one"
+            ],
+            [
+              "before_record_one",
+              "wasm_record_one"
+            ]
+          ],
+          "ns_per_call": {
+            "before_record_one": {
+              "samples": [
+                296.4179100000001,
+                298.6908399999993,
+                298.3179200000086,
+                294.51875000000655,
+                288.63792000000103
+              ],
+              "median": 296.4179100000001,
+              "min": 288.63792000000103,
+              "max": 298.6908399999993,
+              "spread_percent": 3.3914684844779663
+            },
+            "wasm_record_one": {
+              "samples": [
+                185.99207999999635,
+                182.91917000000467,
+                189.8895799999991,
+                176.71959000001152,
+                178.9237499999945
+              ],
+              "median": 182.91917000000467,
+              "min": 176.71959000001152,
+              "max": 189.8895799999991,
+              "spread_percent": 7.1998959977717245
+            }
+          }
+        }
+      ]
+    },
+    {
+      "schema": 1,
+      "recordedAt": "2026-10-09T23:47:32.151Z",
+      "direction": "reverse",
+      "configuration": {
+        "sizes": [
+          0,
+          1,
+          16,
+          256
+        ],
+        "runs": 5,
+        "iterations": 20000,
+        "workBudget": 65536,
+        "warmup": "max(100, floor(calls / 10))",
+        "keys": "non-numeric ASCII user_0000, user_0001, ...",
+        "record": "own data fields: string name, safe integer age, nullable bool active",
+        "samples": "rotate implementation order each sample; reverse variant reverses base order"
+      },
+      "driver_sha256": "608232e4946440b2cb96e9d61ec9b68e8762fde16d2c1aaf4575ccb3f85a0706",
+      "comparison": "before_*: baseline artifacts; wasm_*: candidate artifacts; same-process rotated samples",
+      "environment": {
+        "node": "v26.11.1",
+        "v8": "14.6.202.34-node.37",
+        "os": "darwin 27.0.0",
+        "arch": "arm64",
+        "cpu": "Apple M3 Max"
+      },
+      "artifacts": {
+        "record-maps": {
+          "module.wasm": {
+            "sha256": "32dd55b7f651b96cc82dc9c165e525eb657e94262aa630172840cc0ceb524a7f",
+            "bytes": 83054
+          },
+          "module.imports.mjs": {
+            "sha256": "e071b5bf0633f028ad401044cd887cdb51b558d8503946b50e0207a35961b29a",
+            "bytes": 35368
+          },
+          "index.d.ts": {
+            "sha256": "673dc6f8966c30f456a14c6cdba19139a225cbbda4101d029333e10a0043e0cf",
+            "bytes": 4411
+          },
+          "module.d.wasm.ts": {
+            "sha256": "673dc6f8966c30f456a14c6cdba19139a225cbbda4101d029333e10a0043e0cf",
+            "bytes": 4411
+          },
+          "package.json": {
+            "sha256": "51d660ea66f2ea7cf0ede936ba6134508f0d12cd9f672d0540762eb9b9441a39",
+            "bytes": 523
+          }
+        },
+        "batch": {
+          "module.wasm": {
+            "sha256": "a3a21a7452cf48dc73024f570164f54fd05eb7a18c603e87d773bc946eefa10d",
+            "bytes": 74059
+          },
+          "module.imports.mjs": {
+            "sha256": "01bc4ff29103bab4032353a0410646e343effdb15d98f65fe05011d7d4173d85",
+            "bytes": 33784
+          },
+          "index.d.ts": {
+            "sha256": "8fa813613d79ae57bbace7b876d313afe45e9b5566ebf8f803f3531472d6e404",
+            "bytes": 6650
+          },
+          "module.d.wasm.ts": {
+            "sha256": "8fa813613d79ae57bbace7b876d313afe45e9b5566ebf8f803f3531472d6e404",
+            "bytes": 6650
+          },
+          "package.json": {
+            "sha256": "f0e81cdcb89bad1b7adba95914129079f3415071f4f685522b21453987e9196d",
+            "bytes": 517
+          }
+        },
+        "records": {
+          "module.wasm": {
+            "sha256": "276de10b73d6e1efae1f7cafe41fabd4d3a248e9482f38a6e6207c9f7e9dd6c8",
+            "bytes": 70425
+          },
+          "module.imports.mjs": {
+            "sha256": "eb99e3dd88add2bf25c630da796f4d9689ee1c7ab0ed0cdcb0c04c20e6c3d69c",
+            "bytes": 33077
+          },
+          "index.d.ts": {
+            "sha256": "cef835a128b1d9099eaf9af860b37236b220f1c0086d0d079307b6a21cadff31",
+            "bytes": 5486
+          },
+          "module.d.wasm.ts": {
+            "sha256": "cef835a128b1d9099eaf9af860b37236b220f1c0086d0d079307b6a21cadff31",
+            "bytes": 5486
+          },
+          "package.json": {
+            "sha256": "fd3439f8f6e1456f8ce80e828e94db3a78a40b4fdfaad3fa3423a4aab478729a",
+            "bytes": 519
+          }
+        },
+        "before/record-maps": {
+          "module.wasm": {
+            "sha256": "32dd55b7f651b96cc82dc9c165e525eb657e94262aa630172840cc0ceb524a7f",
+            "bytes": 83054
+          },
+          "module.imports.mjs": {
+            "sha256": "5264d9b387429d672d5fca5cf4c9cb5d6555aa5595c4845fff2bfb50429e8056",
+            "bytes": 35450
+          },
+          "index.d.ts": {
+            "sha256": "673dc6f8966c30f456a14c6cdba19139a225cbbda4101d029333e10a0043e0cf",
+            "bytes": 4411
+          },
+          "module.d.wasm.ts": {
+            "sha256": "673dc6f8966c30f456a14c6cdba19139a225cbbda4101d029333e10a0043e0cf",
+            "bytes": 4411
+          },
+          "package.json": {
+            "sha256": "51d660ea66f2ea7cf0ede936ba6134508f0d12cd9f672d0540762eb9b9441a39",
+            "bytes": 523
+          }
+        },
+        "before/batch": {
+          "module.wasm": {
+            "sha256": "a3a21a7452cf48dc73024f570164f54fd05eb7a18c603e87d773bc946eefa10d",
+            "bytes": 74059
+          },
+          "module.imports.mjs": {
+            "sha256": "13621bad5de4552d4b108afc2a0b01c8a43d29832ad819d780111b5dca03fe2a",
+            "bytes": 33866
+          },
+          "index.d.ts": {
+            "sha256": "8fa813613d79ae57bbace7b876d313afe45e9b5566ebf8f803f3531472d6e404",
+            "bytes": 6650
+          },
+          "module.d.wasm.ts": {
+            "sha256": "8fa813613d79ae57bbace7b876d313afe45e9b5566ebf8f803f3531472d6e404",
+            "bytes": 6650
+          },
+          "package.json": {
+            "sha256": "f0e81cdcb89bad1b7adba95914129079f3415071f4f685522b21453987e9196d",
+            "bytes": 517
+          }
+        },
+        "before/records": {
+          "module.wasm": {
+            "sha256": "276de10b73d6e1efae1f7cafe41fabd4d3a248e9482f38a6e6207c9f7e9dd6c8",
+            "bytes": 70425
+          },
+          "module.imports.mjs": {
+            "sha256": "d88788588bd37b8c2c60f4432e50057aa8481ddb619a930a03aac251753ffa95",
+            "bytes": 33159
+          },
+          "index.d.ts": {
+            "sha256": "cef835a128b1d9099eaf9af860b37236b220f1c0086d0d079307b6a21cadff31",
+            "bytes": 5486
+          },
+          "module.d.wasm.ts": {
+            "sha256": "cef835a128b1d9099eaf9af860b37236b220f1c0086d0d079307b6a21cadff31",
+            "bytes": 5486
+          },
+          "package.json": {
+            "sha256": "fd3439f8f6e1456f8ce80e828e94db3a78a40b4fdfaad3fa3423a4aab478729a",
+            "bytes": 519
+          }
+        }
+      },
+      "correctness": "equal values, fresh outer container and null-prototype records; output mutation leaves input and next call unchanged",
+      "notes": [
+        "Reuse supplied fixture artifacts; this driver performs no compilation or download. Warmed synchronous calls only; no async timer or cold import measurement.",
+        "Map/List/one-record fixtures have different export sets; User type and echo/normalize business logic are equivalent.",
+        "Per-row controls lack outer-container validation; output is an array and includes JS Array.map dispatch/allocation.",
+        "JavaScript references validate only ordinary current-realm valid data shapes, safe integers/string/nullable bool and copy outputs; not the full Proxy/cross-realm/error contract or Dart-owned business-input representation.",
+        "Timed loop includes dispatch, validation, copies and per-call consumption of row count plus a known age; correctness traversal is outside timing. JIT/GC/system load are uncontrolled."
+      ],
+      "sink": 12525075,
+      "cases": [
+        {
+          "operation": "echo",
+          "size": 0,
+          "fields": 3,
+          "calls": 20000,
+          "warmup": 2000,
+          "orders": [
+            [
+              "javascript_per_row",
+              "javascript_list",
+              "javascript_map",
+              "wasm_per_row",
+              "wasm_list",
+              "wasm_map",
+              "before_per_row",
+              "before_list",
+              "before_map"
+            ],
+            [
+              "javascript_list",
+              "javascript_map",
+              "wasm_per_row",
+              "wasm_list",
+              "wasm_map",
+              "before_per_row",
+              "before_list",
+              "before_map",
+              "javascript_per_row"
+            ],
+            [
+              "javascript_map",
+              "wasm_per_row",
+              "wasm_list",
+              "wasm_map",
+              "before_per_row",
+              "before_list",
+              "before_map",
+              "javascript_per_row",
+              "javascript_list"
+            ],
+            [
+              "wasm_per_row",
+              "wasm_list",
+              "wasm_map",
+              "before_per_row",
+              "before_list",
+              "before_map",
+              "javascript_per_row",
+              "javascript_list",
+              "javascript_map"
+            ],
+            [
+              "wasm_list",
+              "wasm_map",
+              "before_per_row",
+              "before_list",
+              "before_map",
+              "javascript_per_row",
+              "javascript_list",
+              "javascript_map",
+              "wasm_per_row"
+            ]
+          ],
+          "ns_per_call": {
+            "javascript_per_row": {
+              "samples": [
+                37.80210000000004,
+                11.316650000000195,
+                14.168749999999974,
+                14.652099999999992,
+                13.39579999999998
+              ],
+              "median": 14.168749999999974,
+              "min": 11.316650000000195,
+              "max": 37.80210000000004,
+              "spread_percent": 186.92862814291942
+            },
+            "javascript_list": {
+              "samples": [
+                96.0812500000003,
+                74.88125000000032,
+                71.65415000000017,
+                67.29999999999947,
+                74.92710000000002
+              ],
+              "median": 74.88125000000032,
+              "min": 67.29999999999947,
+              "max": 96.0812500000003,
+              "spread_percent": 38.435856773225204
+            },
+            "javascript_map": {
+              "samples": [
+                89.70415000000003,
+                69.67709999999983,
+                60.50210000000007,
+                58.58750000000015,
+                57.61664999999993
+              ],
+              "median": 60.50210000000007,
+              "min": 57.61664999999993,
+              "max": 89.70415000000003,
+              "spread_percent": 53.035349186226696
+            },
+            "wasm_per_row": {
+              "samples": [
+                26.19579999999999,
+                21.08124999999994,
+                13.547900000000011,
+                13.497900000000127,
+                11.52709999999999
+              ],
+              "median": 13.547900000000011,
+              "min": 11.52709999999999,
+              "max": 26.19579999999999,
+              "spread_percent": 108.2728688579041
+            },
+            "wasm_list": {
+              "samples": [
+                76.75415000000001,
+                52.24790000000006,
+                42.297900000000155,
+                44.36874999999958,
+                42.64789999999934
+              ],
+              "median": 44.36874999999958,
+              "min": 42.297900000000155,
+              "max": 76.75415000000001,
+              "spread_percent": 77.65882518664641
+            },
+            "wasm_map": {
+              "samples": [
+                137.30624999999995,
+                93.07920000000003,
+                93.43749999999993,
+                91.40209999999982,
+                91.85000000000016
+              ],
+              "median": 93.07920000000003,
+              "min": 91.40209999999982,
+              "max": 137.30624999999995,
+              "spread_percent": 49.31730182468276
+            },
+            "before_per_row": {
+              "samples": [
+                21.806250000000205,
+                13.150000000000261,
+                13.679149999999753,
+                12.966649999999902,
+                11.404200000000486
+              ],
+              "median": 13.150000000000261,
+              "min": 11.404200000000486,
+              "max": 21.806250000000205,
+              "spread_percent": 79.10304182509134
+            },
+            "before_list": {
+              "samples": [
+                59.691649999999896,
+                42.79794999999993,
+                41.94579999999988,
+                42.785449999999514,
+                42.40835000000018
+              ],
+              "median": 42.785449999999514,
+              "min": 41.94579999999988,
+              "max": 59.691649999999896,
+              "spread_percent": 41.47636638156247
+            },
+            "before_map": {
+              "samples": [
+                116.57709999999996,
+                96.86044999999979,
+                101.0958500000001,
+                88.54794999999953,
+                92.81045000000034
+              ],
+              "median": 96.86044999999979,
+              "min": 88.54794999999953,
+              "max": 116.57709999999996,
+              "spread_percent": 28.937662379227525
+            }
+          }
+        },
+        {
+          "operation": "normalize",
+          "size": 0,
+          "fields": 3,
+          "calls": 20000,
+          "warmup": 2000,
+          "orders": [
+            [
+              "javascript_per_row",
+              "javascript_list",
+              "javascript_map",
+              "wasm_per_row",
+              "wasm_list",
+              "wasm_map",
+              "before_per_row",
+              "before_list",
+              "before_map"
+            ],
+            [
+              "javascript_list",
+              "javascript_map",
+              "wasm_per_row",
+              "wasm_list",
+              "wasm_map",
+              "before_per_row",
+              "before_list",
+              "before_map",
+              "javascript_per_row"
+            ],
+            [
+              "javascript_map",
+              "wasm_per_row",
+              "wasm_list",
+              "wasm_map",
+              "before_per_row",
+              "before_list",
+              "before_map",
+              "javascript_per_row",
+              "javascript_list"
+            ],
+            [
+              "wasm_per_row",
+              "wasm_list",
+              "wasm_map",
+              "before_per_row",
+              "before_list",
+              "before_map",
+              "javascript_per_row",
+              "javascript_list",
+              "javascript_map"
+            ],
+            [
+              "wasm_list",
+              "wasm_map",
+              "before_per_row",
+              "before_list",
+              "before_map",
+              "javascript_per_row",
+              "javascript_list",
+              "javascript_map",
+              "wasm_per_row"
+            ]
+          ],
+          "ns_per_call": {
+            "javascript_per_row": {
+              "samples": [
+                19.487500000000324,
+                12.741650000000249,
+                11.429199999999895,
+                11.362499999999898,
+                13.39375000000018
+              ],
+              "median": 12.741650000000249,
+              "min": 11.362499999999898,
+              "max": 19.487500000000324,
+              "spread_percent": 63.76725149411786
+            },
+            "javascript_list": {
+              "samples": [
+                75.69374999999994,
+                69.09374999999969,
+                69.61459999999988,
+                69.3645999999994,
+                73.0125000000001
+              ],
+              "median": 69.61459999999988,
+              "min": 69.09374999999969,
+              "max": 75.69374999999994,
+              "spread_percent": 9.480769838511263
+            },
+            "javascript_map": {
+              "samples": [
+                69.32290000000023,
+                63.85834999999958,
+                63.48959999999977,
+                59.664550000000105,
+                62.67294999999962
+              ],
+              "median": 63.48959999999977,
+              "min": 59.664550000000105,
+              "max": 69.32290000000023,
+              "spread_percent": 15.212491494670248
+            },
+            "wasm_per_row": {
+              "samples": [
+                20.887499999999903,
+                14.641699999999956,
+                13.97709999999961,
+                13.158349999999785,
+                11.314600000000041
+              ],
+              "median": 13.97709999999961,
+              "min": 11.314600000000041,
+              "max": 20.887499999999903,
+              "spread_percent": 68.48988702949917
+            },
+            "wasm_list": {
+              "samples": [
+                65.59795000000008,
+                51.05415000000022,
+                45.96039999999988,
+                47.82500000000027,
+                52.07914999999943
+              ],
+              "median": 51.05415000000022,
+              "min": 45.96039999999988,
+              "max": 65.59795000000008,
+              "spread_percent": 38.46416011235153
+            },
+            "wasm_map": {
+              "samples": [
+                135.51670000000016,
+                105.68955000000031,
+                105.52500000000009,
+                101.64170000000041,
+                101.39999999999958
+              ],
+              "median": 105.52500000000009,
+              "min": 101.39999999999958,
+              "max": 135.51670000000016,
+              "spread_percent": 32.33044302298086
+            },
+            "before_per_row": {
+              "samples": [
+                21.54999999999987,
+                11.677099999999996,
+                11.470800000000025,
+                11.383299999999963,
+                11.50415000000038
+              ],
+              "median": 11.50415000000038,
+              "min": 11.383299999999963,
+              "max": 21.54999999999987,
+              "spread_percent": 88.37419539904792
+            },
+            "before_list": {
+              "samples": [
+                55.30624999999958,
+                49.03954999999982,
+                71.1333500000002,
+                46.4208499999998,
+                45.433349999998995
+              ],
+              "median": 49.03954999999982,
+              "min": 45.433349999998995,
+              "max": 71.1333500000002,
+              "spread_percent": 52.40667991447985
+            },
+            "before_map": {
+              "samples": [
+                105.5333499999996,
+                120.02710000000008,
+                105.4271,
+                100.81670000000003,
+                101.04790000000037
+              ],
+              "median": 105.4271,
+              "min": 100.81670000000003,
+              "max": 120.02710000000008,
+              "spread_percent": 18.22150092338692
+            }
+          }
+        },
+        {
+          "operation": "echo",
+          "size": 1,
+          "fields": 3,
+          "calls": 20000,
+          "warmup": 2000,
+          "orders": [
+            [
+              "javascript_per_row",
+              "javascript_list",
+              "javascript_map",
+              "wasm_per_row",
+              "wasm_list",
+              "wasm_map",
+              "before_per_row",
+              "before_list",
+              "before_map"
+            ],
+            [
+              "javascript_list",
+              "javascript_map",
+              "wasm_per_row",
+              "wasm_list",
+              "wasm_map",
+              "before_per_row",
+              "before_list",
+              "before_map",
+              "javascript_per_row"
+            ],
+            [
+              "javascript_map",
+              "wasm_per_row",
+              "wasm_list",
+              "wasm_map",
+              "before_per_row",
+              "before_list",
+              "before_map",
+              "javascript_per_row",
+              "javascript_list"
+            ],
+            [
+              "wasm_per_row",
+              "wasm_list",
+              "wasm_map",
+              "before_per_row",
+              "before_list",
+              "before_map",
+              "javascript_per_row",
+              "javascript_list",
+              "javascript_map"
+            ],
+            [
+              "wasm_list",
+              "wasm_map",
+              "before_per_row",
+              "before_list",
+              "before_map",
+              "javascript_per_row",
+              "javascript_list",
+              "javascript_map",
+              "wasm_per_row"
+            ]
+          ],
+          "ns_per_call": {
+            "javascript_per_row": {
+              "samples": [
+                351.29579999999976,
+                310.57294999999954,
+                309.26039999999944,
+                309.86875000000396,
+                310.78750000000355
+              ],
+              "median": 310.57294999999954,
+              "min": 309.26039999999944,
+              "max": 351.29579999999976,
+              "spread_percent": 13.53479110141446
+            },
+            "javascript_list": {
+              "samples": [
+                554.1937499999989,
+                528.3771000000002,
+                505.7124999999985,
+                505.98959999999806,
+                508.78539999999924
+              ],
+              "median": 508.78539999999924,
+              "min": 505.7124999999985,
+              "max": 554.1937499999989,
+              "spread_percent": 9.528820992111891
+            },
+            "javascript_map": {
+              "samples": [
+                584.8062500000012,
+                515.4583500000001,
+                511.61670000000186,
+                513.8333500000044,
+                512.3104000000012
+              ],
+              "median": 513.8333500000044,
+              "min": 511.61670000000186,
+              "max": 584.8062500000012,
+              "spread_percent": 14.243830222386059
+            },
+            "wasm_per_row": {
+              "samples": [
+                778.5792000000001,
+                698.4541500000006,
+                665.4583500000001,
+                685.3604000000018,
+                688.0041500000004
+              ],
+              "median": 688.0041500000004,
+              "min": 665.4583500000001,
+              "max": 778.5792000000001,
+              "spread_percent": 16.44188483456095
+            },
+            "wasm_list": {
+              "samples": [
+                1227.36455,
+                1151.6999999999996,
+                1102.347949999995,
+                1147.3270499999956,
+                1126.2916500000017
+              ],
+              "median": 1147.3270499999956,
+              "min": 1102.347949999995,
+              "max": 1227.36455,
+              "spread_percent": 10.896335094688599
+            },
+            "wasm_map": {
+              "samples": [
+                1664.3375000000005,
+                1553.8207999999997,
+                1489.077100000003,
+                1528.7687500000004,
+                1538.2937500000025
+              ],
+              "median": 1538.2937500000025,
+              "min": 1489.077100000003,
+              "max": 1664.3375000000005,
+              "spread_percent": 11.393168567446713
+            },
+            "before_per_row": {
+              "samples": [
+                831.5021000000002,
+                816.7374999999993,
+                795.5708499999957,
+                796.0249999999974,
+                793.6770999999965
+              ],
+              "median": 796.0249999999974,
+              "min": 793.6770999999965,
+              "max": 831.5021000000002,
+              "spread_percent": 4.751735184196955
+            },
+            "before_list": {
+              "samples": [
+                1268.3333000000005,
+                1221.8666499999983,
+                1199.2707999999993,
+                1206.468749999999,
+                1210.9499999999969
+              ],
+              "median": 1210.9499999999969,
+              "min": 1199.2707999999993,
+              "max": 1268.3333000000005,
+              "spread_percent": 5.703166935051102
+            },
+            "before_map": {
+              "samples": [
+                1723.0146000000018,
+                1656.9457999999997,
+                1629.064599999998,
+                1624.6833500000037,
+                1636.7062500000031
+              ],
+              "median": 1636.7062500000031,
+              "min": 1624.6833500000037,
+              "max": 1723.0146000000018,
+              "spread_percent": 6.007874045815977
+            }
+          }
+        },
+        {
+          "operation": "normalize",
+          "size": 1,
+          "fields": 3,
+          "calls": 20000,
+          "warmup": 2000,
+          "orders": [
+            [
+              "javascript_per_row",
+              "javascript_list",
+              "javascript_map",
+              "wasm_per_row",
+              "wasm_list",
+              "wasm_map",
+              "before_per_row",
+              "before_list",
+              "before_map"
+            ],
+            [
+              "javascript_list",
+              "javascript_map",
+              "wasm_per_row",
+              "wasm_list",
+              "wasm_map",
+              "before_per_row",
+              "before_list",
+              "before_map",
+              "javascript_per_row"
+            ],
+            [
+              "javascript_map",
+              "wasm_per_row",
+              "wasm_list",
+              "wasm_map",
+              "before_per_row",
+              "before_list",
+              "before_map",
+              "javascript_per_row",
+              "javascript_list"
+            ],
+            [
+              "wasm_per_row",
+              "wasm_list",
+              "wasm_map",
+              "before_per_row",
+              "before_list",
+              "before_map",
+              "javascript_per_row",
+              "javascript_list",
+              "javascript_map"
+            ],
+            [
+              "wasm_list",
+              "wasm_map",
+              "before_per_row",
+              "before_list",
+              "before_map",
+              "javascript_per_row",
+              "javascript_list",
+              "javascript_map",
+              "wasm_per_row"
+            ]
+          ],
+          "ns_per_call": {
+            "javascript_per_row": {
+              "samples": [
+                364.69165000000885,
+                327.8250000000071,
+                329.4416999999953,
+                330.23540000000366,
+                334.78959999999915
+              ],
+              "median": 330.23540000000366,
+              "min": 327.8250000000071,
+              "max": 364.69165000000885,
+              "spread_percent": 11.163748647177542
+            },
+            "javascript_list": {
+              "samples": [
+                548.4229000000028,
+                553.9979000000017,
+                520.5707999999959,
+                529.787500000009,
+                535.6395499999962
+              ],
+              "median": 535.6395499999962,
+              "min": 520.5707999999959,
+              "max": 553.9979000000017,
+              "spread_percent": 6.240595938071793
+            },
+            "javascript_map": {
+              "samples": [
+                549.2229000000066,
+                543.487499999992,
+                536.1208000000033,
+                531.3166499999966,
+                546.0749999999962
+              ],
+              "median": 543.487499999992,
+              "min": 531.3166499999966,
+              "max": 549.2229000000066,
+              "spread_percent": 3.2946939902040557
+            },
+            "wasm_per_row": {
+              "samples": [
+                791.0375000000045,
+                776.6333000000031,
+                759.5895999999925,
+                772.8020500000071,
+                761.9146000000001
+              ],
+              "median": 772.8020500000071,
+              "min": 759.5895999999925,
+              "max": 791.0375000000045,
+              "spread_percent": 4.069334443407811
+            },
+            "wasm_list": {
+              "samples": [
+                1180.1562499999932,
+                1159.472900000003,
+                1265.3957999999989,
+                1179.3770999999992,
+                1177.4291500000004
+              ],
+              "median": 1179.3770999999992,
+              "min": 1159.472900000003,
+              "max": 1265.3957999999989,
+              "spread_percent": 8.981257987796779
+            },
+            "wasm_map": {
+              "samples": [
+                1678.2333500000047,
+                1623.6437499999965,
+                1649.1770999999972,
+                1611.881249999999,
+                1633.0437500000016
+              ],
+              "median": 1633.0437500000016,
+              "min": 1611.881249999999,
+              "max": 1678.2333500000047,
+              "spread_percent": 4.063093839341762
+            },
+            "before_per_row": {
+              "samples": [
+                894.1708500000004,
+                885.8375000000024,
+                886.9500000000016,
+                884.416699999997,
+                855.0707999999985
+              ],
+              "median": 885.8375000000024,
+              "min": 855.0707999999985,
+              "max": 894.1708500000004,
+              "spread_percent": 4.413907742673102
+            },
+            "before_list": {
+              "samples": [
+                1320.2645500000017,
+                1270.712500000002,
+                1264.737500000001,
+                1270.506249999994,
+                1251.7167000000086
+              ],
+              "median": 1270.506249999994,
+              "min": 1251.7167000000086,
+              "max": 1320.2645500000017,
+              "spread_percent": 5.3953178113050155
+            },
+            "before_map": {
+              "samples": [
+                1721.4666500000023,
+                1736.3604500000063,
+                1740.4437500000085,
+                1695.1708499999995,
+                1740.414599999997
+              ],
+              "median": 1736.3604500000063,
+              "min": 1695.1708499999995,
+              "max": 1740.4437500000085,
+              "spread_percent": 2.607344575258488
+            }
+          }
+        },
+        {
+          "operation": "echo",
+          "size": 16,
+          "fields": 3,
+          "calls": 4096,
+          "warmup": 409,
+          "orders": [
+            [
+              "javascript_per_row",
+              "javascript_list",
+              "javascript_map",
+              "wasm_per_row",
+              "wasm_list",
+              "wasm_map",
+              "before_per_row",
+              "before_list",
+              "before_map"
+            ],
+            [
+              "javascript_list",
+              "javascript_map",
+              "wasm_per_row",
+              "wasm_list",
+              "wasm_map",
+              "before_per_row",
+              "before_list",
+              "before_map",
+              "javascript_per_row"
+            ],
+            [
+              "javascript_map",
+              "wasm_per_row",
+              "wasm_list",
+              "wasm_map",
+              "before_per_row",
+              "before_list",
+              "before_map",
+              "javascript_per_row",
+              "javascript_list"
+            ],
+            [
+              "wasm_per_row",
+              "wasm_list",
+              "wasm_map",
+              "before_per_row",
+              "before_list",
+              "before_map",
+              "javascript_per_row",
+              "javascript_list",
+              "javascript_map"
+            ],
+            [
+              "wasm_list",
+              "wasm_map",
+              "before_per_row",
+              "before_list",
+              "before_map",
+              "javascript_per_row",
+              "javascript_list",
+              "javascript_map",
+              "wasm_per_row"
+            ]
+          ],
+          "ns_per_call": {
+            "javascript_per_row": {
+              "samples": [
+                4717.417480468722,
+                4706.50219726565,
+                4716.837402343743,
+                4641.031982421829,
+                4602.9257812501
+              ],
+              "median": 4706.50219726565,
+              "min": 4602.9257812501,
+              "max": 4717.417480468722,
+              "spread_percent": 2.4326281901055595
+            },
+            "javascript_list": {
+              "samples": [
+                6016.754150390602,
+                6063.4257812499645,
+                6111.572265624976,
+                6100.08740234369,
+                6004.384521484551
+              ],
+              "median": 6063.4257812499645,
+              "min": 6004.384521484551,
+              "max": 6111.572265624976,
+              "spread_percent": 1.7677753139468353
+            },
+            "javascript_map": {
+              "samples": [
+                6778.177734375002,
+                6795.4509277343695,
+                6766.896484375006,
+                6731.028076171874,
+                6735.463623046778
+              ],
+              "median": 6766.896484375006,
+              "min": 6731.028076171874,
+              "max": 6795.4509277343695,
+              "spread_percent": 0.952029511774711
+            },
+            "wasm_per_row": {
+              "samples": [
+                11705.047607421859,
+                11643.239257812522,
+                11373.769042968717,
+                11566.95556640619,
+                11397.389648437394
+              ],
+              "median": 11566.95556640619,
+              "min": 11373.769042968717,
+              "max": 11705.047607421859,
+              "spread_percent": 2.8640082738388903
+            },
+            "wasm_list": {
+              "samples": [
+                16719.46215820308,
+                17018.687011718826,
+                16641.01147460939,
+                16459.024902343743,
+                16409.18969726557
+              ],
+              "median": 16641.01147460939,
+              "min": 16409.18969726557,
+              "max": 17018.687011718826,
+              "spread_percent": 3.6626218026663704
+            },
+            "wasm_map": {
+              "samples": [
+                22353.963134765676,
+                22417.561767578143,
+                22701.741455078085,
+                21848.612548828085,
+                21997.802734375127
+              ],
+              "median": 22353.963134765676,
+              "min": 21848.612548828085,
+              "max": 22701.741455078085,
+              "spread_percent": 3.816454832222496
+            },
+            "before_per_row": {
+              "samples": [
+                13515.635253906199,
+                13488.393310546964,
+                13261.71875000004,
+                13210.683105468801,
+                13268.31054687494
+              ],
+              "median": 13268.31054687494,
+              "min": 13210.683105468801,
+              "max": 13515.635253906199,
+              "spread_percent": 2.2983494949115655
+            },
+            "before_list": {
+              "samples": [
+                18435.190917968746,
+                18360.666992187525,
+                19426.75781250003,
+                18055.958984375065,
+                18126.45483398434
+              ],
+              "median": 18360.666992187525,
+              "min": 18055.958984375065,
+              "max": 19426.75781250003,
+              "spread_percent": 7.465953326794932
+            },
+            "before_map": {
+              "samples": [
+                23420.613769531195,
+                23705.912353515712,
+                23929.4331054688,
+                23690.877441406188,
+                23657.724853515472
+              ],
+              "median": 23690.877441406188,
+              "min": 23420.613769531195,
+              "max": 23929.4331054688,
+              "spread_percent": 2.1477437346761445
+            }
+          }
+        },
+        {
+          "operation": "normalize",
+          "size": 16,
+          "fields": 3,
+          "calls": 4096,
+          "warmup": 409,
+          "orders": [
+            [
+              "javascript_per_row",
+              "javascript_list",
+              "javascript_map",
+              "wasm_per_row",
+              "wasm_list",
+              "wasm_map",
+              "before_per_row",
+              "before_list",
+              "before_map"
+            ],
+            [
+              "javascript_list",
+              "javascript_map",
+              "wasm_per_row",
+              "wasm_list",
+              "wasm_map",
+              "before_per_row",
+              "before_list",
+              "before_map",
+              "javascript_per_row"
+            ],
+            [
+              "javascript_map",
+              "wasm_per_row",
+              "wasm_list",
+              "wasm_map",
+              "before_per_row",
+              "before_list",
+              "before_map",
+              "javascript_per_row",
+              "javascript_list"
+            ],
+            [
+              "wasm_per_row",
+              "wasm_list",
+              "wasm_map",
+              "before_per_row",
+              "before_list",
+              "before_map",
+              "javascript_per_row",
+              "javascript_list",
+              "javascript_map"
+            ],
+            [
+              "wasm_list",
+              "wasm_map",
+              "before_per_row",
+              "before_list",
+              "before_map",
+              "javascript_per_row",
+              "javascript_list",
+              "javascript_map",
+              "wasm_per_row"
+            ]
+          ],
+          "ns_per_call": {
+            "javascript_per_row": {
+              "samples": [
+                5068.8171386719105,
+                4968.658447265461,
+                5022.023437500023,
+                4950.4089355469905,
+                5152.130126953258
+              ],
+              "median": 5022.023437500023,
+              "min": 4950.4089355469905,
+              "max": 5152.130126953258,
+              "spread_percent": 4.016731381617857
+            },
+            "javascript_list": {
+              "samples": [
+                6386.790039062395,
+                6328.837158203093,
+                6249.206542968899,
+                6416.768310546939,
+                6201.812744140556
+              ],
+              "median": 6328.837158203093,
+              "min": 6201.812744140556,
+              "max": 6416.768310546939,
+              "spread_percent": 3.396446472441926
+            },
+            "javascript_map": {
+              "samples": [
+                6945.841552734367,
+                7170.278076171988,
+                7177.072998046708,
+                7216.684814453256,
+                7113.077880859464
+              ],
+              "median": 7170.278076171988,
+              "min": 6945.841552734367,
+              "max": 7216.684814453256,
+              "spread_percent": 3.777304852638084
+            },
+            "wasm_per_row": {
+              "samples": [
+                11970.05224609371,
+                11921.803710937651,
+                12073.974609374982,
+                11960.845947265541,
+                11958.831787109326
+              ],
+              "median": 11960.845947265541,
+              "min": 11921.803710937651,
+              "max": 12073.974609374982,
+              "spread_percent": 1.2722419393096502
+            },
+            "wasm_list": {
+              "samples": [
+                17085.81542968757,
+                17027.933837890476,
+                17706.197021484237,
+                17419.657226562358,
+                16929.01611328135
+              ],
+              "median": 17085.81542968757,
+              "min": 16929.01611328135,
+              "max": 17706.197021484237,
+              "spread_percent": 4.548690762821263
+            },
+            "wasm_map": {
+              "samples": [
+                23043.029785156265,
+                22992.970703125116,
+                23795.80688476568,
+                22980.03124999992,
+                23420.827392578
+              ],
+              "median": 23043.029785156265,
+              "min": 22980.03124999992,
+              "max": 23795.80688476568,
+              "spread_percent": 3.5402273154689996
+            },
+            "before_per_row": {
+              "samples": [
+                13688.436035156348,
+                13752.57348632819,
+                13956.807373046942,
+                13743.92700195326,
+                13635.386230468783
+              ],
+              "median": 13743.92700195326,
+              "min": 13635.386230468783,
+              "max": 13956.807373046942,
+              "spread_percent": 2.338641223374366
+            },
+            "before_list": {
+              "samples": [
+                18632.904052734433,
+                18606.872558593725,
+                19181.294677734328,
+                18743.591308593823,
+                18409.16943359372
+              ],
+              "median": 18632.904052734433,
+              "min": 18409.16943359372,
+              "max": 19181.294677734328,
+              "spread_percent": 4.143880320294437
+            },
+            "before_map": {
+              "samples": [
+                24570.37353515634,
+                24648.813964843754,
+                24513.366699218775,
+                24644.704101562496,
+                24668.599365234466
+              ],
+              "median": 24644.704101562496,
+              "min": 24513.366699218775,
+              "max": 24668.599365234466,
+              "spread_percent": 0.6298824501035442
+            }
+          }
+        },
+        {
+          "operation": "echo",
+          "size": 256,
+          "fields": 3,
+          "calls": 256,
+          "warmup": 100,
+          "orders": [
+            [
+              "javascript_per_row",
+              "javascript_list",
+              "javascript_map",
+              "wasm_per_row",
+              "wasm_list",
+              "wasm_map",
+              "before_per_row",
+              "before_list",
+              "before_map"
+            ],
+            [
+              "javascript_list",
+              "javascript_map",
+              "wasm_per_row",
+              "wasm_list",
+              "wasm_map",
+              "before_per_row",
+              "before_list",
+              "before_map",
+              "javascript_per_row"
+            ],
+            [
+              "javascript_map",
+              "wasm_per_row",
+              "wasm_list",
+              "wasm_map",
+              "before_per_row",
+              "before_list",
+              "before_map",
+              "javascript_per_row",
+              "javascript_list"
+            ],
+            [
+              "wasm_per_row",
+              "wasm_list",
+              "wasm_map",
+              "before_per_row",
+              "before_list",
+              "before_map",
+              "javascript_per_row",
+              "javascript_list",
+              "javascript_map"
+            ],
+            [
+              "wasm_list",
+              "wasm_map",
+              "before_per_row",
+              "before_list",
+              "before_map",
+              "javascript_per_row",
+              "javascript_list",
+              "javascript_map",
+              "wasm_per_row"
+            ]
+          ],
+          "ns_per_call": {
+            "javascript_per_row": {
+              "samples": [
+                75389.81249999921,
+                75340.82031249767,
+                75391.11328124904,
+                74337.56249999846,
+                72876.95312500375
+              ],
+              "median": 75340.82031249767,
+              "min": 72876.95312500375,
+              "max": 75391.11328124904,
+              "spread_percent": 3.33704908682582
+            },
+            "javascript_list": {
+              "samples": [
+                93517.08984375051,
+                94155.27343750086,
+                94802.8984375,
+                94128.41796875426,
+                93533.52734375164
+              ],
+              "median": 94128.41796875426,
+              "min": 93517.08984375051,
+              "max": 94802.8984375,
+              "spread_percent": 1.3660153028135587
+            },
+            "javascript_map": {
+              "samples": [
+                112722.167968748,
+                115582.68359375035,
+                112789.38671875239,
+                112618.97656250141,
+                112547.0390625054
+              ],
+              "median": 112722.167968748,
+              "min": 112547.0390625054,
+              "max": 115582.68359375035,
+              "spread_percent": 2.6930324229450386
+            },
+            "wasm_per_row": {
+              "samples": [
+                184823.73046875012,
+                185178.06250000035,
+                185872.07031249875,
+                186526.69140625023,
+                186573.56640625268
+              ],
+              "median": 185872.07031249875,
+              "min": 184823.73046875012,
+              "max": 186573.56640625268,
+              "spread_percent": 0.9414195121196192
+            },
+            "wasm_list": {
+              "samples": [
+                255164.3867187501,
+                251978.843749999,
+                260007.9765624983,
+                257128.25781250358,
+                256714.84375000375
+              ],
+              "median": 256714.84375000375,
+              "min": 251978.843749999,
+              "max": 260007.9765624983,
+              "spread_percent": 3.127646494925046
+            },
+            "wasm_map": {
+              "samples": [
+                338576.3359374998,
+                343151.53124999756,
+                342699.37890624645,
+                343182.12890624977,
+                345417.48046874686
+              ],
+              "median": 343151.53124999756,
+              "min": 338576.3359374998,
+              "max": 345417.48046874686,
+              "spread_percent": 1.9936220323210578
+            },
+            "before_per_row": {
+              "samples": [
+                213342.28515624788,
+                209182.94140624738,
+                214968.1015624978,
+                209799.96874999785,
+                213108.3984374982
+              ],
+              "median": 213108.3984374982,
+              "min": 209182.94140624738,
+              "max": 214968.1015624978,
+              "spread_percent": 2.7146561086597045
+            },
+            "before_list": {
+              "samples": [
+                279840.1679687501,
+                283361.32812500023,
+                291077.3125000006,
+                289509.7656250059,
+                287859.0507812504
+              ],
+              "median": 287859.0507812504,
+              "min": 279840.1679687501,
+              "max": 291077.3125000006,
+              "spread_percent": 3.9036967921463015
+            },
+            "before_map": {
+              "samples": [
+                369715.660156249,
+                372344.7265625026,
+                372313.96484374814,
+                370932.28906250175,
+                371720.21484374796
+              ],
+              "median": 371720.21484374796,
+              "min": 369715.660156249,
+              "max": 372344.7265625026,
+              "spread_percent": 0.7072702267103588
+            }
+          }
+        },
+        {
+          "operation": "normalize",
+          "size": 256,
+          "fields": 3,
+          "calls": 256,
+          "warmup": 100,
+          "orders": [
+            [
+              "javascript_per_row",
+              "javascript_list",
+              "javascript_map",
+              "wasm_per_row",
+              "wasm_list",
+              "wasm_map",
+              "before_per_row",
+              "before_list",
+              "before_map"
+            ],
+            [
+              "javascript_list",
+              "javascript_map",
+              "wasm_per_row",
+              "wasm_list",
+              "wasm_map",
+              "before_per_row",
+              "before_list",
+              "before_map",
+              "javascript_per_row"
+            ],
+            [
+              "javascript_map",
+              "wasm_per_row",
+              "wasm_list",
+              "wasm_map",
+              "before_per_row",
+              "before_list",
+              "before_map",
+              "javascript_per_row",
+              "javascript_list"
+            ],
+            [
+              "wasm_per_row",
+              "wasm_list",
+              "wasm_map",
+              "before_per_row",
+              "before_list",
+              "before_map",
+              "javascript_per_row",
+              "javascript_list",
+              "javascript_map"
+            ],
+            [
+              "wasm_list",
+              "wasm_map",
+              "before_per_row",
+              "before_list",
+              "before_map",
+              "javascript_per_row",
+              "javascript_list",
+              "javascript_map",
+              "wasm_per_row"
+            ]
+          ],
+          "ns_per_call": {
+            "javascript_per_row": {
+              "samples": [
+                78811.52343750131,
+                79558.59375000074,
+                79955.89062500131,
+                77610.35156249818,
+                81682.94140624965
+              ],
+              "median": 79558.59375000074,
+              "min": 77610.35156249818,
+              "max": 81682.94140624965,
+              "spread_percent": 5.118981686062584
+            },
+            "javascript_list": {
+              "samples": [
+                99682.78124999585,
+                100322.5898437492,
+                100871.91015625052,
+                99448.89453124972,
+                100308.59375000033
+              ],
+              "median": 100308.59375000033,
+              "min": 99448.89453124972,
+              "max": 100871.91015625052,
+              "spread_percent": 1.418637797422811
+            },
+            "javascript_map": {
+              "samples": [
+                119274.73828124846,
+                119329.42968750381,
+                117655.92578124994,
+                118527.01562499846,
+                119803.22265625176
+              ],
+              "median": 119274.73828124846,
+              "min": 117655.92578124994,
+              "max": 119803.22265625176,
+              "spread_percent": 1.8002947698267153
+            },
+            "wasm_per_row": {
+              "samples": [
+                192187.66406250154,
+                192677.73437500323,
+                193601.23828124642,
+                193428.2226562516,
+                194136.39453124886
+              ],
+              "median": 193428.2226562516,
+              "min": 192187.66406250154,
+              "max": 194136.39453124886,
+              "spread_percent": 1.0074695626038415
+            },
+            "wasm_list": {
+              "samples": [
+                270206.2187500047,
+                263375.8125000014,
+                267089.03124999494,
+                270716.3085937481,
+                276613.92968749965
+              ],
+              "median": 270206.2187500047,
+              "min": 263375.8125000014,
+              "max": 276613.92968749965,
+              "spread_percent": 4.8992644391157345
+            },
+            "wasm_map": {
+              "samples": [
+                366687.66406249633,
+                361835.4492187521,
+                367290.03906249604,
+                364459.14843749703,
+                374720.54296875256
+              ],
+              "median": 366687.66406249633,
+              "min": 361835.4492187521,
+              "max": 374720.54296875256,
+              "spread_percent": 3.51391525071986
+            },
+            "before_per_row": {
+              "samples": [
+                217854.49218749875,
+                219674.64062499432,
+                222770.66796874578,
+                222893.55468750215,
+                221383.14062500087
+              ],
+              "median": 221383.14062500087,
+              "min": 217854.49218749875,
+              "max": 222893.55468750215,
+              "spread_percent": 2.2761726506261075
+            },
+            "before_list": {
+              "samples": [
+                296249.0234374968,
+                297310.5468749964,
+                294102.53906250006,
+                293562.82812500466,
+                297733.2343750021
+              ],
+              "median": 296249.0234374968,
+              "min": 293562.82812500466,
+              "max": 297733.2343750021,
+              "spread_percent": 1.407736707991991
+            },
+            "before_map": {
+              "samples": [
+                392224.93750000355,
+                397269.8554687497,
+                385707.5195312518,
+                390197.5937500026,
+                397362.6289062509
+              ],
+              "median": 392224.93750000355,
+              "min": 385707.5195312518,
+              "max": 397362.6289062509,
+              "spread_percent": 2.9715370596493402
+            }
+          }
+        },
+        {
+          "operation": "echo_one",
+          "size": 1,
+          "fields": 1,
+          "calls": 100000,
+          "warmup": 20000,
+          "orders": [
+            [
+              "wasm_record_one",
+              "before_record_one"
+            ],
+            [
+              "before_record_one",
+              "wasm_record_one"
+            ],
+            [
+              "wasm_record_one",
+              "before_record_one"
+            ],
+            [
+              "before_record_one",
+              "wasm_record_one"
+            ],
+            [
+              "wasm_record_one",
+              "before_record_one"
+            ]
+          ],
+          "ns_per_call": {
+            "wasm_record_one": {
+              "samples": [
+                196.7525000000023,
+                195.16374999999243,
+                189.3633299999965,
+                188.13874999999825,
+                188.3675000000039
+              ],
+              "median": 189.3633299999965,
+              "min": 188.13874999999825,
+              "max": 196.7525000000023,
+              "spread_percent": 4.548795165359738
+            },
+            "before_record_one": {
+              "samples": [
+                299.39666000000216,
+                298.3050000000003,
+                299.0874999999869,
+                292.7891699999964,
+                293.9087499999914
+              ],
+              "median": 298.3050000000003,
+              "min": 292.7891699999964,
+              "max": 299.39666000000216,
+              "spread_percent": 2.215011481539289
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
