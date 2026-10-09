@@ -2,8 +2,12 @@ import 'dart:collection';
 
 import 'package:napi/napi.dart';
 
+typedef Flag = bool;
+typedef UserId = int;
+typedef Key = String;
+
 @napi
-List<bool> listBool(List<bool> values) => values;
+List<Flag> listBool(List<Flag> values) => values;
 
 @napi
 Future<List<bool>> listBoolAsync(List<bool> values) async {
@@ -42,13 +46,13 @@ Future<List<bool?>?> listNullableBothBoolAsync(List<bool?>? values) async {
 List<int> listInt(List<int> values) => values;
 
 @napi
-Future<List<int>> listIntAsync(List<int> values) async {
+Future<List<UserId>> listIntAsync(List<UserId> values) async {
   await Future<void>.value();
   return values;
 }
 
 @napi
-List<int?> listNullableInt(List<int?> values) => values;
+List<UserId?> listNullableInt(List<UserId?> values) => values;
 
 @napi
 Future<List<int?>> listNullableIntAsync(List<int?> values) async {
@@ -198,7 +202,7 @@ Future<Map<String, bool?>?> mapNullableBothBoolAsync(
 }
 
 @napi
-Map<String, int> mapInt(Map<String, int> values) => values;
+Map<Key, UserId> mapInt(Map<Key, UserId> values) => values;
 
 @napi
 Future<Map<String, int>> mapIntAsync(Map<String, int> values) async {
@@ -207,7 +211,7 @@ Future<Map<String, int>> mapIntAsync(Map<String, int> values) async {
 }
 
 @napi
-Map<String, int?> mapNullableInt(Map<String, int?> values) => values;
+Map<Key, UserId?> mapNullableInt(Map<Key, UserId?> values) => values;
 
 @napi
 Future<Map<String, int?>> mapNullableIntAsync(Map<String, int?> values) async {
@@ -285,7 +289,7 @@ Future<Map<String, double?>?> mapNullableBothDoubleAsync(
 Map<String, String> mapString(Map<String, String> values) => values;
 
 @napi
-Future<Map<String, String>> mapStringAsync(Map<String, String> values) async {
+Future<Map<Key, Key>> mapStringAsync(Map<Key, Key> values) async {
   await Future<void>.value();
   return values;
 }

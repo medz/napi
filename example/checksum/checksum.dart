@@ -2,8 +2,12 @@ import 'dart:typed_data';
 
 import 'package:napi/napi.dart';
 
-typedef FileInput = ({String name, Uint8List bytes});
-typedef FileChecksum = ({String name, int byteCount, int crc32});
+typedef FileName = String;
+typedef FileBytes = Uint8List;
+typedef Crc32 = int;
+
+typedef FileInput = ({FileName name, FileBytes bytes});
+typedef FileChecksum = ({FileName name, int byteCount, Crc32 crc32});
 
 final _crcTable = _createCrcTable();
 

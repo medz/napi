@@ -115,15 +115,25 @@ boundary and one packed artifact across the Node matrix; verify application
 results against Node's built-in CRC32 without a speedup claim or new core API.
 See the [0.11.0 requirements](requirements.md#0110-contract).
 
-## Unreleased — output-path diagnostics
+## Unreleased — build diagnostics and model reuse
 
 - [#57: Reject non-directory output paths before compilation](https://github.com/medz/napi/issues/57).
+- [#64: Identify top-level arguments in conversion errors](https://github.com/medz/napi/issues/64).
+- [#66: Match export analysis to the Wasm compilation environment](https://github.com/medz/napi/issues/66).
+- [#68: Accept transparent SDK leaf typedefs](https://github.com/medz/napi/issues/68).
 
 Acceptance covers clear preflight errors for existing output files and file
-ancestors, preserved contents and unchanged valid-directory behavior. See the
-[0.11.1 requirements](requirements.md#0111-contract).
+ancestors, preserved contents, precise argument errors, correct conditional
+import selection and ordinary Dart model typedefs using the existing native
+value/ownership boundary. Verify complete direct-Wasm and packed npm workflows
+with accurate TS declarations. See the [output-path requirements](requirements.md#0111-contract)
+and [leaf typedef contract](requirements.md#unreleased-sdk-leaf-typedefs).
 
-The fix is merged and the existing `v0.11.1` tag is retained, but the package was
+[#61: Reduce documentation-only CI cost](https://github.com/medz/napi/issues/61)
+keeps light documentation checks separate from the complete source/runtime
+validation needed by these changes.
+
+The output-path fix is merged and its existing `v0.11.1` tag is retained, but the package was
 not published. It will join the next suitable milestone; quota recovery does not
 trigger an immediate standalone release. The published baseline remains 0.11.0.
 

@@ -4,20 +4,28 @@ import 'package:napi/napi.dart';
 
 import 'conditional_profile/profile.dart';
 
-@napi
-bool identityBool(bool value) => value;
+typedef Flag = bool;
+typedef UserId = int;
+typedef Score = double;
+typedef Label = String;
+typedef Bytes = Uint8List;
+typedef MaybeUserId = UserId?;
+typedef MaybeBytes = Bytes?;
 
 @napi
-int identityInt(int then) => then;
+Flag identityBool(Flag value) => value;
 
 @napi
-double identityDouble(double value) => value;
+UserId identityInt(UserId then) => then;
 
 @napi
-String identityString(String value) => value;
+Score identityDouble(Score value) => value;
 
 @napi
-Uint8List identityBytes(Uint8List value) => value;
+Label identityString(Label value) => value;
+
+@napi
+Bytes identityBytes(Bytes value) => value;
 
 @napi
 Uint8List incrementFirst(Uint8List value) {
@@ -26,10 +34,10 @@ Uint8List incrementFirst(Uint8List value) {
 }
 
 @napi
-bool? nullableBool(bool? value) => value;
+Flag? nullableBool(Flag? value) => value;
 
 @napi
-int? nullableInt(int? value) => value;
+MaybeUserId nullableInt(MaybeUserId value) => value;
 
 @napi
 double? nullableDouble(double? value) => value;
@@ -38,7 +46,7 @@ double? nullableDouble(double? value) => value;
 String? nullableString(String? value) => value;
 
 @napi
-Uint8List? nullableBytes(Uint8List? value) => value;
+MaybeBytes nullableBytes(MaybeBytes value) => value;
 
 @napi
 int oversizedInt() => 9007199254740992;

@@ -207,7 +207,18 @@ non-generic alias chains, and nullable record typedef definitions retain their
 outer type names. Unused aliases are not exported. These are type-only exports,
 with no JavaScript constructor or runtime schema.
 
-Fields must be `bool`, `int`, `double`, `String`, or SDK `Uint8List`, independently nullable.
+Fields must resolve to SDK `bool`, `int`, `double`, `String`, or `Uint8List`,
+independently nullable. Non-generic leaf typedefs and chains are accepted:
+
+```dart
+typedef UserId = int;
+typedef Bytes = Uint8List;
+typedef Packet = ({UserId id, Bytes data});
+```
+
+The declaration is `export type Packet = { "data": Uint8Array; "id": number }`.
+Leaf aliases expand to their underlying types and do not create separate TS
+exports or runtime tags. Their existing validation and ownership rules apply.
 All declared fields are required: `active: null` is valid, but missing `active`
 or `active: undefined` is rejected. Inputs must be ordinary or null-prototype
 objects, including cross-realm objects. Declared fields must be own data
@@ -224,8 +235,8 @@ atomic transaction across arbitrary traps. Conversion errors include the field
 path, for example `parameter user["age"]`.
 
 Positional, mixed, empty and nested records, generic aliases, collection
-fields, Map record values and class wrappers are unsupported. Scalar,
-collection, and Future aliases remain unsupported. Record aliases named
+fields, Map record values and class wrappers are unsupported. Collection,
+Future, void, function and class aliases remain unsupported. Record aliases named
 `readonly`, `keyof`, `infer` or `unique` are rejected before compilation because
 TypeScript parses these names as type operators. Ordinary functions and
 parameters with these names remain supported; `ReadonlyArray` is a valid record
@@ -362,7 +373,16 @@ Annotate public top-level functions in the entry library. Use explicit return ty
 
 Invalid arguments throw `TypeError`; unsafe integers throw `RangeError`. Dart `ArgumentError` and `TypeError` become JavaScript `TypeError`, Dart `RangeError` becomes JavaScript `RangeError`, and other Dart exceptions become JavaScript `Error` with a readable message.
 
-The export name `then` is reserved because dynamic ESM imports treat it as a promise callback; a scalar record field named `then` is allowed. Dart compiler helper names such as `$invokeMain` and `$wasmI16ArrayGet` are also reserved; other `$` names are allowed. Classes, generics, non-record type aliases, optional/named parameters, generators, streams, and callbacks are not supported. Future parameters, nullable Futures, `FutureOr`, nested Futures, and `async void` exports are also rejected. Ordinary Dart helpers and Wasm-compatible dependencies can be used inside exported functions.
+Non-generic typedefs resolving to SDK `bool`, `int`, `double`, `String` or
+`Uint8List` work wherever that leaf type is supported: direct values, Future
+completions, scalar List/Map values, non-null String Map keys and record fields.
+Effective nullability is preserved, including nullable typedef definitions.
+Generic alias chains and aliases for other types are rejected; `List<Bytes>`
+remains unsupported when `Bytes` resolves to `Uint8List`. Imported, private and
+same-named leaf aliases are expanded without introducing TS bindings; public
+record aliases retain their existing naming and conflict checks.
+
+The export name `then` is reserved because dynamic ESM imports treat it as a promise callback; a scalar record field named `then` is allowed. Dart compiler helper names such as `$invokeMain` and `$wasmI16ArrayGet` are also reserved; other `$` names are allowed. Classes, generics, optional/named parameters, generators, streams, and callbacks are not supported. Future parameters, nullable Futures, `FutureOr`, nested Futures, and `async void` exports are also rejected. Ordinary Dart helpers and Wasm-compatible dependencies can be used inside exported functions.
 
 Conditional imports and exports are analyzed using the build SDK's Wasm library
 conditions, so signatures and compilation select the same branch. Use
