@@ -460,6 +460,82 @@ models.User echo(models.User value) => value;
     );
   });
 
+  for (final name in [
+    '_age',
+    'toString',
+    'hashCode',
+    'runtimeType',
+    'noSuchMethod',
+  ]) {
+    test(
+      'invalid imported record field $name fails before compilation',
+      () async {
+        final model = File(
+          path.join(fixture.path, 'record_invalid_$name.dart'),
+        );
+        await model.writeAsString('''
+typedef User = ({
+  int $name,
+});
+''');
+        await expectLater(
+          analyze('''
+import 'package:napi/napi.dart';
+import 'record_invalid_$name.dart' as models;
+@napi
+models.User echo(models.User value) => value;
+'''),
+          throwsA(
+            isA<ExportError>()
+                .having((error) => error.path, 'path', model.path)
+                .having((error) => error.line, 'line', 2)
+                .having((error) => error.column, 'column', 7)
+                .having(
+                  (error) => error.message,
+                  'message',
+                  contains('Invalid @napi record field "User.$name"'),
+                ),
+          ),
+        );
+      },
+    );
+  }
+
+  test(
+    'duplicate imported record fields locate the second declaration',
+    () async {
+      final model = File(
+        path.join(fixture.path, 'record_duplicate_model.dart'),
+      );
+      await model.writeAsString('''
+typedef Base = ({
+  int age,
+  int age,
+});
+typedef User = Base;
+''');
+      await expectLater(
+        analyze('''
+import 'package:napi/napi.dart';
+import 'record_duplicate_model.dart' as models;
+@napi
+models.User echo(models.User value) => value;
+'''),
+        throwsA(
+          isA<ExportError>()
+              .having((error) => error.path, 'path', model.path)
+              .having((error) => error.line, 'line', 3)
+              .having((error) => error.column, 'column', 7)
+              .having(
+                (error) => error.message,
+                'message',
+                contains('Duplicate @napi record field "User.age"'),
+              ),
+        ),
+      );
+    },
+  );
+
   test('part record failures point to the part field declaration', () async {
     final library = File(
       path.join(fixture.path, 'record_invalid_library.dart'),

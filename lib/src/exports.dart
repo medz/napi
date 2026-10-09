@@ -147,6 +147,13 @@ const _reservedTypeNames = {
   'Uint8Array',
 };
 
+const _objectMemberNames = {
+  'toString',
+  'hashCode',
+  'runtimeType',
+  'noSuchMethod',
+};
+
 // Fixed strong and weak export names in the Dart 3.13.5 Wasm runtime.
 const _dartWasmExportNames = {
   r'$invokeMain',
@@ -527,7 +534,26 @@ class _ExportVisitor extends RecursiveAstVisitor<void> {
     }
 
     final fields = <RecordField>[];
+    final fieldNames = <String>{};
     for (final field in type.namedFields) {
+      final duplicate = !fieldNames.add(field.name);
+      if (duplicate ||
+          field.name.startsWith('_') ||
+          _objectMemberNames.contains(field.name)) {
+        final source = _recordSource(type, annotation);
+        final nodes = source?.annotation.namedFields?.fields.where(
+          (node) => node.name.lexeme == field.name,
+        );
+        final node = duplicate
+            ? nodes?.skip(1).firstOrNull
+            : nodes?.firstOrNull;
+        _fail(
+          node != null ? source!.unit : unit,
+          node?.name.offset ?? offset,
+          '${duplicate ? 'Duplicate' : 'Invalid'} @napi record field '
+          '"${alias == null ? field.name : '${alias.name}.${field.name}'}".',
+        );
+      }
       final leaf = field.type;
       if (leaf.alias != null ||
           (!leaf.isDartCoreBool &&
