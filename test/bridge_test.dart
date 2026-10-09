@@ -416,6 +416,79 @@ void main() {
     expect(source, isNot(contains('copyRecordBytes')));
   });
 
+  test('record maps share shapes with direct and list values', () {
+    const record = ValueType(ValueKind.recordType, recordFields: fields);
+    const list = ValueType(ValueKind.listType, elementType: record);
+    const map = ValueType(
+      ValueKind.mapType,
+      nullable: true,
+      elementType: ValueType(
+        ValueKind.recordType,
+        nullable: true,
+        recordFields: fields,
+      ),
+    );
+    final source = generateBridge([
+      const Export(name: 'one', parameters: [], returnType: record),
+      const Export(name: 'many', parameters: [], returnType: list),
+      const Export(
+        name: 'byKey',
+        parameters: [Parameter(name: 'values', type: map)],
+        returnType: map,
+        isAsync: true,
+      ),
+    ], 'file:///business.dart');
+    expect(
+      RegExp(
+        r'^final _recordNames\d+ =',
+        multiLine: true,
+      ).allMatches(source).length,
+      1,
+    );
+    expect(source, contains('Map<String, T> _readRecordMap0<T>('));
+    expect(source, contains('List<T> _readRecordList0<T>('));
+    expect(
+      source,
+      contains(
+        '_readRecordMap0<({bool? active, int id, String name, double score})?>',
+      ),
+    );
+    expect(
+      source,
+      contains(
+        '_writeRecordMap0<({bool? active, int id, String name, double score})?>',
+      ),
+    );
+    expect(source, contains('napi.snapshotMap'));
+    expect(source, contains('napi.snapshotRecord'));
+    expect(source, isNot(contains('copyRecordBytes')));
+  });
+
+  test('map-only record byte fields discover their helpers', () {
+    const map = ValueType(
+      ValueKind.mapType,
+      elementType: ValueType(
+        ValueKind.recordType,
+        recordFields: [
+          (name: 'bytes', type: ValueType(ValueKind.uint8ListType)),
+        ],
+      ),
+    );
+    final source = generateBridge([
+      const Export(
+        name: 'packets',
+        parameters: [Parameter(name: 'values', type: map)],
+        returnType: map,
+      ),
+    ], 'file:///business.dart');
+    expect(source, contains('({Uint8List bytes}) _readRecord0('));
+    expect(source, contains('_readRecordBytes<Uint8List>'));
+    expect(source, contains('_writeRecordBytes'));
+    expect(source, contains('napi.copyRecordBytes'));
+    expect(source, isNot(contains('napi.snapshotList')));
+    expect(source, isNot(contains('_readRecordList')));
+  });
+
   test('record and scalar list outputs validate length before narrowing', () {
     const records = ValueType(
       ValueKind.listType,

@@ -143,6 +143,33 @@ Its existing tag and frozen evidence are retained.
 - Verify imported/prefixed/re-exported aliases, nullable chains, precise positive/negative TS consumers, native package/subpath/relative imports and both complete applications. Build each of the existing seven fixture groups once and reuse artifacts across Node 22.19.0/24.5.0/24.21.0/26.11.1, with Dart 3.13.5, TypeScript 7.0.2 NodeNext/Bundler and esbuild 0.28.2 external-Wasm checks.
 - Require independent final-SHA review, complete CI, zero-warning pub dry-run and exact-SHA merge. Verify package/generator metadata and main/tag source identity before publication. Validate the real public package with a new ordinary-constraint consumer and empty pub cache, freeze expectations before execution and independently inspect actual source/archive/compiled/packed artifacts and logs before announcing the GitHub Release. Preserve the unpublished v0.11.1 tag; quota recovery does not trigger publication.
 
+## Record dictionaries (unreleased development)
+
+[#79](https://github.com/medz/napi/issues/79) extends the existing value model
+with one `Map<String, flat named record>` layer. Earlier version contracts above
+describe the published versions, including their former Map-record restriction.
+
+- Support inline/public non-generic record aliases, including nullable alias
+  chains and SDK leaf aliases. Container, value and field nullability remain
+  independent; Future completion values generate precise Promise/Record types.
+- Reuse Map descriptor snapshots and record field conversion. Validate and copy
+  all arguments before business code or Promise return. Read only own enumerable
+  string map properties; require own data record fields without invoking getters.
+- Preserve exact UTF-16 keys and existing scalar/byte ownership and error rules.
+  Return fresh null-prototype dictionaries and record values with independent byte
+  storage per occurrence. Include key/field paths once; output iterator/cast errors
+  use a key only after it is available, never a previous entry's key.
+- Add no host API, dependency, loader or value model. Nested structures,
+  collection aliases, nullable/non-String keys and class wrappers remain excluded.
+  Scalar-only, byte-free and List-only helper isolation must remain intact.
+- Verify native package/subpath/relative consumers, strict NodeNext/Bundler types,
+  external-Wasm bundles, sync/Future snapshots, descriptors, unsafe integers,
+  retained byte storage, malformed output maps and recovery across the existing
+  Node matrix. Build and pack each fixture once for matrix reuse.
+- Demonstrate operation lookup through `summarizeByOperation` while retaining
+  the sorted request-summary CLI. Complete independent final-SHA review and CI
+  before merging; accumulate this work for a later release milestone.
+
 ## Iteration priorities
 
 After publishing the first complete workflow, prioritize Future-to-Promise support, useful typed data structures, clear diagnostics, compiler/runtime compatibility, reproducible performance and size measurements, and real applications. Define consumer syntax, type and ownership rules, and acceptance cases before implementing each addition.

@@ -447,12 +447,12 @@ class _ExportVisitor extends RecursiveAstVisitor<void> {
         }
       }
       final leaf = type.typeArguments.last;
-      if (!isMap && leaf is RecordType) {
+      if (leaf is RecordType) {
         final elementAnnotation = annotation is NamedType
-            ? annotation.typeArguments?.arguments.single
+            ? annotation.typeArguments?.arguments.last
             : null;
         return ValueType(
-          ValueKind.listType,
+          isMap ? ValueKind.mapType : ValueKind.listType,
           nullable: type.nullabilitySuffix == NullabilitySuffix.question,
           elementType: _recordType(
             leaf,

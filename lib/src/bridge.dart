@@ -18,11 +18,18 @@ String generateBridge(List<Export> exports, String sourceImport) {
           type.elementType!.kind == ValueKind.recordType)
         _recordShape(type.elementType!),
   };
+  final recordMaps = <String>{
+    for (final type in types)
+      if (type.kind == ValueKind.mapType &&
+          type.elementType!.kind == ValueKind.recordType)
+        _recordShape(type.elementType!),
+  };
   final records = <String, ValueType>{
     for (final type in [
       ...types,
       for (final type in types)
-        if (type.kind == ValueKind.listType) type.elementType!,
+        if (type.kind == ValueKind.listType || type.kind == ValueKind.mapType)
+          type.elementType!,
     ])
       if (type.kind == ValueKind.recordType) _recordShape(type): type,
   };
@@ -63,6 +70,9 @@ String generateBridge(List<Export> exports, String sourceImport) {
       output.writeln(_generateRecord(type, index));
       if (recordLists.contains(_recordShape(type))) {
         output.writeln(_generateRecordList(type, index));
+      }
+      if (recordMaps.contains(_recordShape(type))) {
+        output.writeln(_generateRecordMap(type, index));
       }
     }
   }
@@ -143,6 +153,8 @@ String _read(
     ValueKind.uint8ListType => '_readBytes($value, ${_literal(context)})',
     ValueKind.listType when type.elementType!.kind == ValueKind.recordType =>
       '_readRecordList${recordIds[_recordShape(type.elementType!)]!}<${_recordType(type.elementType!)}${type.elementType!.nullable ? '?' : ''}>($value, ${type.elementType!.nullable}, ${_literal(context)})',
+    ValueKind.mapType when type.elementType!.kind == ValueKind.recordType =>
+      '_readRecordMap${recordIds[_recordShape(type.elementType!)]!}<${_recordType(type.elementType!)}${type.elementType!.nullable ? '?' : ''}>($value, ${type.elementType!.nullable}, ${_literal(context)})',
     ValueKind.listType || ValueKind.mapType =>
       '${type.kind == ValueKind.listType ? '_readList' : '_readMap'}<${_leafType(type.elementType!)}>($value, ${type.elementType!.kind.index}, ${type.elementType!.nullable}, ${_literal(context)})',
     ValueKind.recordType =>
@@ -165,6 +177,8 @@ String _write(
     ValueKind.uint8ListType => '_copyBytes(externRefForJSAny($value.toJS))',
     ValueKind.listType when type.elementType!.kind == ValueKind.recordType =>
       '_writeRecordList${recordIds[_recordShape(type.elementType!)]!}<${_recordType(type.elementType!)}${type.elementType!.nullable ? '?' : ''}>($value, ${type.elementType!.nullable}, ${_literal(context)})',
+    ValueKind.mapType when type.elementType!.kind == ValueKind.recordType =>
+      '_writeRecordMap${recordIds[_recordShape(type.elementType!)]!}<${_recordType(type.elementType!)}${type.elementType!.nullable ? '?' : ''}>($value, ${type.elementType!.nullable}, ${_literal(context)})',
     ValueKind.listType || ValueKind.mapType =>
       '${type.kind == ValueKind.listType ? '_writeList' : '_writeMap'}<${_leafType(type.elementType!)}>($value, ${type.elementType!.kind.index}, ${type.elementType!.nullable}, ${_literal(context)})',
     ValueKind.recordType =>
@@ -272,6 +286,51 @@ WasmExternRef _writeRecordList$shape<T>(List<T> value, bool nullable, String con
       _conversionError(error, elementContext);
     }
     _arraySet(result, WasmI32.fromInt(index), element == null
+        ? WasmExternRef.nullRef : _writeRecord$shape(element, elementContext));
+  }
+  return result;
+}
+''';
+}
+
+String _generateRecordMap(ValueType type, int shape) {
+  final recordType = _recordType(type);
+  return '''
+Map<String, T> _readRecordMap$shape<T>(WasmExternRef? value, bool nullable, String context) {
+  final snapshot = _snapshotMap(value, externRefForJSAny(context.toJS));
+  final length = _arrayLength(snapshot).toIntUnsigned();
+  final result = <String, T>{};
+  for (var index = 0; index < length; index += 2) {
+    final key = _readString(_arrayGet(snapshot, WasmI32.fromInt(index)));
+    final element = _arrayGet(snapshot, WasmI32.fromInt(index + 1));
+    result[key] = nullable && element.isNull
+        ? null as T : _readRecord$shape(element, '\$context[\${jsonEncode(key)}]') as T;
+  }
+  return result;
+}
+
+WasmExternRef _writeRecordMap$shape<T>(Map<String, T> value, bool nullable, String context) {
+  Iterator<MapEntry<String, T>> iterator;
+  try {
+    iterator = value.entries.iterator;
+  } catch (error) {
+    _conversionError(error, context);
+  }
+  final result = _newMap();
+  while (true) {
+    String? key;
+    $recordType? element;
+    try {
+      if (!iterator.moveNext()) break;
+      final entry = iterator.current;
+      key = entry.key;
+      final valueAtKey = entry.value;
+      element = nullable && valueAtKey == null ? null : valueAtKey as $recordType;
+    } catch (error) {
+      _conversionError(error, key == null ? context : '\$context[\${jsonEncode(key)}]');
+    }
+    final elementContext = '\$context[\${jsonEncode(key)}]';
+    _mapSet(result, externRefForJSAny(key!.toJS), element == null
         ? WasmExternRef.nullRef : _writeRecord$shape(element, elementContext));
   }
   return result;

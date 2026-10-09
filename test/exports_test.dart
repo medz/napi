@@ -54,6 +54,326 @@ environment:
   }
 
   test(
+    'record Maps preserve independent nullability and Future types',
+    () async {
+      final exports = await analyze('''
+import 'dart:core' as core;
+import 'dart:async' as tasks;
+import 'package:napi/napi.dart';
+typedef User = ({core.String name, core.int age});
+@napi
+core.Map<core.String, User> users(core.Map<core.String, User> values) => values;
+@napi
+core.Map<core.String, User?> elements(core.Map<core.String, User?> values) => values;
+@napi
+core.Map<core.String, User>? container(core.Map<core.String, User>? values) => values;
+@napi
+core.Map<core.String, User?>? both(core.Map<core.String, User?>? values) => values;
+@napi
+tasks.Future<core.Map<core.String, User>> later(core.Map<core.String, User> values) async => values;
+@napi
+tasks.Future<core.Map<core.String, User?>?> laterBoth(core.Map<core.String, User?>? values) => tasks.Future.value(values);
+@napi
+tasks.Future<core.Map<core.String, ({core.double? score})?>?> inline(core.Map<core.String, ({core.double? score})?>? values) async => values;
+''');
+      expect(
+        exports
+            .take(4)
+            .map(
+              (export) => (
+                export.returnType.nullable,
+                export.returnType.elementType!.nullable,
+              ),
+            ),
+        [(false, false), (false, true), (true, false), (true, true)],
+      );
+      for (final export in exports) {
+        expect(export.returnType.kind, ValueKind.mapType);
+        expect(export.returnType.elementType!.kind, ValueKind.recordType);
+        expect(
+          (
+            export.parameters.single.type.nullable,
+            export.parameters.single.type.elementType!.nullable,
+          ),
+          (export.returnType.nullable, export.returnType.elementType!.nullable),
+        );
+      }
+      expect(exports.skip(4).every((export) => export.isAsync), isTrue);
+      expect(exports.last.returnType.elementType!.recordAlias, isNull);
+      expect(generateTypescript(exports), '''
+export type User = { "age": number; "name": string };
+export declare function users(values: Record<string, User>): Record<string, User>;
+export declare function elements(values: Record<string, User | null>): Record<string, User | null>;
+export declare function container(values: Record<string, User> | null): Record<string, User> | null;
+export declare function both(values: Record<string, User | null> | null): Record<string, User | null> | null;
+export declare function later(values: Record<string, User>): Promise<Record<string, User>>;
+export declare function laterBoth(values: Record<string, User | null> | null): Promise<Record<string, User | null> | null>;
+export declare function inline(values: Record<string, { "score": number | null } | null> | null): Promise<Record<string, { "score": number | null } | null> | null>;
+''');
+    },
+  );
+
+  test(
+    'record Maps collect imported nullable aliases and SDK leaves',
+    () async {
+      final entry = await relatedLibrary({
+        'models.dart': '''
+import 'dart:typed_data' as bytes;
+typedef Key = String;
+typedef _Enabled = bool;
+typedef Count = int;
+typedef MaybeCount = Count?;
+typedef Ratio = double;
+typedef Name = String;
+typedef Bytes = bytes.Uint8List;
+typedef MaybeBytes = Bytes?;
+typedef User = ({_Enabled active, MaybeCount age, Bytes data, Name name, MaybeBytes optional, Ratio? score});
+typedef MaybeUser = User?;
+typedef Exposed = MaybeUser;
+''',
+        'public.dart': "export 'models.dart' show Exposed;\n",
+        'api.dart': '''
+import 'package:napi/napi.dart';
+import 'models.dart' as original;
+import 'public.dart' as exposed;
+@napi
+Future<Map<original.Key, original.Exposed>?> later(Map<original.Key, exposed.Exposed?>? values) async => values;
+@napi
+Map<String, original.Exposed> users(Map<String, exposed.Exposed> values) => values;
+''',
+      });
+      final exports = await readExports(entry.path);
+      final record = exports.first.returnType.elementType!;
+      final alias = record.recordAlias!;
+      expect(alias.name, 'Exposed');
+      expect(alias.nullable, isTrue);
+      expect(
+        alias.libraryUri,
+        File(path.join(entry.parent.path, 'models.dart')).uri.toString(),
+      );
+      expect(
+        exports.first.parameters.single.type.elementType!.recordAlias,
+        alias,
+      );
+      expect(
+        record.recordFields.map(
+          (field) => (field.type.kind, field.type.nullable),
+        ),
+        [
+          (ValueKind.boolType, false),
+          (ValueKind.intType, true),
+          (ValueKind.uint8ListType, false),
+          (ValueKind.stringType, false),
+          (ValueKind.uint8ListType, true),
+          (ValueKind.doubleType, true),
+        ],
+      );
+      expect(generateTypescript(exports), '''
+export type Exposed = { "active": boolean; "age": number | null; "data": Uint8Array; "name": string; "optional": Uint8Array | null; "score": number | null } | null;
+export declare function later(values: Record<string, Exposed> | null): Promise<Record<string, Exposed> | null>;
+export declare function users(values: Record<string, Exposed>): Record<string, Exposed>;
+''');
+    },
+  );
+
+  test(
+    'record Map aliases emit once across Maps, Lists and direct uses',
+    () async {
+      final exports = await analyze('''
+import 'package:napi/napi.dart';
+typedef User = ({int id});
+@napi
+Map<String, User> indexed(Map<String, User> values) => values;
+@napi
+List<User> rows(List<User> values) => values;
+@napi
+User direct(User value) => value;
+''');
+      expect(generateTypescript(exports), '''
+export type User = { "id": number };
+export declare function indexed(values: Record<string, User>): Record<string, User>;
+export declare function rows(values: readonly User[]): User[];
+export declare function direct(value: User): User;
+''');
+    },
+  );
+
+  test('record Maps reject conflicting alias origins at the value type', () async {
+    const signature =
+        'Map<String, second.User> echo(Map<String, first.User> values) => values;';
+    final entry = await relatedLibrary({
+      'first.dart': 'typedef User = ({int id});\n',
+      'second.dart': 'typedef User = ({int id});\n',
+      'api.dart':
+          '''
+import 'package:napi/napi.dart';
+import 'first.dart' as first;
+import 'second.dart' as second;
+@napi
+$signature
+''',
+    });
+    await expectLater(
+      readExports(entry.path),
+      throwsA(
+        isA<ExportError>()
+            .having((error) => error.line, 'line', 5)
+            .having(
+              (error) => error.column,
+              'column',
+              signature.indexOf('second.User') + 1,
+            )
+            .having(
+              (error) => error.message,
+              'first origin',
+              contains(
+                File(path.join(entry.parent.path, 'first.dart')).uri.toString(),
+              ),
+            )
+            .having(
+              (error) => error.message,
+              'second origin',
+              contains(
+                File(path.join(entry.parent.path, 'second.dart')).uri
+                    .toString(),
+              ),
+            )
+            .having(
+              (error) => error.message,
+              'message',
+              contains('Conflicting'),
+            ),
+      ),
+    );
+  });
+
+  for (final name in ['Record', 'Promise', 'readonly']) {
+    test('record Maps reject reserved alias $name', () async {
+      await expectLater(
+        analyze('''
+import 'package:napi/napi.dart';
+typedef $name = ({int count});
+@napi
+Future<Map<String, $name?>?> echo(Map<String, $name?>? values) async => values;
+'''),
+        throwsA(
+          isA<ExportError>().having(
+            (error) => error.message,
+            'message',
+            '"$name" is a reserved or invalid TypeScript record alias name.',
+          ),
+        ),
+      );
+    });
+  }
+
+  for (final signature in [
+    'Map<String, ({List<int> tags})> echo(Map<String, ({List<int> tags})> values) => values;',
+    'Future<Map<String, ({List<int> tags})>> echo() async => {};',
+  ]) {
+    test('record Maps locate inline field types in $signature', () async {
+      await expectLater(
+        analyze("import 'package:napi/napi.dart';\n@napi\n$signature\n"),
+        throwsA(
+          isA<ExportError>()
+              .having((error) => error.line, 'line', 3)
+              .having(
+                (error) => error.column,
+                'column',
+                signature.lastIndexOf('List<int>') + 1,
+              )
+              .having(
+                (error) => error.message,
+                'message',
+                contains('"tags" type'),
+              ),
+        ),
+      );
+    });
+  }
+
+  test('record Maps locate fields in imported alias chains', () async {
+    final entry = await relatedLibrary({
+      'models.dart': '''
+typedef Base = ({
+  int _age,
+});
+typedef User = Base;
+''',
+      'api.dart': '''
+import 'package:napi/napi.dart';
+import 'models.dart' as models;
+@napi
+Future<Map<String, models.User>> echo(Map<String, models.User> values) async => values;
+''',
+    });
+    await expectLater(
+      readExports(entry.path),
+      throwsA(
+        isA<ExportError>()
+            .having(
+              (error) => error.path,
+              'path',
+              File(path.join(entry.parent.path, 'models.dart')).path,
+            )
+            .having((error) => error.line, 'line', 2)
+            .having((error) => error.column, 'column', 7)
+            .having(
+              (error) => error.message,
+              'message',
+              contains('Invalid @napi record field "User._age"'),
+            ),
+      ),
+    );
+  });
+
+  for (final entry in {
+    'nullable keys': (
+      'Map<String?, User>',
+      'Map keys must be non-nullable String',
+    ),
+    'record keys': (
+      'Map<({int id}), User>',
+      'Map keys must be non-nullable String',
+    ),
+    'nested Maps': ('Map<String, Map<String, User>>', 'collection leaf type'),
+    'nested Lists': ('Map<String, List<User>>', 'collection leaf type'),
+    'nested record field': ('Map<String, ({User child})>', 'record field'),
+    'aliased Map': ('Users', 'Type aliases are not supported'),
+    'generic record alias': (
+      'Map<String, Box<int>>',
+      'Generic @napi record aliases',
+    ),
+    'private record alias': (
+      'Map<String, _User>',
+      'record aliases must be public',
+    ),
+    'positional records': ('Map<String, (int, String)>', 'named fields only'),
+    'empty records': ('Map<String, ()>', 'at least one field'),
+  }.entries) {
+    test('record Maps still exclude ${entry.key}', () async {
+      await expectLater(
+        analyze('''
+import 'package:napi/napi.dart';
+typedef User = ({int id});
+typedef _User = User;
+typedef Users = Map<String, User>;
+typedef Box<T> = ({T value});
+@napi
+${entry.value.$1} echo(${entry.value.$1} values) => values;
+'''),
+        throwsA(
+          isA<ExportError>().having(
+            (error) => error.message,
+            'message',
+            contains(entry.value.$2),
+          ),
+        ),
+      );
+    });
+  }
+
+  test(
     'record Lists preserve independent nullability and Future types',
     () async {
       final exports = await analyze('''
@@ -427,10 +747,6 @@ List<Promise> echo(List<Promise> values) => values;
 
   for (final entry in {
     'nested Lists': ('List<List<User>>', 'collection leaf type'),
-    'Map record values': (
-      'Map<String, User>',
-      'Type aliases are not supported',
-    ),
     'nested Map': ('List<Map<String, User>>', 'collection leaf type'),
     'aliased List': ('Users', 'Type aliases are not supported'),
     'record collection fields': ('List<({List<int> values})>', 'record field'),

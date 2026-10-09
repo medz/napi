@@ -1,0 +1,28 @@
+import assert from 'node:assert/strict';
+import { Buffer } from 'node:buffer';
+import { normalizeUsers, echoUsersAsync, normalizePacketsAsync, echoNullableBothAsync } from '@napi/record-maps';
+import { normalizeUsers as subpath } from '@napi/record-maps/module.wasm';
+import { normalizeUsers as relative } from './dist/module.wasm';
+import type { User, Packet } from '@napi/record-maps';
+
+assert.equal(normalizeUsers, subpath);
+assert.equal(normalizeUsers, relative);
+assert.match(Function.prototype.toString.call(normalizeUsers), /\[native code\]/);
+const users: Record<string, User> = { ada: { name: ' Ada ', age: 42, active: null } };
+const normalized: Record<string, User> = normalizeUsers(users);
+assert.equal(normalized.ada.name, 'Ada');
+assert.equal(normalized.ada.active, false);
+assert.equal(Object.getPrototypeOf(normalized), null);
+assert.equal(Object.getPrototypeOf(normalized.ada), null);
+assert.notEqual(normalized.ada, users.ada);
+const pending = echoUsersAsync(users);
+users.ada.name = 'changed'; delete users.ada;
+assert.equal((await pending).ada.name, ' Ada ');
+const bytes = Buffer.from([0, 128, 255]);
+const packetPending: Promise<Record<string, Packet>> = normalizePacketsAsync({ id: { name: 'packet', payload: bytes } });
+bytes.fill(7);
+const packets = await packetPending;
+assert.deepEqual(packets.id.payload, new Uint8Array([255, 127, 0]));
+assert.notEqual(packets.id.payload.buffer, bytes.buffer);
+assert.equal(await echoNullableBothAsync(null), null);
+console.log(JSON.stringify({ node: process.version, nativeFunctionIdentity: true, records: true, bytes: true, snapshot: true }));
