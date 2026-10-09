@@ -185,13 +185,13 @@ The export name `then` is reserved because dynamic ESM imports treat it as a pro
 
 ## Status and platforms
 
-**0.3.0 is experimental and targets Node's native Wasm ESM integration.** [Node documents instance-phase Wasm imports](https://nodejs.org/api/esm.html#wasm-instance-phase-imports) as experimental. Synchronous CommonJS `require` is not supported.
+**0.4.0 is experimental and targets Node's native Wasm ESM integration.** [Node documents instance-phase Wasm imports](https://nodejs.org/api/esm.html#wasm-instance-phase-imports) as experimental. Synchronous CommonJS `require` is not supported.
 
 The backend uses Dart's experimental Wasm interop and compiler-generated JavaScript helpers. It rewrites the Wasm import section so Node resolves the helpers, string constants, and built-in string operations through ESM; business logic remains Dart Wasm. It does not implement the Node-API C ABI or produce `.node` addons.
 
-Tested compiler: **Dart 3.13.5**. Other SDK versions allowed by the package constraint may change the experimental helper layout; unsupported layouts fail the build with a diagnostic. The generated Node engine requirement is `^22.19.0 || >=24.5.0`.
+Tested compiler: **Dart 3.13.5**. The consumer matrix covers **Node 22.19.0, 24.5.0, 24.21.0 and 26.11.1**, including native imports, strict value and ownership checks, Future settlement and TypeScript 7.0.2 declarations. Other SDK versions allowed by the package constraint may change the experimental helper layout; unsupported layouts fail the build with a diagnostic. The generated Node engine requirement is `^22.19.0 || >=24.5.0`.
 
-Native browser instance imports and bundler compatibility are not supported in this release. A browser's support for WasmGC or source-phase imports alone does not establish support for `import { add } from './module.wasm'`. The [roadmap](doc/roadmap.md) tracks platform validation.
+An **esbuild 0.28.2 Node application bundle** is tested with the generated Wasm package kept external. Node still loads the original Wasm and its companion host module. Native browser instance imports and bundler transformations of Wasm are unsupported; Chrome 155.0.8059.27 rejected the direct import even with HTTP 200 and the correct Wasm MIME type. A browser's support for WasmGC or source-phase imports alone does not establish support for `import { add } from './module.wasm'`. See [tested platforms and the bundler example](doc/platforms.md).
 
 The build checks signatures before compiling, supports Dart workspaces, and refuses to overwrite unrelated output directories. Rebuilds stage a complete replacement on the destination filesystem and restore the old package if installation fails. Run `dart pub get` in the source package or workspace first. Use `dart run napi:build --help` for options.
 
@@ -206,6 +206,8 @@ dart pub publish --dry-run
 ```
 
 Integration tests build a real package and verify native functions through package, subpath, and relative Wasm imports. Set `NAPI_TSC` to TypeScript's `bin/tsc` to include the TypeScript consumer checks; CI supplies it. `test/js/browser.html` probes native browser loading without a fallback loader.
+
+CI compiles, packs and installs the three runtime fixtures once with `dart run tool/runtime_fixtures.dart`, then sets `NAPI_RUNTIME_FIXTURES` to that output for the full test suite and reuses the same artifacts on other Node versions. The tool requires a new or empty output directory. Rebuild fixtures after changing the generator or fixture source; this environment variable is for development tests, not consumer initialization.
 
 See the [requirements](doc/requirements.md), [0.3.0 milestone](https://github.com/medz/napi/milestone/3), and [performance measurements](doc/performance.md).
 

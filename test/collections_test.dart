@@ -9,6 +9,7 @@ import 'package:test/test.dart';
 
 void main() {
   final root = Directory.current;
+  final fixtures = Platform.environment['NAPI_RUNTIME_FIXTURES'];
   final node =
       Platform.environment['NAPI_NODE22'] ??
       Platform.environment['NAPI_NODE'] ??
@@ -17,6 +18,16 @@ void main() {
   late Directory output;
 
   setUpAll(() async {
+    if (fixtures != null) {
+      consumer = Directory(p.join(p.absolute(fixtures), 'collections'));
+      output = Directory(p.join(consumer.path, 'dist'));
+      expect(
+        File(p.join(output.path, 'package.json')).existsSync(),
+        isTrue,
+        reason: 'Run dart run tool/runtime_fixtures.dart first.',
+      );
+      return;
+    }
     consumer = await Directory.systemTemp.createTemp('napi-collections-');
     output = Directory(p.join(consumer.path, 'dist'));
     final result = await Process.run(Platform.resolvedExecutable, [
@@ -48,7 +59,9 @@ void main() {
   });
 
   tearDownAll(() async {
-    if (consumer.existsSync()) await consumer.delete(recursive: true);
+    if (fixtures == null && consumer.existsSync()) {
+      await consumer.delete(recursive: true);
+    }
   });
 
   test(

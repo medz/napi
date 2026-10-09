@@ -17,10 +17,89 @@ jobs:
         with:
           node-version: 22.19.0
       - run: dart pub get
-      - run: dart format --output=none --set-exit-if-changed bin lib test example benchmark
+      - run: dart format --output=none --set-exit-if-changed bin lib test example benchmark tool
       - run: dart analyze --fatal-infos
-      - run: npm install --prefix .dart_tool/js --no-save --no-package-lock typescript@7.0.2
+      - run: npm install --prefix .dart_tool/js --no-save --no-package-lock --ignore-scripts --no-audit --no-fund typescript@7.0.2 esbuild@0.28.2
+      - name: Build and install runtime fixtures once
+        run: |
+          node -p 'JSON.stringify({node: process.version, v8: process.versions.v8})'
+          dart run tool/runtime_fixtures.dart
       - run: dart test
         env:
+          NAPI_RUNTIME_FIXTURES: ${{ github.workspace }}/.dart_tool/runtime-fixtures
           NAPI_TSC: ${{ github.workspace }}/.dart_tool/js/node_modules/typescript/bin/tsc
+      - name: Bundle an application with external Wasm
+        run: |
+          cp test/js/bundler-consumer.ts .dart_tool/runtime-fixtures/collections/
+          node .dart_tool/js/node_modules/esbuild/bin/esbuild .dart_tool/runtime-fixtures/collections/bundler-consumer.ts --bundle --platform=node --format=esm --target=node22 --external:@napi/collections '--external:*.wasm' --outfile=.dart_tool/runtime-fixtures/collections/bundler-consumer.mjs --metafile=.dart_tool/runtime-fixtures/collections/bundler-meta.json
+          node --input-type=module -e '
+            import assert from "node:assert/strict";
+            import { readFileSync } from "node:fs";
+            const meta = JSON.parse(readFileSync(process.argv[1], "utf8"));
+            assert.equal(Object.keys(meta.inputs).length, 1);
+            assert(Object.keys(meta.inputs)[0].endsWith("bundler-consumer.ts"));
+            const imports = Object.values(meta.outputs).flatMap(output => output.imports);
+            const userImports = imports.filter(entry => !entry.path.startsWith("node:"));
+            assert.deepEqual(userImports.map(entry => entry.path).sort(), ["./dist/module.wasm", "@napi/collections", "@napi/collections/module.wasm"].sort());
+            for (const entry of userImports) {
+              assert.equal(entry.external, true);
+              assert.equal(entry.kind, "import-statement");
+            }
+          ' .dart_tool/runtime-fixtures/collections/bundler-meta.json
+          node .dart_tool/runtime-fixtures/collections/bundler-consumer.mjs
       - run: dart pub publish --dry-run
+      - name: Archive fixtures and JavaScript tools for reuse
+        run: tar -czf .dart_tool/runtime-fixtures.tgz -C .dart_tool runtime-fixtures js
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runtime-fixtures
+          path: .dart_tool/runtime-fixtures.tgz
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 3
+
+  runtime:
+    needs: check
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [24.5.0, 24.21.0, 26.11.1]
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: runtime-fixtures
+          path: .dart_tool
+      - run: tar -xzf .dart_tool/runtime-fixtures.tgz -C .dart_tool
+      - name: Verify native Wasm consumers and declarations
+        run: |
+          cat .dart_tool/runtime-fixtures/metadata.json
+          node -p 'JSON.stringify({node: process.version, v8: process.versions.v8})'
+          tsc_path="$GITHUB_WORKSPACE/.dart_tool/js/node_modules/typescript/bin/tsc"
+          for fixture in integration async collections; do
+            case "$fixture" in
+              integration) runtime_script=node.mjs; package_consumer=consumer.ts; relative_consumer=relative.ts ;;
+              async) runtime_script=async-node.mjs; package_consumer=async-consumer.ts; relative_consumer=async-relative.ts ;;
+              collections) runtime_script=collections-node.mjs; package_consumer=collections-consumer.ts; relative_consumer=collections-relative.ts ;;
+            esac
+            (
+              cd ".dart_tool/runtime-fixtures/$fixture"
+              node --expose-gc "$runtime_script"
+              for resolution in NodeNext Bundler; do
+                module_mode=ESNext
+                if [ "$resolution" = NodeNext ]; then module_mode=NodeNext; fi
+                node "$tsc_path" --strict --noEmit --target ES2022 --module "$module_mode" --moduleResolution "$resolution" "$package_consumer"
+                node "$tsc_path" --strict --noEmit --target ES2022 --module "$module_mode" --moduleResolution "$resolution" --allowArbitraryExtensions "$relative_consumer"
+                if node "$tsc_path" --strict --noEmit --target ES2022 --module "$module_mode" --moduleResolution "$resolution" "$relative_consumer" > without-extension-option.log 2>&1; then
+                  echo "Relative Wasm declarations unexpectedly passed without allowArbitraryExtensions"
+                  exit 1
+                fi
+                grep -q TS6263 without-extension-option.log
+                grep -q module.d.wasm.ts without-extension-option.log
+              done
+            )
+          done
+          node .dart_tool/runtime-fixtures/collections/bundler-consumer.mjs

@@ -9,10 +9,21 @@ import 'package:test/test.dart';
 
 void main() {
   final root = Directory.current;
+  final fixtures = Platform.environment['NAPI_RUNTIME_FIXTURES'];
   late Directory consumer;
   late Directory output;
 
   setUpAll(() async {
+    if (fixtures != null) {
+      consumer = Directory(p.join(p.absolute(fixtures), 'integration'));
+      output = Directory(p.join(consumer.path, 'dist'));
+      expect(
+        File(p.join(output.path, 'package.json')).existsSync(),
+        isTrue,
+        reason: 'Run dart run tool/runtime_fixtures.dart first.',
+      );
+      return;
+    }
     consumer = await Directory.systemTemp.createTemp('napi-integration-');
     output = Directory(p.join(consumer.path, 'dist'));
     final result = await Process.run(Platform.resolvedExecutable, [
@@ -46,7 +57,9 @@ void main() {
   });
 
   tearDownAll(() async {
-    if (consumer.existsSync()) await consumer.delete(recursive: true);
+    if (fixtures == null && consumer.existsSync()) {
+      await consumer.delete(recursive: true);
+    }
   });
 
   test('build emits a native Wasm package with companion declarations', () {

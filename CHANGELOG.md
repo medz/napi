@@ -1,3 +1,10 @@
+## 0.4.0
+
+- Verify native Wasm consumers on Node 22.19.0, 24.5.0, 24.21.0 and 26.11.1 with scalar, Future and collection regressions and TypeScript declarations.
+- Build, pack and install each consumer fixture once; reuse the same artifacts across CI runtimes without repeating Dart compilation.
+- Verify an esbuild 0.28.2 Node application bundle with Wasm imports kept external; preserve the direct native import API and zero npm runtime dependencies.
+- Document exact tested platforms and the Chrome 155 native instance-import limitation. Browser execution and transformed Wasm bundling remain unsupported.
+
 ## 0.3.0
 
 - Export flat Dart Lists and String-keyed Maps with scalar values, nullable containers/elements, and Future completion types.

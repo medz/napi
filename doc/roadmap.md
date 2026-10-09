@@ -16,7 +16,7 @@ Acceptance is defined in the issues and [requirements](requirements.md). This re
 
 Acceptance includes native Wasm functions returning real Promises, strict declarations, consistent errors, call-time byte snapshots, and the [0.2.0 requirements](requirements.md#020-contract).
 
-## 0.3.0 — typed collections
+## 0.3.0 — released: typed collections
 
 - [#34: Add typed List and Map exports](https://github.com/medz/napi/issues/34).
 
@@ -25,10 +25,20 @@ Future completion types, strict own-data property validation, independent
 ownership, precise declarations, real Node consumers, and measured conversion
 and package-size costs. See the [0.3.0 requirements](requirements.md#030-contract).
 
-## Next — reliable platforms and real applications
+## 0.4.0 — verified runtime consumers
 
-- [#28: Broader tested compiler/runtime support](https://github.com/medz/napi/issues/28), including native browser imports and real bundler consumers.
+- [#28: Broader tested compiler/runtime support](https://github.com/medz/napi/issues/28).
+
+Acceptance covers the scalar, Future and collection workflows on Node 22.19.0,
+24.5.0, 24.21.0 and 26.11.1, accurate declarations, one compilation per fixture,
+and a real esbuild Node application bundle with external Wasm. The browser
+instance-phase probe remains a documented limitation. See [tested platforms](platforms.md).
+
+## Next — compiler compatibility and real applications
+
+- Validate new stable Dart SDK releases before expanding the tested compiler table; preserve clear diagnostics for unsupported helper layouts.
 - Improve diagnostics and add complete application examples based on real usage.
+- Revisit browser native instance imports when runtime support changes. Wasm bundler transformations are a separate route and require real execution evidence.
 
 Each addition starts with concrete Dart and JavaScript code, explicit value/error/ownership rules, and an acceptance case. Release complete, tested workflows in small increments. Dates and platform support are announced only when verified.
 
