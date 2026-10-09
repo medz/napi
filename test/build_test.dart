@@ -35,6 +35,33 @@ void main() {
     expect(work.listSync().length, 1);
   });
 
+  for (final nested in [false, true]) {
+    test(
+      nested
+          ? 'refuses a file ancestor before checking the source package'
+          : 'refuses a file output before checking the source package',
+      () async {
+        final source = File(p.join(work.path, 'input.dart'));
+        await source.writeAsString('not a Dart library');
+        final existing = File(p.join(work.path, 'dist'));
+        await existing.writeAsString('preserve me');
+        final result = await build([
+          source.path,
+          '--name',
+          '@example/math',
+          '--out',
+          nested ? p.join(existing.path, 'missing', 'deeper') : existing.path,
+        ]);
+        expect(result.exitCode, isNot(0));
+        expect(result.stderr, contains('non-directory component'));
+        expect(result.stderr, contains(existing.path));
+        expect(result.stdout, isEmpty);
+        expect(await existing.readAsString(), 'preserve me');
+        expect(work.listSync().length, 2);
+      },
+    );
+  }
+
   test('refuses a symbolic-link output directory', () async {
     final target = Directory(p.join(work.path, 'target'));
     await target.create();

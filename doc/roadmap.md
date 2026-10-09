@@ -99,7 +99,7 @@ Verify independent byte copies, exact field diagnostics, native imports and
 types across the Node matrix, helper isolation and measured copy costs. See the
 [0.10.0 requirements](requirements.md#0100-contract).
 
-## 0.11.0 — runnable binary-file application
+## 0.11.0 — released: runnable binary-file application
 
 - [#53: Ship a complete binary-file checksum application](https://github.com/medz/napi/issues/53).
 
@@ -108,6 +108,14 @@ bytes, Dart CRC32/counting and a typed scalar record result. Reuse the existing
 boundary and one packed artifact across the Node matrix; verify application
 results against Node's built-in CRC32 without a speedup claim or new core API.
 See the [0.11.0 requirements](requirements.md#0110-contract).
+
+## 0.11.1 — output-path diagnostics
+
+- [#57: Reject non-directory output paths before compilation](https://github.com/medz/napi/issues/57).
+
+Acceptance covers clear preflight errors for existing output files and file
+ancestors, preserved contents and unchanged valid-directory behavior. See the
+[0.11.1 requirements](requirements.md#0111-contract).
 
 ## Next — compiler compatibility and real applications
 

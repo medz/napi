@@ -122,6 +122,12 @@ The project name is `napi`; the primary backend is Wasm ESM integration, not the
 - Verify direct business vectors and compare real Wasm binary/view results with built-in `node:zlib.crc32`. Build/pack/install the actual example once and reuse it on the four tested Nodes for native npm root/subpath/relative identity and file/stdin smoke. Check additional filesystem and CLI error cases once on the minimum Node; verify npm and relative types in both resolution modes with actual Node types. Preserve existing regressions, missing-option controls and external-Wasm bundles.
 - Require final-head substantive review and CI, exact-SHA merge and independent hosted-package/source/artifact acceptance. Keep SDK `^3.13.5` and platform limits. This is a teaching application with whole-file memory, the normal input copy and a linear byte scan; Node already has CRC32, and no replacement, speedup, streaming or authentication capability is claimed.
 
+## 0.11.1 contract
+
+- Reject an output path that names an existing non-directory component before source-package analysis or Wasm compilation. Identify the blocking component, preserve its contents and create no staged output.
+- Cover both the output file itself and missing descendants beneath a file with real CLI regressions. Retain valid missing/empty/generated directories, directory-ancestor resolution and existing symbolic-link safeguards; recheck the destination before installation.
+- Preserve the native Wasm value, declaration and runtime contracts without a new dependency or API. Release only after final-head Codex review, CI, exact-SHA merge and a fresh hosted consumer.
+
 ## Iteration priorities
 
 After publishing the first complete workflow, prioritize Future-to-Promise support, useful typed data structures, clear diagnostics, compiler/runtime compatibility, reproducible performance and size measurements, and real applications. Define consumer syntax, type and ownership rules, and acceptance cases before implementing each addition.
