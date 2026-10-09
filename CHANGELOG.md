@@ -1,3 +1,8 @@
+## 0.9.1
+
+- Reject record aliases named `keyof`, `infer` or `unique` with a source diagnostic before compilation; TypeScript interprets these names as type operators and previously generated invalid declarations.
+- Preserve valid record aliases, readonly array inputs, mutable results and ordinary functions or parameters with the same names.
+
 ## 0.9.0
 
 - Generate readonly array parameters for scalar Lists and record batches, including nullable containers and elements. Mutable arrays, frozen arrays and `as const` tuples share the existing snapshot semantics.

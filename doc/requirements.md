@@ -98,6 +98,12 @@ The project name is `napi`; the primary backend is Wasm ESM integration, not the
 - Demonstrate the corrected API in the request-summary TypeScript consumer. Verify strict npm root/subpath and relative Wasm imports in NodeNext/Bundler, plus real frozen scalar and record inputs, unchanged callers and independently mutable outputs across all four Nodes using reused fixtures.
 - Preserve existing value/error/platform/SDK constraints, regressions and external-Wasm bundle checks. Add no runtime conversion branch, loader, framework or dependency; release requires final-head review/CI, exact-SHA merge and a fresh hosted consumer with artifact/source verification.
 
+## 0.9.1 contract
+
+- Reject public named-record aliases called `keyof`, `infer` or `unique` before Wasm compilation, using the existing source diagnostic path. Cover scalar parameters, List results and nullable Future results with the alias name and exact source location.
+- Preserve legal record aliases, readonly inputs, mutable results, independent nullability and ordinary functions or parameters named `readonly`, `keyof`, `infer` or `unique`. Keep one signature model and add no runtime branch, parser, wrapper or dependency.
+- Require the complete regression/runtime/TypeScript/bundle matrix, final-head review and CI, exact-SHA merge and a fresh hosted consumer. Verify the published CLI rejects all three aliases in each signature shape before compilation, and a packed legal alias artifact retains real native imports and precise declarations across all four Nodes.
+
 ## Iteration priorities
 
 After publishing the first complete workflow, prioritize Future-to-Promise support, useful typed data structures, clear diagnostics, compiler/runtime compatibility, reproducible performance and size measurements, and real applications. Define consumer syntax, type and ownership rules, and acceptance cases before implementing each addition.
