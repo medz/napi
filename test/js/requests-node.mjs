@@ -3,13 +3,16 @@ import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import * as api from '@napi/requests';
-import { summarize as subpath } from '@napi/requests/module.wasm';
-import { summarize as relative } from './dist/module.wasm';
+import { summarize as subpath, summarizeByOperation as indexedSubpath } from '@napi/requests/module.wasm';
+import { summarize as relative, summarizeByOperation as indexedRelative } from './dist/module.wasm';
 
 assert.equal(typeof api.summarize, 'function');
 assert.equal(api.summarize, subpath);
 assert.equal(api.summarize, relative);
 assert.match(Function.prototype.toString.call(api.summarize), /\[native code\]/);
+assert.equal(api.summarizeByOperation, indexedSubpath);
+assert.equal(api.summarizeByOperation, indexedRelative);
+assert.match(Function.prototype.toString.call(api.summarizeByOperation), /\[native code\]/);
 assert.equal(Object.hasOwn(api, 'Observation'), false);
 assert.equal(Object.hasOwn(api, 'Summary'), false);
 let checks = 0;
@@ -158,4 +161,27 @@ cliFailure(ndjson(unsafe), unsafeMessage);
 cliFailure(ndjson(overflow), overflowMessage);
 cliFailure('null\n', 'parameter observations[0]: Expected an ordinary object');
 cliFailure(ndjson([valid, { ...valid, success: 'true' }]), 'parameter observations[1]["success"]: Expected a boolean');
-console.log(JSON.stringify({ checks, cliChecks, nativeFunctions: 1, node: process.version }));
+const indexed = api.summarizeByOperation(frozenSample);
+assert.equal(Object.getPrototypeOf(indexed), null);
+assert.deepEqual(Object.keys(indexed).sort(), sampleExpected.map(row => row.operation));
+for (const row of sampleExpected) {
+  assert.equal(Object.getPrototypeOf(indexed[row.operation]), null);
+  assert.deepEqual({ ...indexed[row.operation] }, row);
+}
+assert.equal(indexed['GET /articles'].calls, 2);
+assert.equal(indexed.absent, undefined);
+indexed['GET /articles'].calls = 99;
+assert.equal(api.summarizeByOperation(frozenSample)['GET /articles'].calls, 2);
+const unicodeIndex = api.summarizeByOperation(unicode);
+for (const row of unicodeExpected) {
+  assert.deepEqual({ ...unicodeIndex[row.operation] }, row);
+}
+const specialIndex = api.summarizeByOperation(specialNames.map(operation => ({ operation, durationUs: 1, success: false })));
+assert.equal(Object.getPrototypeOf(specialIndex), null);
+for (const key of specialNames) {
+  assert(Object.hasOwn(specialIndex, key));
+  assert.equal(specialIndex[key].operation, key);
+}
+assert.equal(Object.keys(api.summarizeByOperation([])).length, 0);
+assert.throws(() => api.summarizeByOperation(overflow), error => error instanceof RangeError && error.message === overflowMessage);
+console.log(JSON.stringify({ checks, cliChecks, nativeFunctions: 2, node: process.version }));

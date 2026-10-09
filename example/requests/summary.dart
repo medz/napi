@@ -14,6 +14,14 @@ const _maxSafeInteger = 9007199254740991;
 /// Durations and each operation's total must fit a nonnegative safe JS integer.
 @napi
 List<Summary> summarize(List<Observation> observations) {
+  final summaries = summarizeByOperation(observations);
+  final operations = summaries.keys.toList()..sort();
+  return [for (final operation in operations) summaries[operation]!];
+}
+
+/// Returns the same request counts indexed by exact operation name.
+@napi
+Map<String, Summary> summarizeByOperation(List<Observation> observations) {
   final groups = <String, _Counts>{};
   for (final observation in observations) {
     final duration = observation.durationUs;
@@ -35,17 +43,15 @@ List<Summary> summarize(List<Observation> observations) {
     if (!observation.success) counts.failed++;
     counts.totalDurationUs += duration;
   }
-  final entries = groups.entries.toList()
-    ..sort((a, b) => a.key.compareTo(b.key));
-  return [
-    for (final entry in entries)
-      (
+  return {
+    for (final entry in groups.entries)
+      entry.key: (
         operation: entry.key,
         calls: entry.value.calls,
         failed: entry.value.failed,
         totalDurationUs: entry.value.totalDurationUs,
       ),
-  ];
+  };
 }
 
 final class _Counts {

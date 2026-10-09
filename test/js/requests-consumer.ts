@@ -10,6 +10,11 @@ const exactInputAlias: Equal<Observation, ExpectedObservation> = true;
 const exactOutputAlias: Equal<Summary, ExpectedSummary> = true;
 const exactInput: Equal<Parameters<typeof api.summarize>[0], readonly Observation[]> = true;
 const exactOutput: Equal<ReturnType<typeof api.summarize>, Summary[]> = true;
+const exactIndexedInput: Equal<Parameters<typeof api.summarizeByOperation>[0], readonly Observation[]> = true;
+const exactIndexedOutput: Equal<ReturnType<typeof api.summarizeByOperation>, Record<string, Summary>> = true;
+const indexed: Record<string, Summary> = api.summarizeByOperation([{ operation: 'read', durationUs: 7, success: true }] as const);
+const indexedCalls: number = indexed.read.calls;
+void [exactIndexedInput, exactIndexedOutput, indexedCalls];
 const exactSubpathInput: Equal<Observation, SubpathObservation> = true;
 const exactSubpathOutput: Equal<Summary, SubpathSummary> = true;
 const exactSubpathParameter: Equal<Parameters<typeof subpath>[0], readonly SubpathObservation[]> = true;
@@ -75,3 +80,8 @@ api.summarize();
 // @ts-expect-error Declarations check arity.
 api.summarize(observations, observations);
 void [pending, invalidSummary, runtimeAlias];
+// @ts-expect-error Indexed summaries retain required observation fields.
+api.summarizeByOperation([{ operation: 'read', durationUs: 7 }]);
+// @ts-expect-error Indexed output is a dictionary.
+const indexedList: Summary[] = api.summarizeByOperation([]);
+void indexedList;

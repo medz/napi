@@ -96,6 +96,17 @@ Future<void> main(List<String> arguments) async {
       ],
     ),
     (
+      name: 'record-maps',
+      source: 'test/fixtures/record_maps.dart',
+      version: '0.1.0',
+      files: [
+        'test/js/record-maps-node.mjs',
+        'test/js/record-maps-consumer.ts',
+        'test/js/record-maps-relative.ts',
+        'test/js/record-maps-bundler-consumer.ts',
+      ],
+    ),
+    (
       name: 'requests',
       source: 'example/requests/summary.dart',
       version: '0.1.0',
@@ -154,6 +165,7 @@ Future<void> main(List<String> arguments) async {
       p.join(consumer.path, archive['filename'] as String),
       if (fixture.name == 'records' ||
           fixture.name == 'batch' ||
+          fixture.name == 'record-maps' ||
           fixture.name == 'checksum')
         '@types/node@26.6.4',
     ], consumer.path);

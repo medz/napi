@@ -267,7 +267,7 @@ atomic transaction across arbitrary traps. Conversion errors include the field
 path, for example `parameter user["age"]`.
 
 Positional, mixed, empty and nested records, generic aliases, collection
-fields, Map record values and class wrappers are unsupported. Collection,
+fields and class wrappers are unsupported. Collection,
 Future, void, function and class aliases remain unsupported. Record aliases named
 `readonly`, `keyof`, `infer` or `unique` are rejected before compilation because
 TypeScript parses these names as type operators. Ordinary functions and
@@ -357,10 +357,53 @@ input without changing the Dart snapshot or its normal validation/copy costs.
 Failures include both index and field once, for example
 `parameter users[3]["age"]`. Inline records and public non-generic record
 typedefs work; aliases used only inside Lists still become exported types.
-Only one List layer is supported. Nested Lists, collection aliases, Map record
-values and collection/record fields remain unsupported. Batch calls still pay
+Only one List layer is supported. Nested Lists, collection aliases and
+collection/record fields remain unsupported. Batch calls still pay
 per-record validation, conversion and allocation costs; measure the workload
 before choosing a batch size.
+
+## Dictionaries of data objects
+
+Use `Map<String, User>` to access flat named records by key:
+
+```dart
+@napi
+Map<String, User> normalizeById(Map<String, User> users) => {
+  for (final entry in users.entries) entry.key: normalize(entry.value),
+};
+
+@napi
+Future<Map<String, User?>?> usersLater(Map<String, User?>? users) async => users;
+```
+
+```ts
+import { normalizeById, usersLater } from './dist/module.wasm';
+import type { User } from './dist/module.wasm';
+
+const users: Record<string, User> = normalizeById({
+  alice: { name: ' Alice ', age: 20, active: null },
+});
+console.log(users.alice.name);
+const later: Record<string, User | null> | null = await usersLater({ ...users, missing: null });
+```
+
+The outer object follows the Map rules above; each value follows the data-object
+rules, including `Uint8List` fields. Only own enumerable string data properties
+are read from the Map. Container, value and field nullability are independent;
+use `null` where declared, never `undefined`. Inline records and public record
+aliases work, including aliases used only inside Maps.
+
+All inputs are validated and copied before business code or Promise return.
+The outer output and every non-null record are fresh null-prototype objects,
+with independent byte storage even when two keys reference the same input.
+Errors include the key and field once, such as
+`parameter users["alice"]["age"]`. Empty and special keys such as `__proto__`
+are preserved. Missing keys return `undefined` in JavaScript; key order is not
+guaranteed. Nested collections and collection/record fields remain unsupported.
+Dictionary calls retain the normal per-record validation and copy costs.
+
+The request-summary example also exports `summarizeByOperation`, so consumers
+can query `summarizeByOperation(observations)['GET /articles']` directly.
 
 ## TypeScript
 
@@ -398,7 +441,7 @@ Annotate public top-level functions in the entry library. Use explicit return ty
 | `String` | `string` | Preserves UTF-16 code units |
 | `Uint8List` | `Uint8Array` | Copies in and out; Node `Buffer` and cross-realm arrays accepted |
 | `List<T>` | `readonly T[]` → `T[]` | Scalars or flat named records; independent input/output Arrays and record objects |
-| `Map<String,T>` | `Record<string,T>` | Flat scalar values; output has a null prototype |
+| `Map<String,T>` | `Record<string,T>` | Scalars or flat named records; independent null-prototype objects and byte storage |
 | Named record / record typedef | Object shape / exported type | Required flat scalar/byte fields; independent null-prototype output and byte storage |
 | `T?` | `T \| null` | Accepts `null`; rejects `undefined` |
 | `Future<T>` | `Promise<T>` | Return type only; completion uses the same value rules |

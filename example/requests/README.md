@@ -54,6 +54,25 @@ input. Check its relative Wasm import with TypeScript 7.0.2:
 npx --yes --package typescript@7.0.2 tsc --strict --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --allowArbitraryExtensions example/requests/consumer.mts
 ```
 
+For direct lookup, import the additional native Wasm function:
+
+```ts
+import { summarizeByOperation } from './dist/module.wasm';
+import type { Observation, Summary } from './dist/module.wasm';
+
+const observations: Observation[] = [
+  { operation: 'GET /articles', durationUs: 50, success: true },
+];
+const byOperation: Record<string, Summary> = summarizeByOperation(observations);
+console.log(byOperation['GET /articles'].calls); // 1
+```
+
+This uses the same Dart aggregation and validation as `summarize`. The returned
+dictionary and each Summary have null prototypes and independent mutable fields.
+Operation names remain exact keys, including `__proto__`, `constructor` and
+`then`. Missing keys are `undefined`; dictionary key order is not guaranteed.
+The command-line program continues to print the sorted list.
+
 For an npm consumer, pack/install `example/requests/dist` and import
 `summarize` from `@napi/requests` or `@napi/requests/module.wasm`. Both entries point
 to the Wasm file; npm type resolution needs no `allowArbitraryExtensions` flag.

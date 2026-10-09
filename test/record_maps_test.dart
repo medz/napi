@@ -10,6 +10,7 @@ import 'package:test/test.dart';
 void main() {
   final root = Directory.current;
   final fixtures = Platform.environment['NAPI_RUNTIME_FIXTURES'];
+  final tsc = Platform.environment['NAPI_TSC'];
   final node =
       Platform.environment['NAPI_NODE22'] ??
       Platform.environment['NAPI_NODE'] ??
@@ -19,7 +20,7 @@ void main() {
 
   setUpAll(() async {
     if (fixtures != null) {
-      consumer = Directory(p.join(p.absolute(fixtures), 'requests'));
+      consumer = Directory(p.join(p.absolute(fixtures), 'record-maps'));
       output = Directory(p.join(consumer.path, 'dist'));
       expect(
         File(p.join(output.path, 'package.json')).existsSync(),
@@ -28,33 +29,46 @@ void main() {
       );
       return;
     }
-    consumer = await Directory.systemTemp.createTemp('napi-requests-');
+    consumer = await Directory.systemTemp.createTemp('napi-record-maps-');
     output = Directory(p.join(consumer.path, 'dist'));
     final result = await Process.run(Platform.resolvedExecutable, [
       'run',
       'napi:build',
-      'example/requests/summary.dart',
+      'test/fixtures/record_maps.dart',
       '--name',
-      '@napi/requests',
+      '@napi/record-maps',
       '--out',
       output.path,
+      '--version',
+      '0.1.0',
     ], workingDirectory: root.path);
     expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
     await File(p.join(consumer.path, 'package.json')).writeAsString(
-      '{"name":"napi-requests-consumer","private":true,"type":"module"}\n',
+      '{"name":"napi-record-maps-consumer","private":true,"type":"module"}\n',
     );
+    if (tsc != null) {
+      final types = await Process.run('npm', [
+        'install',
+        '--no-save',
+        '--no-package-lock',
+        '--ignore-scripts',
+        '--no-audit',
+        '--no-fund',
+        '@types/node@26.6.4',
+      ], workingDirectory: consumer.path);
+      expect(types.exitCode, 0, reason: '${types.stdout}${types.stderr}');
+    }
     final scope = Directory(p.join(consumer.path, 'node_modules', '@napi'));
     await scope.create(recursive: true);
-    await Link(p.join(scope.path, 'requests')).create(output.path);
+    await Link(p.join(scope.path, 'record-maps')).create(output.path);
     for (final file in [
-      'example/requests/main.mjs',
-      'example/requests/consumer.mts',
-      'example/requests/input.ndjson',
-      'test/js/requests-node.mjs',
-      'test/js/requests-consumer.ts',
+      'record-maps-node.mjs',
+      'record-maps-consumer.ts',
+      'record-maps-relative.ts',
+      'record-maps-bundler-consumer.ts',
     ]) {
-      await File(p.join(root.path, file))
-          .copy(p.join(consumer.path, p.basename(file)));
+      await File(p.join(root.path, 'test', 'js', file))
+          .copy(p.join(consumer.path, file));
     }
   });
 
@@ -65,40 +79,21 @@ void main() {
   });
 
   test(
-    'request application executes the Dart Wasm business rules and CLI',
+    'record maps preserve native exports, snapshots and ownership',
     () async {
-      final declarations = await File(p.join(output.path, 'index.d.ts'))
-          .readAsString();
-      expect(declarations, contains('export type Observation'));
-      expect(declarations, contains('export type Summary'));
-      expect(declarations, contains('summarize'));
-      expect(
-        await File(p.join(output.path, 'module.d.wasm.ts')).readAsString(),
-        declarations,
-      );
-      final manifest = jsonDecode(
-        await File(p.join(output.path, 'package.json')).readAsString(),
-      ) as Map;
-      for (final entry in ['.', './module.wasm']) {
-        expect((manifest['exports'] as Map)[entry], {
-          'types': './index.d.ts',
-          'default': './module.wasm',
-        });
-      }
-      expect(manifest.containsKey('dependencies'), isFalse);
       final result = await Process.run(node, [
-        'requests-node.mjs',
+        '--expose-gc',
+        'record-maps-node.mjs',
       ], workingDirectory: consumer.path);
       expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
       final report = jsonDecode((result.stdout as String).trim()) as Map;
-      expect(report['nativeFunctions'], 2);
-      expect(report['checks'] as int, greaterThan(10));
-      expect(report['cliChecks'] as int, greaterThan(5));
-      print('requests: ${result.stdout}');
+      expect(report['checks'] as int, greaterThan(150));
+      expect(report['nativeFunctions'], 31);
+      expect(report['retained'], isTrue);
+      print('record-maps: ${result.stdout}');
     },
   );
 
-  final tsc = Platform.environment['NAPI_TSC'];
   final skipTypescript = tsc == null
       ? 'Set NAPI_TSC to TypeScript bin/tsc. CI requires this check.'
       : false;
@@ -110,6 +105,8 @@ void main() {
           '--noEmit',
           '--target',
           'ES2022',
+          '--types',
+          'node',
           '--module',
           resolution == 'NodeNext' ? 'NodeNext' : 'ESNext',
           '--moduleResolution',
@@ -118,19 +115,22 @@ void main() {
           file,
         ], workingDirectory: consumer.path);
     test(
-      'TypeScript $resolution checks request npm aliases and signatures',
+      'TypeScript $resolution checks map aliases at npm root and subpath',
       () async {
-        final result = await typecheck('requests-consumer.ts');
+        final result = await typecheck('record-maps-consumer.ts');
         expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
       },
       skip: skipTypescript,
     );
     test(
-      'TypeScript $resolution checks the shipped relative Wasm consumer',
+      'TypeScript $resolution checks relative record-map Wasm declarations',
       () async {
-        final result = await typecheck('consumer.mts', arbitrary: true);
+        final result = await typecheck(
+          'record-maps-relative.ts',
+          arbitrary: true,
+        );
         expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
-        final withoutOption = await typecheck('consumer.mts');
+        final withoutOption = await typecheck('record-maps-relative.ts');
         expect(withoutOption.exitCode, isNot(0));
         expect(withoutOption.stdout, contains('TS6263'));
         expect(withoutOption.stdout, contains('module.d.wasm.ts'));
