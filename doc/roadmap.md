@@ -1,5 +1,11 @@
 # Roadmap
 
+Develop through small issues and independently reviewed PRs, then combine related
+work into complete user-facing milestones. Bump versions and publish through a
+release-preparation PR, rather than publishing every merged change. Documentation,
+CI, tests, benchmarks, examples and non-urgent fixes normally join the next
+milestone; concrete urgent user failures may justify a separate patch.
+
 ## 0.1.0 — released: native Wasm imports
 
 - [#29: Resolve exports and generate TypeScript declarations](https://github.com/medz/napi/issues/29).
@@ -109,7 +115,7 @@ boundary and one packed artifact across the Node matrix; verify application
 results against Node's built-in CRC32 without a speedup claim or new core API.
 See the [0.11.0 requirements](requirements.md#0110-contract).
 
-## 0.11.1 — output-path diagnostics
+## Unreleased — output-path diagnostics
 
 - [#57: Reject non-directory output paths before compilation](https://github.com/medz/napi/issues/57).
 
@@ -117,13 +123,17 @@ Acceptance covers clear preflight errors for existing output files and file
 ancestors, preserved contents and unchanged valid-directory behavior. See the
 [0.11.1 requirements](requirements.md#0111-contract).
 
+The fix is merged and the existing `v0.11.1` tag is retained, but the package was
+not published. It will join the next suitable milestone; quota recovery does not
+trigger an immediate standalone release. The published baseline remains 0.11.0.
+
 ## Next — compiler compatibility and real applications
 
 - Validate new stable Dart SDK releases before expanding the tested compiler table; preserve clear diagnostics for unsupported helper layouts.
 - Improve diagnostics and add complete application examples based on real usage.
 - Revisit browser native instance imports when runtime support changes. Wasm bundler transformations are a separate route and require real execution evidence.
 
-Each addition starts with concrete Dart and JavaScript code, explicit value/error/ownership rules, and an acceptance case. Release complete, tested workflows in small increments. Dates and platform support are announced only when verified.
+Each addition starts with concrete Dart and JavaScript code, explicit value/error/ownership rules, and an acceptance case. Review and merge in small increments; publish the accumulated work when a complete, tested milestone is ready. Dates and platform support are announced only when verified.
 
 ## Separate proposals
 

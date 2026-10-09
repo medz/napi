@@ -1,4 +1,4 @@
-## 0.11.1
+## Unreleased
 
 - Reject non-directory output paths before source-package analysis and Wasm compilation, identifying the blocking component and preserving existing files.
 - Recheck the output type before staged installation; retain existing directory and symlink safeguards.
