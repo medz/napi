@@ -577,7 +577,10 @@ class _ExportVisitor extends RecursiveAstVisitor<void> {
           (!leaf.isDartCoreBool &&
               !leaf.isDartCoreInt &&
               !leaf.isDartCoreDouble &&
-              !leaf.isDartCoreString)) {
+              !leaf.isDartCoreString &&
+              !(leaf is InterfaceType &&
+                  leaf.element.name == 'Uint8List' &&
+                  leaf.element.library.uri.toString() == 'dart:typed_data'))) {
         final source = _recordSource(type, annotation);
         final fieldName = alias == null
             ? field.name
@@ -585,7 +588,7 @@ class _ExportVisitor extends RecursiveAstVisitor<void> {
         final message = leaf.alias != null
             ? 'Type aliases are not supported in @napi record fields: "$fieldName".'
             : 'Unsupported @napi record field "$fieldName" type '
-                  '"${leaf.getDisplayString()}". Use bool, int, double, or String '
+                  '"${leaf.getDisplayString()}". Use bool, int, double, String, or Uint8List '
                   '(optionally nullable).';
         final node = source?.annotation.namedFields?.fields
             .where((node) => node.name.lexeme == field.name)

@@ -202,6 +202,84 @@ async function measure() {
       }
     }
   }
+  if (group !== 'batch') {
+    // Valid current-realm input reference: fixed own descriptors, a string
+    // field and two real payload copies. Complete boundary/error semantics
+    // and Dart's owned business input are covered by runtime acceptance.
+    js.echoPacket = value => {
+      const proto = Object.getPrototypeOf(value);
+      if (proto !== null && proto !== Object.prototype) throw new TypeError('Expected ordinary object');
+      const snapshot = ['name', 'payload'].map(key => {
+        const field = Object.getOwnPropertyDescriptor(value, key);
+        if (!field || !Object.hasOwn(field, 'value')) throw new TypeError('Expected own data property');
+        return field.value;
+      });
+      const name = string(snapshot[0]);
+      const payload = new Uint8Array(bytes(snapshot[1]));
+      const output = Object.create(null);
+      Object.defineProperty(output, 'name', { value: name, writable: true, enumerable: true, configurable: true });
+      Object.defineProperty(output, 'payload', { value: new Uint8Array(payload), writable: true, enumerable: true, configurable: true });
+      return output;
+    };
+    js.echoPacketPayload = value => new Uint8Array(new Uint8Array(bytes(value)));
+    const name = 'Aé😀\ud800';
+    for (const size of [32, 1024, 65536]) {
+      const value = Uint8Array.from({ length: size }, (_, i) => i & 255);
+      const buffer = Buffer.from(value);
+      const owner = new Uint8Array(size + 16).fill(0xa5);
+      owner.set(value, 8);
+      const subarray = owner.subarray(8, 8 + size);
+      for (const [kind, input] of [['Uint8Array', value], ['Buffer', buffer], ['subarray', subarray]]) {
+        const expected = new Uint8Array(input);
+        const packet = { name, payload: input };
+        for (const [route, method, record] of [['echo', 'echoPacket', true], ['top-level', 'echoPacketPayload', false]]) {
+          const label = `record/bytes/${route}/${kind}/${size}`;
+          const invoke = api => api[method](record ? packet : input);
+          // These echo checks prove observable view contents and independent
+          // returned storage, not the hidden input copy before business entry.
+          for (const [, api] of implementations.slice(0, 2)) {
+            const output = invoke(api);
+            if (record) {
+              assert.equal(Object.getPrototypeOf(output), null, label);
+              assert.deepEqual(Object.keys(output), ['name', 'payload'], label);
+              assert.equal(output.name, name, label);
+              for (const key of ['name', 'payload']) {
+                const field = Object.getOwnPropertyDescriptor(output, key);
+                assert(Object.hasOwn(field, 'value') && field.writable && field.enumerable && field.configurable, label);
+              }
+              assert.notEqual(output, packet, label);
+            }
+            const payload = record ? output.payload : output;
+            assert.deepEqual(payload, expected, label);
+            assert.equal(payload.byteLength, size, label);
+            assert.equal(payload.byteOffset, 0, label);
+            assert.notEqual(payload.buffer, input.buffer, label);
+            payload[0] = 99;
+            assert.deepEqual(new Uint8Array(input), expected, label);
+            const second = invoke(api);
+            const fresh = record ? second.payload : second;
+            assert.deepEqual(fresh, expected, label);
+            assert.notEqual(fresh.buffer, payload.buffer, label);
+            input[0] = 42;
+            assert.equal(fresh[0], 0, label);
+            input[0] = 0;
+            if (record) {
+              output.name = 'changed output';
+              assert.equal(packet.name, name, label);
+              assert.equal(second.name, name, label);
+            }
+          }
+          assert.equal(owner[7], 0xa5, label);
+          assert.equal(owner[8 + size], 0xa5, label);
+          cases.push({ name: label, count: sized(iterations, size), warmup: sized(warmup, size), implementations: ['wasm', 'javascript'],
+            input: { bytes: size, kind, byte_offset: input.byteOffset, pattern: 'i & 255', ownership_copies: 2, method,
+              fields: record ? 2 : 0, name_utf16_code_units: record ? name.length : 0,
+              validation: record ? 'fixed own data descriptors, String and Uint8Array brand' : 'Uint8Array brand' },
+            call: invoke });
+        }
+      }
+    }
+  }
   if (group !== 'records') {
     const recordListSnapshot = (value, convert) => {
       if (!Array.isArray(value)) throw new TypeError('Expected Array');
@@ -372,6 +450,7 @@ async function measure() {
       const first = value[0];
       sink = (sink + value.length + (typeof first === 'number' ? first : first?.id ?? first?.id0 ?? 0)) | 0;
     }
+    else if (value.payload !== undefined) sink = (sink + value.payload.length + (value.payload[0] ?? 0) + value.name.length) | 0;
     else sink = (sink + (value.id ?? value.id0 ?? value.key0?.length ?? 0)) | 0;
   };
   const rows = [];
@@ -400,9 +479,9 @@ async function measure() {
   console.log(JSON.stringify({
     group,
     environment: { node: process.version, v8: process.versions.v8, os: `${platform()} ${release()}`, arch: arch(), cpu: cpus()[0]?.model },
-    ownership_preflight: all
+    ownership_preflight: (all
       ? 'scalar/bytes: all three implementations; collections/records/batches: Wasm and JavaScript sync independence and async input snapshots'
-      : `${group}: Wasm and JavaScript sync independence and async input snapshots`,
+      : `${group}: Wasm and JavaScript sync independence and async input snapshots`) + (group === 'batch' ? '' : '; packet byte echoes: visible view contents and independently mutable results; owned business-input copies require runtime acceptance'),
     ...(all ? { dart_js_errors: 'omitted: hand-written dart:js_interop entry is not napi error mapping' } : {}),
     notes: 'loop, dispatch, result consumption, validation and ownership copies are included; no concurrent Promise batching',
     sink, cases: rows,

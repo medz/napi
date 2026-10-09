@@ -166,7 +166,7 @@ raw List/Map types, and collection aliases are rejected before compilation.
 
 ## Data objects
 
-Use a named record for fields with different scalar types. A public non-generic
+Use a named record for fields with different value types. A public non-generic
 typedef also becomes an exported TypeScript type:
 
 ```dart
@@ -196,7 +196,7 @@ non-generic alias chains, and nullable record typedef definitions retain their
 outer type names. Unused aliases are not exported. These are type-only exports,
 with no JavaScript constructor or runtime schema.
 
-Fields must be `bool`, `int`, `double`, or `String`, independently nullable.
+Fields must be `bool`, `int`, `double`, `String`, or SDK `Uint8List`, independently nullable.
 All declared fields are required: `active: null` is valid, but missing `active`
 or `active: undefined` is rejected. Inputs must be ordinary or null-prototype
 objects, including cross-realm objects. Declared fields must be own data
@@ -212,7 +212,7 @@ another snapshot. Proxy reflection traps still execute; the snapshot is not an
 atomic transaction across arbitrary traps. Conversion errors include the field
 path, for example `parameter user["age"]`.
 
-Positional, mixed, empty and nested records, generic aliases, collection/byte
+Positional, mixed, empty and nested records, generic aliases, collection
 fields, Map record values and class wrappers are unsupported. Scalar,
 collection, and Future aliases remain unsupported. Record aliases named
 `readonly`, `keyof`, `infer` or `unique` are rejected before compilation because
@@ -222,6 +222,42 @@ alias. Type aliases with conflicting
 public names or names that shadow generated TypeScript built-ins fail before
 compilation. Dart itself prohibits private and Object-member record field names;
 use Maps for arbitrary keys such as `__proto__`.
+
+Byte fields become `Uint8Array` and accept Node `Buffer`, offset views and
+cross-realm byte arrays, with the same byte rules as top-level `Uint8List`:
+
+```dart
+import 'dart:typed_data';
+import 'package:napi/napi.dart';
+
+typedef Packet = ({String name, Uint8List payload});
+
+@napi
+Packet normalizePacket(Packet value) {
+  for (var index = 0; index < value.payload.length; index++) {
+    value.payload[index] ^= 0xff;
+  }
+  return (name: value.name.trim(), payload: value.payload);
+}
+```
+
+```ts
+import { normalizePacket } from './dist/module.wasm';
+import type { Packet } from './dist/module.wasm';
+
+const payload = new Uint8Array([0, 128, 255]);
+const packet: Packet = normalizePacket({ name: ' sample ', payload });
+// packet: { name: 'sample', payload: Uint8Array([255, 127, 0]) }
+// payload remains [0, 128, 255].
+```
+
+Every non-null byte field is copied before business code runs or a Promise
+returns. Each result field receives independent storage, including when Dart
+returns the same bytes in multiple fields or rows. Nullable byte fields remain
+required; pass `null`, never `undefined`. Detached and out-of-bounds resizable
+views fail with a `TypeError` containing the field path. These copies do not
+make Proxy traps or concurrent shared-buffer writes an atomic transaction.
+Byte type aliases, `List<Uint8List>` and Map byte values remain unsupported.
 
 ## Batches of data objects
 
@@ -291,6 +327,10 @@ For a relative import such as `./dist/module.wasm`, napi also generates `module.
 
 The declarations contain the actual exported signatures; no wildcard `.wasm` declaration is needed.
 
+Applications using Node `Buffer` also need Node's type declarations
+(`@types/node` and `"types": ["node"]` in `compilerOptions`). The generated
+package itself uses `Uint8Array` types and adds no Node type dependency.
+
 ## Supported exports
 
 Annotate public top-level functions in the entry library. Use explicit return types and required positional parameters. Extra arguments are ignored, as with ordinary native Wasm functions; missing arguments arrive as `undefined` and fail type checks.
@@ -305,7 +345,7 @@ Annotate public top-level functions in the entry library. Use explicit return ty
 | `Uint8List` | `Uint8Array` | Copies in and out; Node `Buffer` and cross-realm arrays accepted |
 | `List<T>` | `readonly T[]` → `T[]` | Scalars or flat named records; independent input/output Arrays and record objects |
 | `Map<String,T>` | `Record<string,T>` | Flat scalar values; output has a null prototype |
-| Named record / record typedef | Object shape / exported type | Required flat scalar fields; independent null-prototype output |
+| Named record / record typedef | Object shape / exported type | Required flat scalar/byte fields; independent null-prototype output and byte storage |
 | `T?` | `T \| null` | Accepts `null`; rejects `undefined` |
 | `Future<T>` | `Promise<T>` | Return type only; completion uses the same value rules |
 
@@ -315,7 +355,7 @@ The export name `then` is reserved because dynamic ESM imports treat it as a pro
 
 ## Status and platforms
 
-**0.9.1 is experimental and targets Node's native Wasm ESM integration.** [Node documents instance-phase Wasm imports](https://nodejs.org/api/esm.html#wasm-instance-phase-imports) as experimental. Synchronous CommonJS `require` is not supported.
+**0.10.0 is experimental and targets Node's native Wasm ESM integration.** [Node documents instance-phase Wasm imports](https://nodejs.org/api/esm.html#wasm-instance-phase-imports) as experimental. Synchronous CommonJS `require` is not supported.
 
 The backend uses Dart's experimental Wasm interop and compiler-generated JavaScript helpers. It rewrites the Wasm import section so Node resolves the helpers, string constants, and built-in string operations through ESM; business logic remains Dart Wasm. It does not implement the Node-API C ABI or produce `.node` addons.
 
@@ -339,6 +379,6 @@ Integration tests build a real package and verify native functions through packa
 
 CI compiles, packs and installs the six runtime fixtures once with `dart run tool/runtime_fixtures.dart`, then sets `NAPI_RUNTIME_FIXTURES` to that output for the full test suite and reuses the same artifacts on other Node versions. The tool requires a new or empty output directory. Rebuild fixtures after changing the generator or fixture source; this environment variable is for development tests, not consumer initialization.
 
-See the [requirements](doc/requirements.md), [0.9.1 milestone](https://github.com/medz/napi/milestone/10), and [performance measurements](doc/performance.md).
+See the [requirements](doc/requirements.md), [0.10.0 milestone](https://github.com/medz/napi/milestone/11), and [performance measurements](doc/performance.md).
 
 MIT licensed. Generated host helpers include the Dart SDK's BSD license notice.

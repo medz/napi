@@ -104,6 +104,16 @@ The project name is `napi`; the primary backend is Wasm ESM integration, not the
 - Preserve legal record aliases, readonly inputs, mutable results, independent nullability and ordinary functions or parameters named `readonly`, `keyof`, `infer` or `unique`. Keep one signature model and add no runtime branch, parser, wrapper or dependency.
 - Require the complete regression/runtime/TypeScript/bundle matrix, final-head review and CI, exact-SHA merge and a fresh hosted consumer. Verify the published CLI rejects all three aliases in each signature shape before compilation, and a packed legal alias artifact retains real native imports and precise declarations across all four Nodes.
 
+## 0.10.0 contract
+
+- Admit SDK `Uint8List` and `Uint8List?` fields in existing flat inline/public named records, including supported aliases, nullable records, Lists of records and Future completions. Use the existing `Uint8Array` rendering with required fields, independent nullability, readonly List inputs and mutable outputs.
+- Preserve own-data descriptors, ignored unknown properties, ordinary/null-prototype cross-realm objects and original reflection-trap exceptions. Copy genuine Uint8Array/Buffer views at call time with correct offsets and lengths before business code or Promise return. Wrong values and detached buffers must identify the parameter/index/field path with a readable TypeError.
+- Enrich only TypeError from the actual owned byte copy. Keep kind checks and reflection outside that catch; propagate unrelated JS and RangeError failures unchanged. Copies own independent storage after validation; Proxy traps, fields and concurrent shared-buffer writes do not form an atomic snapshot. Inherit the top-level shared/resizable buffer policy.
+- Return an independent Uint8Array for each non-null field and result row, even when input or Dart output references repeat. Verify caller mutation/transfer after Future calls, business input mutation, retained results, later-field/row rejection before business entry, nulls, empty payloads and error recovery.
+- Generate byte read/write paths only for actual byte fields; preserve byte-free scalar/record/List/Map helper isolation. Keep nested records, collection fields, `List<Uint8List>`, Map byte values and byte type aliases unsupported. Add no model, loader, schema framework, borrowed-buffer API or production dependency.
+- Reuse record/batch fixtures across all four Nodes for real package/subpath/relative native imports, strict NodeNext/Bundler positive/negative consumers and external-Wasm bundles. Compare record echo with the existing top-level byte echo at 32/1024/65536 bytes; record raw samples and artifact costs without a speedup promise or timing CI gate.
+- Require final-head substantive Codex review, all valid findings fixed, complete CI, exact-SHA merge and a fresh hosted consumer of the full metadata-and-binary workflow. Verify public source/archive/packed artifacts; keep SDK ^3.13.5 and tested platform limits.
+
 ## Iteration priorities
 
 After publishing the first complete workflow, prioritize Future-to-Promise support, useful typed data structures, clear diagnostics, compiler/runtime compatibility, reproducible performance and size measurements, and real applications. Define consumer syntax, type and ownership rules, and acceptance cases before implementing each addition.

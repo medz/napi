@@ -1,0 +1,1308 @@
+{
+  "schema": 1,
+  "napi_version": "0.10.0",
+  "recorded_at": "2026-10-09T10:57:40.208548Z",
+  "environment": {
+    "dart": "Dart SDK version: 3.13.5 (stable) (Tue Sep 29 01:00:52 2026 -0700) on \"macos_arm64\"",
+    "node": "v22.19.0",
+    "npm": "11.12.1",
+    "os": "Version 27.0.1 (Build 26A434)"
+  },
+  "configuration": {
+    "group": "records",
+    "iterations": 20000,
+    "warmup": 2000,
+    "runs": 7,
+    "build_runs": 1,
+    "cold_import": "fresh Node process, filesystem caches uncontrolled",
+    "build_cache": "no result reuse; existing SDK/pub/filesystem caches uncontrolled"
+  },
+  "wasm_builds": [
+    {
+      "fixture": "minimal",
+      "build_ms": {
+        "samples": [
+          2215.038
+        ],
+        "median": 2215.038,
+        "min": 2215.038,
+        "max": 2215.038,
+        "spread_percent": 0.0
+      },
+      "files_bytes": {
+        "module.wasm": 17295,
+        "module.imports.mjs": 16703,
+        "index.d.ts": 42,
+        "module.d.wasm.ts": 42,
+        "package.json": 529
+      },
+      "collection_host_helpers": [],
+      "npm_tgz_bytes": 9802,
+      "npm_unpacked_bytes": 34611,
+      "cold_import_ms": {
+        "samples": [
+          1.831916999999999,
+          1.8494589999999995,
+          2.019,
+          1.8573330000000006,
+          1.883958999999999,
+          2.4007500000000004,
+          1.8225420000000003
+        ],
+        "median": 1.8573330000000006,
+        "min": 1.8225420000000003,
+        "max": 2.4007500000000004,
+        "spread_percent": 31.131089578443923
+      },
+      "first_call": "answer() smoke call; conversion cases are measured in runtime",
+      "first_call_ms": {
+        "samples": [
+          0.058875000000000455,
+          0.05770799999999987,
+          0.057624999999999815,
+          0.061083,
+          0.062124999999999986,
+          0.07225000000000037,
+          0.0688329999999997
+        ],
+        "median": 0.061083,
+        "min": 0.057624999999999815,
+        "max": 0.07225000000000037,
+        "spread_percent": 23.94283188448595
+      }
+    },
+    {
+      "fixture": "records",
+      "build_ms": {
+        "samples": [
+          2235.818
+        ],
+        "median": 2235.818,
+        "min": 2235.818,
+        "max": 2235.818,
+        "spread_percent": 0.0
+      },
+      "files_bytes": {
+        "module.wasm": 47417,
+        "module.imports.mjs": 30256,
+        "index.d.ts": 1054,
+        "module.d.wasm.ts": 1054,
+        "package.json": 529
+      },
+      "collection_host_helpers": [
+        "newMap",
+        "arrayGet",
+        "copyRecordBytes",
+        "mapSet",
+        "snapshotRecord"
+      ],
+      "npm_tgz_bytes": 23959,
+      "npm_unpacked_bytes": 80310,
+      "cold_import_ms": {
+        "samples": [
+          2.8000830000000008,
+          3.184375000000001,
+          3.050666999999999,
+          2.7669169999999994,
+          2.8468750000000007,
+          3.278333999999999,
+          2.716875
+        ],
+        "median": 2.8468750000000007,
+        "min": 2.716875,
+        "max": 3.278333999999999,
+        "spread_percent": 19.721940724478564
+      },
+      "first_call": "answer() smoke call; conversion cases are measured in runtime",
+      "first_call_ms": {
+        "samples": [
+          0.041083999999999676,
+          0.052208000000000254,
+          0.062082999999999444,
+          0.05941699999999983,
+          0.05183300000000024,
+          0.04504100000000122,
+          0.040749999999999176
+        ],
+        "median": 0.05183300000000024,
+        "min": 0.040749999999999176,
+        "max": 0.062082999999999444,
+        "spread_percent": 41.15717785966502
+      }
+    }
+  ],
+  "runtime": {
+    "group": "records",
+    "environment": {
+      "node": "v22.19.0",
+      "v8": "12.4.254.21-node.29",
+      "os": "darwin 27.0.0",
+      "arch": "arm64",
+      "cpu": "Apple M3 Max"
+    },
+    "ownership_preflight": "records: Wasm and JavaScript sync independence and async input snapshots; packet byte echoes: visible view contents and independently mutable results; owned business-input copies require runtime acceptance",
+    "notes": "loop, dispatch, result consumption, validation and ownership copies are included; no concurrent Promise batching",
+    "sink": 522057450,
+    "cases": [
+      {
+        "case": "record/echo/1",
+        "input": {
+          "fields": 1,
+          "ownership_copies": 2,
+          "validation": "fixed own data descriptors",
+          "scalars": "int"
+        },
+        "iterations": 20000,
+        "warmup": 2000,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              396.24375,
+              348.84375,
+              335.67915,
+              327.2312499999998,
+              328.0812499999996,
+              327.08544999999987,
+              314.5062500000002
+            ],
+            "median": 328.0812499999996,
+            "min": 314.5062500000002,
+            "max": 396.24375,
+            "spread_percent": 24.913798030213513
+          },
+          "javascript": {
+            "samples": [
+              230.7291499999998,
+              159.77084999999997,
+              159.0895500000002,
+              155.21875000000023,
+              158.55624999999947,
+              160.5104500000003,
+              159.58749999999995
+            ],
+            "median": 159.58749999999995,
+            "min": 155.21875000000023,
+            "max": 230.7291499999998,
+            "spread_percent": 47.315986527766654
+          }
+        }
+      },
+      {
+        "case": "async/record/echo/1",
+        "input": {
+          "fields": 1,
+          "ownership_copies": 2,
+          "validation": "fixed own data descriptors",
+          "scalars": "int"
+        },
+        "iterations": 2000,
+        "warmup": 200,
+        "completion": "sequential await per fulfilled/rejected call",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              2559.229000000002,
+              2199.8125,
+              1400.1249999999957,
+              1385.124999999995,
+              1234.8124999999968,
+              1155.9165000000035,
+              1110.8125000000016
+            ],
+            "median": 1385.124999999995,
+            "min": 1110.8125000000016,
+            "max": 2559.229000000002,
+            "spread_percent": 104.56937099539795
+          },
+          "javascript": {
+            "samples": [
+              628.1874999999957,
+              582.8959999999981,
+              555.8334999999985,
+              521.5419999999966,
+              507.9794999999976,
+              534.3750000000043,
+              531.0625000000044
+            ],
+            "median": 534.3750000000043,
+            "min": 507.9794999999976,
+            "max": 628.1874999999957,
+            "spread_percent": 22.495064327484844
+          }
+        }
+      },
+      {
+        "case": "record/echo/4",
+        "input": {
+          "fields": 4,
+          "ownership_copies": 2,
+          "validation": "fixed own data descriptors",
+          "scalars": "bool/int/String/double"
+        },
+        "iterations": 20000,
+        "warmup": 2000,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              1216.947900000001,
+              1178.2499999999998,
+              1188.6187500000005,
+              1179.3292000000008,
+              1186.0728999999992,
+              1173.85625,
+              1164.5667000000003
+            ],
+            "median": 1179.3292000000008,
+            "min": 1164.5667000000003,
+            "max": 1216.947900000001,
+            "spread_percent": 4.4416096879480875
+          },
+          "javascript": {
+            "samples": [
+              542.4479000000006,
+              540.3291999999993,
+              553.6999999999991,
+              548.5416499999999,
+              547.9792000000003,
+              546.7916500000001,
+              537.7207999999996
+            ],
+            "median": 546.7916500000001,
+            "min": 537.7207999999996,
+            "max": 553.6999999999991,
+            "spread_percent": 2.922356257634793
+          }
+        }
+      },
+      {
+        "case": "async/record/echo/4",
+        "input": {
+          "fields": 4,
+          "ownership_copies": 2,
+          "validation": "fixed own data descriptors",
+          "scalars": "bool/int/String/double"
+        },
+        "iterations": 2000,
+        "warmup": 200,
+        "completion": "sequential await per fulfilled/rejected call",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              2066.312500000009,
+              2096.5000000000205,
+              2016.9374999999832,
+              2159.0415000000007,
+              2045.1040000000091,
+              2027.187500000025,
+              2071.1045000000186
+            ],
+            "median": 2066.312500000009,
+            "min": 2016.9374999999832,
+            "max": 2159.0415000000007,
+            "spread_percent": 6.877178548744051
+          },
+          "javascript": {
+            "samples": [
+              900.3960000000008,
+              911.6874999999993,
+              909.2914999999948,
+              960.2084999999931,
+              896.9794999999863,
+              880.7500000000061,
+              915.7289999999989
+            ],
+            "median": 909.2914999999948,
+            "min": 880.7500000000061,
+            "max": 960.2084999999931,
+            "spread_percent": 8.738506848462507
+          }
+        }
+      },
+      {
+        "case": "record/echo/16",
+        "input": {
+          "fields": 16,
+          "ownership_copies": 2,
+          "validation": "fixed own data descriptors",
+          "scalars": "bool/int/String/double"
+        },
+        "iterations": 20000,
+        "warmup": 2000,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              4502.9541999999965,
+              4469.083350000005,
+              4387.468749999999,
+              4543.456249999997,
+              4578.445800000003,
+              4577.768750000007,
+              4501.791649999996
+            ],
+            "median": 4502.9541999999965,
+            "min": 4387.468749999999,
+            "max": 4578.445800000003,
+            "spread_percent": 4.241150176477571
+          },
+          "javascript": {
+            "samples": [
+              2100.245849999999,
+              2109.45835,
+              2076.5041499999998,
+              2124.464599999999,
+              2147.9291999999987,
+              2139.354199999991,
+              2102.212499999996
+            ],
+            "median": 2109.45835,
+            "min": 2076.5041499999998,
+            "max": 2147.9291999999987,
+            "spread_percent": 3.3859426520556295
+          }
+        }
+      },
+      {
+        "case": "async/record/echo/16",
+        "input": {
+          "fields": 16,
+          "ownership_copies": 2,
+          "validation": "fixed own data descriptors",
+          "scalars": "bool/int/String/double"
+        },
+        "iterations": 2000,
+        "warmup": 200,
+        "completion": "sequential await per fulfilled/rejected call",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              5375.208499999985,
+              5418.271000000004,
+              5608.937500000025,
+              5687.6250000000255,
+              5208.395499999938,
+              5075.18749999997,
+              5212.541500000043
+            ],
+            "median": 5375.208499999985,
+            "min": 5075.18749999997,
+            "max": 5687.6250000000255,
+            "spread_percent": 11.393744075230888
+          },
+          "javascript": {
+            "samples": [
+              2498.625000000061,
+              2392.062499999952,
+              2500.895499999956,
+              2708.208500000069,
+              2169.187500000021,
+              2251.6665000000557,
+              2263.0420000000413
+            ],
+            "median": 2392.062499999952,
+            "min": 2169.187500000021,
+            "max": 2708.208500000069,
+            "spread_percent": 22.53373396389345
+          }
+        }
+      },
+      {
+        "case": "record/bytes/echo/Uint8Array/32",
+        "input": {
+          "bytes": 32,
+          "kind": "Uint8Array",
+          "byte_offset": 0,
+          "pattern": "i & 255",
+          "ownership_copies": 2,
+          "method": "echoPacket",
+          "fields": 2,
+          "name_utf16_code_units": 5,
+          "validation": "fixed own data descriptors, String and Uint8Array brand"
+        },
+        "iterations": 20000,
+        "warmup": 2000,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              803.504149999992,
+              785.7270999999969,
+              766.0646000000042,
+              769.8041500000045,
+              779.4145500000013,
+              792.0895500000029,
+              793.5249999999996
+            ],
+            "median": 785.7270999999969,
+            "min": 766.0646000000042,
+            "max": 803.504149999992,
+            "spread_percent": 4.764955924262753
+          },
+          "javascript": {
+            "samples": [
+              385.6916500000011,
+              306.7542000000003,
+              312.2562499999958,
+              315.79585000000634,
+              308.3562499999971,
+              312.83955000000105,
+              316.26454999999396
+            ],
+            "median": 312.83955000000105,
+            "min": 306.7542000000003,
+            "max": 385.6916500000011,
+            "spread_percent": 25.23256730167287
+          }
+        }
+      },
+      {
+        "case": "record/bytes/top-level/Uint8Array/32",
+        "input": {
+          "bytes": 32,
+          "kind": "Uint8Array",
+          "byte_offset": 0,
+          "pattern": "i & 255",
+          "ownership_copies": 2,
+          "method": "echoPacketPayload",
+          "fields": 0,
+          "name_utf16_code_units": 0,
+          "validation": "Uint8Array brand"
+        },
+        "iterations": 20000,
+        "warmup": 2000,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              265.7625000000053,
+              268.6729000000014,
+              259.79375000000573,
+              251.18749999999181,
+              262.554149999994,
+              260.11459999999715,
+              254.33335000000173
+            ],
+            "median": 260.11459999999715,
+            "min": 251.18749999999181,
+            "max": 268.6729000000014,
+            "spread_percent": 6.722190911240571
+          },
+          "javascript": {
+            "samples": [
+              98.12705000000506,
+              73.924999999997,
+              79.41250000000082,
+              81.218750000005,
+              74.0812500000061,
+              77.02914999999848,
+              77.49375000000782
+            ],
+            "median": 77.49375000000782,
+            "min": 73.924999999997,
+            "max": 98.12705000000506,
+            "spread_percent": 31.230970239542692
+          }
+        }
+      },
+      {
+        "case": "record/bytes/echo/Buffer/32",
+        "input": {
+          "bytes": 32,
+          "kind": "Buffer",
+          "byte_offset": 8,
+          "pattern": "i & 255",
+          "ownership_copies": 2,
+          "method": "echoPacket",
+          "fields": 2,
+          "name_utf16_code_units": 5,
+          "validation": "fixed own data descriptors, String and Uint8Array brand"
+        },
+        "iterations": 20000,
+        "warmup": 2000,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              809.3291499999964,
+              799.1270999999983,
+              798.4333499999934,
+              798.4729500000071,
+              792.3332999999957,
+              809.4104000000016,
+              801.4291499999899
+            ],
+            "median": 799.1270999999983,
+            "min": 792.3332999999957,
+            "max": 809.4104000000016,
+            "spread_percent": 2.136969200519657
+          },
+          "javascript": {
+            "samples": [
+              317.4541500000032,
+              323.50000000000136,
+              317.5187499999993,
+              318.7375000000088,
+              321.9791500000042,
+              327.09164999999985,
+              324.87085000000206
+            ],
+            "median": 321.9791500000042,
+            "min": 317.4541500000032,
+            "max": 327.09164999999985,
+            "spread_percent": 2.993206237110853
+          }
+        }
+      },
+      {
+        "case": "record/bytes/top-level/Buffer/32",
+        "input": {
+          "bytes": 32,
+          "kind": "Buffer",
+          "byte_offset": 8,
+          "pattern": "i & 255",
+          "ownership_copies": 2,
+          "method": "echoPacketPayload",
+          "fields": 0,
+          "name_utf16_code_units": 0,
+          "validation": "Uint8Array brand"
+        },
+        "iterations": 20000,
+        "warmup": 2000,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              243.79999999999885,
+              252.31249999999363,
+              270.7729000000086,
+              252.0249999999919,
+              260.1541999999995,
+              255.26664999999866,
+              255.5437500000039
+            ],
+            "median": 255.26664999999866,
+            "min": 243.79999999999885,
+            "max": 270.7729000000086,
+            "spread_percent": 10.56655853790923
+          },
+          "javascript": {
+            "samples": [
+              82.50209999999925,
+              80.83749999999554,
+              76.08750000000555,
+              79.46249999999964,
+              81.44585000000006,
+              78.85835000000725,
+              85.71249999999964
+            ],
+            "median": 80.83749999999554,
+            "min": 76.08750000000555,
+            "max": 85.71249999999964,
+            "spread_percent": 11.906602752428785
+          }
+        }
+      },
+      {
+        "case": "record/bytes/echo/subarray/32",
+        "input": {
+          "bytes": 32,
+          "kind": "subarray",
+          "byte_offset": 8,
+          "pattern": "i & 255",
+          "ownership_copies": 2,
+          "method": "echoPacket",
+          "fields": 2,
+          "name_utf16_code_units": 5,
+          "validation": "fixed own data descriptors, String and Uint8Array brand"
+        },
+        "iterations": 20000,
+        "warmup": 2000,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              804.3750000000045,
+              803.4687500000018,
+              807.7521000000047,
+              818.9146000000051,
+              816.3103999999976,
+              793.5583500000007,
+              793.2666500000096
+            ],
+            "median": 804.3750000000045,
+            "min": 793.2666500000096,
+            "max": 818.9146000000051,
+            "spread_percent": 3.1885563325557538
+          },
+          "javascript": {
+            "samples": [
+              320.3583500000036,
+              321.66670000000295,
+              331.4999999999941,
+              327.3166500000002,
+              322.1958500000028,
+              322.9062499999941,
+              316.3458500000047
+            ],
+            "median": 322.1958500000028,
+            "min": 316.3458500000047,
+            "max": 331.4999999999941,
+            "spread_percent": 4.703397017680164
+          }
+        }
+      },
+      {
+        "case": "record/bytes/top-level/subarray/32",
+        "input": {
+          "bytes": 32,
+          "kind": "subarray",
+          "byte_offset": 8,
+          "pattern": "i & 255",
+          "ownership_copies": 2,
+          "method": "echoPacketPayload",
+          "fields": 0,
+          "name_utf16_code_units": 0,
+          "validation": "Uint8Array brand"
+        },
+        "iterations": 20000,
+        "warmup": 2000,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              251.9625000000019,
+              272.3854500000016,
+              250.12500000000276,
+              249.58329999999478,
+              257.40624999998545,
+              253.37500000000546,
+              236.5729000000101
+            ],
+            "median": 251.9625000000019,
+            "min": 236.5729000000101,
+            "max": 272.3854500000016,
+            "spread_percent": 14.213444460977811
+          },
+          "javascript": {
+            "samples": [
+              97.00000000000273,
+              74.07499999999345,
+              78.22080000000824,
+              78.10624999999618,
+              79.4208000000026,
+              78.64790000000994,
+              79.30830000000242
+            ],
+            "median": 78.64790000000994,
+            "min": 74.07499999999345,
+            "max": 97.00000000000273,
+            "spread_percent": 29.14890289506316
+          }
+        }
+      },
+      {
+        "case": "record/bytes/echo/Uint8Array/1024",
+        "input": {
+          "bytes": 1024,
+          "kind": "Uint8Array",
+          "byte_offset": 0,
+          "pattern": "i & 255",
+          "ownership_copies": 2,
+          "method": "echoPacket",
+          "fields": 2,
+          "name_utf16_code_units": 5,
+          "validation": "fixed own data descriptors, String and Uint8Array brand"
+        },
+        "iterations": 1250,
+        "warmup": 125,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              1079.0000000000873,
+              975.0672000001941,
+              949.8663999998827,
+              961.5335999998932,
+              978.3672000001387,
+              970.6328000000212,
+              948.199999999997
+            ],
+            "median": 970.6328000000212,
+            "min": 948.199999999997,
+            "max": 1079.0000000000873,
+            "spread_percent": 13.475744895503992
+          },
+          "javascript": {
+            "samples": [
+              649.3663999997807,
+              546.900000000096,
+              501.53359999967506,
+              584.3335999998089,
+              533.1335999999283,
+              602.2000000000844,
+              507.7664000000368
+            ],
+            "median": 546.900000000096,
+            "min": 501.53359999967506,
+            "max": 649.3663999997807,
+            "spread_percent": 27.031047723547207
+          }
+        }
+      },
+      {
+        "case": "record/bytes/top-level/Uint8Array/1024",
+        "input": {
+          "bytes": 1024,
+          "kind": "Uint8Array",
+          "byte_offset": 0,
+          "pattern": "i & 255",
+          "ownership_copies": 2,
+          "method": "echoPacketPayload",
+          "fields": 0,
+          "name_utf16_code_units": 0,
+          "validation": "Uint8Array brand"
+        },
+        "iterations": 1250,
+        "warmup": 125,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              525.7335999998759,
+              538.2335999998759,
+              505.70000000006985,
+              636.5999999998166,
+              436.03279999988445,
+              601.1672000000544,
+              363.8335999999981
+            ],
+            "median": 525.7335999998759,
+            "min": 363.8335999999981,
+            "max": 636.5999999998166,
+            "spread_percent": 51.88300690689789
+          },
+          "javascript": {
+            "samples": [
+              268.7999999998283,
+              410.49999999995634,
+              294.800000000032,
+              362.7336000001378,
+              261.26640000002226,
+              276.7336000000796,
+              271.50000000001455
+            ],
+            "median": 276.7336000000796,
+            "min": 261.26640000002226,
+            "max": 410.49999999995634,
+            "spread_percent": 53.92680903218516
+          }
+        }
+      },
+      {
+        "case": "record/bytes/echo/Buffer/1024",
+        "input": {
+          "bytes": 1024,
+          "kind": "Buffer",
+          "byte_offset": 40,
+          "pattern": "i & 255",
+          "ownership_copies": 2,
+          "method": "echoPacket",
+          "fields": 2,
+          "name_utf16_code_units": 5,
+          "validation": "fixed own data descriptors, String and Uint8Array brand"
+        },
+        "iterations": 1250,
+        "warmup": 125,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              970.9000000002561,
+              889.5000000000435,
+              994.4999999999709,
+              929.133599999841,
+              957.5999999997293,
+              930.0336000000242,
+              975.4671999999119
+            ],
+            "median": 957.5999999997293,
+            "min": 889.5000000000435,
+            "max": 994.4999999999709,
+            "spread_percent": 10.964912280697266
+          },
+          "javascript": {
+            "samples": [
+              634.9664000001212,
+              592.733600000065,
+              599.9672000001738,
+              560.6999999999971,
+              582.0999999999913,
+              537.9336000001786,
+              606.800000000294
+            ],
+            "median": 592.733600000065,
+            "min": 537.9336000001786,
+            "max": 634.9664000001212,
+            "spread_percent": 16.370389665767558
+          }
+        }
+      },
+      {
+        "case": "record/bytes/top-level/Buffer/1024",
+        "input": {
+          "bytes": 1024,
+          "kind": "Buffer",
+          "byte_offset": 40,
+          "pattern": "i & 255",
+          "ownership_copies": 2,
+          "method": "echoPacketPayload",
+          "fields": 0,
+          "name_utf16_code_units": 0,
+          "validation": "Uint8Array brand"
+        },
+        "iterations": 1250,
+        "warmup": 125,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              355.8664000000135,
+              369.99999999970896,
+              374.39999999987776,
+              354.90000000027067,
+              353.366399999868,
+              366.432800000257,
+              477.06639999996696
+            ],
+            "median": 366.432800000257,
+            "min": 353.366399999868,
+            "max": 477.06639999996696,
+            "spread_percent": 33.75789503560058
+          },
+          "javascript": {
+            "samples": [
+              280.36639999991166,
+              491.70000000012806,
+              411.2999999997555,
+              403.09999999990396,
+              526.9664000003104,
+              286.4999999997963,
+              397.8663999998389
+            ],
+            "median": 403.09999999990396,
+            "min": 280.36639999991166,
+            "max": 526.9664000003104,
+            "spread_percent": 61.17588687681902
+          }
+        }
+      },
+      {
+        "case": "record/bytes/echo/subarray/1024",
+        "input": {
+          "bytes": 1024,
+          "kind": "subarray",
+          "byte_offset": 8,
+          "pattern": "i & 255",
+          "ownership_copies": 2,
+          "method": "echoPacket",
+          "fields": 2,
+          "name_utf16_code_units": 5,
+          "validation": "fixed own data descriptors, String and Uint8Array brand"
+        },
+        "iterations": 1250,
+        "warmup": 125,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              1083.5664000001998,
+              1045.1999999997497,
+              1005.0336000000242,
+              994.7328000002017,
+              983.8999999999942,
+              938.1663999996816,
+              934.0000000000146
+            ],
+            "median": 994.7328000002017,
+            "min": 934.0000000000146,
+            "max": 1083.5664000001998,
+            "spread_percent": 15.035836759394575
+          },
+          "javascript": {
+            "samples": [
+              593.5664000000543,
+              721.1999999999534,
+              516.5335999998206,
+              626.7663999999058,
+              521.8000000000757,
+              588.9672000001156,
+              498.0999999999767
+            ],
+            "median": 588.9672000001156,
+            "min": 498.0999999999767,
+            "max": 721.1999999999534,
+            "spread_percent": 37.879868352589575
+          }
+        }
+      },
+      {
+        "case": "record/bytes/top-level/subarray/1024",
+        "input": {
+          "bytes": 1024,
+          "kind": "subarray",
+          "byte_offset": 8,
+          "pattern": "i & 255",
+          "ownership_copies": 2,
+          "method": "echoPacketPayload",
+          "fields": 0,
+          "name_utf16_code_units": 0,
+          "validation": "Uint8Array brand"
+        },
+        "iterations": 1250,
+        "warmup": 125,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              487.1672000001127,
+              410.80000000001746,
+              577.7999999998428,
+              571.3663999998971,
+              496.7663999999786,
+              575.9663999997429,
+              369.800000000032
+            ],
+            "median": 496.7663999999786,
+            "min": 369.800000000032,
+            "max": 577.7999999998428,
+            "spread_percent": 41.8707867520468
+          },
+          "javascript": {
+            "samples": [
+              263.63359999995737,
+              272.667200000069,
+              293.1663999999728,
+              265.76639999984764,
+              273.6000000000786,
+              280.5663999999524,
+              276.6672000001563
+            ],
+            "median": 273.6000000000786,
+            "min": 263.63359999995737,
+            "max": 293.1663999999728,
+            "spread_percent": 10.79415204678616
+          }
+        }
+      },
+      {
+        "case": "record/bytes/echo/Uint8Array/65536",
+        "input": {
+          "bytes": 65536,
+          "kind": "Uint8Array",
+          "byte_offset": 0,
+          "pattern": "i & 255",
+          "ownership_copies": 2,
+          "method": "echoPacket",
+          "fields": 2,
+          "name_utf16_code_units": 5,
+          "validation": "fixed own data descriptors, String and Uint8Array brand"
+        },
+        "iterations": 50,
+        "warmup": 50,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              8675.00000000291,
+              3854.1600000007747,
+              3034.1600000065228,
+              4541.659999995318,
+              3039.1599999984464,
+              3201.660000004267,
+              4367.499999998472
+            ],
+            "median": 3854.1600000007747,
+            "min": 3034.1600000065228,
+            "max": 8675.00000000291,
+            "spread_percent": 146.357182887977
+          },
+          "javascript": {
+            "samples": [
+              8140.839999996388,
+              10153.339999997115,
+              2550.839999994423,
+              2589.159999997719,
+              2904.180000004999,
+              2789.17999999976,
+              2428.3399999967514
+            ],
+            "median": 2789.17999999976,
+            "min": 2428.3399999967514,
+            "max": 10153.339999997115,
+            "spread_percent": 276.9631217777636
+          }
+        }
+      },
+      {
+        "case": "record/bytes/top-level/Uint8Array/65536",
+        "input": {
+          "bytes": 65536,
+          "kind": "Uint8Array",
+          "byte_offset": 0,
+          "pattern": "i & 255",
+          "ownership_copies": 2,
+          "method": "echoPacketPayload",
+          "fields": 0,
+          "name_utf16_code_units": 0,
+          "validation": "Uint8Array brand"
+        },
+        "iterations": 50,
+        "warmup": 50,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              2620.8200000019133,
+              2302.5000000052387,
+              2367.500000000291,
+              2787.500000004002,
+              2500,
+              3852.500000002692,
+              2449.9999999989086
+            ],
+            "median": 2500,
+            "min": 2302.5000000052387,
+            "max": 3852.500000002692,
+            "spread_percent": 61.99999999989814
+          },
+          "javascript": {
+            "samples": [
+              3970.840000001772,
+              2571.6800000009243,
+              2405.8200000035868,
+              4259.16000000143,
+              2363.340000001699,
+              2404.159999996409,
+              2247.5000000031287
+            ],
+            "median": 2405.8200000035868,
+            "min": 2247.5000000031287,
+            "max": 4259.16000000143,
+            "spread_percent": 83.61639690397875
+          }
+        }
+      },
+      {
+        "case": "record/bytes/echo/Buffer/65536",
+        "input": {
+          "bytes": 65536,
+          "kind": "Buffer",
+          "byte_offset": 0,
+          "pattern": "i & 255",
+          "ownership_copies": 2,
+          "method": "echoPacket",
+          "fields": 2,
+          "name_utf16_code_units": 5,
+          "validation": "fixed own data descriptors, String and Uint8Array brand"
+        },
+        "iterations": 50,
+        "warmup": 50,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              4245.819999996456,
+              2861.6799999963405,
+              2836.6600000026665,
+              3329.9999999962893,
+              3165.81999999471,
+              3895.0000000022555,
+              3001.6599999999016
+            ],
+            "median": 3165.81999999471,
+            "min": 2836.6600000026665,
+            "max": 4245.819999996456,
+            "spread_percent": 44.51169049396821
+          },
+          "javascript": {
+            "samples": [
+              2384.9999999947613,
+              2354.1800000020885,
+              3738.33999999988,
+              2851.679999994303,
+              2400.819999993473,
+              2396.659999994881,
+              2380.8399999961694
+            ],
+            "median": 2396.659999994881,
+            "min": 2354.1800000020885,
+            "max": 3738.33999999988,
+            "spread_percent": 57.75370724261046
+          }
+        }
+      },
+      {
+        "case": "record/bytes/top-level/Buffer/65536",
+        "input": {
+          "bytes": 65536,
+          "kind": "Buffer",
+          "byte_offset": 0,
+          "pattern": "i & 255",
+          "ownership_copies": 2,
+          "method": "echoPacketPayload",
+          "fields": 0,
+          "name_utf16_code_units": 0,
+          "validation": "Uint8Array brand"
+        },
+        "iterations": 50,
+        "warmup": 50,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              3500.8399999969697,
+              2423.3400000048277,
+              2428.3199999990757,
+              2352.499999997235,
+              2354.1800000020885,
+              2381.6600000009203,
+              2499.179999995249
+            ],
+            "median": 2423.3400000048277,
+            "min": 2352.499999997235,
+            "max": 3500.8399999969697,
+            "spread_percent": 47.38666468582398
+          },
+          "javascript": {
+            "samples": [
+              2114.160000000993,
+              2183.340000001408,
+              3648.320000002059,
+              2242.50000000211,
+              2309.179999992921,
+              3547.50000000422,
+              2288.3399999955145
+            ],
+            "median": 2288.3399999955145,
+            "min": 2114.160000000993,
+            "max": 3648.320000002059,
+            "spread_percent": 67.04248494559694
+          }
+        }
+      },
+      {
+        "case": "record/bytes/echo/subarray/65536",
+        "input": {
+          "bytes": 65536,
+          "kind": "subarray",
+          "byte_offset": 8,
+          "pattern": "i & 255",
+          "ownership_copies": 2,
+          "method": "echoPacket",
+          "fields": 2,
+          "name_utf16_code_units": 5,
+          "validation": "fixed own data descriptors, String and Uint8Array brand"
+        },
+        "iterations": 50,
+        "warmup": 50,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              3148.32000000024,
+              3050.8199999985663,
+              4076.660000000629,
+              3025.000000006912,
+              2982.4999999982538,
+              2877.5000000041473,
+              2887.4999999970896
+            ],
+            "median": 3025.000000006912,
+            "min": 2877.5000000041473,
+            "max": 4076.660000000629,
+            "spread_percent": 39.641652892355104
+          },
+          "javascript": {
+            "samples": [
+              2972.4999999962165,
+              2799.1599999950267,
+              2449.9999999989086,
+              2479.1600000025937,
+              3575.0000000007276,
+              2365.8400000022084,
+              2468.3400000049005
+            ],
+            "median": 2479.1600000025937,
+            "min": 2365.8400000022084,
+            "max": 3575.0000000007276,
+            "spread_percent": 48.77297149023275
+          }
+        }
+      },
+      {
+        "case": "record/bytes/top-level/subarray/65536",
+        "input": {
+          "bytes": 65536,
+          "kind": "subarray",
+          "byte_offset": 8,
+          "pattern": "i & 255",
+          "ownership_copies": 2,
+          "method": "echoPacketPayload",
+          "fields": 0,
+          "name_utf16_code_units": 0,
+          "validation": "Uint8Array brand"
+        },
+        "iterations": 50,
+        "warmup": 50,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              2620.8200000019133,
+              3916.6800000020885,
+              3108.3400000079564,
+              2464.159999999538,
+              2410.840000002281,
+              2316.660000005868,
+              2351.6600000039034
+            ],
+            "median": 2464.159999999538,
+            "min": 2316.660000005868,
+            "max": 3916.6800000020885,
+            "spread_percent": 64.93166028165868
+          },
+          "javascript": {
+            "samples": [
+              3024.999999997817,
+              2616.6599999942264,
+              2703.3399999982066,
+              2412.500000000364,
+              3351.679999996122,
+              2214.160000003176,
+              2296.679999999469
+            ],
+            "median": 2616.6599999942264,
+            "min": 2214.160000003176,
+            "max": 3351.679999996122,
+            "spread_percent": 43.47221266788411
+          }
+        }
+      }
+    ]
+  },
+  "sources_sha256": {
+    "lib/src/exports.dart": "a904a3c4838f9f1741e9d14c909c511cf2d34ea475a749aed26a3a9994585548",
+    "lib/src/bridge.dart": "73bc8ad5d2052d43aef2f0d79b42cc0784b818b60c5d309f46df3611b6e034a8",
+    "lib/src/host.dart": "926105547cb9f9c8f2676bfa2fc45e3e6c906417879a025120b465ca52710741",
+    "bin/build.dart": "4e478e43daab6d509e9593e3270c0faf1d808eca34529e0e7ffb0cc683141b6b",
+    "pubspec.yaml": "4bfe34d82e9abe28b680a758d2e06f4f3c799eb553b6b9c55e68d8f8bd12c1cd",
+    "benchmark/fixtures/minimal.dart": "f56b63cbd8c0da3bdf35641b88b583470f4b883dc93efe5c0a4a71e5121532ca",
+    "benchmark/fixtures/records.dart": "c9a6ef0a1d94b53c8240811d65f3ea53da892a1178fa2f5ad6506590e1206ec8",
+    "benchmark/measure.mjs": "224047b4656ccbe763d1c5d9b767be3e98f683f6cc79522d6f27fa78d181ebd6",
+    "benchmark/run.dart": "7808afab60eb7583ab45868ca51481f856aa541f8a9cd8404e8d99a6563239ed"
+  },
+  "measurement_wall_seconds": 7.783,
+  "interpretation": "Contemporaneous record/bytes vs top-level bytes cost; not a before/after optimization comparison. JS references cover only measured valid inputs. Short scaled samples and uncontrolled JIT/GC/caches limit timing precision."
+}

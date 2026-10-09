@@ -80,7 +80,7 @@ record element/container nullability, precise input types and mutable sync/Futur
 results. The native snapshot behavior and valid public record aliases remain
 unchanged. See the [0.9.0 requirements](requirements.md#090-contract).
 
-## 0.9.1 — type alias diagnostics
+## 0.9.1 — released: type alias diagnostics
 
 - [#49: Diagnose TypeScript operator record aliases before compilation](https://github.com/medz/napi/issues/49).
 
@@ -88,6 +88,16 @@ Acceptance covers source diagnostics for `keyof`, `infer` and `unique` record
 aliases in scalar, List and nullable Future signatures. Valid aliases and
 ordinary functions or parameters with these names remain supported. See the
 [0.9.1 requirements](requirements.md#091-contract).
+
+## 0.10.0 — byte fields in data objects
+
+- [#51: Support Uint8List fields in named records](https://github.com/medz/napi/issues/51).
+
+Acceptance covers one native call that transforms packet metadata and owned
+binary content, nullable byte fields and existing record/List/Future composition.
+Verify independent byte copies, exact field diagnostics, native imports and
+types across the Node matrix, helper isolation and measured copy costs. See the
+[0.10.0 requirements](requirements.md#0100-contract).
 
 ## Next — compiler compatibility and real applications
 

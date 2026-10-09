@@ -10,6 +10,7 @@ import 'package:test/test.dart';
 void main() {
   final root = Directory.current;
   final fixtures = Platform.environment['NAPI_RUNTIME_FIXTURES'];
+  final tsc = Platform.environment['NAPI_TSC'];
   final node =
       Platform.environment['NAPI_NODE22'] ??
       Platform.environment['NAPI_NODE'] ??
@@ -45,6 +46,18 @@ void main() {
     await File(p.join(consumer.path, 'package.json')).writeAsString(
       '{"name":"napi-records-consumer","private":true,"type":"module"}\n',
     );
+    if (tsc != null) {
+      final types = await Process.run('npm', [
+        'install',
+        '--no-save',
+        '--no-package-lock',
+        '--ignore-scripts',
+        '--no-audit',
+        '--no-fund',
+        '@types/node@26.6.4',
+      ], workingDirectory: consumer.path);
+      expect(types.exitCode, 0, reason: '${types.stdout}${types.stderr}');
+    }
     final scope = Directory(p.join(consumer.path, 'node_modules', '@napi'));
     await scope.create(recursive: true);
     await Link(p.join(scope.path, 'records')).create(output.path);
@@ -74,13 +87,12 @@ void main() {
       expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
       final report = jsonDecode((result.stdout as String).trim()) as Map;
       expect(report['checks'] as int, greaterThan(1000));
-      expect(report['nativeFunctions'], 33);
+      expect(report['nativeFunctions'], 53);
       expect(report['retained'], isA<Map>());
       print('records: ${result.stdout}');
     },
   );
 
-  final tsc = Platform.environment['NAPI_TSC'];
   final skipTypescript = tsc == null
       ? 'Set NAPI_TSC to TypeScript bin/tsc. CI requires this check.'
       : false;
@@ -92,6 +104,8 @@ void main() {
           '--noEmit',
           '--target',
           'ES2022',
+          '--types',
+          'node',
           '--module',
           resolution == 'NodeNext' ? 'NodeNext' : 'ESNext',
           '--moduleResolution',

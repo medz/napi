@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:napi/napi.dart';
 
 import 'records_models.dart' as models;
@@ -135,3 +137,102 @@ Future<({int value})> inlineOneAsync(({int value}) value) async => value;
 @napi
 // ignore: non_constant_identifier_names
 models.User User(models.User user) => user;
+
+@napi
+models.Packet echoPacket(models.Packet value) => value;
+
+@napi
+Future<models.Packet> echoPacketAsync(models.Packet value) async {
+  await Future<void>.delayed(const Duration(milliseconds: 1));
+  return value;
+}
+
+@napi
+models.Packet normalizePacket(models.Packet value) {
+  for (var index = 0; index < value.payload.length; index++) {
+    value.payload[index] ^= 0xff;
+  }
+  return (name: value.name.trim(), payload: value.payload);
+}
+
+@napi
+Future<models.Packet> normalizePacketAsync(models.Packet value) async {
+  await Future<void>.delayed(const Duration(milliseconds: 1));
+  return normalizePacket(value);
+}
+
+@napi
+models.PacketAlias echoPacketAlias(ReexportPacket value) => value;
+
+@napi
+models.MaybePacket echoMaybePacket(models.MaybePacket value) => value;
+
+@napi
+Future<models.MaybePacket> echoMaybePacketAsync(
+  models.MaybePacket value,
+) async => value;
+
+@napi
+models.ByteFields echoByteFields(models.ByteFields value) {
+  _calls++;
+  return value;
+}
+
+@napi
+Future<models.ByteFields> echoByteFieldsAsync(models.ByteFields value) async {
+  _calls++;
+  await Future<void>.delayed(const Duration(milliseconds: 1));
+  return value;
+}
+
+@napi
+models.ByteFields repeatByteFields(models.Packet value) =>
+    (first: value.payload, maybe: value.payload, second: value.payload);
+
+@napi
+Future<models.ByteFields> repeatByteFieldsAsync(models.Packet value) async =>
+    repeatByteFields(value);
+
+@napi
+({String label, Uint8List? payload})? echoInlineBytes(
+  ({String label, Uint8List? payload})? value,
+) => value;
+
+@napi
+Future<({String label, Uint8List? payload})?> echoInlineBytesAsync(
+  ({String label, Uint8List? payload})? value,
+) async => value;
+
+models.Packet _storedPacket = (name: 'initial', payload: Uint8List(0));
+
+@napi
+models.Packet trackedPacket(models.Packet first, models.Packet second) {
+  _calls++;
+  if (first.name == 'fail') throw ArgumentError('packet failure');
+  _storedPacket = first;
+  return second;
+}
+
+@napi
+Future<models.Packet> trackedPacketAsync(
+  models.Packet first,
+  models.Packet second,
+) async {
+  _calls++;
+  if (first.name == 'fail') throw ArgumentError('packet failure');
+  _storedPacket = first;
+  await Future<void>.delayed(const Duration(milliseconds: 1));
+  return second;
+}
+
+@napi
+models.Packet readPacket() => _storedPacket;
+
+@napi
+Future<models.Packet> readPacketAsync() async => _storedPacket;
+
+@napi
+void changePacket() {
+  if (_storedPacket.payload.isNotEmpty) _storedPacket.payload[0] ^= 0xff;
+  _storedPacket = (name: 'changed', payload: _storedPacket.payload);
+}

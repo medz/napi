@@ -13,6 +13,7 @@ const names = [
   'tracked', 'trackedAsync', 'readStored', 'readStoredAsync', 'changeStored',
   'unsafeUser', 'unsafeUserAsync', 'unsafeMixed', 'unsafeMixedAsync',
   'inlineOne', 'inlineOneAsync', 'User', 'echoPartNullable', 'echoPartNullableAsync',
+  'echoPacket', 'echoPacketAsync', 'normalizePacket', 'normalizePacketAsync', 'echoPacketAlias', 'echoMaybePacket', 'echoMaybePacketAsync', 'echoByteFields', 'echoByteFieldsAsync', 'repeatByteFields', 'repeatByteFieldsAsync', 'echoInlineBytes', 'echoInlineBytesAsync', 'trackedPacket', 'trackedPacketAsync', 'readPacket', 'readPacketAsync', 'changePacket', 'echoPartPacket', 'echoPartPacketAsync',
 ];
 for (const name of names) {
   assert.equal(typeof api[name], 'function', name);
@@ -20,7 +21,7 @@ for (const name of names) {
   assert.equal(api[name], relative[name], `${name} relative raw Wasm`);
   assert.match(Function.prototype.toString.call(api[name]), /\[native code\]/, name);
 }
-for (const name of ['UserAlias', 'NullableUser', 'MaybeUserAlias', 'ReexportUser', 'Mixed', 'SpecialFields', 'PartValue']) {
+for (const name of ['UserAlias', 'NullableUser', 'MaybeUserAlias', 'ReexportUser', 'Mixed', 'SpecialFields', 'PartValue', 'Packet', 'PacketAlias', 'MaybePacket', 'ReexportPacket', 'ByteFields', 'PartPacket']) {
   assert.equal(Object.hasOwn(api, name), false, `${name} is only a type export`);
 }
 
@@ -77,6 +78,23 @@ function equalRecord(actual, expected) {
     assert.equal(descriptor.writable, true);
     assert.equal(descriptor.configurable, true);
     assert(Object.is(descriptor.value, expected[key]), `${key} preserves the scalar value`);
+  }
+}
+
+function equalByteRecord(actual, expected) {
+  assert.equal(Object.getPrototypeOf(actual), null);
+  assert.deepEqual(Reflect.ownKeys(actual).sort(), Object.keys(expected).sort());
+  for (const key of Object.keys(expected)) {
+    const descriptor = Object.getOwnPropertyDescriptor(actual, key);
+    assert(Object.hasOwn(descriptor, 'value'));
+    assert.equal(descriptor.enumerable, true);
+    assert.equal(descriptor.writable, true);
+    assert.equal(descriptor.configurable, true);
+    if (expected[key] instanceof Uint8Array) {
+      assert(actual[key] instanceof Uint8Array);
+      assert(actual[key].buffer instanceof ArrayBuffer);
+      assert.deepEqual(actual[key], expected[key]);
+    } else assert(Object.is(actual[key], expected[key]));
   }
 }
 
@@ -299,9 +317,179 @@ try {
   }
   await Promise.all(pending);
 
+  // Byte fields retain ordinary record descriptors while owning their storage.
+  const packet = payload => ({ name: 'packet', payload });
+  const packetNames = ['echoPacket', 'echoPacketAsync', 'echoPacketAlias', 'echoMaybePacket', 'echoMaybePacketAsync'];
+  for (const name of packetNames) {
+    const input = Object.freeze(packet(new Uint8Array([0, 128, 255])));
+    const output = await invoke(name, input);
+    equalByteRecord(output, packet(new Uint8Array([0, 128, 255])));
+    assert.notEqual(output, input);
+    assert.notEqual(output.payload.buffer, input.payload.buffer);
+    output.name = 'changed result'; output.payload[0] = 7;
+    assert.equal(input.payload[0], 0);
+    equalByteRecord(await invoke(name, input), packet(new Uint8Array([0, 128, 255])));
+    const empty = packet(new Uint8Array());
+    const emptyOutput = await invoke(name, empty);
+    equalByteRecord(emptyOutput, empty);
+    assert.notEqual(emptyOutput.payload.buffer, empty.payload.buffer);
+    if (name.startsWith('echoMaybe')) assert.equal(await invoke(name, null), null);
+    else await failure(name, [null], TypeError, ['parameter value']);
+  }
+  for (const name of ['echoPacket', 'echoPacketAsync']) {
+    for (const bytes of [new Uint8Array([99, 0, 128, 255, 88]).subarray(1, 4), Buffer.from([99, 0, 128, 255, 88]).subarray(1, 4)]) {
+      const output = await invoke(name, packet(bytes));
+      equalByteRecord(output, packet(new Uint8Array([0, 128, 255])));
+      assert.notEqual(output.payload.buffer, bytes.buffer);
+      assert.equal(output.payload.byteOffset, 0);
+      assert.equal(output.payload.byteLength, 3);
+    }
+    const foreignPacket = runInNewContext("({name:'foreign',payload:new Uint8Array([0,128,255])})");
+    equalByteRecord(await invoke(name, foreignPacket), { name: 'foreign', payload: new Uint8Array([0, 128, 255]) });
+    const sharedBytes = new Uint8Array(new SharedArrayBuffer(3));
+    sharedBytes.set([0, 128, 255]);
+    const sharedPending = invoke(name, packet(sharedBytes));
+    sharedBytes.fill(7);
+    const sharedOutput = await sharedPending;
+    equalByteRecord(sharedOutput, packet(new Uint8Array([0, 128, 255])));
+    assert(sharedOutput.payload.buffer instanceof ArrayBuffer);
+    const resizableBuffer = new ArrayBuffer(8, { maxByteLength: 16 });
+    const resizableBytes = new Uint8Array(resizableBuffer, 2, 3);
+    resizableBytes.set([0, 128, 255]);
+    const resizablePending = invoke(name, packet(resizableBytes));
+    resizableBuffer.resize(1);
+    equalByteRecord(await resizablePending, packet(new Uint8Array([0, 128, 255])));
+    const outOfBounds = new Uint8Array(new ArrayBuffer(8, { maxByteLength: 16 }), 2, 3);
+    outOfBounds.buffer.resize(1);
+    await failure(name, [packet(outOfBounds)], TypeError, ['parameter value["payload"]']);
+    const detached = new Uint8Array([1, 2]);
+    structuredClone(detached.buffer, { transfer: [detached.buffer] });
+    const detachedError = await failure(name, [packet(detached)], TypeError, ['parameter value["payload"]']);
+    assert(detachedError.message.length > 'parameter value["payload"]'.length);
+    for (const payload of [undefined, null, [], new ArrayBuffer(3), new DataView(new ArrayBuffer(3)), new Uint8ClampedArray(3), new Int8Array(3), new Uint16Array(3), { [Symbol.toStringTag]: 'Uint8Array' }, new Proxy(new Uint8Array(3), {})]) {
+      await failure(name, [packet(payload)], TypeError, ['parameter value["payload"]']);
+    }
+    await failure(name, [{ name: 'missing' }], TypeError, ['parameter value["payload"]']);
+    const hidden = Object.create(null);
+    Object.defineProperties(hidden, { name: { value: 'hidden' }, payload: { value: new Uint8Array([3]) } });
+    equalByteRecord(await invoke(name, hidden), { name: 'hidden', payload: new Uint8Array([3]) });
+    let byteGetters = 0;
+    const accessor = packet(new Uint8Array([3]));
+    Object.defineProperty(accessor, 'payload', { get() { byteGetters++; return new Uint8Array([3]); } });
+    await failure(name, [accessor], TypeError, ['parameter value["payload"]']);
+    const inherited = { name: 'inherited' };
+    Object.defineProperty(Object.prototype, 'payload', { configurable: true, get() { byteGetters++; return new Uint8Array([3]); } });
+    try {
+      await failure(name, [inherited], TypeError, ['parameter value["payload"]']);
+    } finally {
+      delete Object.prototype.payload;
+    }
+    const view = new Uint8Array([3]);
+    for (const key of ['length', 'buffer', 'byteOffset', 'byteLength', Symbol.iterator, Symbol.toStringTag]) {
+      Object.defineProperty(view, key, { get() { byteGetters++; throw Error('unused byte getter'); } });
+    }
+    const extra = packet(view);
+    Object.defineProperty(extra, 'ignored', { get() { byteGetters++; throw Error('unused record getter'); } });
+    const proxy = new Proxy(extra, {
+      get() { throw Error('must not read record getters'); },
+      ownKeys() { throw Error('must not enumerate extra record fields'); },
+      getOwnPropertyDescriptor(target, key) {
+        assert(['name', 'payload'].includes(key));
+        return Reflect.getOwnPropertyDescriptor(target, key);
+      },
+    });
+    equalByteRecord(await invoke(name, proxy), packet(new Uint8Array([3])));
+    assert.equal(byteGetters, 0);
+    for (const reason of [new Error('byte reflection'), new TypeError('byte reflection type'), new RangeError('byte reflection range'), 'byte reason', Symbol('byte reason')]) {
+      await identicalFailure(name, new Proxy(packet(new Uint8Array([3])), { getOwnPropertyDescriptor() { throw reason; } }), reason);
+      await identicalFailure(name, new Proxy(packet(new Uint8Array([3])), { getPrototypeOf() { throw reason; } }), reason);
+    }
+    equalByteRecord(await invoke(name, packet(new Uint8Array([3]))), packet(new Uint8Array([3])));
+  }
+  for (const name of ['normalizePacket', 'normalizePacketAsync']) {
+    const bytes = new Uint8Array([0, 128, 255]);
+    const input = { name: ' sample ', payload: bytes };
+    const pending = invoke(name, input);
+    assert.deepEqual(bytes, new Uint8Array([0, 128, 255]), 'Dart business mutates only its owned payload');
+    bytes.fill(7); input.name = 'changed'; input.payload = new Uint8Array([8]);
+    const normalizedPacket = await pending;
+    equalByteRecord(normalizedPacket, { name: 'sample', payload: new Uint8Array([255, 127, 0]) });
+    assert.deepEqual(bytes, new Uint8Array([7, 7, 7]));
+  }
+  for (const name of ['echoInlineBytes', 'echoInlineBytesAsync']) {
+    equalByteRecord(await invoke(name, { label: 'inline', payload: new Uint8Array([1]) }), { label: 'inline', payload: new Uint8Array([1]) });
+    equalByteRecord(await invoke(name, { label: 'inline', payload: null }), { label: 'inline', payload: null });
+    assert.equal(await invoke(name, null), null);
+    await failure(name, [{ label: 'inline' }], TypeError, ['parameter value["payload"]']);
+    await failure(name, [{ label: 'inline', payload: undefined }], TypeError, ['parameter value["payload"]']);
+  }
+  for (const name of ['echoPartPacket', 'echoPartPacketAsync']) {
+    equalByteRecord(await invoke(name, { code: 4, payload: new Uint8Array([1]) }), { code: 4, payload: new Uint8Array([1]) });
+    equalByteRecord(await invoke(name, { code: 4, payload: null }), { code: 4, payload: null });
+  }
+  assert.equal(await invoke('echoPartPacketAsync', null), null);
+  for (const name of ['echoByteFields', 'echoByteFieldsAsync']) {
+    const shared = new Uint8Array([1, 2]);
+    const input = { first: shared, maybe: null, second: shared };
+    const output = await invoke(name, input);
+    equalByteRecord(output, { first: new Uint8Array([1, 2]), maybe: null, second: new Uint8Array([1, 2]) });
+    assert.notEqual(output.first.buffer, output.second.buffer);
+    assert.notEqual(output.first.buffer, shared.buffer);
+    output.first[0] = 9;
+    assert.equal(output.second[0], 1); assert.equal(shared[0], 1);
+    for (const bad of [undefined, null, new Uint16Array(1)]) {
+      const before = invoke('calls');
+      await failure(name, [{ first: shared, maybe: null, second: bad }], TypeError, ['parameter value["second"]']);
+      assert.equal(invoke('calls'), before, 'later byte field failure prevents business entry');
+    }
+    const detached = new Uint8Array([1]);
+    structuredClone(detached.buffer, { transfer: [detached.buffer] });
+    const before = invoke('calls');
+    await failure(name, [{ first: shared, maybe: null, second: detached }], TypeError, ['parameter value["second"]']);
+    assert.equal(invoke('calls'), before);
+  }
+  for (const name of ['repeatByteFields', 'repeatByteFieldsAsync']) {
+    const input = packet(new Uint8Array([1, 2]));
+    const output = await invoke(name, input);
+    equalByteRecord(output, { first: new Uint8Array([1, 2]), maybe: new Uint8Array([1, 2]), second: new Uint8Array([1, 2]) });
+    assert.notEqual(output.first.buffer, output.maybe.buffer);
+    assert.notEqual(output.first.buffer, output.second.buffer);
+    assert.notEqual(output.maybe.buffer, output.second.buffer);
+    output.first[0] = 9;
+    assert.equal(output.maybe[0], 1); assert.equal(output.second[0], 1); assert.equal(input.payload[0], 1);
+  }
+  for (const name of ['trackedPacket', 'trackedPacketAsync']) {
+    const first = packet(new Uint8Array([1, 2]));
+    for (const payload of [undefined, new Uint16Array(2)]) {
+      const before = invoke('calls');
+      await failure(name, [first, packet(payload)], TypeError, ['parameter second["payload"]']);
+      assert.equal(invoke('calls'), before, 'later byte argument failure prevents business entry');
+    }
+    const firstBytes = first.payload;
+    const secondBytes = new Uint8Array([3, 4]);
+    const second = { name: 'second', payload: secondBytes };
+    const pending = invoke(name, first, second);
+    firstBytes.fill(7); first.name = 'changed'; first.payload = new Uint8Array([8]);
+    structuredClone(secondBytes.buffer, { transfer: [secondBytes.buffer] });
+    second.name = 'changed'; second.payload = new Uint8Array([8]);
+    equalByteRecord(await pending, { name: 'second', payload: new Uint8Array([3, 4]) });
+    const saved = invoke('readPacket');
+    equalByteRecord(saved, packet(new Uint8Array([1, 2])));
+    saved.payload[0] = 9;
+    equalByteRecord(await invoke('readPacketAsync'), packet(new Uint8Array([1, 2])));
+    const previous = invoke('readPacket');
+    invoke('changePacket');
+    equalByteRecord(previous, packet(new Uint8Array([1, 2])));
+    equalByteRecord(invoke('readPacket'), { name: 'changed', payload: new Uint8Array([254, 2]) });
+    assert.deepEqual(firstBytes, new Uint8Array([7, 7]));
+    await failure(name, [{ name: 'fail', payload: new Uint8Array([1]) }, packet(new Uint8Array([2]))], TypeError, ['packet failure']);
+    equalByteRecord(await invoke(name, packet(new Uint8Array([1])), packet(new Uint8Array([2]))), packet(new Uint8Array([2])));
+  }
+
   // Repeated discarded strings/objects must not become retained boundary state.
   assert.equal(typeof global.gc, 'function', 'run with --expose-gc');
   const retainedOutputs = [];
+  const retainedByteOutputs = [];
   const leakProbe = process.env.NAPI_RECORDS_RETAIN_OUTPUTS === '1';
   const codeUnits = new Uint16Array(8192);
   codeUnits.fill(0x4e2d);
@@ -317,6 +505,9 @@ try {
       assert.equal(output.age, index);
       assert.equal(output.name, input.name);
       if (leakProbe) retainedOutputs.push(output);
+      const byteOutput = invoke('echoPacket', { name: input.name, payload: new Uint8Array(8192) });
+      assert.equal(byteOutput.payload.length, 8192);
+      if (leakProbe) retainedByteOutputs.push(byteOutput);
     }
     for (let index = 0; index < 32; index += 8) {
       await Promise.all(Array.from({ length: 8 }, (_, offset) => invoke('echoUserAsync', { name: `batch ${id}`, age: index + offset, active: null })));
@@ -336,6 +527,7 @@ try {
   assert(retained.heapUsed < limit, `host heap retained ${retained.heapUsed}`);
   assert(retained.arrayBuffers < limit, `array buffers retained ${retained.arrayBuffers}`);
   assert.equal(retainedOutputs.length, leakProbe ? 4096 : 0);
+  assert.equal(retainedByteOutputs.length, leakProbe ? 4096 : 0);
   await immediate(); await immediate();
   assert.deepEqual(unhandled, [], 'record errors must not escape Promise settlement');
   console.log(JSON.stringify({ checks, nativeFunctions: names.length, node: process.version, retained }));

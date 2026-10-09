@@ -11,10 +11,10 @@ Defaults: one build per fixture, three runtime/import samples, 20,000 small sync
 calls, and 2,000 warmup calls.
 
 For focused investigations, `--group records` builds only `minimal` and
-`records` and measures six record cases. `--group batch` also builds `batch`
+`records` and measures 24 record/byte cases. `--group batch` also builds `batch`
 and measures 37 cases, including single-record loop controls. Both groups skip
 unrelated fixtures and Dart JavaScript compilation. Default `--group all`
-retains the full 98-case suite.
+retains the full 116-case suite.
 
 ```sh
 dart run benchmark/run.dart --group records --runs 7 --out benchmark/results.json
@@ -292,6 +292,48 @@ bytes and batch archives of 23,719 → 23,781 bytes. Compressed batch size incre
 by 62 bytes despite the smaller raw Wasm; archive contents were checked against
 all compiled files. Single build observations do not establish build-time
 improvements. This paired run makes no cold-import improvement claim.
+
+## Byte fields in records (0.10.0)
+
+[`benchmark/record-bytes-baseline.json`](../benchmark/record-bytes-baseline.json)
+retains source hashes, seven raw samples per case, scaled counts and artifact
+costs. This contemporaneous comparison uses Dart 3.13.5, Node 22.19.0 /
+V8 12.4.254.21-node.29, npm 11.12.1, Apple M3 Max and macOS 27.0.1:
+
+```sh
+dart run benchmark/run.dart --group records --iterations 20000 --warmup 2000 --runs 7 --out benchmark/record-bytes-baseline.json
+```
+
+The existing record fixture adds `echoPacket` and `echoPacketPayload` for
+metadata-plus-bytes and top-level bytes. Eighteen paired cases use the same
+32/1,024/65,536-byte Uint8Array, Buffer or offset subarray, with identical counts
+and warmups. Both routes include two explicit ownership copies. The record adds
+two own-field checks, a five-code-unit name and record allocations. The JS
+references perform actual copies and validate only the measured valid shapes;
+they do not implement the complete cross-realm/Proxy/error contract. Preflight
+checks visible contents and independent result storage; the runtime acceptance
+suite separately verifies owned business inputs and Future snapshots.
+
+Selected Uint8Array medians in **microseconds per synchronous call**:
+
+| Bytes | Calls / sample | Wasm record | Wasm bytes | JS record | Wasm record spread % |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 32 | 20,000 | 0.786 | 0.260 | 0.313 | 4.8 |
+| 1,024 | 1,250 | 0.971 | 0.526 | 0.547 | 13.5 |
+| 65,536 | 50 | 3.854 | 2.500 | 2.789 | 146.4 |
+
+The 65,536-byte samples are short and vary widely; they do not establish a
+stable relative cost. This run measures conversion costs, with no before/after
+speedup claim. Packet result consumption also reads payload contents and the
+name, so historical record timings are not a direct optimization comparison.
+
+The nine-function record fixture has 47,417 Wasm bytes, 30,256 host bytes,
+1,054 bytes per declaration and a 23,959-byte npm archive. It emits the optional
+`copyRecordBytes` helper. The scalar-only fixture remains 17,295 Wasm / 16,703
+host bytes with no collection or byte-field helper. Fixtures export different
+functions, so these totals do not isolate one field's size. The complete run
+took 7.783 seconds; each fixture was built once, with no build-time improvement
+claim or correctness timing gate.
 
 ## Scope and interpretation
 

@@ -1,3 +1,10 @@
+## 0.10.0
+
+- Export SDK `Uint8List` and nullable byte fields in flat named records, record batches and Future completions, with precise `Uint8Array` declarations.
+- Copy every input byte field before business code or Promise return and every result field into independent storage, including repeated references across fields and rows.
+- Report detached or out-of-bounds byte views with precise field paths while preserving unrelated JavaScript exceptions. Keep byte-field helpers out of byte-free modules.
+- Verify real Buffer types, native package/subpath/relative imports and external-Wasm bundles; record paired byte/record conversion costs without timing gates.
+
 ## 0.9.1
 
 - Reject record aliases named `keyof`, `infer` or `unique` with a source diagnostic before compilation; TypeScript interprets these names as type operators and previously generated invalid declarations.

@@ -163,6 +163,102 @@ void main() {
     }
   });
 
+  test('record byte fields use isolated nullable copies for direct and List values', () {
+    const packet = ValueType(
+      ValueKind.recordType,
+      recordFields: [
+        (name: 'payload', type: ValueType(ValueKind.uint8ListType)),
+        (
+          name: 'optional',
+          type: ValueType(ValueKind.uint8ListType, nullable: true),
+        ),
+        (name: 'title', type: ValueType(ValueKind.stringType)),
+      ],
+    );
+    const packets = ValueType(ValueKind.listType, elementType: packet);
+    final source = generateBridge([
+      const Export(
+        name: 'packet',
+        parameters: [Parameter(name: 'value', type: packet)],
+        returnType: packet,
+      ),
+      const Export(
+        name: 'packets',
+        parameters: [Parameter(name: 'values', type: packets)],
+        returnType: packets,
+        isAsync: true,
+      ),
+    ], 'file:///business.dart');
+    expect(
+      source,
+      contains(
+        '({Uint8List payload, Uint8List? optional, String title}) _readRecord0(',
+      ),
+    );
+    expect(source, contains('_readRecordBytes<Uint8List>(snapshot, 0, false'));
+    expect(source, contains('_readRecordBytes<Uint8List?>(snapshot, 1, true'));
+    expect(source, contains('_readRecordField<String>(snapshot, 2, 4, false'));
+    expect(
+      source,
+      contains('value.payload, false, context, "[\\"payload\\"]")'),
+    );
+    expect(
+      source,
+      contains('value.optional, true, context, "[\\"optional\\"]")'),
+    );
+    expect(
+      source,
+      contains(
+        '_readRecordList0<({Uint8List payload, Uint8List? optional, String title})>',
+      ),
+    );
+    expect(RegExp('napi.copyRecordBytes').allMatches(source).length, 1);
+
+    final readStart = source.indexOf('T _readRecordBytes<T>(');
+    final read = source.substring(readStart, source.indexOf('\n}', readStart));
+    expect(read.indexOf('_arrayGet('), lessThan(read.indexOf('try {')));
+    expect(read.indexOf('_requireType('), lessThan(read.indexOf('} catch')));
+    expect(
+      read.indexOf('_copyRecordBytes('),
+      greaterThan(read.indexOf('context + suffix')),
+    );
+    expect(read, contains('if (nullable && value.isNull) return null as T;'));
+    final writeStart = source.indexOf('void _writeRecordBytes(');
+    final write = source.substring(
+      writeStart,
+      source.indexOf('\n}', writeStart),
+    );
+    expect(
+      write.indexOf('_copyRecordBytes('),
+      greaterThan(write.indexOf('context + suffix')),
+    );
+    expect(write, contains('bytes.isNull ? WasmExternRef.nullRef'));
+  });
+
+  test('byte-free records and collections do not emit byte-field helpers', () {
+    const record = ValueType(ValueKind.recordType, recordFields: fields);
+    const records = ValueType(ValueKind.listType, elementType: record);
+    const numbers = ValueType(
+      ValueKind.listType,
+      elementType: ValueType(ValueKind.intType),
+    );
+    const labels = ValueType(
+      ValueKind.mapType,
+      elementType: ValueType(ValueKind.stringType),
+    );
+    final source = generateBridge([
+      const Export(name: 'record', parameters: [], returnType: record),
+      const Export(name: 'records', parameters: [], returnType: records),
+      const Export(name: 'numbers', parameters: [], returnType: numbers),
+      const Export(name: 'labels', parameters: [], returnType: labels),
+    ], 'file:///business.dart');
+    expect(source, isNot(contains('copyRecordBytes')));
+    expect(source, isNot(contains('_readRecordBytes')));
+    expect(source, isNot(contains('_writeRecordBytes')));
+    expect(source, contains('_readRecordField'));
+    expect(source, contains('_readLeaf<T>'));
+  });
+
   test('record dollar fields are literal keys and static Dart accesses', () {
     const record = ValueType(
       ValueKind.recordType,
@@ -317,6 +413,7 @@ void main() {
     expect(source, isNot(contains('_readRecordField')));
     expect(source, isNot(contains('napi.newMap')));
     expect(source, isNot(contains('napi.arrayGet')));
+    expect(source, isNot(contains('copyRecordBytes')));
   });
 
   test('record and scalar list outputs validate length before narrowing', () {

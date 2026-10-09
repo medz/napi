@@ -64,6 +64,49 @@ void main() {
       expect(result.stdout, 'host snapshots passed\n');
     },
   );
+
+  test(
+    'record byte copy diagnostics are emitted only for their own import',
+    () {
+      for (final imports in [
+        [bridgeImport('kind'), bridgeImport('copyBytes', 1)],
+        [bridgeImport('snapshotRecord')],
+        [bridgeImport('snapshotList')],
+        [bridgeImport('snapshotMap')],
+      ]) {
+        expect(
+          generateHost(_compiler, imports),
+          isNot(contains('copyRecordBytes')),
+        );
+      }
+      final host = generateHost(_compiler, [bridgeImport('copyRecordBytes')]);
+      expect(host, contains('napi.copyRecordBytes ='));
+      expect(host, isNot(contains('napiRequireObject')));
+    },
+  );
+
+  test('record byte copies preserve views, getters, ownership and exception policy', () async {
+    final host =
+        generateHost(_compiler, [
+          bridgeImport('kind'),
+          bridgeImport('copyRecordBytes', 1),
+          bridgeImport('snapshotRecord', 2),
+        ]).replaceFirst(
+          RegExp(r'^import \* as dartExports from [^\n]+;\n', multiLine: true),
+          'const dartExports = {};\n',
+        );
+    final node =
+        Platform.environment['NAPI_NODE22'] ??
+        Platform.environment['NAPI_NODE'] ??
+        'node';
+    final result = await Process.run(node, [
+      '--input-type=module',
+      '--eval',
+      '$host\n$_byteAssertions',
+    ]);
+    expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
+    expect(result.stdout, 'host byte copies passed\n');
+  });
 }
 
 // Exercise the actual generated host helper bodies without compiling a second
@@ -165,4 +208,76 @@ assert.equal(_i4(largest, -1), 'non-index data key');
 assert.equal(Object.hasOwn(largest, '-1'), false);
 assert.equal(largest.length, 0xffffffff);
 console.log('host snapshots passed');
+''';
+
+const _byteAssertions = r'''
+import assert from 'node:assert/strict';
+import vm from 'node:vm';
+const kind = _i0;
+const copy = _i1;
+const snapshotRecord = _i2;
+const context = 'parameter packets[1]';
+const suffix = '["payload"]';
+const backing = new Uint8Array([10, 20, 30, 40]);
+const view = backing.subarray(1, 3);
+let getters = 0;
+for (const key of ['buffer', 'byteLength', 'byteOffset', 'length', Symbol.iterator, Symbol.toStringTag]) {
+  Object.defineProperty(view, key, {get() { getters++; throw new Error('byte getter'); }});
+}
+assert.equal(kind(view), 4);
+const first = copy(view, context, suffix);
+const second = copy(view, context, suffix);
+assert.deepEqual([...first], [20, 30]);
+assert.deepEqual([...second], [20, 30]);
+assert.notEqual(first.buffer, second.buffer);
+assert.notEqual(first.buffer, backing.buffer);
+first[0] = 99;
+backing[2] = 88;
+assert.deepEqual([...second], [20, 30]);
+assert.equal(getters, 0);
+const buffer = Buffer.from([0, 1, 2, 3]).subarray(1, 3);
+assert.equal(kind(buffer), 4);
+assert.deepEqual([...copy(buffer, context, suffix)], [1, 2]);
+const foreign = vm.runInNewContext('new Uint8Array([4,5,6]).subarray(1)');
+assert.equal(kind(foreign), 4);
+assert.deepEqual([...copy(foreign, context, suffix)], [5, 6]);
+assert.deepEqual([...copy(new Uint8Array(0), context, suffix)], []);
+const lazy = {toString() { throw new Error('context formatted on success'); }};
+assert.deepEqual([...copy(buffer, lazy, lazy)], [1, 2]);
+for (const value of [undefined, null, [], new ArrayBuffer(2), new DataView(new ArrayBuffer(2)), new Int8Array(2)]) {
+  assert.notEqual(kind(value), 4);
+}
+const detached = new Uint8Array([7, 8]);
+structuredClone(detached.buffer, {transfer: [detached.buffer]});
+assert.equal(kind(detached), 4);
+assert.throws(() => copy(detached, context, suffix), error =>
+  error instanceof TypeError && error.message.startsWith('parameter packets[1]["payload"]: ') &&
+  error.message.split('parameter packets[1]["payload"]').length === 2);
+
+const reflection = new TypeError('original reflection');
+const proxy = new Proxy({payload: buffer}, {getOwnPropertyDescriptor() {throw reflection;}});
+assert.throws(() => snapshotRecord(proxy, ['payload'], context), error => error === reflection);
+const originalApply = Reflect.apply;
+try {
+  Reflect.apply = () => {throw reflection;};
+  assert.throws(() => kind(buffer), error => error === reflection);
+} finally {
+  Reflect.apply = originalApply;
+}
+const originalCopy = napi.copyBytes;
+try {
+  for (const original of [new RangeError('range'), new Error('JS'), Symbol('JS'), {original: true}]) {
+    napi.copyBytes = () => {throw original;};
+    assert.throws(() => copy(buffer, context, suffix), error => error === original);
+  }
+  const original = new TypeError('owned copy');
+  napi.copyBytes = () => {throw original;};
+  assert.throws(() => copy(buffer, context, suffix), error =>
+    error instanceof TypeError && error !== original &&
+    error.message === 'parameter packets[1]["payload"]: owned copy');
+} finally {
+  napi.copyBytes = originalCopy;
+}
+assert.deepEqual([...copy(buffer, context, suffix)], [1, 2]);
+console.log('host byte copies passed');
 ''';
