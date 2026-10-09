@@ -1,7 +1,10 @@
-## 0.11.1 (unreleased)
+## 0.12.0
 
-- Reject non-directory output paths before source-package analysis and Wasm compilation, identifying the blocking component and preserving existing files.
-- Recheck the output type before staged installation; retain existing directory and symlink safeguards.
+- Reuse ordinary Dart model typedefs for SDK bool/int/double/String/Uint8List in supported signatures, with preserved nullability and canonical TypeScript types. Add no runtime brands or separate leaf-type exports.
+- Analyze conditional imports and exports using the build SDK's Wasm library conditions, matching the branch selected by compilation.
+- Identify failing top-level arguments in scalar and byte conversion errors, preserving exception identity when diagnostic formatting fails.
+- Reject non-directory output paths before source-package analysis and Wasm compilation, identifying the blocking component and preserving existing files. Recheck the destination before staged installation and retain directory/symlink safeguards.
+- Reduce documentation-only CI cost while retaining complete source, native runtime, TypeScript and bundler validation. Keep the native import API, ownership rules, SDK/runtime scope and dependencies.
 
 ## 0.11.0
 
