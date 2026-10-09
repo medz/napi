@@ -89,7 +89,7 @@ aliases in scalar, List and nullable Future signatures. Valid aliases and
 ordinary functions or parameters with these names remain supported. See the
 [0.9.1 requirements](requirements.md#091-contract).
 
-## 0.10.0 — byte fields in data objects
+## 0.10.0 — released: byte fields in data objects
 
 - [#51: Support Uint8List fields in named records](https://github.com/medz/napi/issues/51).
 
@@ -98,6 +98,16 @@ binary content, nullable byte fields and existing record/List/Future composition
 Verify independent byte copies, exact field diagnostics, native imports and
 types across the Node matrix, helper isolation and measured copy costs. See the
 [0.10.0 requirements](requirements.md#0100-contract).
+
+## 0.11.0 — runnable binary-file application
+
+- [#53: Ship a complete binary-file checksum application](https://github.com/medz/napi/issues/53).
+
+Acceptance covers file/stdin input, one native Wasm call carrying metadata and
+bytes, Dart CRC32/counting and a typed scalar record result. Reuse the existing
+boundary and one packed artifact across the Node matrix; verify application
+results against Node's built-in CRC32 without a speedup claim or new core API.
+See the [0.11.0 requirements](requirements.md#0110-contract).
 
 ## Next — compiler compatibility and real applications
 

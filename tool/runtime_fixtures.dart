@@ -107,6 +107,18 @@ Future<void> main(List<String> arguments) async {
         'test/js/requests-consumer.ts',
       ],
     ),
+    (
+      name: 'checksum',
+      source: 'example/checksum/checksum.dart',
+      version: '0.1.0',
+      files: [
+        'example/checksum/main.mjs',
+        'example/checksum/consumer.mts',
+        'example/checksum/sample.txt',
+        'test/js/checksum-node.mjs',
+        'test/js/checksum-consumer.ts',
+      ],
+    ),
   ]) {
     final consumer = Directory(p.join(fixtures.path, fixture.name));
     final output = Directory(p.join(consumer.path, 'dist'));
@@ -140,7 +152,9 @@ Future<void> main(List<String> arguments) async {
       '--no-audit',
       '--no-fund',
       p.join(consumer.path, archive['filename'] as String),
-      if (fixture.name == 'records' || fixture.name == 'batch')
+      if (fixture.name == 'records' ||
+          fixture.name == 'batch' ||
+          fixture.name == 'checksum')
         '@types/node@26.6.4',
     ], consumer.path);
     final installed = p.join(
