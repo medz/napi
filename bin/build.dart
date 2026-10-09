@@ -64,7 +64,7 @@ Future<void> _build(List<String> arguments) async {
     throw FormatException('A Dart file and --name are required.\n$_usage');
   }
   final packageName = RegExp(
-    r'^(?:@[a-z0-9._-]+/[a-z0-9._-]+|[a-z0-9-][a-z0-9._-]*)$',
+    r'^(?:@[a-z0-9._-]+/[a-z0-9._-]+|[a-z0-9][a-z0-9._-]*)$',
   );
   if (!packageName.hasMatch(name) ||
       name.split('/').last.startsWith('.') ||
