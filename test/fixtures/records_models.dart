@@ -1,6 +1,11 @@
 import 'dart:typed_data';
 
-typedef User = ({String name, int age, bool? active});
+typedef Name = String;
+typedef Age = int;
+typedef Bytes = Uint8List;
+typedef MaybeBytes = Bytes?;
+
+typedef User = ({Name name, Age age, bool? active});
 typedef UserAlias = User;
 typedef NullableUser = User?;
 typedef MaybeUserAlias = NullableUser;
@@ -24,8 +29,8 @@ typedef SpecialFields = ({
   double $value,
 });
 
-typedef Packet = ({String name, Uint8List payload});
+typedef Packet = ({Name name, Bytes payload});
 typedef PacketAlias = Packet;
 typedef MaybePacket = PacketAlias?;
 typedef ReexportPacket = Packet;
-typedef ByteFields = ({Uint8List first, Uint8List? maybe, Uint8List second});
+typedef ByteFields = ({Bytes first, MaybeBytes maybe, Bytes second});

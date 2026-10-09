@@ -405,7 +405,7 @@ class _ExportVisitor extends RecursiveAstVisitor<void> {
     if (type is RecordType) {
       return _recordType(type, offset, annotation);
     }
-    if (type.alias != null) {
+    if (type.alias != null && !_supportsLeafAliases(type)) {
       _fail(
         unit,
         offset,
@@ -430,7 +430,7 @@ class _ExportVisitor extends RecursiveAstVisitor<void> {
       final isMap = type.element.name == 'Map';
       if (isMap) {
         final key = type.typeArguments.first;
-        if (key.alias != null) {
+        if (key.alias != null && !_supportsLeafAliases(key)) {
           _fail(
             unit,
             offset,
@@ -461,7 +461,7 @@ class _ExportVisitor extends RecursiveAstVisitor<void> {
           ),
         );
       }
-      if (leaf.alias != null) {
+      if (leaf.alias != null && !_supportsLeafAliases(leaf)) {
         _fail(
           unit,
           offset,
@@ -585,14 +585,7 @@ class _ExportVisitor extends RecursiveAstVisitor<void> {
         );
       }
       final leaf = field.type;
-      if (leaf.alias != null ||
-          (!leaf.isDartCoreBool &&
-              !leaf.isDartCoreInt &&
-              !leaf.isDartCoreDouble &&
-              !leaf.isDartCoreString &&
-              !(leaf is InterfaceType &&
-                  leaf.element.name == 'Uint8List' &&
-                  leaf.element.library.uri.toString() == 'dart:typed_data'))) {
+      if (!_supportsLeafAliases(leaf)) {
         final source = _recordSource(type, annotation);
         final fieldName = alias == null
             ? field.name
@@ -620,6 +613,26 @@ class _ExportVisitor extends RecursiveAstVisitor<void> {
       recordFields: List.unmodifiable(fields),
       recordAlias: alias,
     );
+  }
+
+  bool _supportsLeafAliases(DartType type) {
+    if (!type.isDartCoreBool &&
+        !type.isDartCoreInt &&
+        !type.isDartCoreDouble &&
+        !type.isDartCoreString &&
+        !(type is InterfaceType &&
+            type.element.name == 'Uint8List' &&
+            type.element.library.uri.toString() == 'dart:typed_data')) {
+      return false;
+    }
+    var alias = type.alias?.element;
+    if (alias == null) return true;
+    final visited = <TypeAliasElement>{};
+    while (alias != null) {
+      if (!visited.add(alias) || alias.typeParameters.isNotEmpty) return false;
+      alias = alias.aliasedType.alias?.element;
+    }
+    return true;
   }
 
   ({FileResult unit, RecordTypeAnnotation annotation})? _recordSource(

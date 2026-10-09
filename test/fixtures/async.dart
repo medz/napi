@@ -4,6 +4,9 @@ import 'dart:typed_data';
 
 import 'package:napi/napi.dart';
 
+typedef UserId = int;
+typedef Bytes = Uint8List;
+
 @napi
 Future<bool> asyncBool(bool value) async {
   await Future<void>.value();
@@ -11,7 +14,7 @@ Future<bool> asyncBool(bool value) async {
 }
 
 @napi
-Future<int> asyncInt(int value) async {
+Future<UserId> asyncInt(UserId value) async {
   await Future<void>.value();
   return value;
 }
@@ -29,7 +32,7 @@ Future<String> asyncString(String value) async {
 }
 
 @napi
-Future<Uint8List> asyncBytes(Uint8List value) async {
+Future<Bytes> asyncBytes(Bytes value) async {
   await Future<void>.delayed(Duration.zero);
   return value;
 }
@@ -38,7 +41,7 @@ Future<Uint8List> asyncBytes(Uint8List value) async {
 Future<bool?> nullableBool(bool? value) async => value;
 
 @napi
-Future<int?> nullableInt(int? value) async => value;
+Future<UserId?> nullableInt(UserId? value) async => value;
 
 @napi
 Future<double?> nullableDouble(double? value) async => value;
@@ -47,7 +50,7 @@ Future<double?> nullableDouble(double? value) async => value;
 Future<String?> nullableString(String? value) async => value;
 
 @napi
-Future<Uint8List?> nullableBytes(Uint8List? value) async {
+Future<Bytes?> nullableBytes(Bytes? value) async {
   await Future<void>.delayed(Duration.zero);
   return value;
 }

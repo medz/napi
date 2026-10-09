@@ -1028,29 +1028,72 @@ _User echo(_User value) => value;
     );
   });
 
-  test('record scalar field aliases keep the alias restriction', () async {
-    await expectLater(
-      analyze('''
-import 'package:napi/napi.dart';
+  test(
+    'SDK leaf aliases in imported records expand without leaf bindings',
+    () async {
+      final entry = await relatedLibrary({
+        'models.dart': '''
+import 'dart:typed_data' as bytes;
+typedef _Enabled = bool;
 typedef Count = int;
-typedef User = ({Count age});
+typedef Id = Count;
+typedef MaybeId = Id?;
+typedef Ratio = double;
+typedef Name = String;
+typedef MaybeName = Name?;
+typedef Bytes = bytes.Uint8List;
+typedef MaybeBytes = Bytes?;
+typedef User = ({_Enabled active, MaybeId age, Bytes data, MaybeName name, MaybeBytes optional, Ratio? score});
+''',
+        'public.dart': "export 'models.dart' show User;\n",
+        'api.dart': '''
+import 'package:napi/napi.dart';
+import 'public.dart' as models;
 @napi
-User echo(User value) => value;
-'''),
-      throwsA(
-        isA<ExportError>()
-            .having((error) => error.line, 'line', 3)
-            .having((error) => error.column, 'column', 18)
-            .having((error) => error.message, 'message', contains('User.age')),
-      ),
-    );
-  });
+models.User echo(models.User value) => value;
+''',
+      });
+      final exports = await readExports(entry.path);
+      final record = exports.single.returnType;
+      expect(
+        record.recordAlias!.libraryUri,
+        File(path.join(entry.parent.path, 'models.dart')).uri.toString(),
+      );
+      expect(
+        record.recordFields.map(
+          (field) => (field.type.kind, field.type.nullable),
+        ),
+        [
+          (ValueKind.boolType, false),
+          (ValueKind.intType, true),
+          (ValueKind.uint8ListType, false),
+          (ValueKind.stringType, true),
+          (ValueKind.uint8ListType, true),
+          (ValueKind.doubleType, true),
+        ],
+      );
+      expect(generateTypescript(exports), '''
+export type User = { "active": boolean; "age": number | null; "data": Uint8Array; "name": string | null; "optional": Uint8Array | null; "score": number | null };
+export declare function echo(value: User): User;
+''');
+    },
+  );
 
   for (final (label, declaration, type, isAlias) in [
     ('fake', 'class Uint8List {}', 'Uint8List', false),
     ('fake_nullable', 'class Uint8List {}', 'Uint8List?', false),
-    ('byte_alias', 'typedef Bytes = bytes.Uint8List;', 'Bytes', true),
-    ('nullable_byte_alias', 'typedef Bytes = bytes.Uint8List?;', 'Bytes', true),
+    (
+      'generic_byte_alias',
+      'typedef Bytes<T> = bytes.Uint8List;',
+      'Bytes<int>',
+      true,
+    ),
+    (
+      'generic_nullable_byte_alias',
+      'typedef Base<T> = bytes.Uint8List?; typedef Bytes = Base<int>;',
+      'Bytes',
+      true,
+    ),
     ('other_typed_list', '', 'bytes.Uint16List', false),
     ('clamped_list', '', 'bytes.Uint8ClampedList', false),
     ('nested_byte_list', '', 'List<bytes.Uint8List>', false),
@@ -1664,12 +1707,53 @@ void inspect($type value) {}
     });
   }
 
-  for (final type in [
-    'Counts',
-    'List<Count>',
-    'Map<Key, int>',
-    'Map<String, Count>',
-  ]) {
+  test(
+    'SDK leaf aliases in collections retain nullability and String keys',
+    () async {
+      final entry = await relatedLibrary({
+        'values.dart': '''
+typedef Count = int;
+typedef Id = Count;
+typedef MaybeId = Id?;
+typedef Enabled = bool;
+typedef Ratio = double;
+''',
+        'names.dart': '''
+typedef Count = String;
+typedef Key = Count;
+''',
+        'public.dart': "export 'values.dart';\n",
+        'api.dart': '''
+import 'package:napi/napi.dart';
+import 'public.dart' as values;
+import 'names.dart' as names;
+@napi
+names.Count text(values.Id value) => value.toString();
+@napi
+List<values.MaybeId>? ids(List<values.MaybeId>? values) => values;
+@napi
+List<values.Enabled?> flags(List<values.Enabled?> values) => values;
+@napi
+Map<names.Key, values.Ratio?> scores(Map<names.Key, values.Ratio?> values) => values;
+@napi
+Map<names.Key, names.Count?> labels(Map<names.Key, names.Count?> values) => values;
+@napi
+Future<Map<names.Key, values.MaybeId>?> later(Map<names.Key, values.MaybeId>? values) async => values;
+''',
+      });
+      final exports = await readExports(entry.path);
+      expect(generateTypescript(exports), '''
+export declare function text(value: number): string;
+export declare function ids(values: readonly (number | null)[] | null): Array<number | null> | null;
+export declare function flags(values: readonly (boolean | null)[]): Array<boolean | null>;
+export declare function scores(values: Record<string, number | null>): Record<string, number | null>;
+export declare function labels(values: Record<string, string | null>): Record<string, string | null>;
+export declare function later(values: Record<string, number | null> | null): Promise<Record<string, number | null> | null>;
+''');
+    },
+  );
+
+  for (final type in ['Counts', 'Labels']) {
     test(
       'rejects the collection alias in $type with a source location',
       () async {
@@ -1677,14 +1761,13 @@ void inspect($type value) {}
           analyze('''
 import 'package:napi/napi.dart';
 typedef Counts = List<int>;
-typedef Count = int;
-typedef Key = String;
+typedef Labels = Map<String, String>;
 @napi
 void inspect($type value) {}
 '''),
           throwsA(
             isA<ExportError>()
-                .having((error) => error.line, 'line', 6)
+                .having((error) => error.line, 'line', 5)
                 .having((error) => error.column, 'column', 14)
                 .having(
                   (error) => error.message,
@@ -1798,25 +1881,232 @@ Uint8List echo(Uint8List value) => value;
   });
 
   test(
-    'rejects aliases even when their underlying type is supported',
+    'SDK leaf aliases expand direct and Future values without bindings',
     () async {
+      final exports = await analyze('''
+import 'dart:typed_data' as bytes;
+import 'package:napi/napi.dart';
+typedef Enabled = bool;
+typedef Promise = Enabled;
+typedef Count = int;
+typedef Id = Count;
+typedef Ratio = double;
+typedef _Name = String;
+typedef Name = _Name;
+typedef Bytes = bytes.Uint8List;
+typedef MaybeId = Id?;
+typedef MaybeBytes = Bytes?;
+@napi
+Promise flag(Promise value) => value;
+@napi
+Id count(Id value) => value;
+@napi
+Ratio ratio(Ratio value) => value;
+@napi
+Name name(Name value) => value;
+@napi
+Bytes buffer(Bytes value) => value;
+@napi
+MaybeId maybe(MaybeId value) => value;
+@napi
+Bytes? optional(Bytes? value) => value;
+@napi
+Future<Id?> later(Id? value) async => value;
+@napi
+Future<MaybeBytes> laterBytes(MaybeBytes value) async => value;
+''');
+      expect(exports.take(5).map((export) => export.returnType.kind), [
+        ValueKind.boolType,
+        ValueKind.intType,
+        ValueKind.doubleType,
+        ValueKind.stringType,
+        ValueKind.uint8ListType,
+      ]);
+      expect(
+        exports.skip(5).every((export) => export.returnType.nullable),
+        isTrue,
+      );
+      expect(generateTypescript(exports), '''
+export declare function flag(value: boolean): boolean;
+export declare function count(value: number): number;
+export declare function ratio(value: number): number;
+export declare function name(value: string): string;
+export declare function buffer(value: Uint8Array): Uint8Array;
+export declare function maybe(value: number | null): number | null;
+export declare function optional(value: Uint8Array | null): Uint8Array | null;
+export declare function later(value: number | null): Promise<number | null>;
+export declare function laterBytes(value: Uint8Array | null): Promise<Uint8Array | null>;
+''');
+    },
+  );
+
+  for (final type in [
+    'Count',
+    'List<Count>',
+    'Map<String, Count>',
+    'Map<Key, int>',
+  ]) {
+    test('generic leaf alias chains reject $type at the signature', () async {
       await expectLater(
         analyze('''
 import 'package:napi/napi.dart';
-typedef Count = int;
+typedef Base<T> = T;
+typedef Count = Base<int>;
+typedef Key = Base<String>;
 @napi
-Count count(Count value) => value;
+void inspect($type value) {}
 '''),
         throwsA(
-          isA<ExportError>().having(
-            (error) => error.message,
-            'message',
-            contains('Type aliases are not supported'),
-          ),
+          isA<ExportError>()
+              .having((error) => error.line, 'line', 6)
+              .having((error) => error.column, 'column', 14)
+              .having(
+                (error) => error.message,
+                'message',
+                contains('Type aliases are not supported'),
+              ),
+        ),
+      );
+    });
+  }
+
+  test(
+    'generic leaf alias fields identify their imported declaration',
+    () async {
+      final entry = await relatedLibrary({
+        'models.dart': '''
+typedef Base<T> = T;
+typedef Count = Base<int>;
+typedef User = ({
+  Count age,
+});
+''',
+        'public.dart': "export 'models.dart' show User;\n",
+        'api.dart': '''
+import 'package:napi/napi.dart';
+import 'public.dart' as models;
+@napi
+models.User echo(models.User value) => value;
+''',
+      });
+      await expectLater(
+        readExports(entry.path),
+        throwsA(
+          isA<ExportError>()
+              .having(
+                (error) => error.path,
+                'path',
+                path.join(entry.parent.path, 'models.dart'),
+              )
+              .having((error) => error.line, 'line', 4)
+              .having((error) => error.column, 'column', 3)
+              .having(
+                (error) => error.message,
+                'message',
+                contains('User.age'),
+              ),
         ),
       );
     },
   );
+
+  for (final declaration in [
+    'typedef Alias = int Function(int);',
+    'class Uint8List {} typedef Alias = Uint8List;',
+  ]) {
+    test('SDK leaf aliases still exclude $declaration', () async {
+      await expectLater(
+        analyze('''
+import 'package:napi/napi.dart';
+$declaration
+@napi
+Alias echo(Alias value) => value;
+'''),
+        throwsA(
+          isA<ExportError>()
+              .having((error) => error.line, 'line', 4)
+              .having((error) => error.column, 'column', 12)
+              .having(
+                (error) => error.message,
+                'message',
+                contains('Type aliases are not supported'),
+              ),
+        ),
+      );
+    });
+  }
+
+  for (final signature in [
+    'Nothing clear() {}',
+    'Future<Nothing> clear() async {}',
+  ]) {
+    test('void leaf aliases reject $signature', () async {
+      await expectLater(
+        analyze('''
+import 'dart:async';
+import 'package:napi/napi.dart';
+typedef Nothing = void;
+@napi
+$signature
+'''),
+        throwsA(
+          isA<ExportError>()
+              .having((error) => error.line, 'line', 5)
+              .having((error) => error.column, 'column', 1)
+              .having(
+                (error) => error.message,
+                'message',
+                contains('Type aliases are not supported'),
+              ),
+        ),
+      );
+    });
+  }
+
+  test('SDK leaf aliases do not admit nullable String Map keys', () async {
+    await expectLater(
+      analyze('''
+import 'package:napi/napi.dart';
+typedef Key = String?;
+@napi
+void inspect(Map<Key, int> values) {}
+'''),
+      throwsA(
+        isA<ExportError>()
+            .having((error) => error.line, 'line', 4)
+            .having((error) => error.column, 'column', 14)
+            .having(
+              (error) => error.message,
+              'message',
+              contains('Map keys must be non-nullable String'),
+            ),
+      ),
+    );
+  });
+
+  for (final type in ['List<Bytes>', 'Map<String, Bytes?>']) {
+    test('SDK leaf aliases do not admit $type', () async {
+      await expectLater(
+        analyze('''
+import 'dart:typed_data';
+import 'package:napi/napi.dart';
+typedef Bytes = Uint8List;
+@napi
+void inspect($type values) {}
+'''),
+        throwsA(
+          isA<ExportError>()
+              .having((error) => error.line, 'line', 5)
+              .having((error) => error.column, 'column', 14)
+              .having(
+                (error) => error.message,
+                'message',
+                contains('collection leaf type'),
+              ),
+        ),
+      );
+    });
+  }
 
   final unsupported = <String, (String, String)>{
     'private function': ('int _add(int a) => a;', 'must be public'),

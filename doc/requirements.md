@@ -128,6 +128,14 @@ The project name is `napi`; the primary backend is Wasm ESM integration, not the
 - Cover both the output file itself and missing descendants beneath a file with real CLI regressions. Retain valid missing/empty/generated directories, directory-ancestor resolution and existing symbolic-link safeguards; recheck the destination before installation.
 - Preserve the native Wasm value, declaration and runtime contracts without a new dependency or API. Release only after final-head Codex review, CI, exact-SHA merge and a fresh hosted consumer.
 
+## Unreleased: SDK leaf typedefs
+
+- Accept non-generic aliases and chains resolving to SDK bool/int/double/String/Uint8List in existing supported positions: direct values, Future completion values, scalar List/Map leaves, non-null String Map keys and named-record fields. Preserve analyzer-resolved effective nullability and SDK type provenance.
+- Expand leaf aliases into the existing TS primitive/Uint8Array types. Preserve outer public record names and their naming/conflict rules; private or same-named leaf aliases emit no separate TS binding. Add no brands, runtime tags, dependencies or value model.
+- Preserve existing value/error rules, safe integers, UTF-16, real Promises, precise paths, call-time snapshots, independent objects and byte ownership. Generated conversion paths remain the existing paths for each underlying type.
+- Reject generic alias chains and aliases for collection/Future/void/function/class types. Preserve unsupported combinations such as List<Uint8List>, nullable Map keys, Map record values and nested structures. Locate invalid imported record fields at their declarations.
+- Verify imported/prefixed/re-exported aliases, nullable chains, unchanged precise positive/negative TS consumers, native package/subpath/relative imports and the checksum application. Reuse the existing seven fixture groups and Node matrix; require independent final-SHA review and full CI before exact-SHA merge. Accumulate this feature into the next milestone without a standalone publication.
+
 ## Iteration priorities
 
 After publishing the first complete workflow, prioritize Future-to-Promise support, useful typed data structures, clear diagnostics, compiler/runtime compatibility, reproducible performance and size measurements, and real applications. Define consumer syntax, type and ownership rules, and acceptance cases before implementing each addition.
