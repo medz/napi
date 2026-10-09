@@ -404,3 +404,66 @@ Build both phases with the same SDK. The before source is
 `example/checksum/checksum.dart` at `v0.12.0`; the after source is the current
 example. The command checks native function identity and declaration equality,
 uses Node CRC32 as a correctness reference, and emits raw samples and hashes.
+
+## Host record snapshots (unreleased)
+
+[`benchmark/record-snapshot-baseline.json`](../benchmark/record-snapshot-baseline.json)
+retains two fresh-process, same-process A/B rounds on Node 26.11.1
+(V8 14.6.202.34-node.37), Apple M3 Max, arm64, macOS 27.0.0. Both use the
+Dart 3.13.5 CI fixtures from `e06a091529ea3c1e271e5ed5fec9377198d0f637`.
+Only the generated `snapshotRecord` host body changes; the Wasm, both
+declarations and package manifests are byte-identical. No Dart compilation or
+tool download was needed for this experiment.
+
+The helper keeps ordinary-object validation and ordered own-data-descriptor
+reads, but lets `Array.from` create the snapshot slots instead of constructing
+a descriptor object and calling `Object.defineProperty` for each slot.
+Its null-prototype array-like input avoids inherited iterators and indexed
+getters. The [Array.from algorithm](https://tc39.es/ecma262/multipage/indexed-collections.html#sec-array.from)
+creates own data properties; focused regression checks cover inherited numeric
+setters, Array species and the resulting slot descriptors.
+
+The same three-field `User` records exercise dictionary, list and per-row native
+echo/normalize calls. Sizes are 0/1/16/256, with 20,000/20,000/4,096/256 calls
+per sample and 2,000/2,000/409/100 warmups. Each round retains five samples and
+rotates implementation order; the second process reverses the base order.
+Known-field consumption is timed, while value and ownership assertions run
+outside timing. JIT, GC and system load are uncontrolled.
+
+Forward-round medians for 256 rows, in microseconds per call:
+
+| Route / operation | Before | After | Change | Reverse change |
+| --- | ---: | ---: | ---: | ---: |
+| Dictionary echo | 378.352 | 347.356 | −8.19% | −8.52% |
+| Dictionary normalize | 398.981 | 360.717 | −9.59% | −7.07% |
+| List echo | 287.564 | 258.984 | −9.94% | −9.27% |
+| List normalize | 298.642 | 266.483 | −10.77% | −9.96% |
+| Per-row echo loop | 212.151 | 186.813 | −11.94% | −12.64% |
+| Per-row normalize loop | 218.470 | 193.726 | −11.33% | −13.45% |
+
+These results measure conversion-heavy small transforms, not application speed.
+Dictionary conversion still costs more than list conversion here, and the
+per-row loop remains faster than either bulk route; it lacks outer-container
+validation and creates an Array. Use dictionaries for keyed data rather than
+assuming batching improves a trivial transform. Empty-input samples are under
+3ms and noisy; they support no speed claim. JavaScript controls cover only
+valid current-realm descriptor/scalar checks and fresh output objects, without
+the complete Proxy/error/cross-realm contract or Dart-owned business input.
+
+The `record-maps`, `batch` and `records` host files each shrink by 146 bytes
+(35,450 → 35,304; 33,866 → 33,720; 33,159 → 33,013). Their other four artifacts
+remain unchanged. Helpers are still emitted only when used.
+
+To compare already-built fixture directories containing
+`{record-maps,batch,records}/dist`, reuse their artifacts:
+
+```sh
+node benchmark/record-snapshot.mjs after-fixtures forward.json forward before-fixtures
+node benchmark/record-snapshot.mjs after-fixtures reverse.json reverse before-fixtures
+```
+
+[`benchmark/record-snapshot.mjs`](../benchmark/record-snapshot.mjs) checks values,
+output independence and null-prototype records, records asset and driver hashes,
+and writes every sample. Omit the last argument for a single-artifact
+Map/List/per-row baseline. Native export identity, invalid input, byte ownership
+and async error behavior are covered separately by runtime acceptance.

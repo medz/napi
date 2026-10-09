@@ -181,6 +181,38 @@ try {
 } finally {
   Object.defineProperty(Object.prototype, 'constructor', constructor);
 }
+// Creating snapshot slots must not read inherited values or invoke setters/species.
+const inheritedIterator = Object.getOwnPropertyDescriptor(Object.prototype, Symbol.iterator);
+const inheritedIndex = Object.getOwnPropertyDescriptor(Object.prototype, '1');
+const arrayIndex = Object.getOwnPropertyDescriptor(Array.prototype, '0');
+const arraySpecies = Object.getOwnPropertyDescriptor(Array, Symbol.species);
+let poisonedTraps = 0;
+function poisonedSlot() {
+  poisonedTraps++;
+  throw new Error('snapshot inherited trap');
+}
+let inheritedCopy;
+try {
+  Object.defineProperty(Object.prototype, Symbol.iterator, {get: poisonedSlot, configurable: true});
+  Object.defineProperty(Object.prototype, '1', {get: poisonedSlot, configurable: true});
+  Object.defineProperty(Array.prototype, '0', {get: poisonedSlot, set: poisonedSlot, configurable: true});
+  Object.defineProperty(Array, Symbol.species, {get: poisonedSlot, configurable: true});
+  inheritedCopy = snapshotRecord(source, names, 'parameter user');
+} finally {
+  if (arraySpecies) Object.defineProperty(Array, Symbol.species, arraySpecies);
+  else delete Array[Symbol.species];
+  if (arrayIndex) Object.defineProperty(Array.prototype, '0', arrayIndex);
+  else delete Array.prototype[0];
+  if (inheritedIndex) Object.defineProperty(Object.prototype, '1', inheritedIndex);
+  else delete Object.prototype[1];
+  if (inheritedIterator) Object.defineProperty(Object.prototype, Symbol.iterator, inheritedIterator);
+  else delete Object.prototype[Symbol.iterator];
+}
+assert.equal(poisonedTraps, 0);
+assert.equal(Object.getPrototypeOf(inheritedCopy), Array.prototype);
+assert.deepEqual(inheritedCopy, [3, 'before']);
+assert.deepEqual(Object.getOwnPropertyDescriptor(inheritedCopy, '0'), {value: 3, writable: true, enumerable: true, configurable: true});
+assert.deepEqual(Object.getOwnPropertyDescriptor(inheritedCopy, '1'), {value: 'before', writable: true, enumerable: true, configurable: true});
 const output = _i2();
 _i3(output, 'constructor', 'value');
 _i3(output, 'then', false);
