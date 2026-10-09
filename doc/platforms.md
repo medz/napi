@@ -65,6 +65,71 @@ Wasm transformation, browser bundling and generated instantiation glue have not
 been validated. No esbuild dependency is added to generated packages.
 esbuild erases TypeScript annotations; run TypeScript separately to check types.
 
+## Webpack with external Wasm
+
+A manual check on **2026-10-10 (Asia/Shanghai)** used **Webpack 5.111.1**,
+**Node 26.11.1** and the Dart 3.13.5 checksum fixture from
+[#76](https://github.com/medz/napi/pull/76). A Node ESM application bundle kept the
+npm root, npm Wasm subpath and relative Wasm imports external. All three reached
+the same native function; CRC32, output fields, invalid-input errors and unchanged
+caller bytes were verified. The emitted bundle retained the three static ESM
+imports and included neither the Wasm nor its host helper. This is a recorded
+Node 26.11.1 check, separate from the automated esbuild/runtime matrix above.
+
+Build and install the [checksum example](../example/checksum/README.md) as
+`@napi/checksum`, then write a JavaScript application:
+
+```js
+// app.mjs
+import { checksum } from '@napi/checksum';
+
+console.log(checksum({ name: 'data', bytes: new Uint8Array([1, 2, 3]) }));
+```
+
+Use this configuration in your Webpack setup:
+
+```js
+// webpack.config.cjs
+const path = require('node:path');
+
+module.exports = {
+  context: __dirname,
+  mode: 'development',
+  target: 'node22',
+  entry: './app.mjs',
+  devtool: false,
+  experiments: { outputModule: true },
+  externalsType: 'module',
+  externals: [
+    '@napi/checksum',
+    '@napi/checksum/module.wasm',
+    './package/module.wasm',
+  ],
+  output: {
+    path: path.resolve(__dirname, 'bundle'),
+    filename: 'app.mjs',
+    module: true,
+  },
+};
+```
+
+Run the emitted `bundle/app.mjs` with Node. Keep the installed generated package
+available to that file. If the application imports `./package/module.wasm`,
+deploy the whole generated package at `bundle/package/`: relative external
+imports resolve from the emitted file. The original `module.imports.mjs` stays
+beside `module.wasm`. Adapt the external names to your own package and paths.
+Webpack's [module externals](https://webpack.js.org/configuration/externals/#externalstypemodule)
+keep these imports for Node to load; no initialization call is added.
+The `node22` compilation target does not mean this manual check ran on Node 22.
+
+Enabling `asyncWebAssembly` to transform the same Dart Wasm failed before
+runtime: Webpack's `@webassemblyjs/wasm-parser` 1.14.1 rejected the GC type section
+with `Unsupported type: 0x50`. The same configuration compiled a minimal ordinary
+Wasm `answer()` control that ran and returned 42. Source-phase imports or an
+asset-URL loader change the consumer API and do not establish native named-import
+compatibility. Browser bundles, transformed Dart Wasm, other Webpack versions
+and production-mode configurations were not validated by this check.
+
 ## Browser native imports
 
 On **2026-10-09**, Chrome **155.0.8059.27** on macOS 27.0.1 failed direct native
