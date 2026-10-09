@@ -124,14 +124,21 @@ Map<String, String> labels(Map<String, String> values) => {...values};
 ```ts
 import { doubleAll, labels } from './dist/module.wasm';
 
-const numbers: number[] = doubleAll([1, 2]); // [2, 4]
+const input = [1, 2] as const;
+const numbers: number[] = doubleAll(input); // [2, 4]
+numbers.push(6);
 const names: Record<string, string> = labels({ greeting: 'hello' });
 ```
 
-Containers and elements can be nullable: `List<int?>?` becomes
-`Array<number | null> | null`, and `Map<String,String?>?` becomes
-`Record<string,string | null> | null`. Future completion values follow the same
-rules, such as `Future<List<int>>` becoming `Promise<number[]>`.
+List parameters accept mutable arrays, `readonly` arrays, `Object.freeze` arrays
+and `as const` tuples. `List<int>` takes `readonly number[]` and returns
+`number[]`; Dart receives its own mutable List snapshot. Results remain mutable,
+including Future completion values such as `Promise<number[]>`.
+
+Containers and elements can be nullable: a `List<int?>?` parameter takes
+`readonly (number | null)[] | null`, while its result remains
+`Array<number | null> | null`. `Map<String,String?>?` becomes
+`Record<string,string | null> | null` in either direction.
 
 Inputs are fully validated and copied before business code runs, including
 before returning a Promise. Outputs are new containers at return or Future
@@ -234,7 +241,8 @@ Future<List<User?>?> normalizeUsersLater(List<User?>? users) async {
 import { normalizeUsers, normalizeUsersLater } from './dist/module.wasm';
 import type { User } from './dist/module.wasm';
 
-const users: User[] = normalizeUsers([{name: ' Dart ', age: 20, active: null}]);
+const input = [{name: ' Dart ', age: 20, active: null}] as const;
+const users: User[] = normalizeUsers(input);
 const later: Array<User | null> | null = await normalizeUsersLater([...users, null]);
 ```
 
@@ -246,6 +254,11 @@ with a fresh null-prototype object at every non-null position, even when the sam
 input object appears twice. Changing array membership or record fields after a
 call cannot change the Dart snapshot. Proxy reflection remains observable and
 is not an atomic transaction across the entire batch.
+
+Readonly batch arrays and readonly record fields are accepted, including frozen
+rows and arrays. Generated List parameters use `readonly User[]`; the public
+`User` alias and returned `User[]` remain mutable. This describes the caller's
+input without changing the Dart snapshot or its normal validation/copy costs.
 
 Failures include both index and field once, for example
 `parameter users[3]["age"]`. Inline records and public non-generic record
@@ -298,7 +311,7 @@ The export name `then` is reserved because dynamic ESM imports treat it as a pro
 
 ## Status and platforms
 
-**0.8.0 is experimental and targets Node's native Wasm ESM integration.** [Node documents instance-phase Wasm imports](https://nodejs.org/api/esm.html#wasm-instance-phase-imports) as experimental. Synchronous CommonJS `require` is not supported.
+**0.9.0 is experimental and targets Node's native Wasm ESM integration.** [Node documents instance-phase Wasm imports](https://nodejs.org/api/esm.html#wasm-instance-phase-imports) as experimental. Synchronous CommonJS `require` is not supported.
 
 The backend uses Dart's experimental Wasm interop and compiler-generated JavaScript helpers. It rewrites the Wasm import section so Node resolves the helpers, string constants, and built-in string operations through ESM; business logic remains Dart Wasm. It does not implement the Node-API C ABI or produce `.node` addons.
 
@@ -322,6 +335,6 @@ Integration tests build a real package and verify native functions through packa
 
 CI compiles, packs and installs the six runtime fixtures once with `dart run tool/runtime_fixtures.dart`, then sets `NAPI_RUNTIME_FIXTURES` to that output for the full test suite and reuses the same artifacts on other Node versions. The tool requires a new or empty output directory. Rebuild fixtures after changing the generator or fixture source; this environment variable is for development tests, not consumer initialization.
 
-See the [requirements](doc/requirements.md), [0.8.0 milestone](https://github.com/medz/napi/milestone/8), and [performance measurements](doc/performance.md).
+See the [requirements](doc/requirements.md), [0.9.0 milestone](https://github.com/medz/napi/milestone/9), and [performance measurements](doc/performance.md).
 
 MIT licensed. Generated host helpers include the Dart SDK's BSD license notice.

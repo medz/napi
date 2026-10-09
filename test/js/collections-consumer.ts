@@ -1,7 +1,18 @@
 import * as api from '@napi/collections';
-import { listInt as subpathListInt, mapNullableBothStringAsync as subpathMap } from '@napi/collections/module.wasm';
+import { listInt as subpathListInt, listNullableBothIntAsync as subpathNullableList, mapNullableBothStringAsync as subpathMap } from '@napi/collections/module.wasm';
 
-const listBool: Array<boolean> = api.listBool([true]);
+type Equal<X, Y> = (<T>() => T extends X ? 1 : 2) extends (<T>() => T extends Y ? 1 : 2) ? true : false;
+const exactInput: Equal<Parameters<typeof api.listInt>[0], readonly number[]> = true;
+const exactAsyncInput: Equal<Parameters<typeof api.listIntAsync>[0], readonly number[]> = true;
+const exactNullableElements: Equal<Parameters<typeof api.listNullableInt>[0], readonly (number | null)[]> = true;
+const exactNullableContainer: Equal<Parameters<typeof api.listNullableContainerInt>[0], readonly number[] | null> = true;
+const exactNullableBoth: Equal<Parameters<typeof api.listNullableBothIntAsync>[0], readonly (number | null)[] | null> = true;
+const exactOutput: Equal<ReturnType<typeof api.listInt>, number[]> = true;
+const exactAsyncOutput: Equal<ReturnType<typeof api.listIntAsync>, Promise<number[]>> = true;
+const readonlyNumbers: readonly number[] = [42];
+const readonlyNullableNumbers: readonly (number | null)[] = [42, null];
+
+const listBool: Array<boolean> = api.listBool([true] as const);
 const listBoolAsync: Promise<Array<boolean>> = api.listBoolAsync([true]);
 const listNullableBool: Array<boolean | null> = api.listNullableBool([true, null]);
 const listNullableBoolAsync: Promise<Array<boolean | null>> = api.listNullableBoolAsync([true, null]);
@@ -11,17 +22,17 @@ void api.listNullableContainerBool(null);
 const listNullableBothBool: Array<boolean | null> | null = api.listNullableBothBool([true, null]);
 const listNullableBothBoolAsync: Promise<Array<boolean | null> | null> = api.listNullableBothBoolAsync([true, null]);
 void api.listNullableBothBool(null);
-const listInt: Array<number> = api.listInt([42]);
-const listIntAsync: Promise<Array<number>> = api.listIntAsync([42]);
-const listNullableInt: Array<number | null> = api.listNullableInt([42, null]);
-const listNullableIntAsync: Promise<Array<number | null>> = api.listNullableIntAsync([42, null]);
-const listNullableContainerInt: Array<number> | null = api.listNullableContainerInt([42]);
-const listNullableContainerIntAsync: Promise<Array<number> | null> = api.listNullableContainerIntAsync([42]);
+const listInt: Array<number> = api.listInt(readonlyNumbers);
+const listIntAsync: Promise<Array<number>> = api.listIntAsync(readonlyNumbers);
+const listNullableInt: Array<number | null> = api.listNullableInt(readonlyNullableNumbers);
+const listNullableIntAsync: Promise<Array<number | null>> = api.listNullableIntAsync(readonlyNullableNumbers);
+const listNullableContainerInt: Array<number> | null = api.listNullableContainerInt(readonlyNumbers);
+const listNullableContainerIntAsync: Promise<Array<number> | null> = api.listNullableContainerIntAsync(readonlyNumbers);
 void api.listNullableContainerInt(null);
-const listNullableBothInt: Array<number | null> | null = api.listNullableBothInt([42, null]);
-const listNullableBothIntAsync: Promise<Array<number | null> | null> = api.listNullableBothIntAsync([42, null]);
+const listNullableBothInt: Array<number | null> | null = api.listNullableBothInt(readonlyNullableNumbers);
+const listNullableBothIntAsync: Promise<Array<number | null> | null> = api.listNullableBothIntAsync(readonlyNullableNumbers);
 void api.listNullableBothInt(null);
-const listDouble: Array<number> = api.listDouble([Infinity]);
+const listDouble: Array<number> = api.listDouble(Object.freeze([Infinity]));
 const listDoubleAsync: Promise<Array<number>> = api.listDoubleAsync([Infinity]);
 const listNullableDouble: Array<number | null> = api.listNullableDouble([Infinity, null]);
 const listNullableDoubleAsync: Promise<Array<number | null>> = api.listNullableDoubleAsync([Infinity, null]);
@@ -31,7 +42,7 @@ void api.listNullableContainerDouble(null);
 const listNullableBothDouble: Array<number | null> | null = api.listNullableBothDouble([Infinity, null]);
 const listNullableBothDoubleAsync: Promise<Array<number | null> | null> = api.listNullableBothDoubleAsync([Infinity, null]);
 void api.listNullableBothDouble(null);
-const listString: Array<string> = api.listString(['你好\ud800']);
+const listString: Array<string> = api.listString(['你好\ud800'] as const);
 const listStringAsync: Promise<Array<string>> = api.listStringAsync(['你好\ud800']);
 const listNullableString: Array<string | null> = api.listNullableString(['你好\ud800', null]);
 const listNullableStringAsync: Promise<Array<string | null>> = api.listNullableStringAsync(['你好\ud800', null]);
@@ -82,15 +93,33 @@ const mapNullableBothString: Record<string, string | null> | null = api.mapNulla
 const mapNullableBothStringAsync: Promise<Record<string, string | null> | null> = api.mapNullableBothStringAsync({ first: '你好\ud800', second: null });
 void api.mapNullableBothString(null);
 
-const subpath: number[] = subpathListInt([1, 2]);
+const subpath: number[] = subpathListInt(Object.freeze([1, 2]));
 const subpathAsync: Promise<Record<string, string | null> | null> = subpathMap(null);
-const resolved: Array<number | null> | null = await api.listNullableBothIntAsync([1, null]);
-void [subpath, subpathAsync, resolved];
+const resolved: Array<number | null> | null = await subpathNullableList([1, null] as const);
+const resolvedNumbers: number[] = await api.listIntAsync(readonlyNumbers);
+listBool.push(false);
+listInt[0] = 7;
+listDouble.push(0);
+listString[0] = 'mutable';
+subpath.push(3);
+resolvedNumbers[0] = 8;
+resolvedNumbers.push(9);
+if (resolved !== null) {
+  resolved[0] = null;
+  resolved.push(2);
+}
+void [exactInput, exactAsyncInput, exactNullableElements, exactNullableContainer, exactNullableBoth, exactOutput, exactAsyncOutput, subpathAsync];
 
 // @ts-expect-error Scalar list leaves are exact.
 api.listBool([1]);
 // @ts-expect-error Integer collections use number rather than bigint.
 api.listInt([1n]);
+// @ts-expect-error Readonly arrays retain exact scalar element types.
+api.listInt(['1'] as const);
+// @ts-expect-error Freezing an array does not make its elements nullable.
+subpathListInt(Object.freeze([null]));
+// @ts-expect-error Nullable readonly elements still exclude undefined.
+subpathNullableList([1, undefined] as const);
 // @ts-expect-error Double leaves still require number.
 api.listDouble([true]);
 // @ts-expect-error Map double leaves do not accept numeric strings.

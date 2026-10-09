@@ -61,7 +61,7 @@ same compiled fixtures before and after a minimal change in both run orders,
 and retains raw samples, JS controls and size observations. See the
 [0.7.0 requirements](requirements.md#070-contract) and [measurements](performance.md#record-conversion-optimization-070).
 
-## 0.8.0 — runnable request-summary application
+## 0.8.0 — released: runnable request-summary application
 
 - [#45: Ship a complete Dart-to-Node application](https://github.com/medz/napi/issues/45).
 
@@ -70,6 +70,15 @@ Wasm, deterministic summaries, safe integer totals, readable errors without
 partial output, strict types and one packed artifact reused across the Node
 matrix. See the [application](../example/requests/README.md) and
 [0.8.0 requirements](requirements.md#080-contract).
+
+## 0.9.0 — readonly array inputs
+
+- [#47: Accept readonly array inputs in TypeScript declarations](https://github.com/medz/napi/issues/47).
+
+Acceptance covers mutable/readonly/frozen/`as const` List inputs, scalar and
+record element/container nullability, precise input types and mutable sync/Future
+results. The native snapshot behavior and valid public record aliases remain
+unchanged. See the [0.9.0 requirements](requirements.md#090-contract).
 
 ## Next — compiler compatibility and real applications
 

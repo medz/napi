@@ -1,3 +1,9 @@
+## 0.9.0
+
+- Generate readonly array parameters for scalar Lists and record batches, including nullable containers and elements. Mutable arrays, frozen arrays and `as const` tuples share the existing snapshot semantics.
+- Preserve mutable result arrays and Future completion values, public record aliases and precise errors. Keep the valid `ReadonlyArray` record alias without introducing a conflicting global type.
+- Demonstrate readonly inputs in the request-summary consumer and verify real frozen inputs, independent mutable outputs and strict native-import declarations across the Node matrix.
+
 ## 0.8.0
 
 - Add a complete request-summary application: ordinary Dart grouping/counting/safe-integer aggregation, a Node stdin NDJSON command, sample data and a strict TypeScript consumer.

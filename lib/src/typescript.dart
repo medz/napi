@@ -38,7 +38,7 @@ String generateTypescript(List<Export> exports) {
           name = 'arg${nextArgument++}';
         } while (!usedNames.add(name));
       }
-      parameters.add('$name: ${_type(parameter.type)}');
+      parameters.add('$name: ${_parameterType(parameter.type)}');
     }
     final valueType = _type(export.returnType);
     final returnType = export.isAsync ? 'Promise<$valueType>' : valueType;
@@ -47,6 +47,16 @@ String generateTypescript(List<Export> exports) {
     );
   }
   return '${declarations.join('\n')}\n';
+}
+
+String _parameterType(ValueType type) {
+  if (type.kind != ValueKind.listType) return _type(type);
+  final element = type.elementType!;
+  final value = _type(element);
+  final hasUnion =
+      element.nullable && !(element.recordAlias?.nullable ?? false);
+  final name = 'readonly ${hasUnion ? '($value)' : value}[]';
+  return type.nullable ? '$name | null' : name;
 }
 
 String _type(ValueType type) {

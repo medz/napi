@@ -144,7 +144,21 @@ try {
     }
     equalList(await invoke(name, extra), [1, 2]);
     const frozen = Object.freeze([1, 2]);
-    equalList(await invoke(name, frozen), [1, 2]);
+    const copied = await invoke(name, frozen);
+    equalList(copied, [1, 2]);
+    assert.notEqual(copied, frozen);
+    assert.equal(Object.isFrozen(copied), false);
+    copied[0] = 7;
+    copied.push(3);
+    assert.deepEqual(frozen, [1, 2]);
+    const nullableFrozen = Object.freeze([1, null]);
+    const nullableCopied = await invoke(`listNullableBothInt${suffix}`, nullableFrozen);
+    equalList(nullableCopied, [1, null]);
+    assert.notEqual(nullableCopied, nullableFrozen);
+    assert.equal(Object.isFrozen(nullableCopied), false);
+    nullableCopied[0] = null;
+    nullableCopied.push(2);
+    assert.deepEqual(nullableFrozen, [1, null]);
   }
   for (const suffix of ['', 'Async']) {
     for (const length of ['0', null, -1, 1.5]) {

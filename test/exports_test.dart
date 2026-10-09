@@ -93,14 +93,36 @@ tasks.Future<core.List<({core.double? score})?>?> nullableInline(core.List<({cor
       expect(exports[7].isAsync, isTrue);
       expect(generateTypescript(exports), '''
 export type User = { "active": boolean | null; "age": number; "name": string; "score": number };
-export declare function users(values: User[]): User[];
-export declare function elements(values: Array<User | null>): Array<User | null>;
-export declare function container(values: User[] | null): User[] | null;
-export declare function both(values: Array<User | null> | null): Array<User | null> | null;
-export declare function later(values: User[]): Promise<User[]>;
-export declare function laterBoth(values: Array<User | null> | null): Promise<Array<User | null> | null>;
-export declare function inline(values: { "id": number; "name": string }[]): { "id": number; "name": string }[];
-export declare function nullableInline(values: Array<{ "score": number | null } | null> | null): Promise<Array<{ "score": number | null } | null> | null>;
+export declare function users(values: readonly User[]): User[];
+export declare function elements(values: readonly (User | null)[]): Array<User | null>;
+export declare function container(values: readonly User[] | null): User[] | null;
+export declare function both(values: readonly (User | null)[] | null): Array<User | null> | null;
+export declare function later(values: readonly User[]): Promise<User[]>;
+export declare function laterBoth(values: readonly (User | null)[] | null): Promise<Array<User | null> | null>;
+export declare function inline(values: readonly { "id": number; "name": string }[]): { "id": number; "name": string }[];
+export declare function nullableInline(values: readonly ({ "score": number | null } | null)[] | null): Promise<Array<{ "score": number | null } | null> | null>;
+''');
+    },
+  );
+
+  test(
+    'ReadonlyArray aliases keep mutable scalar, List and Future results',
+    () async {
+      final exports = await analyze('''
+import 'package:napi/napi.dart';
+typedef ReadonlyArray = ({int count});
+@napi
+ReadonlyArray scalar(ReadonlyArray value) => value;
+@napi
+List<ReadonlyArray> echoReadonlyArrays(List<ReadonlyArray> values) => values;
+@napi
+Future<List<ReadonlyArray?>?> later(List<ReadonlyArray?>? values) async => values;
+''');
+      expect(generateTypescript(exports), '''
+export type ReadonlyArray = { "count": number };
+export declare function scalar(value: ReadonlyArray): ReadonlyArray;
+export declare function echoReadonlyArrays(values: readonly ReadonlyArray[]): ReadonlyArray[];
+export declare function later(values: readonly (ReadonlyArray | null)[] | null): Promise<Array<ReadonlyArray | null> | null>;
 ''');
     },
   );
@@ -133,11 +155,11 @@ List<Other> other(List<Other> values) => values;
 export type Base = { "id": number };
 export type Other = { "id": number };
 export type Outer = { "id": number } | null;
-export declare function nullable(values: Array<Outer>): Array<Outer>;
-export declare function later(values: Array<Outer> | null): Promise<Array<Outer> | null>;
+export declare function nullable(values: readonly Outer[]): Array<Outer>;
+export declare function later(values: readonly Outer[] | null): Promise<Array<Outer> | null>;
 export declare function direct(value: Base): Base;
-export declare function originals(values: Base[]): Base[];
-export declare function other(values: Other[]): Other[];
+export declare function originals(values: readonly Base[]): Base[];
+export declare function other(values: readonly Other[]): Other[];
 ''');
     },
   );
@@ -162,7 +184,7 @@ List<original.User> echo(List<exposed.User> values) => values;
     );
     expect(generateTypescript(exports), '''
 export type User = { "name": string };
-export declare function echo(values: User[]): User[];
+export declare function echo(values: readonly User[]): User[];
 ''');
   });
 
@@ -185,7 +207,7 @@ Future<List<User?>?> echo(List<User?>? values) async => values;
     );
     expect(generateTypescript(exports), '''
 export type User = { "id": number };
-export declare function echo(values: Array<User | null> | null): Promise<Array<User | null> | null>;
+export declare function echo(values: readonly (User | null)[] | null): Promise<Array<User | null> | null>;
 ''');
   });
 
@@ -1062,10 +1084,10 @@ core.Map<core.String, core.String> labels(core.Map<core.String, core.String> val
       expect(result.elementType!.nullable, isFalse);
     }
     expect(generateTypescript(exports), '''
-export declare function flags(values: boolean[]): boolean[];
-export declare function doubleAll(values: number[]): number[];
-export declare function scales(values: number[]): number[];
-export declare function texts(values: string[]): string[];
+export declare function flags(values: readonly boolean[]): boolean[];
+export declare function doubleAll(values: readonly number[]): number[];
+export declare function scales(values: readonly number[]): number[];
+export declare function texts(values: readonly string[]): string[];
 export declare function flagLabels(values: Record<string, boolean>): Record<string, boolean>;
 export declare function counts(values: Record<string, number>): Record<string, number>;
 export declare function weights(values: Record<string, number>): Record<string, number>;
@@ -1122,13 +1144,13 @@ Map<String, double?>? weights(Map<String, double?>? values) => values;
       );
     }
     expect(generateTypescript(exports), '''
-export declare function leaf(values: Array<number | null>): Array<number | null>;
-export declare function container(values: number[] | null): number[] | null;
-export declare function both(values: Array<number | null> | null): Array<number | null> | null;
+export declare function leaf(values: readonly (number | null)[]): Array<number | null>;
+export declare function container(values: readonly number[] | null): number[] | null;
+export declare function both(values: readonly (number | null)[] | null): Array<number | null> | null;
 export declare function mapLeaf(values: Record<string, string | null>): Record<string, string | null>;
 export declare function mapContainer(values: Record<string, string> | null): Record<string, string> | null;
 export declare function mapBoth(values: Record<string, string | null> | null): Record<string, string | null> | null;
-export declare function flags(values: Array<boolean | null> | null): Array<boolean | null> | null;
+export declare function flags(values: readonly (boolean | null)[] | null): Array<boolean | null> | null;
 export declare function weights(values: Record<string, number | null> | null): Record<string, number | null> | null;
 ''');
   });
@@ -1164,7 +1186,7 @@ tasks.Future<core.List<core.bool>> flags() => tasks.Future.value([true]);
         false,
       ]);
       expect(generateTypescript(exports), '''
-export declare function later(values: Array<number | null> | null): Promise<Array<number | null> | null>;
+export declare function later(values: readonly (number | null)[] | null): Promise<Array<number | null> | null>;
 export declare function labels(values: Record<string, string | null> | null): Promise<Record<string, string | null> | null>;
 export declare function flags(): Promise<boolean[]>;
 ''');
