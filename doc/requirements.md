@@ -47,6 +47,15 @@ The project name is `napi`; the primary backend is Wasm ESM integration, not the
 - Verify native package/subpath/relative imports, precise TypeScript in both resolution modes, sync/Future calls, mutation independence, all scalar/nullability combinations, cross-realm values, malformed properties, recovery, and retained memory.
 - Measure 0/1/16/256/4096 element conversions and package-size changes. Omit unused collection helpers from scalar-only packages. Keep one native import API, no JSON serialization, no new runtime dependencies, and no timing gates in correctness CI.
 
+## 0.4.0 contract
+
+- Reuse one compiled, packed and installed scalar/Future/collection artifact per SDK across Node consumers. Keep the full original test suite, format/analyze checks and pub dry run.
+- Verify package, subpath and relative native Wasm exports on Node 22.19.0, 24.5.0, 24.21.0 and 26.11.1. Preserve strict types, safe integers, UTF-16, copy ownership, nullable values, error identity, Future settlement, recovery and retained-memory checks.
+- Verify TypeScript 7.0.2 NodeNext/Bundler package declarations without extra flags and relative declarations with allowArbitraryExtensions; the missing-flag negative case must still fail as expected.
+- Execute a real esbuild 0.28.2 Node application bundle with generated Wasm kept external. Inspect the bundle's imports and run it on the tested Node matrix. Do not substitute automatic Wasm instantiation or re-export glue for native loading.
+- Record actual browser instance-phase results with exact versions and correct HTTP MIME types. Keep native browser loading unsupported when the direct named-import probe fails; do not equate source-phase imports or WasmGC with instance-phase loading.
+- Add no production dependencies or wrapper APIs, preserve SDK ^3.13.5 and the existing generated engine requirement, and publish only after final-head review/CI and independent hosted-package validation.
+
 ## Iteration priorities
 
 After publishing the first complete workflow, prioritize Future-to-Promise support, useful typed data structures, clear diagnostics, compiler/runtime compatibility, reproducible performance and size measurements, and real applications. Define consumer syntax, type and ownership rules, and acceptance cases before implementing each addition.
