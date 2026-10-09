@@ -434,12 +434,12 @@ Forward-round medians for 256 rows, in microseconds per call:
 
 | Route / operation | Before | After | Change | Reverse change |
 | --- | ---: | ---: | ---: | ---: |
-| Dictionary echo | 378.352 | 347.356 | −8.19% | −8.52% |
-| Dictionary normalize | 398.981 | 360.717 | −9.59% | −7.07% |
-| List echo | 287.564 | 258.984 | −9.94% | −9.27% |
-| List normalize | 298.642 | 266.483 | −10.77% | −9.96% |
-| Per-row echo loop | 212.151 | 186.813 | −11.94% | −12.64% |
-| Per-row normalize loop | 218.470 | 193.726 | −11.33% | −13.45% |
+| Dictionary echo | 373.386 | 342.847 | −8.18% | −8.04% |
+| Dictionary normalize | 395.626 | 365.753 | −7.55% | −7.31% |
+| List echo | 281.415 | 256.058 | −9.01% | −9.09% |
+| List normalize | 297.922 | 266.038 | −10.70% | −9.41% |
+| Per-row echo loop | 211.857 | 182.916 | −13.66% | −12.95% |
+| Per-row normalize loop | 222.138 | 194.395 | −12.49% | −12.22% |
 
 These results measure conversion-heavy small transforms, not application speed.
 Dictionary conversion still costs more than list conversion here, and the

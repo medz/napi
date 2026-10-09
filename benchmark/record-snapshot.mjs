@@ -9,7 +9,6 @@ import { pathToFileURL } from 'node:url';
 const [artifactRoot, output, direction = 'forward', baselineRoot] = process.argv.slice(2);
 if (!artifactRoot || !output) throw new Error('Usage: node benchmark/record-snapshot.mjs <after-fixtures> <output.json> [forward|reverse] [before-fixtures]');
 assert.ok(['forward', 'reverse'].includes(direction));
-const baselineSource = 'e06a091529ea3c1e271e5ed5fec9377198d0f637';
 const configuration = {
   sizes: [0, 1, 16, 256], runs: 5, iterations: 20000, workBudget: 65536,
   warmup: 'max(100, floor(calls / 10))',
@@ -170,13 +169,13 @@ for (const size of configuration.sizes) {
   }
 }
 await writeFile(output, JSON.stringify({
-  schema: 1, baselineSource, recordedAt: new Date().toISOString(), direction, configuration,
+  schema: 1, recordedAt: new Date().toISOString(), direction, configuration,
   driver_sha256: createHash('sha256').update(await readFile(new URL(import.meta.url))).digest('hex'),
   comparison: baselineRoot ? 'before_*: baseline artifacts; wasm_*: candidate artifacts; same-process rotated samples' : 'baseline Map/List/per-row comparison',
   environment: { node: process.version, v8: process.versions.v8, os: `${platform()} ${release()}`, arch: arch(), cpu: cpus()[0]?.model },
   artifacts, correctness: 'equal values, fresh outer container and null-prototype records; output mutation leaves input and next call unchanged',
   notes: [
-    'Reuse exact installed PR80 fixtures; no compilation or download. Warmed synchronous calls only; no async timer or cold import measurement.',
+    'Reuse supplied fixture artifacts; this driver performs no compilation or download. Warmed synchronous calls only; no async timer or cold import measurement.',
     'Map/List/one-record fixtures have different export sets; User type and echo/normalize business logic are equivalent.',
     'Per-row controls lack outer-container validation; output is an array and includes JS Array.map dispatch/allocation.',
     'JavaScript references validate only ordinary current-realm valid data shapes, safe integers/string/nullable bool and copy outputs; not the full Proxy/cross-realm/error contract or Dart-owned business-input representation.',
