@@ -66,8 +66,6 @@ Run from the napi repository root. No timing assertions are made.''');
       'node': '${nodeVersion.stdout}'.trim(),
       'npm': '${npmVersion.stdout}'.trim(),
       'os': Platform.operatingSystemVersion,
-      'dart_executable': Platform.resolvedExecutable,
-      'node_executable': node,
     },
     'configuration': {
       'iterations': iterations,
