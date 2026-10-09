@@ -192,12 +192,14 @@ function poisonedSlot() {
   throw new Error('snapshot inherited trap');
 }
 let inheritedCopy;
+let inheritedSingleCopy;
 try {
   Object.defineProperty(Object.prototype, Symbol.iterator, {get: poisonedSlot, configurable: true});
   Object.defineProperty(Object.prototype, '1', {get: poisonedSlot, configurable: true});
   Object.defineProperty(Array.prototype, '0', {get: poisonedSlot, set: poisonedSlot, configurable: true});
   Object.defineProperty(Array, Symbol.species, {get: poisonedSlot, configurable: true});
   inheritedCopy = snapshotRecord(source, names, 'parameter user');
+  inheritedSingleCopy = snapshotRecord(source, ['id'], 'parameter user');
 } finally {
   if (arraySpecies) Object.defineProperty(Array, Symbol.species, arraySpecies);
   else delete Array[Symbol.species];
@@ -213,6 +215,9 @@ assert.equal(Object.getPrototypeOf(inheritedCopy), Array.prototype);
 assert.deepEqual(inheritedCopy, [3, 'before']);
 assert.deepEqual(Object.getOwnPropertyDescriptor(inheritedCopy, '0'), {value: 3, writable: true, enumerable: true, configurable: true});
 assert.deepEqual(Object.getOwnPropertyDescriptor(inheritedCopy, '1'), {value: 'before', writable: true, enumerable: true, configurable: true});
+assert.equal(Object.getPrototypeOf(inheritedSingleCopy), Array.prototype);
+assert.deepEqual(inheritedSingleCopy, [3]);
+assert.deepEqual(Object.getOwnPropertyDescriptor(inheritedSingleCopy, '0'), {value: 3, writable: true, enumerable: true, configurable: true});
 const output = _i2();
 _i3(output, 'constructor', 'value');
 _i3(output, 'then', false);

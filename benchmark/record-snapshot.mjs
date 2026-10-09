@@ -164,10 +164,44 @@ for (const size of configuration.sizes) {
         samples[variant.name].push(elapsedMs * 1e6 / calls);
       }
     }
-    cases.push({ operation, size, calls, warmup, orders,
+    cases.push({ operation, size, fields: 3, calls, warmup, orders,
       ns_per_call: Object.fromEntries(Object.entries(samples).map(([name, values]) => [name, summarize(values)])) });
   }
 }
+// A one-field native control catches per-record callback overhead hidden by
+// the three-field/bulk cases. Reuse the same records Wasm instead of rebuilding.
+const singleInput = { value: 42 };
+const single = [
+  ...(before ? [{ name: 'before_record_one', call: before.records.inlineOne }] : []),
+  { name: 'wasm_record_one', call: modules.records.inlineOne },
+];
+if (direction === 'reverse') single.reverse();
+for (const { call } of single) {
+  assert.match(Function.prototype.toString.call(call), /\[native code\]/);
+  const result = call(singleInput);
+  assert.deepEqual({ ...result }, singleInput);
+  assert.equal(Object.getPrototypeOf(result), null);
+  assert.notEqual(result, singleInput);
+  result.value = 0;
+  assert.equal(singleInput.value, 42);
+  assert.equal(call(singleInput).value, 42);
+  assert.equal(call({ value: Number.MAX_SAFE_INTEGER }).value, Number.MAX_SAFE_INTEGER);
+  assert.throws(() => call({ value: Number.MAX_SAFE_INTEGER + 1 }), RangeError);
+}
+const singleSamples = Object.fromEntries(single.map(({ name }) => [name, []]));
+const singleOrders = [];
+for (const { call } of single) for (let i = 0; i < 20000; i++) sink ^= call(singleInput).value;
+for (let run = 0; run < configuration.runs; run++) {
+  const order = Array.from({ length: single.length }, (_, index) => single[(index + run) % single.length]);
+  singleOrders.push(order.map(({ name }) => name));
+  for (const { name, call } of order) {
+    const start = performance.now();
+    for (let i = 0; i < 100000; i++) sink ^= call(singleInput).value;
+    singleSamples[name].push((performance.now() - start) * 1e6 / 100000);
+  }
+}
+cases.push({ operation: 'echo_one', size: 1, fields: 1, calls: 100000, warmup: 20000,
+  orders: singleOrders, ns_per_call: Object.fromEntries(Object.entries(singleSamples).map(([name, values]) => [name, summarize(values)])) });
 await writeFile(output, JSON.stringify({
   schema: 1, recordedAt: new Date().toISOString(), direction, configuration,
   driver_sha256: createHash('sha256').update(await readFile(new URL(import.meta.url))).digest('hex'),

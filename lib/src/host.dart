@@ -272,14 +272,16 @@ napi.snapshotMap = (value, context) => {
   'snapshotRecord': r'''
 napi.snapshotRecord = (value, names, context) => {
   napiRequireObject(value, context);
-  return Array.from({ __proto__: null, length: names.length }, (_, index) => {
+  const read = (_, index) => {
     const key = names[index];
     const descriptor = Object.getOwnPropertyDescriptor(value, key);
     if (!descriptor || !Object.hasOwn(descriptor, 'value')) {
       throw new TypeError(context + '[' + JSON.stringify(key) + ']: Expected an own data property');
     }
     return descriptor.value;
-  });
+  };
+  return names.length === 1 ? [read(null, 0)]
+    : Array.from({ __proto__: null, length: names.length }, read);
 };
 ''',
 };

@@ -416,8 +416,9 @@ declarations and package manifests are byte-identical. No Dart compilation or
 tool download was needed for this experiment.
 
 The helper keeps ordinary-object validation and ordered own-data-descriptor
-reads, but lets `Array.from` create the snapshot slots instead of constructing
-a descriptor object and calling `Object.defineProperty` for each slot.
+reads, but uses a single-slot array literal for one-field records and lets
+`Array.from` create multi-field snapshot slots instead of constructing a
+descriptor object and calling `Object.defineProperty` for each slot.
 Its null-prototype array-like input avoids inherited iterators and indexed
 getters. The [Array.from algorithm](https://tc39.es/ecma262/multipage/indexed-collections.html#sec-array.from)
 creates own data properties; focused regression checks cover inherited numeric
@@ -430,16 +431,23 @@ rotates implementation order; the second process reverses the base order.
 Known-field consumption is timed, while value and ownership assertions run
 outside timing. JIT, GC and system load are uncontrolled.
 
+An additional `inlineOne({value: 42})` native control uses 20,000 warmups and
+100,000 calls per sample. The single-slot route reduces its median from
+296.418 → 182.919ns in the forward process and 298.305 → 189.363ns in reverse
+(−38.29% / −36.52%). This guard matters: the multi-field algorithm applied to
+a single field would add callback setup cost. Both routes retain own snapshot
+slots without invoking inherited setters or Array species.
+
 Forward-round medians for 256 rows, in microseconds per call:
 
 | Route / operation | Before | After | Change | Reverse change |
 | --- | ---: | ---: | ---: | ---: |
-| Dictionary echo | 373.386 | 342.847 | −8.18% | −8.04% |
-| Dictionary normalize | 395.626 | 365.753 | −7.55% | −7.31% |
-| List echo | 281.415 | 256.058 | −9.01% | −9.09% |
-| List normalize | 297.922 | 266.038 | −10.70% | −9.41% |
-| Per-row echo loop | 211.857 | 182.916 | −13.66% | −12.95% |
-| Per-row normalize loop | 222.138 | 194.395 | −12.49% | −12.22% |
+| Dictionary echo | 365.012 | 336.526 | −7.80% | −7.69% |
+| Dictionary normalize | 382.255 | 358.209 | −6.29% | −6.51% |
+| List echo | 277.667 | 254.053 | −8.50% | −10.82% |
+| List normalize | 289.571 | 261.630 | −9.65% | −8.79% |
+| Per-row echo loop | 206.456 | 179.973 | −12.83% | −12.78% |
+| Per-row normalize loop | 214.109 | 189.854 | −11.33% | −12.63% |
 
 These results measure conversion-heavy small transforms, not application speed.
 Dictionary conversion still costs more than list conversion here, and the
@@ -450,8 +458,8 @@ assuming batching improves a trivial transform. Empty-input samples are under
 valid current-realm descriptor/scalar checks and fresh output objects, without
 the complete Proxy/error/cross-realm contract or Dart-owned business input.
 
-The `record-maps`, `batch` and `records` host files each shrink by 146 bytes
-(35,450 → 35,304; 33,866 → 33,720; 33,159 → 33,013). Their other four artifacts
+The `record-maps`, `batch` and `records` host files each shrink by 82 bytes
+(35,450 → 35,368; 33,866 → 33,784; 33,159 → 33,077). Their other four artifacts
 remain unchanged. Helpers are still emitted only when used.
 
 To compare already-built fixture directories containing
