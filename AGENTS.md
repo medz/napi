@@ -6,7 +6,10 @@ Consumers import functions directly from .wasm or an npm entry pointing to it.
 Do not replace that API with manual initialization or a JavaScript entrypoint.
 Do not add a native addon backend, build_runner, or a plugin framework.
 
-Run format, analyze, tests (including Node and TypeScript), and pub dry-run.
+Run format, analyze, tests (including Node and TypeScript), and pub dry-run for
+code, tests, tools, dependency or CI changes. Ordinary non-executable Markdown
+changes limited to AGENTS.md, README.md, CHANGELOG.md and doc/**/*.md use
+git diff --check in CI. Mixed or unknown paths and uncertain history use full CI.
 Document tested compiler/runtime versions; the Dart Wasm interop is experimental.
 
 # Code review
