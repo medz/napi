@@ -153,6 +153,123 @@ void main() {
     expect(source, contains('value.then, 1, false'));
   });
 
+  test('record lists share direct shapes and discover nullable aliased elements', () {
+    const user = ValueType(
+      ValueKind.recordType,
+      recordFields: fields,
+      recordAlias: (
+        name: 'User',
+        libraryUri: 'package:users/a.dart',
+        nullable: false,
+      ),
+    );
+    const maybe = ValueType(
+      ValueKind.recordType,
+      nullable: true,
+      recordFields: fields,
+      recordAlias: (
+        name: 'MaybeUser',
+        libraryUri: 'package:users/b.dart',
+        nullable: true,
+      ),
+    );
+    const users = ValueType(ValueKind.listType, elementType: user);
+    const nullableUsers = ValueType(
+      ValueKind.listType,
+      nullable: true,
+      elementType: maybe,
+    );
+    const directOnly = ValueType(
+      ValueKind.recordType,
+      recordFields: [(name: 'label', type: ValueType(ValueKind.stringType))],
+    );
+    final source = generateBridge([
+      const Export(
+        name: 'user',
+        parameters: [Parameter(name: 'value', type: user)],
+        returnType: user,
+      ),
+      const Export(
+        name: 'users',
+        parameters: [Parameter(name: 'values', type: users)],
+        returnType: users,
+      ),
+      const Export(
+        name: 'maybeUsers',
+        parameters: [Parameter(name: 'values', type: nullableUsers)],
+        returnType: nullableUsers,
+        isAsync: true,
+      ),
+      const Export(name: 'label', parameters: [], returnType: directOnly),
+    ], 'file:///business.dart');
+    expect(
+      RegExp(
+        r'^final _recordNames\d+ =',
+        multiLine: true,
+      ).allMatches(source).length,
+      2,
+    );
+    expect(source, contains('List<T> _readRecordList0<T>('));
+    expect(source, isNot(contains('List<T> _readRecordList1<T>(')));
+    expect(
+      source,
+      contains(
+        '_readRecordList0<({bool? active, int id, String name, double score})>',
+      ),
+    );
+    expect(
+      source,
+      contains(
+        '_readRecordList0<({bool? active, int id, String name, double score})?>',
+      ),
+    );
+    expect(
+      source,
+      contains(
+        '_writeRecordList0<({bool? active, int id, String name, double score})?>',
+      ),
+    );
+    expect(source, isNot(contains('business.User')));
+    expect(source, isNot(contains('business.MaybeUser')));
+  });
+
+  test('list-only record elements are discovered without adding record scalar hosts', () {
+    const record = ValueType(
+      ValueKind.recordType,
+      recordFields: [(name: 'id', type: ValueType(ValueKind.intType))],
+    );
+    const records = ValueType(ValueKind.listType, elementType: record);
+    final source = generateBridge([
+      const Export(
+        name: 'batch',
+        parameters: [Parameter(name: 'values', type: records)],
+        returnType: records,
+      ),
+    ], 'file:///business.dart');
+    expect(source, contains('final _recordNames0 ='));
+    expect(source, contains('({int id}) _readRecord0('));
+    expect(source, contains('List<T> _readRecordList0<T>('));
+    expect(source, contains('napi.snapshotList'));
+    expect(source, contains('napi.snapshotRecord'));
+    expect(source, isNot(contains('napi.snapshotMap')));
+
+    const scalarList = ValueType(
+      ValueKind.listType,
+      elementType: ValueType(ValueKind.intType),
+    );
+    final scalar = generateBridge([
+      const Export(
+        name: 'numbers',
+        parameters: [Parameter(name: 'values', type: scalarList)],
+        returnType: scalarList,
+      ),
+    ], 'file:///business.dart');
+    expect(scalar, isNot(contains('_recordNames')));
+    expect(scalar, isNot(contains('_readRecordList')));
+    expect(scalar, isNot(contains('napi.snapshotRecord')));
+    expect(scalar, isNot(contains('napi.newMap')));
+  });
+
   test('scalar bridges do not emit record or collection helpers', () {
     const scalar = ValueType(ValueKind.intType);
     final source = generateBridge([
@@ -167,5 +284,35 @@ void main() {
     expect(source, isNot(contains('_readRecordField')));
     expect(source, isNot(contains('napi.newMap')));
     expect(source, isNot(contains('napi.arrayGet')));
+  });
+
+  test('record and scalar list outputs validate length before narrowing', () {
+    const records = ValueType(
+      ValueKind.listType,
+      elementType: ValueType(
+        ValueKind.recordType,
+        recordFields: [(name: 'id', type: ValueType(ValueKind.intType))],
+      ),
+    );
+    const numbers = ValueType(
+      ValueKind.listType,
+      elementType: ValueType(ValueKind.intType),
+    );
+    final source = generateBridge([
+      const Export(name: 'records', parameters: [], returnType: records),
+      const Export(name: 'numbers', parameters: [], returnType: numbers),
+    ], 'file:///business.dart');
+    for (final signature in [
+      'WasmExternRef _writeList<T>(',
+      'WasmExternRef _writeRecordList0<T>(',
+    ]) {
+      final body = source.substring(source.indexOf(signature));
+      final guard = body.indexOf('length < 0 || length > 0xffffffff');
+      final narrowing = body.indexOf('_newList(WasmI32.fromInt(length))');
+      final context = body.indexOf('_conversionError(error, context)');
+      expect(guard, greaterThan(0));
+      expect(context, greaterThan(guard));
+      expect(narrowing, greaterThan(context));
+    }
   });
 }

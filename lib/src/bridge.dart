@@ -12,8 +12,18 @@ String generateBridge(List<Export> exports, String sourceImport) {
   ];
   final usesLists = types.any((type) => type.kind == ValueKind.listType);
   final usesMaps = types.any((type) => type.kind == ValueKind.mapType);
-  final records = <String, ValueType>{
+  final recordLists = <String>{
     for (final type in types)
+      if (type.kind == ValueKind.listType &&
+          type.elementType!.kind == ValueKind.recordType)
+        _recordShape(type.elementType!),
+  };
+  final records = <String, ValueType>{
+    for (final type in [
+      ...types,
+      for (final type in types)
+        if (type.kind == ValueKind.listType) type.elementType!,
+    ])
       if (type.kind == ValueKind.recordType) _recordShape(type): type,
   };
   final recordIds = {
@@ -39,6 +49,9 @@ String generateBridge(List<Export> exports, String sourceImport) {
     output.writeln(_recordHelpers);
     for (final (index, type) in records.values.indexed) {
       output.writeln(_generateRecord(type, index));
+      if (recordLists.contains(_recordShape(type))) {
+        output.writeln(_generateRecordList(type, index));
+      }
     }
   }
   if (exports.any((function) => function.isAsync)) {
@@ -116,6 +129,8 @@ String _read(
     ValueKind.doubleType => '_readDouble($value)',
     ValueKind.stringType => '_readString($value)',
     ValueKind.uint8ListType => '_readBytes($value)',
+    ValueKind.listType when type.elementType!.kind == ValueKind.recordType =>
+      '_readRecordList${recordIds[_recordShape(type.elementType!)]!}<${_recordType(type.elementType!)}${type.elementType!.nullable ? '?' : ''}>($value, ${type.elementType!.nullable}, ${_literal(context)})',
     ValueKind.listType || ValueKind.mapType =>
       '${type.kind == ValueKind.listType ? '_readList' : '_readMap'}<${_leafType(type.elementType!)}>($value, ${type.elementType!.kind.index}, ${type.elementType!.nullable}, ${_literal(context)})',
     ValueKind.recordType =>
@@ -136,6 +151,8 @@ String _write(
     ValueKind.stringType => 'externRefForJSAny($value.toJS)',
     ValueKind.intType => '_writeInt($value)',
     ValueKind.uint8ListType => '_copyBytes(externRefForJSAny($value.toJS))',
+    ValueKind.listType when type.elementType!.kind == ValueKind.recordType =>
+      '_writeRecordList${recordIds[_recordShape(type.elementType!)]!}<${_recordType(type.elementType!)}${type.elementType!.nullable ? '?' : ''}>($value, ${type.elementType!.nullable}, ${_literal(context)})',
     ValueKind.listType || ValueKind.mapType =>
       '${type.kind == ValueKind.listType ? '_writeList' : '_writeMap'}<${_leafType(type.elementType!)}>($value, ${type.elementType!.kind.index}, ${type.elementType!.nullable}, ${_literal(context)})',
     ValueKind.recordType =>
@@ -160,10 +177,12 @@ String _recordShape(ValueType type) => jsonEncode([
     [field.name, field.type.kind.index, field.type.nullable],
 ]);
 
+String _recordType(ValueType type) =>
+    '({${type.recordFields.map((field) => '${_leafType(field.type)} ${field.name}').join(', ')}})';
+
 String _generateRecord(ValueType type, int index) {
   final fields = type.recordFields;
-  final recordType =
-      '({${fields.map((field) => '${_leafType(field.type)} ${field.name}').join(', ')}})';
+  final recordType = _recordType(type);
   final output = StringBuffer()
     ..writeln(
       'final _recordNames$index = <JSString>[${fields.map((field) => '${_literal(field.name)}.toJS').join(', ')}].toJS;',
@@ -200,6 +219,49 @@ String _generateRecord(ValueType type, int index) {
     ..writeln('  return result;')
     ..writeln('}');
   return output.toString();
+}
+
+String _generateRecordList(ValueType type, int shape) {
+  final recordType = _recordType(type);
+  return '''
+List<T> _readRecordList$shape<T>(WasmExternRef? value, bool nullable, String context) {
+  final snapshot = _snapshotList(value, externRefForJSAny(context.toJS));
+  final length = _arrayLength(snapshot).toIntUnsigned();
+  final result = <T>[];
+  for (var index = 0; index < length; index++) {
+    final element = _arrayGet(snapshot, WasmI32.fromInt(index));
+    result.add(nullable && element.isNull
+        ? null as T : _readRecord$shape(element, '\$context[\$index]') as T);
+  }
+  return result;
+}
+
+WasmExternRef _writeRecordList$shape<T>(List<T> value, bool nullable, String context) {
+  int length;
+  try {
+    length = value.length;
+    if (length < 0 || length > 0xffffffff) {
+      throw RangeError('List length must be within the JavaScript Array range');
+    }
+  } catch (error) {
+    _conversionError(error, context);
+  }
+  final result = _newList(WasmI32.fromInt(length));
+  for (var index = 0; index < length; index++) {
+    final elementContext = '\$context[\$index]';
+    $recordType? element;
+    try {
+      final valueAtIndex = value[index];
+      element = nullable && valueAtIndex == null ? null : valueAtIndex as $recordType;
+    } catch (error) {
+      _conversionError(error, elementContext);
+    }
+    _arraySet(result, WasmI32.fromInt(index), element == null
+        ? WasmExternRef.nullRef : _writeRecord$shape(element, elementContext));
+  }
+  return result;
+}
+''';
 }
 
 const _helpers = r'''
@@ -388,9 +450,17 @@ List<T> _readList<T>(WasmExternRef? value, int kind, bool nullable, String conte
 }
 
 WasmExternRef _writeList<T>(List<T> value, int kind, bool nullable, String context) {
+  int length;
+  try {
+    length = value.length;
+    if (length < 0 || length > 0xffffffff) {
+      throw RangeError('List length must be within the JavaScript Array range');
+    }
+  } catch (error) {
+    _conversionError(error, context);
+  }
   var index = 0;
   try {
-    final length = value.length;
     final result = _newList(WasmI32.fromInt(length));
     for (; index < length; index++) {
       _arraySet(result, WasmI32.fromInt(index), _writeLeaf(value[index], kind, nullable));

@@ -6,9 +6,7 @@
     "dart": "Dart SDK version: 3.13.5 (stable) (Tue Sep 29 01:00:52 2026 -0700) on \"macos_arm64\"",
     "node": "v22.19.0",
     "npm": "11.12.1",
-    "os": "Version 27.0.1 (Build 26A434)",
-    "dart_executable": "/Users/seven/workspace/flutter/bin/cache/dart-sdk/bin/dart",
-    "node_executable": "/Users/seven/Documents/Codex/2026-10-08/yan/work/node22/node_modules/.bin/node"
+    "os": "Version 27.0.1 (Build 26A434)"
   },
   "configuration": {
     "iterations": 20000,

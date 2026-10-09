@@ -66,8 +66,6 @@ Run from the napi repository root. No timing assertions are made.''');
       'node': '${nodeVersion.stdout}'.trim(),
       'npm': '${npmVersion.stdout}'.trim(),
       'os': Platform.operatingSystemVersion,
-      'dart_executable': Platform.resolvedExecutable,
-      'node_executable': node,
     },
     'configuration': {
       'iterations': iterations,
@@ -89,6 +87,7 @@ Run from the napi repository root. No timing assertions are made.''');
       'api',
       'collections',
       'records',
+      'batch',
     ]) {
       final directory = Directory('${work.path}/$fixture');
       final times = <double>[];
@@ -124,6 +123,7 @@ Run from the napi repository root. No timing assertions are made.''');
       ).allMatches(host).map((match) => match.group(1)!).toList();
       if (fixture != 'collections' &&
           fixture != 'records' &&
+          fixture != 'batch' &&
           collectionHelpers.isNotEmpty) {
         throw StateError('Unexpected collection helpers in $fixture');
       }
@@ -192,6 +192,8 @@ Run from the napi repository root. No timing assertions are made.''');
       File('${work.path}/collections/module.wasm').uri.toString(),
       '--records',
       File('${work.path}/records/module.wasm').uri.toString(),
+      '--batch',
+      File('${work.path}/batch/module.wasm').uri.toString(),
       '--iterations',
       '$iterations',
       '--warmup',

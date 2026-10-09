@@ -167,6 +167,58 @@ collection or record helpers. Fixture sizes include different exported functions
 and cannot isolate the cost of a single DTO. Short sample spreads remain large;
 no speed improvement or general application benefit is claimed.
 
+## Record batches (0.6.0)
+
+[`benchmark/batch-baseline.json`](../benchmark/batch-baseline.json) retains all
+batch samples and the scalar-only footprint from a five-sample 0.6.0 run. The
+command and environment match the Node 22.19.0 record run above. Sync counts are
+20,000 at 0/1/16 rows, 5,000 at 256 and 312 at 4,096; sequential Future counts
+are 2,000 / 2,000 / 2,000 / 500 / 50. Warmups scale by the same rule.
+
+Each input has four fields (bool, safe int, UTF-16 String and double). Echo
+copies data; normalization trims names in Dart; aggregation sums ids. Batch
+calls validate every own Array index and record field. Single-record loops make
+one native call per row and skip outer Array validation; the comparison
+therefore includes different outer-container work. The JS reference covers
+these valid current-realm inputs, not the complete cross-realm/Proxy/error
+contract. It can fuse its record input copy with output construction;
+`ownership_copies` describes semantic boundaries, not equal physical allocation
+counts. Timing consumes length and the first id in O(1), excluding application
+traversal of all output records.
+
+Selected medians in **microseconds per completed batch or loop**:
+
+| Operation / rows | Wasm batch | Wasm single-record loop | JS batch | Wasm batch spread % |
+| --- | ---: | ---: | ---: | ---: |
+| echo / 16 | 26.392 | 19.437 | 9.255 | 2.2 |
+| echo / 4,096 | 7078.616 | 4961.949 | 2382.505 | 3.3 |
+| normalize / 16 | 27.075 | 20.813 | 9.619 | 4.1 |
+| normalize / 4,096 | 7309.812 | 5481.210 | 2428.192 | 2.6 |
+| sum / 16 | 16.106 | 12.122 | 2.608 | 7.3 |
+| sum / 4,096 | 4102.816 | 3176.386 | 632.585 | 2.4 |
+
+For 16-row echoes, one-field and sixteen-field Wasm batches took
+14.422 and 101.317 µs respectively.
+The four-field sequential Future echo at 4,096 rows took
+7136.788 µs. Zero-row echo took
+0.077 µs; short samples have substantial relative variation.
+
+These small transforms and aggregation are slower than the measured single-record
+loops and JavaScript. Batching reduces exported calls, but Array snapshots and
+per-record descriptors, field conversions and allocations still cost work.
+Do not assume batching improves latency; measure useful Dart work in the actual
+application. This baseline claims no optimization or application speedup.
+
+The nine-function batch fixture has 47,589 Wasm bytes,
+29,877 host bytes, 979 bytes per declaration and a
+23,719-byte npm archive. Its one observed build took
+2,728.3 ms; native import median was
+3.246 ms (3.005–3.843 ms).
+The cold first call measures `answer()`, not DTO conversion. The scalar-only
+fixture remains 17,295 Wasm / 16,703 host bytes with no collection or record
+helpers. Fixtures export different functions, so their sizes cannot isolate
+one record or one List layer.
+
 ## Scope and interpretation
 
 Timings include loop, dispatch, result consumption, validation, allocation and

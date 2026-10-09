@@ -34,7 +34,7 @@ Acceptance covers the scalar, Future and collection workflows on Node 22.19.0,
 and a real esbuild Node application bundle with external Wasm. The browser
 instance-phase probe remains a documented limitation. See [tested platforms](platforms.md).
 
-## 0.5.0 — typed data objects
+## 0.5.0 — released: typed data objects
 
 - [#39: Named records and exported record typedefs](https://github.com/medz/napi/issues/39).
 
@@ -42,6 +42,15 @@ Acceptance covers required mixed scalar fields, own-data descriptor validation,
 nullable records and Future completions, call-time snapshots, independent output
 objects, imported public type aliases, precise TypeScript consumers, and measured
 conversion/size costs. See the [0.5.0 requirements](requirements.md#050-contract).
+
+## 0.6.0 — batch data objects
+
+- [#41: Lists of named records](https://github.com/medz/napi/issues/41).
+
+Acceptance covers ordered heterogeneous batches with independent nullability,
+complete call-time snapshots, independent result objects, accurate public types,
+index/field diagnostics, real native imports and external-Wasm bundles, and
+measured normalization/aggregation costs. See the [0.6.0 requirements](requirements.md#060-contract).
 
 ## Next — compiler compatibility and real applications
 

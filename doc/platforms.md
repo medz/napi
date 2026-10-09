@@ -10,12 +10,12 @@ includes `module.imports.mjs`, which the Wasm module imports automatically.
 | Dart compiler | Node | Native Wasm imports | Coverage |
 | --- | --- | --- | --- |
 | 3.13.5 | 22.19.0 | Experimental, no Wasm flag | Full Dart suite and runtime consumers |
-| 3.13.5 | 24.5.0 | Experimental, no Wasm flag | Same scalar, Future, collection and record artifacts |
-| 3.13.5 | 24.21.0 | Experimental, no Wasm flag | Same scalar, Future, collection and record artifacts |
-| 3.13.5 | 26.11.1 | Experimental, no Wasm flag | Same scalar, Future, collection and record artifacts |
+| 3.13.5 | 24.5.0 | Experimental, no Wasm flag | Same scalar, Future, collection, record and batch artifacts |
+| 3.13.5 | 24.21.0 | Experimental, no Wasm flag | Same scalar, Future, collection, record and batch artifacts |
+| 3.13.5 | 26.11.1 | Experimental, no Wasm flag | Same scalar, Future, collection, record and batch artifacts |
 
 Runtime coverage includes safe integers, UTF-16, double special values, nullable
-values, byte/collection/record ownership, cross-realm values, original JavaScript
+values, byte/collection/record/batch ownership, cross-realm values, original JavaScript
 errors, strict property validation, Future settlement and recovery, and retained
 memory after garbage collection. All rows also verify TypeScript 7.0.2 package
 and relative Wasm declarations in NodeNext and Bundler resolution modes.
@@ -54,7 +54,7 @@ node app.mjs
 
 Keep `app.mjs`, the installed generated package, and its original Wasm/host
 files together when deploying. The runtime test application also exercises
-Lists, Maps and Futures, including package/subpath/relative imports, snapshots,
+Lists, Maps, record batches and Futures, including package/subpath/relative imports, snapshots,
 special keys, nullable values and errors on the Node versions above. The metafile verifies that all three
 user imports remain external ESM imports and that only application source is
 bundled. The same bundle runs across the runtime matrix.

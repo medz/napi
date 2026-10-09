@@ -1,3 +1,11 @@
+## 0.6.0
+
+- Export one List layer of flat named records with independent container, element and field nullability, including Future completion values.
+- Generate precise Array/Promise declarations and public record types reachable only through List elements.
+- Snapshot complete batches before business code or Promise return; copy every non-null result position into an independent data object and retain exact index/field error paths.
+- Reject output List lengths outside the JavaScript Array range before conversion and preserve unsigned Array lengths/indices across the i32 boundary.
+- Verify packed batch consumers and external-Wasm application bundles across the Node matrix; measure batch conversion, normalization and aggregation costs.
+
 ## 0.5.0
 
 - Export flat named records with mixed scalar fields as independent JavaScript data objects, including nullable records and Future completion values.
