@@ -140,6 +140,8 @@ Future<void> main(List<String> arguments) async {
       '--no-audit',
       '--no-fund',
       p.join(consumer.path, archive['filename'] as String),
+      if (fixture.name == 'records' || fixture.name == 'batch')
+        '@types/node@26.6.4',
     ], consumer.path);
     final installed = p.join(
       consumer.path,

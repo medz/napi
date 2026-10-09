@@ -16,6 +16,7 @@ const names = [
   'repeatFirst', 'repeatFirstAsync', 'unsafeUsers', 'unsafeUsersAsync',
   'unsafeMixed', 'unsafeMixedAsync', 'echoPart', 'echoPartAsync',
   'invalidLengthUsers', 'invalidLengthUsersAsync', 'invalidIndexReads', 'echoReadonlyArrays',
+  'echoPackets', 'echoPacketsAsync', 'normalizePackets', 'normalizePacketsAsync', 'echoNullablePackets', 'echoNullablePacketsAsync', 'echoInlinePackets', 'echoInlinePacketsAsync', 'echoByteFieldsList', 'echoByteFieldsListAsync', 'repeatFirstPacket', 'repeatFirstPacketAsync', 'trackedPackets', 'trackedPacketsAsync', 'readPackets', 'readPacketsAsync', 'changePackets', 'echoPartPackets', 'echoPartPacketsAsync',
 ];
 for (const name of names) {
   assert.equal(typeof api[name], 'function', name);
@@ -23,7 +24,7 @@ for (const name of names) {
   assert.equal(api[name], relative[name], `${name} relative raw Wasm`);
   assert.match(Function.prototype.toString.call(api[name]), /\[native code\]/, name);
 }
-for (const name of ['User', 'UserAlias', 'MaybeUserAlias', 'Mixed', 'SpecialFields', 'BatchPart', 'ReadonlyArray']) {
+for (const name of ['User', 'UserAlias', 'MaybeUserAlias', 'Mixed', 'SpecialFields', 'BatchPart', 'ReadonlyArray', 'Packet', 'MaybePacket', 'ByteFields', 'BatchPacket']) {
   assert.equal(Object.hasOwn(api, name), false, `${name} is only a nested type export`);
 }
 
@@ -90,6 +91,31 @@ function equalBatch(actual, expected) {
     assert(Object.hasOwn(descriptor, 'value'));
     if (expected[index] === null) assert.equal(descriptor.value, null);
     else equalRecord(descriptor.value, expected[index]);
+  }
+}
+function equalByteRecord(actual, expected) {
+  assert.equal(Object.getPrototypeOf(actual), null);
+  assert.deepEqual(Reflect.ownKeys(actual).sort(), Object.keys(expected).sort());
+  for (const key of Object.keys(expected)) {
+    const descriptor = Object.getOwnPropertyDescriptor(actual, key);
+    assert(Object.hasOwn(descriptor, 'value'));
+    assert.equal(descriptor.enumerable, true);
+    assert.equal(descriptor.writable, true);
+    assert.equal(descriptor.configurable, true);
+    if (expected[key] instanceof Uint8Array) {
+      assert(actual[key] instanceof Uint8Array);
+      assert(actual[key].buffer instanceof ArrayBuffer);
+      assert.deepEqual(actual[key], expected[key]);
+    } else assert(Object.is(descriptor.value, expected[key]));
+  }
+}
+function equalByteBatch(actual, expected) {
+  assert(Array.isArray(actual));
+  assert.equal(actual.length, expected.length);
+  for (let index = 0; index < expected.length; index++) {
+    assert(Object.hasOwn(Object.getOwnPropertyDescriptor(actual, index), 'value'));
+    if (expected[index] === null) assert.equal(actual[index], null);
+    else equalByteRecord(actual[index], expected[index]);
   }
 }
 const user = () => ({ name: 'Dart', age: 20, active: null });
@@ -378,9 +404,144 @@ try {
   }
   await Promise.all(pending);
 
+  // Packet rows compose byte copies with existing List and record snapshots.
+  const bytePacket = payload => ({ name: 'packet', payload });
+  for (const name of ['echoPackets', 'echoPacketsAsync', 'echoNullablePackets', 'echoNullablePacketsAsync']) {
+    const bytes = new Uint8Array([0, 128, 255]);
+    const input = Object.freeze([Object.freeze(bytePacket(bytes))]);
+    const output = await invoke(name, input);
+    equalByteBatch(output, [bytePacket(new Uint8Array([0, 128, 255]))]);
+    assert.notEqual(output, input); assert.notEqual(output[0], input[0]);
+    assert.notEqual(output[0].payload.buffer, bytes.buffer);
+    output[0].payload[0] = 7; output[0].name = 'mutable'; output.push(bytePacket(new Uint8Array()));
+    assert.deepEqual(bytes, new Uint8Array([0, 128, 255]));
+    equalByteBatch(await invoke(name, []), []);
+    equalByteBatch(await invoke(name, [bytePacket(new Uint8Array())]), [bytePacket(new Uint8Array())]);
+    if (name.startsWith('echoNullable')) {
+      assert.equal(await invoke(name, null), null);
+      equalByteBatch(await invoke(name, [null, bytePacket(new Uint8Array([1]))]), [null, bytePacket(new Uint8Array([1]))]);
+    } else await failure(name, [null], TypeError, ['parameter values']);
+    await failure(name, [[bytePacket(new Uint8Array([1])), { name: 'missing' }]], TypeError, ['parameter values[1]["payload"]']);
+    await failure(name, [[bytePacket(new Uint8Array([1])), bytePacket(undefined)]], TypeError, ['parameter values[1]["payload"]']);
+  }
+  for (const name of ['echoPackets', 'echoPacketsAsync']) {
+    const bytes = Buffer.from([99, 0, 128, 255, 88]).subarray(1, 4);
+    equalByteBatch(await invoke(name, [bytePacket(bytes)]), [bytePacket(new Uint8Array([0, 128, 255]))]);
+    const foreign = runInNewContext("[{name:'foreign',payload:new Uint8Array([0,128,255])}]");
+    equalByteBatch(await invoke(name, foreign), [{ name: 'foreign', payload: new Uint8Array([0, 128, 255]) }]);
+    let byteGetters = 0;
+    const hidden = Object.create(null);
+    Object.defineProperties(hidden, { name: { value: 'hidden' }, payload: { value: new Uint8Array([1]) } });
+    equalByteBatch(await invoke(name, [hidden]), [{ name: 'hidden', payload: new Uint8Array([1]) }]);
+    const accessor = bytePacket(new Uint8Array([1]));
+    Object.defineProperty(accessor, 'payload', { get() { byteGetters++; return new Uint8Array([1]); } });
+    await failure(name, [[bytePacket(new Uint8Array([1])), accessor]], TypeError, ['parameter values[1]["payload"]']);
+    const view = new Uint8Array([1]);
+    for (const key of ['length', 'byteLength', 'byteOffset', 'buffer', Symbol.iterator, Symbol.toStringTag]) {
+      Object.defineProperty(view, key, { get() { byteGetters++; throw Error('unused byte-view getter'); } });
+    }
+    const extra = bytePacket(view);
+    Object.defineProperty(extra, 'ignored', { get() { byteGetters++; throw Error('unused byte-row getter'); } });
+    const proxy = new Proxy(extra, {
+      get() { throw Error('must not read row getters'); },
+      ownKeys() { throw Error('must not enumerate row extras'); },
+      getOwnPropertyDescriptor(target, key) {
+        assert(['name', 'payload'].includes(key));
+        return Reflect.getOwnPropertyDescriptor(target, key);
+      },
+    });
+    equalByteBatch(await invoke(name, [proxy]), [bytePacket(new Uint8Array([1]))]);
+    assert.equal(byteGetters, 0);
+    for (const payload of [null, new Uint16Array(1), new DataView(new ArrayBuffer(1)), new ArrayBuffer(1), [], new Proxy(new Uint8Array(1), {})]) {
+      await failure(name, [[bytePacket(new Uint8Array([1])), bytePacket(payload)]], TypeError, ['parameter values[1]["payload"]']);
+    }
+    const detached = new Uint8Array([1]);
+    structuredClone(detached.buffer, { transfer: [detached.buffer] });
+    await failure(name, [[bytePacket(new Uint8Array([1])), bytePacket(detached)]], TypeError, ['parameter values[1]["payload"]']);
+    const rab = new ArrayBuffer(8, { maxByteLength: 16 });
+    const oob = new Uint8Array(rab, 2, 3); rab.resize(1);
+    await failure(name, [[bytePacket(new Uint8Array([1])), bytePacket(oob)]], TypeError, ['parameter values[1]["payload"]']);
+    for (const reason of [new Error('byte row reflection'), new TypeError('byte row reflection type'), new RangeError('byte row reflection range'), 'byte reason', Symbol('byte reason')]) {
+      await identicalFailure(name, [bytePacket(new Uint8Array([1])), new Proxy(bytePacket(new Uint8Array([1])), { getOwnPropertyDescriptor() { throw reason; } })], reason);
+      await identicalFailure(name, new Proxy([bytePacket(new Uint8Array([1]))], { getOwnPropertyDescriptor() { throw reason; } }), reason);
+    }
+  }
+  for (const name of ['normalizePackets', 'normalizePacketsAsync']) {
+    const bytes = new Uint8Array([0, 128, 255]);
+    const input = [{ name: ' sample ', payload: bytes }];
+    const pending = invoke(name, input);
+    assert.deepEqual(bytes, new Uint8Array([0, 128, 255]), 'Dart business mutates only its owned payload');
+    bytes.fill(7); input[0].name = 'changed'; input[0].payload = new Uint8Array([8]); input.push(bytePacket(new Uint8Array([9])));
+    equalByteBatch(await pending, [{ name: 'sample', payload: new Uint8Array([255, 127, 0]) }]);
+    assert.deepEqual(bytes, new Uint8Array([7, 7, 7]));
+  }
+  for (const name of ['echoInlinePackets', 'echoInlinePacketsAsync']) {
+    equalByteBatch(await invoke(name, [bytePacket(new Uint8Array([1])), { name: 'nullable', payload: null }, null]), [bytePacket(new Uint8Array([1])), { name: 'nullable', payload: null }, null]);
+    assert.equal(await invoke(name, null), null);
+    await failure(name, [[bytePacket(new Uint8Array([1])), { name: 'missing' }]], TypeError, ['parameter values[1]["payload"]']);
+  }
+  for (const name of ['echoPartPackets', 'echoPartPacketsAsync']) {
+    equalByteBatch(await invoke(name, [{ code: 1, payload: new Uint8Array([1]) }, { code: 2, payload: null }, null]), [{ code: 1, payload: new Uint8Array([1]) }, { code: 2, payload: null }, null]);
+    assert.equal(await invoke(name, null), null);
+  }
+  for (const name of ['echoByteFieldsList', 'echoByteFieldsListAsync']) {
+    const bytes = new Uint8Array([1, 2]);
+    const row = { first: bytes, maybe: bytes, second: bytes };
+    const output = await invoke(name, [row, row]);
+    equalByteBatch(output, [row, row]);
+    const fields = output.flatMap(value => [value.first, value.maybe, value.second]);
+    assert.equal(new Set(fields.map(value => value.buffer)).size, fields.length, 'each output field and position owns separate byte storage');
+    output[0].first[0] = 9;
+    for (const field of fields.slice(1)) assert.equal(field[0], 1);
+    assert.equal(bytes[0], 1);
+    const before = invoke('calls');
+    await failure(name, [[row, row, { first: bytes, maybe: null, second: undefined }]], TypeError, ['parameter values[2]["second"]']);
+    assert.equal(invoke('calls'), before, 'later-row byte failure prevents business entry');
+  }
+  for (const name of ['echoPackets', 'echoPacketsAsync', 'repeatFirstPacket', 'repeatFirstPacketAsync']) {
+    const shared = bytePacket(new Uint8Array([1, 2]));
+    const output = await invoke(name, [shared, shared]);
+    equalByteBatch(output, [shared, shared]);
+    assert.notEqual(output[0], output[1]);
+    assert.notEqual(output[0].payload.buffer, output[1].payload.buffer);
+    assert.notEqual(output[0].payload.buffer, shared.payload.buffer);
+    output[0].payload[0] = 9;
+    assert.equal(output[1].payload[0], 1); assert.equal(shared.payload[0], 1);
+  }
+  for (const name of ['trackedPackets', 'trackedPacketsAsync']) {
+    for (const second of [[bytePacket(new Uint8Array([1])), bytePacket(undefined)], [bytePacket(new Uint8Array([1])), bytePacket(new Uint16Array(1))]]) {
+      const before = invoke('calls');
+      await failure(name, [[bytePacket(new Uint8Array([1]))], second], TypeError, ['parameter second[1]["payload"]']);
+      assert.equal(invoke('calls'), before);
+    }
+    const bad = new Uint8Array([1]); structuredClone(bad.buffer, { transfer: [bad.buffer] });
+    const before = invoke('calls');
+    await failure(name, [[bytePacket(new Uint8Array([1])), bytePacket(bad)], []], TypeError, ['parameter first[1]["payload"]']);
+    assert.equal(invoke('calls'), before);
+    const firstBytes = new Uint8Array([1, 2]); const secondBytes = new Uint8Array([3, 4]);
+    const first = [bytePacket(firstBytes)]; const second = [{ name: 'second', payload: secondBytes }];
+    const pending = invoke(name, first, second);
+    firstBytes.fill(7); first[0].payload = new Uint8Array([8]); first.length = 0;
+    structuredClone(secondBytes.buffer, { transfer: [secondBytes.buffer] }); second[0].payload = new Uint8Array([8]); second.length = 0;
+    equalByteBatch(await pending, [{ name: 'second', payload: new Uint8Array([3, 4]) }]);
+    const saved = invoke('readPackets');
+    equalByteBatch(saved, [bytePacket(new Uint8Array([1, 2]))]);
+    saved[0].payload[0] = 9; saved.push(bytePacket(new Uint8Array([9])));
+    equalByteBatch(await invoke('readPacketsAsync'), [bytePacket(new Uint8Array([1, 2]))]);
+    const previous = invoke('readPackets'); invoke('changePackets');
+    equalByteBatch(previous, [bytePacket(new Uint8Array([1, 2]))]);
+    const changed = invoke('readPackets');
+    equalByteBatch(changed, [bytePacket(new Uint8Array([254, 2])), bytePacket(new Uint8Array([254, 2]))]);
+    assert.notEqual(changed[0].payload.buffer, changed[1].payload.buffer);
+    assert.deepEqual(firstBytes, new Uint8Array([7, 7]));
+    await failure(name, [[{ name: 'fail', payload: new Uint8Array([1]) }], [bytePacket(new Uint8Array([2]))]], TypeError, ['packet failure']);
+    equalByteBatch(await invoke(name, [bytePacket(new Uint8Array([1]))], [bytePacket(new Uint8Array([2]))]), [bytePacket(new Uint8Array([2]))]);
+  }
+
   // Discarded arrays, records, and unique strings must not become boundary roots.
   assert.equal(typeof global.gc, 'function', 'run with --expose-gc');
   const retainedOutputs = [];
+  const retainedByteOutputs = [];
   const leakProbe = process.env.NAPI_BATCH_RETAIN_OUTPUTS === '1';
   const codeUnits = new Uint16Array(8192);
   codeUnits.fill(0x4e2d);
@@ -398,6 +559,9 @@ try {
       assert.equal(output[3].name, input[3].name);
       assert.equal(output[3].age, index * 4 + 3);
       if (leakProbe) retainedOutputs.push(output);
+      const byteOutput = invoke('echoPackets', input.map(row => ({ name: row.name, payload: new Uint8Array(8192) })));
+      assert.equal(byteOutput[3].payload.length, 8192);
+      if (leakProbe) retainedByteOutputs.push(byteOutput);
     }
     for (let index = 0; index < 16; index += 4) {
       await Promise.all(Array.from({ length: 4 }, (_, offset) => invoke('echoUsersAsync', [{ name: `batch ${id}`, age: index + offset, active: null }])));
@@ -417,6 +581,7 @@ try {
   assert(retained.heapUsed < limit, `host heap retained ${retained.heapUsed}`);
   assert(retained.arrayBuffers < limit, `array buffers retained ${retained.arrayBuffers}`);
   assert.equal(retainedOutputs.length, leakProbe ? 1024 : 0);
+  assert.equal(retainedByteOutputs.length, leakProbe ? 1024 : 0);
   await immediate(); await immediate();
   assert.deepEqual(unhandled, [], 'record-list errors must not escape Promise settlement');
   console.log(JSON.stringify({ checks, nativeFunctions: names.length, node: process.version, retained }));

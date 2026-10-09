@@ -97,12 +97,16 @@ jobs:
             (
               cd ".dart_tool/runtime-fixtures/$fixture"
               node --expose-gc "$runtime_script"
+              type_args=()
+              case "$fixture" in
+                records|batch) type_args=(--types node) ;;
+              esac
               for resolution in NodeNext Bundler; do
                 module_mode=ESNext
                 if [ "$resolution" = NodeNext ]; then module_mode=NodeNext; fi
-                node "$tsc_path" --strict --noEmit --target ES2022 --module "$module_mode" --moduleResolution "$resolution" "$package_consumer"
-                node "$tsc_path" --strict --noEmit --target ES2022 --module "$module_mode" --moduleResolution "$resolution" --allowArbitraryExtensions "$relative_consumer"
-                if node "$tsc_path" --strict --noEmit --target ES2022 --module "$module_mode" --moduleResolution "$resolution" "$relative_consumer" > without-extension-option.log 2>&1; then
+                node "$tsc_path" --strict --noEmit --target ES2022 --module "$module_mode" --moduleResolution "$resolution" "${type_args[@]}" "$package_consumer"
+                node "$tsc_path" --strict --noEmit --target ES2022 --module "$module_mode" --moduleResolution "$resolution" "${type_args[@]}" --allowArbitraryExtensions "$relative_consumer"
+                if node "$tsc_path" --strict --noEmit --target ES2022 --module "$module_mode" --moduleResolution "$resolution" "${type_args[@]}" "$relative_consumer" > without-extension-option.log 2>&1; then
                   echo "Relative Wasm declarations unexpectedly passed without allowArbitraryExtensions"
                   exit 1
                 fi

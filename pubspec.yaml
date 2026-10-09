@@ -1,6 +1,6 @@
 name: napi
 description: Export Dart functions as native WebAssembly ES modules with JavaScript interop and TypeScript declarations.
-version: 0.9.1
+version: 0.10.0
 repository: https://github.com/medz/napi
 issue_tracker: https://github.com/medz/napi/issues
 topics:

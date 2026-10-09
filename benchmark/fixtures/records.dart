@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:napi/napi.dart';
 
 typedef One = ({int id});
@@ -20,6 +22,7 @@ typedef Sixteen = ({
   double score2,
   double score3,
 });
+typedef BytePacket = ({String name, Uint8List payload});
 
 @napi
 int answer() => 42;
@@ -41,3 +44,9 @@ Future<Four> echoFourAsync(Four value) async => value;
 
 @napi
 Future<Sixteen> echoSixteenAsync(Sixteen value) async => value;
+
+@napi
+BytePacket echoPacket(BytePacket value) => value;
+
+@napi
+Uint8List echoPacketPayload(Uint8List value) => value;

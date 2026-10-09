@@ -47,6 +47,13 @@ String generateBridge(List<Export> exports, String sourceImport) {
   if (usesMaps) output.writeln(_mapHelpers);
   if (records.isNotEmpty) {
     output.writeln(_recordHelpers);
+    if (records.values.any(
+      (type) => type.recordFields.any(
+        (field) => field.type.kind == ValueKind.uint8ListType,
+      ),
+    )) {
+      output.writeln(_recordByteHelpers);
+    }
     for (final (index, type) in records.values.indexed) {
       output.writeln(_generateRecord(type, index));
       if (recordLists.contains(_recordShape(type))) {
@@ -167,6 +174,7 @@ String _leafType(ValueType type) {
     ValueKind.intType => 'int',
     ValueKind.doubleType => 'double',
     ValueKind.stringType => 'String',
+    ValueKind.uint8ListType => 'Uint8List',
     _ => throw ArgumentError('unsupported collection leaf'),
   };
   return '$name${type.nullable ? '?' : ''}';
@@ -195,9 +203,10 @@ String _generateRecord(ValueType type, int index) {
     );
   for (final (fieldIndex, field) in fields.indexed) {
     final fieldSuffix = _literal('[${jsonEncode(field.name)}]');
-    output.writeln(
-      '  final field$fieldIndex = _readRecordField<${_leafType(field.type)}>(snapshot, $fieldIndex, ${field.type.kind.index}, ${field.type.nullable}, context, $fieldSuffix);',
-    );
+    final read = field.type.kind == ValueKind.uint8ListType
+        ? '_readRecordBytes<${_leafType(field.type)}>(snapshot, $fieldIndex, ${field.type.nullable}, context, $fieldSuffix)'
+        : '_readRecordField<${_leafType(field.type)}>(snapshot, $fieldIndex, ${field.type.kind.index}, ${field.type.nullable}, context, $fieldSuffix)';
+    output.writeln('  final field$fieldIndex = $read;');
   }
   output
     ..writeln(
@@ -211,9 +220,10 @@ String _generateRecord(ValueType type, int index) {
     ..writeln('  final names = externRefForJSAny(_recordNames$index)!;');
   for (final (fieldIndex, field) in fields.indexed) {
     final fieldSuffix = _literal('[${jsonEncode(field.name)}]');
-    output.writeln(
-      '  _writeRecordField(result, _arrayGet(names, WasmI32.fromInt($fieldIndex)), value.${field.name}, ${field.type.kind.index}, ${field.type.nullable}, context, $fieldSuffix);',
-    );
+    final write = field.type.kind == ValueKind.uint8ListType
+        ? '_writeRecordBytes(result, _arrayGet(names, WasmI32.fromInt($fieldIndex)), value.${field.name}, ${field.type.nullable}, context, $fieldSuffix)'
+        : '_writeRecordField(result, _arrayGet(names, WasmI32.fromInt($fieldIndex)), value.${field.name}, ${field.type.kind.index}, ${field.type.nullable}, context, $fieldSuffix)';
+    output.writeln('  $write;');
   }
   output
     ..writeln('  return result;')
@@ -532,5 +542,35 @@ void _writeRecordField(WasmExternRef result, WasmExternRef? key, Object? value, 
   } catch (error) {
     _conversionError(error, context + suffix);
   }
+}
+''';
+
+const _recordByteHelpers = r'''
+@pragma('wasm:import', 'napi.copyRecordBytes')
+external WasmExternRef? _copyRecordBytes(WasmExternRef? value, WasmExternRef? context, WasmExternRef? suffix);
+
+T _readRecordBytes<T>(WasmExternRef snapshot, int index, bool nullable, String context, String suffix) {
+  final value = _arrayGet(snapshot, WasmI32.fromInt(index));
+  if (nullable && value.isNull) return null as T;
+  try {
+    _requireType(value, 4, 'Uint8Array');
+  } catch (error) {
+    _conversionError(error, context + suffix);
+  }
+  final copied = _copyRecordBytes(value, externRefForJSAny(context.toJS), externRefForJSAny(suffix.toJS));
+  return (copied!.toJS as JSUint8Array).toDart as T;
+}
+
+void _writeRecordBytes(WasmExternRef result, WasmExternRef? key, Object? value, bool nullable, String context, String suffix) {
+  WasmExternRef? bytes;
+  try {
+    bytes = nullable && value == null ? WasmExternRef.nullRef
+        : externRefForJSAny((value as Uint8List).toJS);
+  } catch (error) {
+    _conversionError(error, context + suffix);
+  }
+  final copied = bytes.isNull ? WasmExternRef.nullRef
+      : _copyRecordBytes(bytes, externRefForJSAny(context.toJS), externRefForJSAny(suffix.toJS));
+  _mapSet(result, key, copied);
 }
 ''';

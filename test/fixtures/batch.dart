@@ -1,4 +1,5 @@
 import 'dart:collection';
+import 'dart:typed_data';
 
 import 'package:napi/napi.dart';
 
@@ -219,3 +220,116 @@ Future<List<models.User>> invalidLengthUsersAsync(int length) async =>
 
 @napi
 int invalidIndexReads() => _invalidIndexReads;
+
+@napi
+List<models.Packet> echoPackets(List<models.Packet> values) => values;
+
+@napi
+Future<List<models.Packet>> echoPacketsAsync(List<models.Packet> values) async {
+  await Future<void>.delayed(const Duration(milliseconds: 1));
+  return values;
+}
+
+@napi
+List<models.Packet> normalizePackets(List<models.Packet> values) {
+  for (var row = 0; row < values.length; row++) {
+    final value = values[row];
+    for (var index = 0; index < value.payload.length; index++) {
+      value.payload[index] ^= 0xff;
+    }
+    values[row] = (name: value.name.trim(), payload: value.payload);
+  }
+  return values;
+}
+
+@napi
+Future<List<models.Packet>> normalizePacketsAsync(
+  List<models.Packet> values,
+) async {
+  await Future<void>.delayed(const Duration(milliseconds: 1));
+  return normalizePackets(values);
+}
+
+@napi
+List<models.MaybePacket>? echoNullablePackets(
+  List<models.MaybePacket>? values,
+) => values;
+
+@napi
+Future<List<models.MaybePacket>?> echoNullablePacketsAsync(
+  List<models.MaybePacket>? values,
+) async => values;
+
+@napi
+List<({String name, Uint8List? payload})?>? echoInlinePackets(
+  List<({String name, Uint8List? payload})?>? values,
+) => values;
+
+@napi
+Future<List<({String name, Uint8List? payload})?>?> echoInlinePacketsAsync(
+  List<({String name, Uint8List? payload})?>? values,
+) async => values;
+
+@napi
+List<models.ByteFields> echoByteFieldsList(List<models.ByteFields> values) {
+  _calls++;
+  return values;
+}
+
+@napi
+Future<List<models.ByteFields>> echoByteFieldsListAsync(
+  List<models.ByteFields> values,
+) async {
+  _calls++;
+  return values;
+}
+
+@napi
+List<models.Packet> repeatFirstPacket(List<models.Packet> values) => [
+  values.first,
+  values.first,
+];
+
+@napi
+Future<List<models.Packet>> repeatFirstPacketAsync(
+  List<models.Packet> values,
+) async => repeatFirstPacket(values);
+
+List<models.Packet> _storedPackets = [];
+
+@napi
+List<models.Packet> trackedPackets(
+  List<models.Packet> first,
+  List<models.Packet> second,
+) {
+  _calls++;
+  if (first.first.name == 'fail') throw ArgumentError('packet failure');
+  _storedPackets = first;
+  return second;
+}
+
+@napi
+Future<List<models.Packet>> trackedPacketsAsync(
+  List<models.Packet> first,
+  List<models.Packet> second,
+) async {
+  _calls++;
+  if (first.first.name == 'fail') throw ArgumentError('packet failure');
+  _storedPackets = first;
+  await Future<void>.delayed(const Duration(milliseconds: 1));
+  return second;
+}
+
+@napi
+List<models.Packet> readPackets() => _storedPackets;
+
+@napi
+Future<List<models.Packet>> readPacketsAsync() async => _storedPackets;
+
+@napi
+void changePackets() {
+  if (_storedPackets.first.payload.isNotEmpty) {
+    _storedPackets.first.payload[0] ^= 0xff;
+  }
+  _storedPackets.add(_storedPackets.first);
+}

@@ -128,6 +128,152 @@ export declare function later(values: readonly (ReadonlyArray | null)[] | null):
   );
 
   test(
+    'record byte fields preserve all independent nullable boundaries',
+    () async {
+      final exports = await analyze('''
+import 'dart:typed_data' as bytes;
+import 'package:napi/napi.dart';
+typedef Payload = ({String name, bytes.Uint8List data, bytes.Uint8List? optional});
+@napi
+Payload echo(Payload value) => value;
+@napi
+Payload? nullable(Payload? value) => value;
+@napi
+Future<Payload?> later(Payload? value) async => value;
+@napi
+List<Payload> rows(List<Payload> values) => values;
+@napi
+List<Payload?> elements(List<Payload?> values) => values;
+@napi
+List<Payload>? container(List<Payload>? values) => values;
+@napi
+List<Payload?>? both(List<Payload?>? values) => values;
+@napi
+Future<List<Payload?>?> laterRows(List<Payload?>? values) async => values;
+@napi
+Future<({bytes.Uint8List? data, String name})?> inline(({String name, bytes.Uint8List? data})? value) async => value;
+''');
+      for (final export in exports.take(8)) {
+        for (final type in [export.returnType, export.parameters.single.type]) {
+          final record = type.kind == ValueKind.listType
+              ? type.elementType!
+              : type;
+          expect(
+            record.recordFields.map(
+              (field) => (field.name, field.type.kind, field.type.nullable),
+            ),
+            [
+              ('data', ValueKind.uint8ListType, false),
+              ('name', ValueKind.stringType, false),
+              ('optional', ValueKind.uint8ListType, true),
+            ],
+          );
+        }
+      }
+      expect(
+        exports
+            .skip(3)
+            .take(4)
+            .map(
+              (export) => (
+                export.returnType.nullable,
+                export.returnType.elementType!.nullable,
+              ),
+            ),
+        [(false, false), (false, true), (true, false), (true, true)],
+      );
+      expect(exports[2].isAsync, isTrue);
+      expect(exports[7].isAsync, isTrue);
+      expect(exports[8].isAsync, isTrue);
+      expect(exports[8].returnType.recordAlias, isNull);
+      expect(generateTypescript(exports), '''
+export type Payload = { "data": Uint8Array; "name": string; "optional": Uint8Array | null };
+export declare function echo(value: Payload): Payload;
+export declare function nullable(value: Payload | null): Payload | null;
+export declare function later(value: Payload | null): Promise<Payload | null>;
+export declare function rows(values: readonly Payload[]): Payload[];
+export declare function elements(values: readonly (Payload | null)[]): Array<Payload | null>;
+export declare function container(values: readonly Payload[] | null): Payload[] | null;
+export declare function both(values: readonly (Payload | null)[] | null): Array<Payload | null> | null;
+export declare function laterRows(values: readonly (Payload | null)[] | null): Promise<Array<Payload | null> | null>;
+export declare function inline(value: { "data": Uint8Array | null; "name": string } | null): Promise<{ "data": Uint8Array | null; "name": string } | null>;
+''');
+    },
+  );
+
+  test(
+    'imported byte record chains keep origin and nullable aliases',
+    () async {
+      final model = File(path.join(fixture.path, 'record_bytes_model.dart'));
+      await model.writeAsString('''
+import 'dart:typed_data' as bytes;
+typedef Payload = ({bytes.Uint8List data, bytes.Uint8List? optional});
+typedef MaybePayload = Payload?;
+typedef Exposed = MaybePayload;
+''');
+      await File(path.join(fixture.path, 'record_bytes_reexport.dart'))
+          .writeAsString("export 'record_bytes_model.dart';\n");
+      final exports = await analyze('''
+import 'package:napi/napi.dart';
+import 'record_bytes_model.dart' as original;
+import 'record_bytes_reexport.dart' as exposed;
+@napi
+original.Payload echo(exposed.Payload value) => value;
+@napi
+Future<List<original.Exposed>?> later(List<exposed.Exposed?>? values) async => values;
+''');
+      expect(
+        exports.first.returnType.recordAlias!.libraryUri,
+        model.uri.toString(),
+      );
+      expect(
+        exports.first.parameters.single.type.recordAlias,
+        exports.first.returnType.recordAlias,
+      );
+      final alias = exports.last.returnType.elementType!.recordAlias!;
+      expect(alias.name, 'Exposed');
+      expect(alias.libraryUri, model.uri.toString());
+      expect(alias.nullable, isTrue);
+      expect(generateTypescript(exports), '''
+export type Exposed = { "data": Uint8Array; "optional": Uint8Array | null } | null;
+export type Payload = { "data": Uint8Array; "optional": Uint8Array | null };
+export declare function echo(value: Payload): Payload;
+export declare function later(values: readonly Exposed[] | null): Promise<Array<Exposed> | null>;
+''');
+    },
+  );
+
+  test(
+    'part byte record fields resolve the entry library SDK import',
+    () async {
+      final library = File(
+        path.join(fixture.path, 'record_bytes_library.dart'),
+      );
+      await library.writeAsString('''
+import 'dart:typed_data' as bytes;
+import 'package:napi/napi.dart';
+part 'record_bytes_part.dart';
+''');
+      await File(path.join(fixture.path, 'record_bytes_part.dart'))
+          .writeAsString('''
+part of 'record_bytes_library.dart';
+typedef Payload = ({bytes.Uint8List data, bytes.Uint8List? optional});
+@napi
+Future<List<Payload?>?> echo(List<Payload?>? values) async => values;
+''');
+      final exports = await readExports(library.path);
+      expect(
+        exports.single.returnType.elementType!.recordAlias!.libraryUri,
+        library.uri.toString(),
+      );
+      expect(generateTypescript(exports), '''
+export type Payload = { "data": Uint8Array; "optional": Uint8Array | null };
+export declare function echo(values: readonly (Payload | null)[] | null): Promise<Array<Payload | null> | null>;
+''');
+    },
+  );
+
+  test(
     'record Lists collect aliases once across chains and direct uses',
     () async {
       final exports = await analyze('''
@@ -683,7 +829,7 @@ int $name(int $name) => $name;
     'nested': '({({int value}) child})',
     'List field': '({List<int> values})',
     'Map field': '({Map<String, int> values})',
-    'bytes field': '({Uint8List bytes})',
+    'other typed List field': '({Uint16List bytes})',
     'Object field': '({Object value})',
     'dynamic field': '({dynamic value})',
     'num field': '({num value})',
@@ -769,6 +915,63 @@ User echo(User value) => value;
       ),
     );
   });
+
+  for (final (label, declaration, type, isAlias) in [
+    ('fake', 'class Uint8List {}', 'Uint8List', false),
+    ('fake_nullable', 'class Uint8List {}', 'Uint8List?', false),
+    ('byte_alias', 'typedef Bytes = bytes.Uint8List;', 'Bytes', true),
+    ('nullable_byte_alias', 'typedef Bytes = bytes.Uint8List?;', 'Bytes', true),
+    ('other_typed_list', '', 'bytes.Uint16List', false),
+    ('clamped_list', '', 'bytes.Uint8ClampedList', false),
+    ('nested_byte_list', '', 'List<bytes.Uint8List>', false),
+    ('nested_byte_map', '', 'Map<String, bytes.Uint8List?>', false),
+    ('nested_record', '', '({bytes.Uint8List data})', false),
+  ]) {
+    test(
+      'unsupported $label byte fields identify their defining source',
+      () async {
+        final model = File(path.join(fixture.path, 'record_bytes_$label.dart'));
+        await model.writeAsString('''
+import 'dart:typed_data' as bytes;
+$declaration
+typedef Payload = ({
+  $type data,
+});
+typedef Exposed = Payload;
+''');
+        await expectLater(
+          analyze('''
+import 'package:napi/napi.dart';
+import 'record_bytes_$label.dart' as models;
+@napi
+Future<List<models.Exposed?>?> echo(List<models.Exposed?>? values) async => values;
+'''),
+          throwsA(
+            isA<ExportError>()
+                .having((error) => error.path, 'path', model.path)
+                .having((error) => error.line, 'line', 4)
+                .having((error) => error.column, 'column', 3)
+                .having(
+                  (error) => error.message,
+                  'message',
+                  contains('"Exposed.data"'),
+                )
+                .having(
+                  (error) => error.message,
+                  'supported field guidance',
+                  isAlias
+                      ? startsWith(
+                          'Type aliases are not supported in @napi record fields:',
+                        )
+                      : endsWith(
+                          'Use bool, int, double, String, or Uint8List (optionally nullable).',
+                        ),
+                ),
+          ),
+        );
+      },
+    );
+  }
 
   test('inline record failures point at the invalid field type', () async {
     await expectLater(
@@ -901,7 +1104,7 @@ models.User echo(models.User value) => value;
 part of 'record_invalid_library.dart';
 typedef User = ({
   String name,
-  Uint8List bytes,
+  Uint16List bytes,
 });
 ''');
     await library.writeAsString(

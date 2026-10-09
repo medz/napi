@@ -188,6 +188,18 @@ function napiRequireObject(value, context) {
 
 // Only helpers referenced by the compiled Wasm imports are emitted.
 const _collectionHelpers = {
+  'copyRecordBytes': r'''
+napi.copyRecordBytes = (value, context, suffix) => {
+  try {
+    return napi.copyBytes(value);
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new TypeError(context + suffix + ': ' + error.message);
+    }
+    throw error;
+  }
+};
+''',
   'arrayLength': 'napi.arrayLength = value => value.length;',
   'arrayGet': 'napi.arrayGet = (value, index) => value[index >>> 0];',
   'arraySet': r'''
