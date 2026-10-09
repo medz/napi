@@ -67,6 +67,7 @@ Future<void> _build(List<String> arguments) async {
     r'^(?:@[a-z0-9._-]+/[a-z0-9._-]+|[a-z0-9-][a-z0-9._-]*)$',
   );
   if (!packageName.hasMatch(name) ||
+      name.split('/').last.startsWith('.') ||
       name.length > 214 ||
       name == 'node_modules' ||
       name == 'favicon.ico') {
