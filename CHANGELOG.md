@@ -1,3 +1,10 @@
+## 0.5.0
+
+- Export flat named records with mixed scalar fields as independent JavaScript data objects, including nullable records and Future completion values.
+- Generate exported TypeScript types for public non-generic record typedefs, including imported aliases and nullable alias definitions.
+- Validate required own data fields without calling accessors or reading unknown properties; preserve contextual errors, safe integers, UTF-16, cross-realm inputs, and call-time snapshots.
+- Reuse a compiled record consumer across the Node matrix and record conversion/size measurements.
+
 ## 0.4.0
 
 - Verify native Wasm consumers on Node 22.19.0, 24.5.0, 24.21.0 and 26.11.1 with scalar, Future and collection regressions and TypeScript declarations.

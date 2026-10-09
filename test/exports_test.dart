@@ -41,6 +41,533 @@ environment:
     return readExports(file.path);
   }
 
+  test('named records keep mixed scalar fields and canonical order', () async {
+    final exports = await analyze('''
+import 'dart:core' as core;
+import 'package:napi/napi.dart';
+
+@napi
+({core.String name, core.int age, core.bool? active, core.double? score}) echo(
+  ({core.double? score, core.bool? active, core.int age, core.String name}) user,
+) => user;
+@napi
+({core.int value})? nullable(({core.int value})? value) => value;
+''');
+    final record = exports.first.returnType;
+    expect(record.kind, ValueKind.recordType);
+    expect(record.recordAlias, isNull);
+    expect(record.recordFields.map((field) => field.name), [
+      'active',
+      'age',
+      'name',
+      'score',
+    ]);
+    expect(
+      record.recordFields.map(
+        (field) => (field.type.kind, field.type.nullable),
+      ),
+      [
+        (ValueKind.boolType, true),
+        (ValueKind.intType, false),
+        (ValueKind.stringType, false),
+        (ValueKind.doubleType, true),
+      ],
+    );
+    expect(
+      exports.first.parameters.single.type.recordFields.map(
+        (field) => (field.name, field.type.kind, field.type.nullable),
+      ),
+      record.recordFields.map(
+        (field) => (field.name, field.type.kind, field.type.nullable),
+      ),
+    );
+    expect(exports.last.returnType.nullable, isTrue);
+    expect(generateTypescript(exports), '''
+export declare function echo(user: { "active": boolean | null; "age": number; "name": string; "score": number | null }): { "active": boolean | null; "age": number; "name": string; "score": number | null };
+export declare function nullable(value: { "value": number } | null): { "value": number } | null;
+''');
+  });
+
+  test('record aliases emit once with nullable and Future uses', () async {
+    final exports = await analyze('''
+import 'dart:async' as tasks;
+import 'package:napi/napi.dart';
+
+typedef User = ({String name, int age, bool? active});
+@napi
+User echo(User user) => user;
+@napi
+tasks.Future<User?> later(User? user) async => user;
+@napi
+tasks.Future<({double? score})?> inline(({double? score})? value) => tasks.Future.value(value);
+''');
+    final alias = exports.first.returnType.recordAlias!;
+    expect(alias.name, 'User');
+    expect(alias.libraryUri, startsWith('file:'));
+    expect(alias.nullable, isFalse);
+    expect(exports[1].returnType.nullable, isTrue);
+    expect(exports[1].returnType.recordAlias, alias);
+    expect(exports[1].isAsync, isTrue);
+    expect(exports[2].returnType.recordAlias, isNull);
+    expect(generateTypescript(exports), '''
+export type User = { "active": boolean | null; "age": number; "name": string };
+export declare function echo(user: User): User;
+export declare function later(user: User | null): Promise<User | null>;
+export declare function inline(value: { "score": number | null } | null): Promise<{ "score": number | null } | null>;
+''');
+  });
+
+  test('record alias chains preserve outer names and nullable RHSs', () async {
+    final exports = await analyze('''
+import 'package:napi/napi.dart';
+
+typedef Base = ({int count});
+typedef Maybe = Base?;
+typedef Outer = Maybe;
+typedef Present = Base;
+typedef Direct = ({String name})?;
+@napi
+Outer echo(Outer value) => value;
+@napi
+Future<Outer?> later(Outer? value) async => value;
+@napi
+Present present(Present value) => value;
+@napi
+Direct direct(Direct? value) => value;
+''');
+    expect(exports.first.returnType.recordAlias!.name, 'Outer');
+    expect(exports.first.returnType.recordAlias!.nullable, isTrue);
+    expect(exports.first.returnType.nullable, isTrue);
+    expect(exports[2].returnType.recordAlias!.name, 'Present');
+    expect(exports[2].returnType.recordAlias!.nullable, isFalse);
+    expect(exports[2].returnType.nullable, isFalse);
+    expect(generateTypescript(exports), '''
+export type Direct = { "name": string } | null;
+export type Outer = { "count": number } | null;
+export type Present = { "count": number };
+export declare function echo(value: Outer): Outer;
+export declare function later(value: Outer): Promise<Outer>;
+export declare function present(value: Present): Present;
+export declare function direct(value: Direct): Direct;
+''');
+  });
+
+  test('structurally equal aliases retain different public names', () async {
+    final exports = await analyze('''
+import 'package:napi/napi.dart';
+typedef First = ({String name});
+typedef Second = ({String name});
+@napi
+Second echo(First value) => value;
+''');
+    expect(generateTypescript(exports), '''
+export type First = { "name": string };
+export type Second = { "name": string };
+export declare function echo(value: First): Second;
+''');
+  });
+
+  test(
+    'prefixed and re-exported aliases use their original identity',
+    () async {
+      final models = File(path.join(fixture.path, 'record_models.dart'));
+      await models.writeAsString('typedef User = ({String name, int age});\n');
+      await File(path.join(fixture.path, 'record_reexport.dart'))
+          .writeAsString("export 'record_models.dart' show User;\n");
+      final exports = await analyze('''
+import 'package:napi/napi.dart';
+import 'record_models.dart' as models;
+import 'record_reexport.dart' as exposed;
+@napi
+models.User echo(exposed.User value) => value;
+''');
+      expect(
+        exports.single.returnType.recordAlias!.libraryUri,
+        models.uri.toString(),
+      );
+      expect(
+        exports.single.returnType.recordAlias,
+        exports.single.parameters.single.type.recordAlias,
+      );
+      expect(generateTypescript(exports), '''
+export type User = { "age": number; "name": string };
+export declare function echo(value: User): User;
+''');
+    },
+  );
+
+  test('record typedefs and functions in parts share a library', () async {
+    final library = File(path.join(fixture.path, 'record_library.dart'));
+    await library.writeAsString(
+      "import 'package:napi/napi.dart';\npart 'record_part.dart';\n",
+    );
+    await File(path.join(fixture.path, 'record_part.dart')).writeAsString('''
+part of 'record_library.dart';
+typedef User = ({String name});
+@napi
+User echo(User user) => user;
+''');
+    final exports = await readExports(library.path);
+    expect(
+      exports.single.returnType.recordAlias!.libraryUri,
+      library.uri.toString(),
+    );
+    expect(generateTypescript(exports), '''
+export type User = { "name": string };
+export declare function echo(user: User): User;
+''');
+  });
+
+  test('type aliases and function values may share a TS name', () async {
+    await File(path.join(fixture.path, 'record_value_models.dart'))
+        .writeAsString('typedef User = ({int age});\n');
+    final exports = await analyze('''
+import 'package:napi/napi.dart';
+import 'record_value_models.dart' as models;
+@napi
+models.User User(models.User value) => value;
+''');
+    expect(generateTypescript(exports), '''
+export type User = { "age": number };
+export declare function User(value: User): User;
+''');
+  });
+
+  test('pure named record properties need no TS binding renaming', () async {
+    final exports = await analyze(r'''
+import 'package:napi/napi.dart';
+typedef $User = ({String constructor, bool then, double $1});
+@napi
+$User echo($User value) => value;
+''');
+    expect(generateTypescript(exports), r'''
+export type $User = { "$1": number; "constructor": string; "then": boolean };
+export declare function echo(value: $User): $User;
+''');
+  });
+
+  test(
+    'different originating aliases cannot silently share a TS name',
+    () async {
+      final first = File(path.join(fixture.path, 'record_first.dart'));
+      final second = File(path.join(fixture.path, 'record_second.dart'));
+      await first.writeAsString('typedef User = ({String name});\n');
+      await second.writeAsString('typedef User = ({String name});\n');
+      await expectLater(
+        analyze('''
+import 'package:napi/napi.dart';
+import 'record_first.dart' as first;
+import 'record_second.dart' as second;
+@napi
+second.User echo(first.User value) => value;
+'''),
+        throwsA(
+          isA<ExportError>()
+              .having((error) => error.line, 'line', 5)
+              .having(
+                (error) => error.message,
+                'message',
+                contains('Conflicting'),
+              )
+              .having(
+                (error) => error.message,
+                'first origin',
+                contains(first.uri.toString()),
+              )
+              .having(
+                (error) => error.message,
+                'second origin',
+                contains(second.uri.toString()),
+              ),
+        ),
+      );
+    },
+  );
+
+  for (final name in [
+    'any',
+    'unknown',
+    'never',
+    'number',
+    'bigint',
+    'boolean',
+    'string',
+    'symbol',
+    'object',
+    'undefined',
+    'Promise',
+    'Array',
+    'Record',
+    'Uint8Array',
+    'await',
+  ]) {
+    test('rejects TS record alias name $name before compilation', () async {
+      await expectLater(
+        analyze('''
+import 'package:napi/napi.dart';
+typedef $name = ({int value});
+@napi
+$name echo($name value) => value;
+'''),
+        throwsA(
+          isA<ExportError>().having(
+            (error) => error.message,
+            'message',
+            contains('TypeScript record alias name'),
+          ),
+        ),
+      );
+    });
+  }
+
+  for (final entry in {
+    'positional': '(int, String)',
+    'mixed': '(int, {String name})',
+    'empty': '()',
+    'nested': '({({int value}) child})',
+    'List field': '({List<int> values})',
+    'Map field': '({Map<String, int> values})',
+    'bytes field': '({Uint8List bytes})',
+    'Object field': '({Object value})',
+    'dynamic field': '({dynamic value})',
+    'num field': '({num value})',
+    'void field': '({void value})',
+    'Future field': '({Future<int> value})',
+    'callback field': '({int Function() value})',
+  }.entries) {
+    test('rejects ${entry.key} records with source context', () async {
+      await expectLater(
+        analyze('''
+import 'dart:typed_data';
+import 'package:napi/napi.dart';
+@napi
+${entry.value} echo(${entry.value} value) => value;
+'''),
+        throwsA(
+          isA<ExportError>()
+              .having((error) => error.line, 'line', 4)
+              .having((error) => error.message, 'message', contains('record')),
+        ),
+      );
+    });
+  }
+
+  for (final declaration in [
+    'typedef Box<T> = ({T value});',
+    'typedef Base<T> = ({T value}); typedef Box = Base<int>;',
+    'typedef Box<T> = ({int value});',
+  ]) {
+    test('rejects generic record alias $declaration', () async {
+      final generic = declaration.startsWith('typedef Box<T>');
+      final type = generic ? 'Box<int>' : 'Box';
+      await expectLater(
+        analyze('''
+import 'package:napi/napi.dart';
+$declaration
+@napi
+$type echo($type value) => value;
+'''),
+        throwsA(
+          isA<ExportError>().having(
+            (error) => error.message,
+            'message',
+            contains('Generic @napi record aliases'),
+          ),
+        ),
+      );
+    });
+  }
+
+  test('private record aliases remain private boundary errors', () async {
+    await expectLater(
+      analyze('''
+import 'package:napi/napi.dart';
+typedef _User = ({String name});
+@napi
+_User echo(_User value) => value;
+'''),
+      throwsA(
+        isA<ExportError>().having(
+          (error) => error.message,
+          'message',
+          contains('record aliases must be public'),
+        ),
+      ),
+    );
+  });
+
+  test('record scalar field aliases keep the alias restriction', () async {
+    await expectLater(
+      analyze('''
+import 'package:napi/napi.dart';
+typedef Count = int;
+typedef User = ({Count age});
+@napi
+User echo(User value) => value;
+'''),
+      throwsA(
+        isA<ExportError>()
+            .having((error) => error.line, 'line', 3)
+            .having((error) => error.column, 'column', 18)
+            .having((error) => error.message, 'message', contains('User.age')),
+      ),
+    );
+  });
+
+  test('inline record failures point at the invalid field type', () async {
+    await expectLater(
+      analyze('''
+import 'package:napi/napi.dart';
+@napi
+({String name, List<int> tags}) echo(({String name, List<int> tags}) value) => value;
+'''),
+      throwsA(
+        isA<ExportError>()
+            .having((error) => error.line, 'line', 3)
+            .having((error) => error.column, 'column', 53)
+            .having(
+              (error) => error.message,
+              'message',
+              contains('"tags" type "List<int>"'),
+            ),
+      ),
+    );
+  });
+
+  test('imported chain failures point to the defining record field', () async {
+    final model = File(path.join(fixture.path, 'record_invalid_model.dart'));
+    await model.writeAsString('''
+typedef Base = ({
+  String name,
+  List<int> tags,
+});
+typedef User = Base;
+''');
+    await expectLater(
+      analyze('''
+import 'package:napi/napi.dart';
+import 'record_invalid_model.dart' as models;
+@napi
+models.User echo(models.User value) => value;
+'''),
+      throwsA(
+        isA<ExportError>()
+            .having((error) => error.path, 'path', model.path)
+            .having((error) => error.line, 'line', 3)
+            .having((error) => error.column, 'column', 3)
+            .having((error) => error.message, 'message', contains('User.tags')),
+      ),
+    );
+  });
+
+  for (final name in [
+    '_age',
+    'toString',
+    'hashCode',
+    'runtimeType',
+    'noSuchMethod',
+  ]) {
+    test(
+      'invalid imported record field $name fails before compilation',
+      () async {
+        final model = File(
+          path.join(fixture.path, 'record_invalid_$name.dart'),
+        );
+        await model.writeAsString('''
+typedef User = ({
+  int $name,
+});
+''');
+        await expectLater(
+          analyze('''
+import 'package:napi/napi.dart';
+import 'record_invalid_$name.dart' as models;
+@napi
+models.User echo(models.User value) => value;
+'''),
+          throwsA(
+            isA<ExportError>()
+                .having((error) => error.path, 'path', model.path)
+                .having((error) => error.line, 'line', 2)
+                .having((error) => error.column, 'column', 7)
+                .having(
+                  (error) => error.message,
+                  'message',
+                  contains('Invalid @napi record field "User.$name"'),
+                ),
+          ),
+        );
+      },
+    );
+  }
+
+  test(
+    'duplicate imported record fields locate the second declaration',
+    () async {
+      final model = File(
+        path.join(fixture.path, 'record_duplicate_model.dart'),
+      );
+      await model.writeAsString('''
+typedef Base = ({
+  int age,
+  int age,
+});
+typedef User = Base;
+''');
+      await expectLater(
+        analyze('''
+import 'package:napi/napi.dart';
+import 'record_duplicate_model.dart' as models;
+@napi
+models.User echo(models.User value) => value;
+'''),
+        throwsA(
+          isA<ExportError>()
+              .having((error) => error.path, 'path', model.path)
+              .having((error) => error.line, 'line', 3)
+              .having((error) => error.column, 'column', 7)
+              .having(
+                (error) => error.message,
+                'message',
+                contains('Duplicate @napi record field "User.age"'),
+              ),
+        ),
+      );
+    },
+  );
+
+  test('part record failures point to the part field declaration', () async {
+    final library = File(
+      path.join(fixture.path, 'record_invalid_library.dart'),
+    );
+    final part = File(path.join(fixture.path, 'record_invalid_part.dart'));
+    await part.writeAsString('''
+part of 'record_invalid_library.dart';
+typedef User = ({
+  String name,
+  Uint8List bytes,
+});
+''');
+    await library.writeAsString(
+      "import 'dart:typed_data';\nimport 'package:napi/napi.dart';\n"
+      "part 'record_invalid_part.dart';\n@napi\nUser echo(User value) => value;\n",
+    );
+    await expectLater(
+      readExports(library.path),
+      throwsA(
+        isA<ExportError>()
+            .having((error) => error.path, 'path', part.path)
+            .having((error) => error.line, 'line', 4)
+            .having((error) => error.column, 'column', 3)
+            .having(
+              (error) => error.message,
+              'message',
+              contains('User.bytes'),
+            ),
+      ),
+    );
+  });
+
   test(
     'resolved Dart signatures produce matching TypeScript declarations',
     () async {

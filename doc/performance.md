@@ -122,6 +122,51 @@ Large collection conversions dominate these trivial echo operations. This does
 not establish that a small collection transform benefits from Wasm. Batch useful
 work per call and measure the actual workload. No optimization is claimed.
 
+## Named record conversion (0.5.0)
+
+The runner also builds a `records` fixture with 1/4/16-field echoes and their
+Future equivalents. [`benchmark/records-baseline.json`](../benchmark/records-baseline.json)
+retains the corresponding rows and the scalar-only size check from a five-sample
+0.5.0 run. Reproduce the full report with:
+
+```sh
+dart run benchmark/run.dart --node /path/to/node-22.19.0 --runs 5 --out benchmark/results.json
+```
+
+Environment: Dart 3.13.5, Node 22.19.0 / V8 12.4.254.21-node.29, npm 11.12.1,
+Apple M3 Max arm64, macOS 27.0.1. Each sync sample has 20,000 calls after 2,000
+warmups; each sequential Future sample has 2,000 calls after 200 warmups.
+Both implementations validate fixed own-data descriptors and return independent
+null-prototype objects. The 1-field input is an int; 4/16 fields mix bool, safe
+int, UTF-16 String, and double. Timing includes conversion, allocation and result
+consumption; the JavaScript reference covers these valid current-realm inputs,
+not the complete cross-realm/Proxy/error contract. No Dart-JS record comparison
+is implemented.
+
+| Case | Wasm µs/call | JavaScript µs/call | Wasm spread % |
+| --- | ---: | ---: | ---: |
+| 1 field | 0.338 | 0.163 | 26.6 |
+| 4 fields | 1.221 | 0.562 | 8.5 |
+| 16 fields | 4.757 | 2.205 | 1.3 |
+| Future, 1 field | 1.277 | 0.452 | 62.1 |
+| Future, 4 fields | 2.165 | 0.951 | 11.5 |
+| Future, 16 fields | 5.811 | 2.516 | 4.8 |
+
+Wasm makes a temporary JS descriptor snapshot, a typed Dart record and a JS
+output object. Field names are cached once per structural shape. The
+`ownership_copies: 2` metadata counts input/output boundaries, not physical
+allocations. Nullable records and typedef aliases do not add runtime type
+constructors. Costs grow with the declared field count and string conversion;
+these trivial echoes are slower than the measured JavaScript reference.
+
+The seven-function record fixture has 45,826 Wasm bytes, 28,944 host bytes,
+845 bytes per declaration and a 22,627-byte npm archive. Its one observed build
+took 2,655.9 ms; native import median was 2.853 ms (2.831–2.942 ms).
+The scalar-only fixture remains 17,295 Wasm / 16,703 host bytes and emits no
+collection or record helpers. Fixture sizes include different exported functions
+and cannot isolate the cost of a single DTO. Short sample spreads remain large;
+no speed improvement or general application benefit is claimed.
+
 ## Scope and interpretation
 
 Timings include loop, dispatch, result consumption, validation, allocation and

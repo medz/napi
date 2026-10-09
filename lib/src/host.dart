@@ -45,6 +45,10 @@ String generateHost(
     for (final import in imports)
       if (import.module == 'napi') import.name,
   };
+  if (bridgeImports.contains('snapshotMap') ||
+      bridgeImports.contains('snapshotRecord')) {
+    output.writeln(_ordinaryObjectHelper);
+  }
   for (final name in bridgeImports) {
     final helper = _collectionHelpers[name];
     if (helper != null) output.writeln(helper);
@@ -164,6 +168,24 @@ const napi = {
 };
 ''';
 
+const _ordinaryObjectHelper = r'''
+function napiRequireObject(value, context) {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError(context + ': Expected an ordinary object');
+  }
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== null && prototype !== Object.prototype) {
+    const constructor = Object.getOwnPropertyDescriptor(prototype, 'constructor');
+    const ctor = constructor && constructor.value;
+    if (Object.getPrototypeOf(prototype) !== null || typeof ctor !== 'function' ||
+        Object.getOwnPropertyDescriptor(ctor, 'prototype')?.value !== prototype ||
+        Function.prototype.toString.call(ctor) !== Function.prototype.toString.call(Object)) {
+      throw new TypeError(context + ': Expected an ordinary or null-prototype object');
+    }
+  }
+}
+''';
+
 // Only helpers referenced by the compiled Wasm imports are emitted.
 const _collectionHelpers = {
   'arrayLength': 'napi.arrayLength = value => value.length;',
@@ -209,19 +231,7 @@ napi.mapSet = (value, key, element) => {
 ''',
   'snapshotMap': r'''
 napi.snapshotMap = (value, context) => {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    throw new TypeError(context + ': Expected an ordinary object');
-  }
-  const prototype = Object.getPrototypeOf(value);
-  if (prototype !== null && prototype !== Object.prototype) {
-    const constructor = Object.getOwnPropertyDescriptor(prototype, 'constructor');
-    const ctor = constructor && constructor.value;
-    if (Object.getPrototypeOf(prototype) !== null || typeof ctor !== 'function' ||
-        Object.getOwnPropertyDescriptor(ctor, 'prototype')?.value !== prototype ||
-        Function.prototype.toString.call(ctor) !== Function.prototype.toString.call(Object)) {
-      throw new TypeError(context + ': Expected an ordinary or null-prototype object');
-    }
-  }
+  napiRequireObject(value, context);
   const snapshot = [];
   let index = 0;
   for (const key of Reflect.ownKeys(value)) {
@@ -235,6 +245,23 @@ napi.snapshotMap = (value, context) => {
       value: key, writable: true, enumerable: true, configurable: true,
     });
     Object.defineProperty(snapshot, index++, {
+      value: descriptor.value, writable: true, enumerable: true, configurable: true,
+    });
+  }
+  return snapshot;
+};
+''',
+  'snapshotRecord': r'''
+napi.snapshotRecord = (value, names, context) => {
+  napiRequireObject(value, context);
+  const snapshot = new Array(names.length);
+  for (let index = 0; index < names.length; index++) {
+    const key = names[index];
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !Object.hasOwn(descriptor, 'value')) {
+      throw new TypeError(context + '[' + JSON.stringify(key) + ']: Expected an own data property');
+    }
+    Object.defineProperty(snapshot, index, {
       value: descriptor.value, writable: true, enumerable: true, configurable: true,
     });
   }
