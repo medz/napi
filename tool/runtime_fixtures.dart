@@ -71,6 +71,17 @@ Future<void> main(List<String> arguments) async {
       version: '0.5.0',
       files: ['records-node.mjs', 'records-consumer.ts', 'records-relative.ts'],
     ),
+    (
+      name: 'batch',
+      source: 'batch',
+      version: '0.6.0',
+      files: [
+        'batch-node.mjs',
+        'batch-consumer.ts',
+        'batch-relative.ts',
+        'batch-bundler-consumer.ts',
+      ],
+    ),
   ]) {
     final consumer = Directory(p.join(fixtures.path, fixture.name));
     final output = Directory(p.join(consumer.path, 'dist'));

@@ -41,6 +41,9 @@ void main() {
             bridgeImport('snapshotMap', 1),
             bridgeImport('newMap', 2),
             bridgeImport('mapSet', 3),
+            bridgeImport('arrayGet', 4),
+            bridgeImport('arraySet', 5),
+            bridgeImport('newList', 6),
           ]).replaceFirst(
             RegExp(
               r'^import \* as dartExports from [^\n]+;\n',
@@ -143,5 +146,23 @@ assert.equal(Object.getPrototypeOf(output), null);
 assert.deepEqual(Object.keys(output), ['constructor', 'then', '__proto__']);
 assert.equal(output.__proto__, 'data');
 assert.deepEqual(Object.getOwnPropertyDescriptor(output, 'then'), {value: false, writable: true, enumerable: true, configurable: true});
+// Wasm i32 imports expose signed numbers; array indices/lengths are unsigned.
+// Keep these arrays sparse: inspect only the specified properties, no traversal.
+const high = _i6(-0x80000000);
+assert.equal(high.length, 0x80000000);
+_i5(high, -0x80000000, 'high');
+assert.equal(high.length, 0x80000001);
+assert.equal(_i4(high, -0x80000000), 'high');
+assert.equal(Object.hasOwn(high, '-2147483648'), false);
+const largest = _i6(-1);
+assert.equal(largest.length, 0xffffffff);
+_i5(largest, -2, 'last index');
+assert.equal(_i4(largest, -2), 'last index');
+assert.equal(largest.length, 0xffffffff);
+assert.equal(Object.hasOwn(largest, '-2'), false);
+_i5(largest, -1, 'non-index data key');
+assert.equal(_i4(largest, -1), 'non-index data key');
+assert.equal(Object.hasOwn(largest, '-1'), false);
+assert.equal(largest.length, 0xffffffff);
 console.log('host snapshots passed');
 ''';

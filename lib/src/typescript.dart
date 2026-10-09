@@ -11,8 +11,9 @@ String generateTypescript(List<Export> exports) {
       export.returnType,
       for (final parameter in export.parameters) parameter.type,
     ]) {
-      final alias = type.recordAlias;
-      if (alias != null) aliases[(alias.libraryUri, alias.name)] = type;
+      final record = type.kind == ValueKind.listType ? type.elementType! : type;
+      final alias = record.recordAlias;
+      if (alias != null) aliases[(alias.libraryUri, alias.name)] = record;
     }
   }
   final aliasTypes = aliases.values.toList()

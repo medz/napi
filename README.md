@@ -190,12 +190,55 @@ another snapshot. Proxy reflection traps still execute; the snapshot is not an
 atomic transaction across arbitrary traps. Conversion errors include the field
 path, for example `parameter user["age"]`.
 
-Positional, mixed, empty, nested, and generic records, collection/byte fields,
-record collection elements, and class wrappers are unsupported. Scalar,
+Positional, mixed, empty and nested records, generic aliases, collection/byte
+fields, Map record values and class wrappers are unsupported. Scalar,
 collection, and Future aliases remain unsupported. Type aliases with conflicting
 public names or names that shadow generated TypeScript built-ins fail before
 compilation. Dart itself prohibits private and Object-member record field names;
 use Maps for arbitrary keys such as `__proto__`.
+
+## Batches of data objects
+
+Use `List<User>` for ordered batches of flat named records:
+
+```dart
+@napi
+List<User> normalizeUsers(List<User> users) => [
+  for (final user in users) normalize(user),
+];
+
+@napi
+Future<List<User?>?> normalizeUsersLater(List<User?>? users) async {
+  if (users == null) return null;
+  await Future<void>.delayed(const Duration(milliseconds: 1));
+  return [for (final user in users) user == null ? null : normalize(user)];
+}
+```
+
+```ts
+import { normalizeUsers, normalizeUsersLater } from './dist/module.wasm';
+import type { User } from './dist/module.wasm';
+
+const users: User[] = normalizeUsers([{name: ' Dart ', age: 20, active: null}]);
+const later: Array<User | null> | null = await normalizeUsersLater([...users, null]);
+```
+
+All Array indices and declared record fields are validated and snapshotted
+before business code or Promise return. Nullable containers, elements and fields
+are independent; `undefined`, holes, inherited indices and index accessors fail.
+Inputs follow the List and data-object rules above. Each output is a new Array,
+with a fresh null-prototype object at every non-null position, even when the same
+input object appears twice. Changing array membership or record fields after a
+call cannot change the Dart snapshot. Proxy reflection remains observable and
+is not an atomic transaction across the entire batch.
+
+Failures include both index and field once, for example
+`parameter users[3]["age"]`. Inline records and public non-generic record
+typedefs work; aliases used only inside Lists still become exported types.
+Only one List layer is supported. Nested Lists, collection aliases, Map record
+values and collection/record fields remain unsupported. Batch calls still pay
+per-record validation, conversion and allocation costs; measure the workload
+before choosing a batch size.
 
 ## TypeScript
 
@@ -228,7 +271,7 @@ Annotate public top-level functions in the entry library. Use explicit return ty
 | `double` | `number` | Preserves NaN, Infinity, and negative zero |
 | `String` | `string` | Preserves UTF-16 code units |
 | `Uint8List` | `Uint8Array` | Copies in and out; Node `Buffer` and cross-realm arrays accepted |
-| `List<T>` | `T[]` | Flat scalar elements; independent input/output Arrays |
+| `List<T>` | `T[]` | Scalars or flat named records; independent input/output Arrays and record objects |
 | `Map<String,T>` | `Record<string,T>` | Flat scalar values; output has a null prototype |
 | Named record / record typedef | Object shape / exported type | Required flat scalar fields; independent null-prototype output |
 | `T?` | `T \| null` | Accepts `null`; rejects `undefined` |
@@ -240,7 +283,7 @@ The export name `then` is reserved because dynamic ESM imports treat it as a pro
 
 ## Status and platforms
 
-**0.5.0 is experimental and targets Node's native Wasm ESM integration.** [Node documents instance-phase Wasm imports](https://nodejs.org/api/esm.html#wasm-instance-phase-imports) as experimental. Synchronous CommonJS `require` is not supported.
+**0.6.0 is experimental and targets Node's native Wasm ESM integration.** [Node documents instance-phase Wasm imports](https://nodejs.org/api/esm.html#wasm-instance-phase-imports) as experimental. Synchronous CommonJS `require` is not supported.
 
 The backend uses Dart's experimental Wasm interop and compiler-generated JavaScript helpers. It rewrites the Wasm import section so Node resolves the helpers, string constants, and built-in string operations through ESM; business logic remains Dart Wasm. It does not implement the Node-API C ABI or produce `.node` addons.
 
@@ -262,8 +305,8 @@ dart pub publish --dry-run
 
 Integration tests build a real package and verify native functions through package, subpath, and relative Wasm imports. Set `NAPI_TSC` to TypeScript's `bin/tsc` to include the TypeScript consumer checks; CI supplies it. `test/js/browser.html` probes native browser loading without a fallback loader.
 
-CI compiles, packs and installs the four runtime fixtures once with `dart run tool/runtime_fixtures.dart`, then sets `NAPI_RUNTIME_FIXTURES` to that output for the full test suite and reuses the same artifacts on other Node versions. The tool requires a new or empty output directory. Rebuild fixtures after changing the generator or fixture source; this environment variable is for development tests, not consumer initialization.
+CI compiles, packs and installs the five runtime fixtures once with `dart run tool/runtime_fixtures.dart`, then sets `NAPI_RUNTIME_FIXTURES` to that output for the full test suite and reuses the same artifacts on other Node versions. The tool requires a new or empty output directory. Rebuild fixtures after changing the generator or fixture source; this environment variable is for development tests, not consumer initialization.
 
-See the [requirements](doc/requirements.md), [0.5.0 milestone](https://github.com/medz/napi/milestone/5), and [performance measurements](doc/performance.md).
+See the [requirements](doc/requirements.md), [0.6.0 milestone](https://github.com/medz/napi/milestone/6), and [performance measurements](doc/performance.md).
 
 MIT licensed. Generated host helpers include the Dart SDK's BSD license notice.

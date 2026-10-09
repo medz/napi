@@ -65,6 +65,15 @@ The project name is `napi`; the primary backend is Wasm ESM integration, not the
 - Reuse a fourth compiled/packed/installed fixture across the tested Node matrix, with real native npm/subpath/relative imports and strict TS positive/negative consumers. Measure representative 1/4/16-field conversion and package costs; emit no record helpers for scalar-only modules.
 - Preserve one annotation and native import API, zero runtime dependencies and the documented platform limits. Gate publication on the normal final-head review/CI and independent hosted-consumer validation.
 
+## 0.6.0 contract
+
+- Admit one SDK List layer around flat named records, including inline/public non-generic aliases, independent container/element/field nullability, nullable alias definitions, and Future completion values. Export type aliases reachable only through Lists, with existing name/origin diagnostics and accurate Array/Promise declarations.
+- Validate dense own-data indices and every declared record field before business code or Promise return. Later-element/argument failure prevents entry. Preserve ignored unknown properties, cross-realm/non-enumerable record inputs, scalar rules, original JS exceptions and single composed index/field error paths.
+- Return a new Array and a fresh null-prototype data object for each non-null position. Snapshot array membership and scalar fields at call time; do not preserve repeated-object identity across output positions. Proxy reflection remains observable rather than transactional.
+- Reuse existing value/record models and host helpers through direct typed loops. Keep Map record values, nested Lists/record fields, collection aliases, generics, classes and callbacks unsupported; add no schema framework, closure adapter, annotation, loader or runtime dependency.
+- Build/pack/install a fifth batch fixture once, reuse it across the Node matrix, and run real external-Wasm batch bundles plus strict TS and negative consumers. Preserve all existing suites, output safety and scalar-only helper footprint.
+- Measure 0/1/16/256/4096-record conversions, representative widths, normalization and aggregation against single-record calls and a JS reference. Include per-record allocation/copy costs, raw samples and variance; publication requires normal final-head review/CI, exact-SHA merge and a fresh hosted consumer. Platform support remains unchanged.
+
 ## Iteration priorities
 
 After publishing the first complete workflow, prioritize Future-to-Promise support, useful typed data structures, clear diagnostics, compiler/runtime compatibility, reproducible performance and size measurements, and real applications. Define consumer syntax, type and ownership rules, and acceptance cases before implementing each addition.

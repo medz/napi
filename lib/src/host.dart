@@ -189,15 +189,15 @@ function napiRequireObject(value, context) {
 // Only helpers referenced by the compiled Wasm imports are emitted.
 const _collectionHelpers = {
   'arrayLength': 'napi.arrayLength = value => value.length;',
-  'arrayGet': 'napi.arrayGet = (value, index) => value[index];',
+  'arrayGet': 'napi.arrayGet = (value, index) => value[index >>> 0];',
   'arraySet': r'''
 napi.arraySet = (value, index, element) => {
-  Object.defineProperty(value, index, {
+  Object.defineProperty(value, index >>> 0, {
     value: element, writable: true, enumerable: true, configurable: true,
   });
 };
 ''',
-  'newList': 'napi.newList = length => new Array(length);',
+  'newList': 'napi.newList = length => new Array(length >>> 0);',
   'snapshotList': r'''
 napi.snapshotList = (value, context) => {
   if (!Array.isArray(value)) throw new TypeError(context + ': Expected an Array');

@@ -431,6 +431,20 @@ class _ExportVisitor extends RecursiveAstVisitor<void> {
         }
       }
       final leaf = type.typeArguments.last;
+      if (!isMap && leaf is RecordType) {
+        final elementAnnotation = annotation is NamedType
+            ? annotation.typeArguments?.arguments.single
+            : null;
+        return ValueType(
+          ValueKind.listType,
+          nullable: type.nullabilitySuffix == NullabilitySuffix.question,
+          elementType: _recordType(
+            leaf,
+            elementAnnotation?.offset ?? offset,
+            elementAnnotation,
+          ),
+        );
+      }
       if (leaf.alias != null) {
         _fail(
           unit,

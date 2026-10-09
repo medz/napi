@@ -41,6 +41,295 @@ environment:
     return readExports(file.path);
   }
 
+  test(
+    'record Lists preserve independent nullability and Future types',
+    () async {
+      final exports = await analyze('''
+import 'dart:core' as core;
+import 'dart:async' as tasks;
+import 'package:napi/napi.dart';
+typedef User = ({core.String name, core.int age, core.bool? active, core.double score});
+@napi
+core.List<User> users(core.List<User> values) => values;
+@napi
+core.List<User?> elements(core.List<User?> values) => values;
+@napi
+core.List<User>? container(core.List<User>? values) => values;
+@napi
+core.List<User?>? both(core.List<User?>? values) => values;
+@napi
+tasks.Future<core.List<User>> later(core.List<User> values) async => values;
+@napi
+tasks.Future<core.List<User?>?> laterBoth(core.List<User?>? values) => tasks.Future.value(values);
+@napi
+core.List<({core.String name, core.int id})> inline(core.List<({core.int id, core.String name})> values) => values;
+@napi
+tasks.Future<core.List<({core.double? score})?>?> nullableInline(core.List<({core.double? score})?>? values) async => values;
+''');
+      expect(
+        exports
+            .take(4)
+            .map(
+              (export) => (
+                export.returnType.nullable,
+                export.returnType.elementType!.nullable,
+              ),
+            ),
+        [(false, false), (false, true), (true, false), (true, true)],
+      );
+      for (final export in exports) {
+        expect(export.returnType.kind, ValueKind.listType);
+        expect(export.returnType.elementType!.kind, ValueKind.recordType);
+        expect(
+          (
+            export.parameters.single.type.nullable,
+            export.parameters.single.type.elementType!.nullable,
+          ),
+          (export.returnType.nullable, export.returnType.elementType!.nullable),
+        );
+      }
+      expect(exports[4].isAsync, isTrue);
+      expect(exports[5].isAsync, isTrue);
+      expect(exports[7].isAsync, isTrue);
+      expect(generateTypescript(exports), '''
+export type User = { "active": boolean | null; "age": number; "name": string; "score": number };
+export declare function users(values: User[]): User[];
+export declare function elements(values: Array<User | null>): Array<User | null>;
+export declare function container(values: User[] | null): User[] | null;
+export declare function both(values: Array<User | null> | null): Array<User | null> | null;
+export declare function later(values: User[]): Promise<User[]>;
+export declare function laterBoth(values: Array<User | null> | null): Promise<Array<User | null> | null>;
+export declare function inline(values: { "id": number; "name": string }[]): { "id": number; "name": string }[];
+export declare function nullableInline(values: Array<{ "score": number | null } | null> | null): Promise<Array<{ "score": number | null } | null> | null>;
+''');
+    },
+  );
+
+  test(
+    'record Lists collect aliases once across chains and direct uses',
+    () async {
+      final exports = await analyze('''
+import 'package:napi/napi.dart';
+typedef Base = ({int id});
+typedef Maybe = Base?;
+typedef Outer = Maybe;
+typedef Other = ({int id});
+@napi
+List<Outer> nullable(List<Outer?> values) => values;
+@napi
+Future<List<Outer>?> later(List<Outer>? values) async => values;
+@napi
+Base direct(Base value) => value;
+@napi
+List<Base> originals(List<Base> values) => values;
+@napi
+List<Other> other(List<Other> values) => values;
+''');
+      final alias = exports.first.returnType.elementType!.recordAlias!;
+      expect(alias.name, 'Outer');
+      expect(alias.nullable, isTrue);
+      expect(exports.first.returnType.elementType!.nullable, isTrue);
+      expect(generateTypescript(exports), '''
+export type Base = { "id": number };
+export type Other = { "id": number };
+export type Outer = { "id": number } | null;
+export declare function nullable(values: Array<Outer>): Array<Outer>;
+export declare function later(values: Array<Outer> | null): Promise<Array<Outer> | null>;
+export declare function direct(value: Base): Base;
+export declare function originals(values: Base[]): Base[];
+export declare function other(values: Other[]): Other[];
+''');
+    },
+  );
+
+  test('record Lists retain prefixed re-exported alias identity', () async {
+    final model = File(path.join(fixture.path, 'record_list_model.dart'));
+    await model.writeAsString('typedef User = ({String name});\n');
+    await File(path.join(fixture.path, 'record_list_reexport.dart'))
+        .writeAsString("export 'record_list_model.dart';\n");
+    final exports = await analyze('''
+import 'package:napi/napi.dart';
+import 'record_list_model.dart' as original;
+import 'record_list_reexport.dart' as exposed;
+@napi
+List<original.User> echo(List<exposed.User> values) => values;
+''');
+    final alias = exports.single.returnType.elementType!.recordAlias!;
+    expect(alias.libraryUri, model.uri.toString());
+    expect(
+      exports.single.parameters.single.type.elementType!.recordAlias,
+      alias,
+    );
+    expect(generateTypescript(exports), '''
+export type User = { "name": string };
+export declare function echo(values: User[]): User[];
+''');
+  });
+
+  test('record Lists retain aliases declared in entry library parts', () async {
+    final library = File(path.join(fixture.path, 'record_list_library.dart'));
+    await library.writeAsString(
+      "import 'package:napi/napi.dart';\npart 'record_list_part.dart';\n",
+    );
+    await File(path.join(fixture.path, 'record_list_part.dart'))
+        .writeAsString('''
+part of 'record_list_library.dart';
+typedef User = ({int id});
+@napi
+Future<List<User?>?> echo(List<User?>? values) async => values;
+''');
+    final exports = await readExports(library.path);
+    expect(
+      exports.single.returnType.elementType!.recordAlias!.libraryUri,
+      library.uri.toString(),
+    );
+    expect(generateTypescript(exports), '''
+export type User = { "id": number };
+export declare function echo(values: Array<User | null> | null): Promise<Array<User | null> | null>;
+''');
+  });
+
+  test('record Lists reject alias collisions with direct boundaries', () async {
+    final first = File(path.join(fixture.path, 'record_list_first.dart'));
+    final second = File(path.join(fixture.path, 'record_list_second.dart'));
+    await first.writeAsString('typedef User = ({int id});\n');
+    await second.writeAsString('typedef User = ({int id});\n');
+    await expectLater(
+      analyze('''
+import 'package:napi/napi.dart';
+import 'record_list_first.dart' as first;
+import 'record_list_second.dart' as second;
+@napi
+second.User echo(List<first.User> values) => values.first;
+'''),
+      throwsA(
+        isA<ExportError>()
+            .having((error) => error.line, 'line', 5)
+            .having(
+              (error) => error.message,
+              'message',
+              contains('Conflicting'),
+            )
+            .having(
+              (error) => error.message,
+              'first origin',
+              contains(first.uri.toString()),
+            )
+            .having(
+              (error) => error.message,
+              'second origin',
+              contains(second.uri.toString()),
+            ),
+      ),
+    );
+  });
+
+  test(
+    'record Lists reject shadowing alias names reachable only by List',
+    () async {
+      await expectLater(
+        analyze('''
+import 'package:napi/napi.dart';
+typedef Promise = ({int id});
+@napi
+List<Promise> echo(List<Promise> values) => values;
+'''),
+        throwsA(
+          isA<ExportError>().having(
+            (error) => error.message,
+            'message',
+            contains('TypeScript record alias name'),
+          ),
+        ),
+      );
+    },
+  );
+
+  for (final entry in {
+    'nested Lists': ('List<List<User>>', 'collection leaf type'),
+    'Map record values': (
+      'Map<String, User>',
+      'Type aliases are not supported',
+    ),
+    'nested Map': ('List<Map<String, User>>', 'collection leaf type'),
+    'aliased List': ('Users', 'Type aliases are not supported'),
+    'record collection fields': ('List<({List<int> values})>', 'record field'),
+    'generic record alias': ('List<Box<int>>', 'Generic @napi record aliases'),
+    'positional records': ('List<(int, String)>', 'named fields only'),
+    'empty records': ('List<()>', 'at least one field'),
+  }.entries) {
+    test('record Lists still exclude ${entry.key}', () async {
+      await expectLater(
+        analyze('''
+import 'package:napi/napi.dart';
+typedef User = ({int id});
+typedef Users = List<User>;
+typedef Box<T> = ({T value});
+@napi
+${entry.value.$1} echo(${entry.value.$1} values) => values;
+'''),
+        throwsA(
+          isA<ExportError>().having(
+            (error) => error.message,
+            'message',
+            contains(entry.value.$2),
+          ),
+        ),
+      );
+    });
+  }
+
+  test('record Lists locate unsupported inline field types inside List', () async {
+    const signature =
+        'List<({int id, List<int> tags})> echo(List<({int id, List<int> tags})> values) => values;';
+    await expectLater(
+      analyze("import 'package:napi/napi.dart';\n@napi\n$signature\n"),
+      throwsA(
+        isA<ExportError>()
+            .having((error) => error.line, 'line', 3)
+            .having(
+              (error) => error.column,
+              'column',
+              signature.lastIndexOf('List<int>') + 1,
+            )
+            .having(
+              (error) => error.message,
+              'message',
+              contains('"tags" type'),
+            ),
+      ),
+    );
+  });
+
+  test('record Lists locate invalid fields in imported alias chains', () async {
+    final model = File(path.join(fixture.path, 'record_list_invalid.dart'));
+    await model.writeAsString('''
+typedef Base = ({
+  int _age,
+});
+typedef User = Base;
+''');
+    await expectLater(
+      analyze('''
+import 'package:napi/napi.dart';
+import 'record_list_invalid.dart' as models;
+@napi
+Future<List<models.User>> echo(List<models.User> values) async => values;
+'''),
+      throwsA(
+        isA<ExportError>()
+            .having((error) => error.path, 'path', model.path)
+            .having((error) => error.line, 'line', 2)
+            .having((error) => error.column, 'column', 7)
+            .having(
+              (error) => error.message,
+              'message',
+              contains('Invalid @napi record field "User._age"'),
+            ),
+      ),
+    );
+  });
+
   test('named records keep mixed scalar fields and canonical order', () async {
     final exports = await analyze('''
 import 'dart:core' as core;

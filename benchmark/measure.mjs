@@ -25,6 +25,7 @@ async function measure() {
   const wasm = await import(args['--wasm']);
   const collections = await import(args['--collections']);
   const records = await import(args['--records']);
+  const batch = await import(args['--batch']);
   globalThis.self = globalThis; // dart compile js emits a browser-compatible global.
   await import(args['--dart-js']);
   const dart = globalThis.dartBaseline;
@@ -108,7 +109,7 @@ async function measure() {
     echoStringAsync: value => dart.echoStringAsync(string(value)),
     echoBytesAsync: value => dart.echoBytesAsync(bytes(value)),
   };
-  const implementations = [['wasm', { ...wasm, ...collections, ...records }], ['javascript', js], ['dart_javascript', dartJs]];
+  const implementations = [['wasm', { ...wasm, ...collections, ...records, ...batch }], ['javascript', js], ['dart_javascript', dartJs]];
   for (const [, api] of implementations) {
     assert.equal(api.add(1.5, 2.5), 4);
     assert.equal(api.identityInt(Number.MAX_SAFE_INTEGER), Number.MAX_SAFE_INTEGER);
@@ -186,6 +187,85 @@ async function measure() {
         call: api => api[asynchronous ? `${method}Async` : method](input) });
     }
   }
+  const recordListSnapshot = (value, convert) => {
+    if (!Array.isArray(value)) throw new TypeError('Expected Array');
+    const snapshot = [];
+    for (let index = 0; index < value.length; index++) {
+      const field = Object.getOwnPropertyDescriptor(value, index);
+      if (!field || !Object.hasOwn(field, 'value')) throw new TypeError('Expected own data index');
+      snapshot.push(field.value);
+    }
+    return snapshot.map(convert);
+  };
+  for (const method of ['echoOne', 'echoFour', 'echoSixteen']) {
+    js[`${method}List`] = value => recordListSnapshot(value, js[method]);
+  }
+  js.echoFourListAsync = async value => js.echoFourList(value);
+  js.normalizeOne = value => {
+    const output = js.echoFour(value);
+    output.name = output.name.trim();
+    return output;
+  };
+  js.normalizeFourList = value => recordListSnapshot(value, js.normalizeOne);
+  const readFour = value => {
+    const proto = Object.getPrototypeOf(value);
+    if (proto !== null && proto !== Object.prototype) throw new TypeError('Expected ordinary object');
+    const values = ['active', 'id', 'name', 'score'].map(key => {
+      const field = Object.getOwnPropertyDescriptor(value, key);
+      if (!field || !Object.hasOwn(field, 'value')) throw new TypeError('Expected own data property');
+      return field.value;
+    });
+    if (typeof values[0] !== 'boolean') throw new TypeError('Expected a boolean');
+    return { active: values[0], id: integer(values[1]), name: string(values[2]), score: number(values[3]) };
+  };
+  js.sumOne = value => readFour(value).id;
+  js.sumFourList = value => recordListSnapshot(value, readFour).reduce((sum, item) => sum + item.id, 0);
+  for (const size of [0, 1, 16, 256, 4096]) {
+    const input = Array.from({ length: size }, (_, i) => ({ active: !!(i & 1), id: i & 255, name: ` Aé😀\ud800:${i} `, score: i + .25 }));
+    const normalized = input.map(item => ({ ...item, name: item.name.trim() }));
+    const total = input.reduce((sum, item) => sum + item.id, 0);
+    for (const [, api] of implementations.slice(0, 2)) {
+      const output = api.echoFourList(input);
+      assert.deepEqual(output.map(item => ({ ...item })), input);
+      assert.notEqual(output, input);
+      for (let i = 0; i < size; i++) {
+        assert.notEqual(output[i], input[i]);
+        assert.equal(Object.getPrototypeOf(output[i]), null);
+      }
+      assert.deepEqual(api.normalizeFourList(input).map(item => ({ ...item })), normalized);
+      assert.equal(api.sumFourList(input), total);
+      const owned = input.map(item => ({ ...item }));
+      const pending = api.echoFourListAsync(owned);
+      if (size) owned[0].name = 'changed field';
+      owned.push({ active: true, id: 999, name: 'changed membership', score: 0 });
+      assert.deepEqual((await pending).map(item => ({ ...item })), input);
+    }
+    for (const [kind, method, asynchronous, copies] of [
+      ['echo', 'echoFourList', false, 2],
+      ['async-echo', 'echoFourListAsync', true, 2],
+      ['normalize', 'normalizeFourList', false, 2],
+      ['sum', 'sumFourList', false, 1],
+    ]) {
+      cases.push({ name: `batch/${kind}/4/${size}`, count: sized(asynchronous ? iterations / 10 : iterations, size), warmup: sized(asynchronous ? warmup / 10 : warmup, size),
+        async: asynchronous, implementations: ['wasm', 'javascript'],
+        input: { elements: size, fields: 4, ownership_copies: copies, validation: 'own Array indices and fixed record data fields' }, call: api => api[method](input) });
+    }
+    for (const [kind, method, aggregate] of [['echo', 'echoFour', false], ['normalize', 'normalizeOne', false], ['sum', 'sumOne', true]]) {
+      cases.push({ name: `batch/single-call-loop-${kind}/4/${size}`, count: sized(iterations, size), warmup: sized(warmup, size), implementations: ['wasm', 'javascript'],
+        input: { elements: size, fields: 4, native_calls_per_iteration: size, outer_array_validation: false },
+        call: api => aggregate ? input.reduce((sum, item) => sum + api[method](item), 0) : input.map(item => api[method](item)) });
+    }
+  }
+  for (const [fields, method, input] of [
+    [1, 'echoOneList', Array.from({ length: 16 }, (_, i) => ({ id: i }))],
+    [16, 'echoSixteenList', Array.from({ length: 16 }, (_, row) => Object.fromEntries(Array.from({ length: 4 }, (_, i) => [
+      [`active${i}`, true], [`id${i}`, row + i], [`name${i}`, `Aé😀\ud800:${row}:${i}`], [`score${i}`, row + i + .25],
+    ]).flat()))],
+  ]) {
+    for (const [, api] of implementations.slice(0, 2)) assert.deepEqual(api[method](input).map(item => ({ ...item })), input);
+    cases.push({ name: `batch/echo/${fields}/16`, count: sized(iterations, 16), warmup: sized(warmup, 16), implementations: ['wasm', 'javascript'],
+      input: { elements: 16, fields, ownership_copies: 2 }, call: api => api[method](input) });
+  }
   for (const size of [0, 1, 16, 256, 4096]) {
     const list = Array.from({ length: size }, (_, i) => i & 255);
     const map = Object.create(null);
@@ -258,7 +338,10 @@ async function measure() {
   const consume = value => {
     if (typeof value === 'number') sink = (sink + value) | 0;
     else if (typeof value === 'string') sink = (sink + value.length) | 0;
-    else if (typeof value.length === 'number') sink = (sink + value.length + (value[0] || 0)) | 0;
+    else if (typeof value.length === 'number') {
+      const first = value[0];
+      sink = (sink + value.length + (typeof first === 'number' ? first : first?.id ?? first?.id0 ?? 0)) | 0;
+    }
     else sink = (sink + (value.id ?? value.id0 ?? value.key0?.length ?? 0)) | 0;
   };
   const rows = [];
@@ -286,7 +369,7 @@ async function measure() {
   }
   console.log(JSON.stringify({
     environment: { node: process.version, v8: process.versions.v8, os: `${platform()} ${release()}`, arch: arch(), cpu: cpus()[0]?.model },
-    ownership_preflight: 'scalar/bytes: all three implementations; collections/records: Wasm and JavaScript sync independence and async input snapshots',
+    ownership_preflight: 'scalar/bytes: all three implementations; collections/records/batches: Wasm and JavaScript sync independence and async input snapshots',
     dart_js_errors: 'omitted: hand-written dart:js_interop entry is not napi error mapping',
     notes: 'loop, dispatch, result consumption, validation and ownership copies are included; no concurrent Promise batching',
     sink, cases: rows,

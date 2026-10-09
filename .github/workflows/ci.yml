@@ -28,25 +28,31 @@ jobs:
         env:
           NAPI_RUNTIME_FIXTURES: ${{ github.workspace }}/.dart_tool/runtime-fixtures
           NAPI_TSC: ${{ github.workspace }}/.dart_tool/js/node_modules/typescript/bin/tsc
-      - name: Bundle an application with external Wasm
+      - name: Bundle applications with external Wasm
         run: |
           cp test/js/bundler-consumer.ts .dart_tool/runtime-fixtures/collections/
-          node .dart_tool/js/node_modules/esbuild/bin/esbuild .dart_tool/runtime-fixtures/collections/bundler-consumer.ts --bundle --platform=node --format=esm --target=node22 --external:@napi/collections '--external:*.wasm' --outfile=.dart_tool/runtime-fixtures/collections/bundler-consumer.mjs --metafile=.dart_tool/runtime-fixtures/collections/bundler-meta.json
-          node --input-type=module -e '
-            import assert from "node:assert/strict";
-            import { readFileSync } from "node:fs";
-            const meta = JSON.parse(readFileSync(process.argv[1], "utf8"));
-            assert.equal(Object.keys(meta.inputs).length, 1);
-            assert(Object.keys(meta.inputs)[0].endsWith("bundler-consumer.ts"));
-            const imports = Object.values(meta.outputs).flatMap(output => output.imports);
-            const userImports = imports.filter(entry => !entry.path.startsWith("node:"));
-            assert.deepEqual(userImports.map(entry => entry.path).sort(), ["./dist/module.wasm", "@napi/collections", "@napi/collections/module.wasm"].sort());
-            for (const entry of userImports) {
-              assert.equal(entry.external, true);
-              assert.equal(entry.kind, "import-statement");
-            }
-          ' .dart_tool/runtime-fixtures/collections/bundler-meta.json
-          node .dart_tool/runtime-fixtures/collections/bundler-consumer.mjs
+          for fixture in collections batch; do
+            source_file=bundler-consumer.ts
+            if [ "$fixture" = batch ]; then source_file=batch-bundler-consumer.ts; fi
+            fixture_path=".dart_tool/runtime-fixtures/$fixture"
+            node .dart_tool/js/node_modules/esbuild/bin/esbuild "$fixture_path/$source_file" --bundle --platform=node --format=esm --target=node22 "--external:@napi/$fixture" '--external:*.wasm' --outfile="$fixture_path/bundler-consumer.mjs" --metafile="$fixture_path/bundler-meta.json"
+            node --input-type=module -e '
+              import assert from "node:assert/strict";
+              import { readFileSync } from "node:fs";
+              const meta = JSON.parse(readFileSync(process.argv[1], "utf8"));
+              const packageName = process.argv[2];
+              assert.equal(Object.keys(meta.inputs).length, 1);
+              assert(Object.keys(meta.inputs)[0].endsWith(process.argv[3]));
+              const imports = Object.values(meta.outputs).flatMap(output => output.imports);
+              const userImports = imports.filter(entry => !entry.path.startsWith("node:"));
+              assert.deepEqual(userImports.map(entry => entry.path).sort(), ["./dist/module.wasm", packageName, packageName + "/module.wasm"].sort());
+              for (const entry of userImports) {
+                assert.equal(entry.external, true);
+                assert.equal(entry.kind, "import-statement");
+              }
+            ' "$fixture_path/bundler-meta.json" "@napi/$fixture" "$source_file"
+            node "$fixture_path/bundler-consumer.mjs"
+          done
       - run: dart pub publish --dry-run
       - name: Archive fixtures and JavaScript tools for reuse
         run: tar -czf .dart_tool/runtime-fixtures.tgz -C .dart_tool runtime-fixtures js
@@ -79,12 +85,13 @@ jobs:
           cat .dart_tool/runtime-fixtures/metadata.json
           node -p 'JSON.stringify({node: process.version, v8: process.versions.v8})'
           tsc_path="$GITHUB_WORKSPACE/.dart_tool/js/node_modules/typescript/bin/tsc"
-          for fixture in integration async collections records; do
+          for fixture in integration async collections records batch; do
             case "$fixture" in
               integration) runtime_script=node.mjs; package_consumer=consumer.ts; relative_consumer=relative.ts ;;
               async) runtime_script=async-node.mjs; package_consumer=async-consumer.ts; relative_consumer=async-relative.ts ;;
               collections) runtime_script=collections-node.mjs; package_consumer=collections-consumer.ts; relative_consumer=collections-relative.ts ;;
               records) runtime_script=records-node.mjs; package_consumer=records-consumer.ts; relative_consumer=records-relative.ts ;;
+              batch) runtime_script=batch-node.mjs; package_consumer=batch-consumer.ts; relative_consumer=batch-relative.ts ;;
             esac
             (
               cd ".dart_tool/runtime-fixtures/$fixture"
@@ -104,3 +111,4 @@ jobs:
             )
           done
           node .dart_tool/runtime-fixtures/collections/bundler-consumer.mjs
+          node .dart_tool/runtime-fixtures/batch/bundler-consumer.mjs

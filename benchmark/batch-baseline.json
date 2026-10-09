@@ -1,0 +1,1622 @@
+{
+  "schema": 1,
+  "napi_version": "0.6.0",
+  "recorded_at": "2026-10-09T04:39:49.631548Z",
+  "environment": {
+    "dart": "Dart SDK version: 3.13.5 (stable) (Tue Sep 29 01:00:52 2026 -0700) on \"macos_arm64\"",
+    "node": "v22.19.0",
+    "npm": "11.12.1",
+    "os": "Version 27.0.1 (Build 26A434)",
+    "dart_executable": "/Users/seven/workspace/flutter/bin/cache/dart-sdk/bin/dart",
+    "node_executable": "/Users/seven/Documents/Codex/2026-10-08/yan/work/node22/node_modules/.bin/node"
+  },
+  "configuration": {
+    "iterations": 20000,
+    "warmup": 2000,
+    "runs": 5,
+    "build_runs": 1,
+    "dart_js_optimization": "-O2",
+    "cold_import": "fresh Node process, filesystem caches uncontrolled",
+    "build_cache": "no result reuse; existing SDK/pub/filesystem caches uncontrolled"
+  },
+  "wasm_builds": [
+    {
+      "fixture": "minimal",
+      "build_ms": {
+        "samples": [
+          2431.048
+        ],
+        "median": 2431.048,
+        "min": 2431.048,
+        "max": 2431.048,
+        "spread_percent": 0.0
+      },
+      "files_bytes": {
+        "module.wasm": 17295,
+        "module.imports.mjs": 16703,
+        "index.d.ts": 42,
+        "module.d.wasm.ts": 42,
+        "package.json": 528
+      },
+      "collection_host_helpers": [],
+      "npm_tgz_bytes": 9650,
+      "npm_unpacked_bytes": 34610,
+      "cold_import_ms": {
+        "samples": [
+          2.2207500000000007,
+          2.7371670000000012,
+          2.776333000000001,
+          2.734290999999999,
+          2.7470420000000004
+        ],
+        "median": 2.7371670000000012,
+        "min": 2.2207500000000007,
+        "max": 2.776333000000001,
+        "spread_percent": 20.29773850115832
+      },
+      "first_call_ms": {
+        "samples": [
+          0.0662079999999996,
+          0.08329200000000014,
+          0.07937499999999886,
+          0.1020840000000014,
+          0.07458300000000051
+        ],
+        "median": 0.07937499999999886,
+        "min": 0.0662079999999996,
+        "max": 0.1020840000000014,
+        "spread_percent": 45.19811023622338
+      }
+    },
+    {
+      "fixture": "batch",
+      "build_ms": {
+        "samples": [
+          2728.333
+        ],
+        "median": 2728.333,
+        "min": 2728.333,
+        "max": 2728.333,
+        "spread_percent": 0.0
+      },
+      "files_bytes": {
+        "module.wasm": 47589,
+        "module.imports.mjs": 29877,
+        "index.d.ts": 979,
+        "module.d.wasm.ts": 979,
+        "package.json": 526
+      },
+      "collection_host_helpers": [
+        "snapshotList",
+        "arrayLength",
+        "arrayGet",
+        "snapshotRecord",
+        "newList",
+        "arraySet",
+        "newMap",
+        "mapSet"
+      ],
+      "npm_tgz_bytes": 23719,
+      "npm_unpacked_bytes": 79950,
+      "cold_import_ms": {
+        "samples": [
+          3.2320829999999994,
+          3.8433750000000018,
+          3.004792,
+          3.542166999999999,
+          3.2455409999999993
+        ],
+        "median": 3.2455409999999993,
+        "min": 3.004792,
+        "max": 3.8433750000000018,
+        "spread_percent": 25.838003587075367
+      },
+      "first_call_ms": {
+        "samples": [
+          0.05508299999999977,
+          0.04841599999999957,
+          0.04495799999999761,
+          0.050833000000000794,
+          0.05545899999999904
+        ],
+        "median": 0.050833000000000794,
+        "min": 0.04495799999999761,
+        "max": 0.05545899999999904,
+        "spread_percent": 20.65784037928366
+      }
+    }
+  ],
+  "runtime": {
+    "environment": {
+      "node": "v22.19.0",
+      "v8": "12.4.254.21-node.29",
+      "os": "darwin 27.0.0",
+      "arch": "arm64",
+      "cpu": "Apple M3 Max"
+    },
+    "ownership_preflight": "scalar/bytes: all three implementations; collections/records/batches: Wasm and JavaScript sync independence and async input snapshots",
+    "dart_js_errors": "omitted: hand-written dart:js_interop entry is not napi error mapping",
+    "notes": "loop, dispatch, result consumption, validation and ownership copies are included; no concurrent Promise batching",
+    "sink": -427953944,
+    "cases": [
+      {
+        "case": "batch/echo/4/0",
+        "input": {
+          "elements": 0,
+          "fields": 4,
+          "ownership_copies": 2,
+          "validation": "own Array indices and fixed record data fields"
+        },
+        "iterations": 20000,
+        "warmup": 2000,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              97.47710000000325,
+              76.85209999999643,
+              84.50414999999794,
+              71.10624999999118,
+              67.06249999999727
+            ],
+            "median": 76.85209999999643,
+            "min": 67.06249999999727,
+            "max": 97.47710000000325,
+            "spread_percent": 39.575496310455264
+          },
+          "javascript": {
+            "samples": [
+              76.45835000000716,
+              45.17084999999952,
+              40.34165000000485,
+              53.82920000000695,
+              36.01459999999861
+            ],
+            "median": 45.17084999999952,
+            "min": 36.01459999999861,
+            "max": 76.45835000000716,
+            "spread_percent": 89.53506520246792
+          }
+        }
+      },
+      {
+        "case": "batch/async-echo/4/0",
+        "input": {
+          "elements": 0,
+          "fields": 4,
+          "ownership_copies": 2,
+          "validation": "own Array indices and fixed record data fields"
+        },
+        "iterations": 2000,
+        "warmup": 200,
+        "completion": "sequential await per fulfilled/rejected call",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              1544.791499999974,
+              1271.4579999999387,
+              1041.3125000000036,
+              992.5415000000157,
+              882.1665000000394
+            ],
+            "median": 1041.3125000000036,
+            "min": 882.1665000000394,
+            "max": 1544.791499999974,
+            "spread_percent": 63.63363543604174
+          },
+          "javascript": {
+            "samples": [
+              416.8539999999439,
+              345.6460000001016,
+              399.8540000000048,
+              363.79199999998946,
+              399.49999999998903
+            ],
+            "median": 399.49999999998903,
+            "min": 345.6460000001016,
+            "max": 416.8539999999439,
+            "spread_percent": 17.82428035039906
+          }
+        }
+      },
+      {
+        "case": "batch/normalize/4/0",
+        "input": {
+          "elements": 0,
+          "fields": 4,
+          "ownership_copies": 2,
+          "validation": "own Array indices and fixed record data fields"
+        },
+        "iterations": 20000,
+        "warmup": 2000,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              84.26875000000109,
+              78.88335000000097,
+              92.48124999999163,
+              79.73749999999882,
+              90.5896000000098
+            ],
+            "median": 84.26875000000109,
+            "min": 78.88335000000097,
+            "max": 92.48124999999163,
+            "spread_percent": 16.13634947710804
+          },
+          "javascript": {
+            "samples": [
+              49.82914999999366,
+              53.11249999999745,
+              35.88750000000118,
+              35.15419999999949,
+              40.24584999999661
+            ],
+            "median": 40.24584999999661,
+            "min": 35.15419999999949,
+            "max": 53.11249999999745,
+            "spread_percent": 44.62149513552199
+          }
+        }
+      },
+      {
+        "case": "batch/sum/4/0",
+        "input": {
+          "elements": 0,
+          "fields": 4,
+          "ownership_copies": 1,
+          "validation": "own Array indices and fixed record data fields"
+        },
+        "iterations": 20000,
+        "warmup": 2000,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              76.45834999999579,
+              73.50624999999127,
+              62.89789999999584,
+              59.81455000001006,
+              65.30210000000807
+            ],
+            "median": 65.30210000000807,
+            "min": 59.81455000001006,
+            "max": 76.45834999999579,
+            "spread_percent": 25.487388613817433
+          },
+          "javascript": {
+            "samples": [
+              62.69999999999527,
+              49.537499999996726,
+              30.399999999997362,
+              29.08125000000155,
+              28.141649999997753
+            ],
+            "median": 30.399999999997362,
+            "min": 28.141649999997753,
+            "max": 62.69999999999527,
+            "spread_percent": 113.67878289473853
+          }
+        }
+      },
+      {
+        "case": "batch/single-call-loop-echo/4/0",
+        "input": {
+          "elements": 0,
+          "fields": 4,
+          "native_calls_per_iteration": 0,
+          "outer_array_validation": false
+        },
+        "iterations": 20000,
+        "warmup": 2000,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              50.72705000000042,
+              28.37289999999939,
+              29.012499999998905,
+              32.24169999999731,
+              29.172900000003214
+            ],
+            "median": 29.172900000003214,
+            "min": 28.37289999999939,
+            "max": 50.72705000000042,
+            "spread_percent": 76.62642383855759
+          },
+          "javascript": {
+            "samples": [
+              28.69794999999158,
+              28.602050000006326,
+              40.13960000000907,
+              29.795799999999417,
+              28.131250000001273
+            ],
+            "median": 28.69794999999158,
+            "min": 28.131250000001273,
+            "max": 40.13960000000907,
+            "spread_percent": 41.84392961870558
+          }
+        }
+      },
+      {
+        "case": "batch/single-call-loop-normalize/4/0",
+        "input": {
+          "elements": 0,
+          "fields": 4,
+          "native_calls_per_iteration": 0,
+          "outer_array_validation": false
+        },
+        "iterations": 20000,
+        "warmup": 2000,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              27.735450000000128,
+              28.674999999998363,
+              29.333349999990332,
+              30.664600000000064,
+              39.27084999999124
+            ],
+            "median": 29.333349999990332,
+            "min": 27.735450000000128,
+            "max": 39.27084999999124,
+            "spread_percent": 39.325204928843505
+          },
+          "javascript": {
+            "samples": [
+              37.48539999999139,
+              31.529199999999946,
+              29.53334999999697,
+              29.360400000007306,
+              31.379199999992125
+            ],
+            "median": 31.379199999992125,
+            "min": 29.360400000007306,
+            "max": 37.48539999999139,
+            "spread_percent": 25.89294819493843
+          }
+        }
+      },
+      {
+        "case": "batch/single-call-loop-sum/4/0",
+        "input": {
+          "elements": 0,
+          "fields": 4,
+          "native_calls_per_iteration": 0,
+          "outer_array_validation": false
+        },
+        "iterations": 20000,
+        "warmup": 2000,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              38.981250000006185,
+              18.162499999993997,
+              18.24374999999918,
+              18.402100000002974,
+              18.48335000000816
+            ],
+            "median": 18.402100000002974,
+            "min": 18.162499999993997,
+            "max": 38.981250000006185,
+            "spread_percent": 113.13246857700383
+          },
+          "javascript": {
+            "samples": [
+              35.024999999996,
+              18.8083000000006,
+              26.19165000000976,
+              18.63540000000512,
+              18.36875000000191
+            ],
+            "median": 18.8083000000006,
+            "min": 18.36875000000191,
+            "max": 35.024999999996,
+            "spread_percent": 88.55797706328353
+          }
+        }
+      },
+      {
+        "case": "batch/echo/4/1",
+        "input": {
+          "elements": 1,
+          "fields": 4,
+          "ownership_copies": 2,
+          "validation": "own Array indices and fixed record data fields"
+        },
+        "iterations": 20000,
+        "warmup": 2000,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              1790.1187499999992,
+              1779.2937499999994,
+              1788.1083500000045,
+              1794.4604000000027,
+              1745.8124999999995
+            ],
+            "median": 1788.1083500000045,
+            "min": 1745.8124999999995,
+            "max": 1794.4604000000027,
+            "spread_percent": 2.720634910071473
+          },
+          "javascript": {
+            "samples": [
+              665.8937499999979,
+              658.3146000000056,
+              665.7937500000003,
+              671.2354499999947,
+              654.370849999998
+            ],
+            "median": 665.7937500000003,
+            "min": 654.370849999998,
+            "max": 671.2354499999947,
+            "spread_percent": 2.533006655589166
+          }
+        }
+      },
+      {
+        "case": "batch/async-echo/4/1",
+        "input": {
+          "elements": 1,
+          "fields": 4,
+          "ownership_copies": 2,
+          "validation": "own Array indices and fixed record data fields"
+        },
+        "iterations": 2000,
+        "warmup": 200,
+        "completion": "sequential await per fulfilled/rejected call",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              2624.7500000000628,
+              2514.729500000044,
+              2703.5000000000764,
+              2591.666499999974,
+              2568.083500000057
+            ],
+            "median": 2591.666499999974,
+            "min": 2514.729500000044,
+            "max": 2703.5000000000764,
+            "spread_percent": 7.28374966455114
+          },
+          "javascript": {
+            "samples": [
+              924.7085000000652,
+              1015.9375000000637,
+              913.8335000000097,
+              906.6454999999678,
+              974.1045000000669
+            ],
+            "median": 924.7085000000652,
+            "min": 906.6454999999678,
+            "max": 1015.9375000000637,
+            "spread_percent": 11.819075957459908
+          }
+        }
+      },
+      {
+        "case": "batch/normalize/4/1",
+        "input": {
+          "elements": 1,
+          "fields": 4,
+          "ownership_copies": 2,
+          "validation": "own Array indices and fixed record data fields"
+        },
+        "iterations": 20000,
+        "warmup": 2000,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              1816.0208000000011,
+              1755.7333500000027,
+              1764.7478999999973,
+              1776.8250000000078,
+              1786.9332999999986
+            ],
+            "median": 1776.8250000000078,
+            "min": 1755.7333500000027,
+            "max": 1816.0208000000011,
+            "spread_percent": 3.3929874917337486
+          },
+          "javascript": {
+            "samples": [
+              645.7396000000017,
+              643.4229500000015,
+              640.8812500000067,
+              629.8833500000001,
+              647.1312500000067
+            ],
+            "median": 643.4229500000015,
+            "min": 629.8833500000001,
+            "max": 647.1312500000067,
+            "spread_percent": 2.680647309830435
+          }
+        }
+      },
+      {
+        "case": "batch/sum/4/1",
+        "input": {
+          "elements": 1,
+          "fields": 4,
+          "ownership_copies": 1,
+          "validation": "own Array indices and fixed record data fields"
+        },
+        "iterations": 20000,
+        "warmup": 2000,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              1084.941700000013,
+              1033.9104000000134,
+              1061.7895499999804,
+              1057.5770499999862,
+              1044.1937499999995
+            ],
+            "median": 1057.5770499999862,
+            "min": 1033.9104000000134,
+            "max": 1084.941700000013,
+            "spread_percent": 4.825303272229698
+          },
+          "javascript": {
+            "samples": [
+              261.068750000004,
+              162.2124999999869,
+              181.07500000000982,
+              171.2957999999844,
+              188.82289999999102
+            ],
+            "median": 181.07500000000982,
+            "min": 162.2124999999869,
+            "max": 261.068750000004,
+            "spread_percent": 54.594090846340876
+          }
+        }
+      },
+      {
+        "case": "batch/single-call-loop-echo/4/1",
+        "input": {
+          "elements": 1,
+          "fields": 4,
+          "native_calls_per_iteration": 1,
+          "outer_array_validation": false
+        },
+        "iterations": 20000,
+        "warmup": 2000,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              1206.945850000011,
+              1239.3062500000042,
+              1214.6624999999858,
+              1256.6708500000004,
+              1269.81045
+            ],
+            "median": 1239.3062500000042,
+            "min": 1206.945850000011,
+            "max": 1269.81045,
+            "spread_percent": 5.072563783164069
+          },
+          "javascript": {
+            "samples": [
+              582.3229000000083,
+              575.6437500000175,
+              577.1999999999935,
+              569.4999999999936,
+              568.666700000017
+            ],
+            "median": 575.6437500000175,
+            "min": 568.666700000017,
+            "max": 582.3229000000083,
+            "spread_percent": 2.3723353202377067
+          }
+        }
+      },
+      {
+        "case": "batch/single-call-loop-normalize/4/1",
+        "input": {
+          "elements": 1,
+          "fields": 4,
+          "native_calls_per_iteration": 1,
+          "outer_array_validation": false
+        },
+        "iterations": 20000,
+        "warmup": 2000,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              1351.9708499999979,
+              1333.5229000000027,
+              1343.4687499999882,
+              1324.2167000000109,
+              1322.570799999994
+            ],
+            "median": 1333.5229000000027,
+            "min": 1322.570799999994,
+            "max": 1351.9708499999979,
+            "spread_percent": 2.2046902981571423
+          },
+          "javascript": {
+            "samples": [
+              581.1125000000175,
+              596.6374999999971,
+              593.5833500000172,
+              583.8541500000019,
+              591.3312499999847
+            ],
+            "median": 591.3312499999847,
+            "min": 581.1125000000175,
+            "max": 596.6374999999971,
+            "spread_percent": 2.625432023080131
+          }
+        }
+      },
+      {
+        "case": "batch/single-call-loop-sum/4/1",
+        "input": {
+          "elements": 1,
+          "fields": 4,
+          "native_calls_per_iteration": 1,
+          "outer_array_validation": false
+        },
+        "iterations": 20000,
+        "warmup": 2000,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              794.8041999999987,
+              760.0437499999998,
+              784.0645499999937,
+              766.0520499999848,
+              771.4083500000015
+            ],
+            "median": 771.4083500000015,
+            "min": 760.0437499999998,
+            "max": 794.8041999999987,
+            "spread_percent": 4.506102377553832
+          },
+          "javascript": {
+            "samples": [
+              138.99375000000873,
+              127.57915000001958,
+              128.80625000000236,
+              138.3395999999948,
+              127.66455000000862
+            ],
+            "median": 128.80625000000236,
+            "min": 127.57915000001958,
+            "max": 138.99375000000873,
+            "spread_percent": 8.861837061469409
+          }
+        }
+      },
+      {
+        "case": "batch/echo/4/16",
+        "input": {
+          "elements": 16,
+          "fields": 4,
+          "ownership_copies": 2,
+          "validation": "own Array indices and fixed record data fields"
+        },
+        "iterations": 20000,
+        "warmup": 2000,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              26348.966649999988,
+              26361.81039999999,
+              26391.777099999992,
+              26437.685450000026,
+              26925.70834999997
+            ],
+            "median": 26391.777099999992,
+            "min": 26348.966649999988,
+            "max": 26925.70834999997,
+            "spread_percent": 2.1853083171120913
+          },
+          "javascript": {
+            "samples": [
+              9305.574999999999,
+              9186.16875,
+              9275.387499999988,
+              9254.652099999976,
+              9234.141649999992
+            ],
+            "median": 9254.652099999976,
+            "min": 9186.16875,
+            "max": 9305.574999999999,
+            "spread_percent": 1.2902294836128794
+          }
+        }
+      },
+      {
+        "case": "batch/async-echo/4/16",
+        "input": {
+          "elements": 16,
+          "fields": 4,
+          "ownership_copies": 2,
+          "validation": "own Array indices and fixed record data fields"
+        },
+        "iterations": 2000,
+        "warmup": 200,
+        "completion": "sequential await per fulfilled/rejected call",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              27121.20800000002,
+              27077.45849999992,
+              27070.70849999991,
+              27187.91650000003,
+              27474.249999999756
+            ],
+            "median": 27121.20800000002,
+            "min": 27070.70849999991,
+            "max": 27474.249999999756,
+            "spread_percent": 1.4879186059848302
+          },
+          "javascript": {
+            "samples": [
+              9250.604500000009,
+              9525.520500000312,
+              9493.937500000357,
+              9514.228999999887,
+              9405.33349999987
+            ],
+            "median": 9493.937500000357,
+            "min": 9250.604500000009,
+            "max": 9525.520500000312,
+            "spread_percent": 2.8957005457460903
+          }
+        }
+      },
+      {
+        "case": "batch/normalize/4/16",
+        "input": {
+          "elements": 16,
+          "fields": 4,
+          "ownership_copies": 2,
+          "validation": "own Array indices and fixed record data fields"
+        },
+        "iterations": 20000,
+        "warmup": 2000,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              26564.643750000007,
+              26921.49795,
+              27685.249999999993,
+              27075.160450000025,
+              27463.220850000016
+            ],
+            "median": 27075.160450000025,
+            "min": 26564.643750000007,
+            "max": 27685.249999999993,
+            "spread_percent": 4.138872056065637
+          },
+          "javascript": {
+            "samples": [
+              9529.270799999995,
+              9625.668750000023,
+              9397.629199999938,
+              9618.641649999972,
+              9629.64165000003
+            ],
+            "median": 9618.641649999972,
+            "min": 9397.629199999938,
+            "max": 9629.64165000003,
+            "spread_percent": 2.4121124213011265
+          }
+        }
+      },
+      {
+        "case": "batch/sum/4/16",
+        "input": {
+          "elements": 16,
+          "fields": 4,
+          "ownership_copies": 1,
+          "validation": "own Array indices and fixed record data fields"
+        },
+        "iterations": 20000,
+        "warmup": 2000,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              15832.46664999997,
+              16255.637500000012,
+              16105.7229,
+              17011.625000000004,
+              15905.627099999947
+            ],
+            "median": 16105.7229,
+            "min": 15832.46664999997,
+            "max": 17011.625000000004,
+            "spread_percent": 7.321362458061626
+          },
+          "javascript": {
+            "samples": [
+              2555.7146000000103,
+              2607.95420000004,
+              2585.560449999957,
+              3005.1666499999556,
+              2658.2249999999476
+            ],
+            "median": 2607.95420000004,
+            "min": 2555.7146000000103,
+            "max": 3005.1666499999556,
+            "spread_percent": 17.23389352466153
+          }
+        }
+      },
+      {
+        "case": "batch/single-call-loop-echo/4/16",
+        "input": {
+          "elements": 16,
+          "fields": 4,
+          "native_calls_per_iteration": 16,
+          "outer_array_validation": false
+        },
+        "iterations": 20000,
+        "warmup": 2000,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              19437.412499999937,
+              19310.408350000034,
+              19175.116649999927,
+              19711.333300000024,
+              19639.45834999995
+            ],
+            "median": 19437.412499999937,
+            "min": 19175.116649999927,
+            "max": 19711.333300000024,
+            "spread_percent": 2.758683286677681
+          },
+          "javascript": {
+            "samples": [
+              8713.212500000009,
+              8746.681249999983,
+              8636.0729,
+              8654.97920000007,
+              8455.899999999929
+            ],
+            "median": 8654.97920000007,
+            "min": 8455.899999999929,
+            "max": 8746.681249999983,
+            "spread_percent": 3.3596990042454657
+          }
+        }
+      },
+      {
+        "case": "batch/single-call-loop-normalize/4/16",
+        "input": {
+          "elements": 16,
+          "fields": 4,
+          "native_calls_per_iteration": 16,
+          "outer_array_validation": false
+        },
+        "iterations": 20000,
+        "warmup": 2000,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              20840.908349999972,
+              20722.664600000007,
+              20769.985449999876,
+              20812.687499999993,
+              21302.722899999935
+            ],
+            "median": 20812.687499999993,
+            "min": 20722.664600000007,
+            "max": 21302.722899999935,
+            "spread_percent": 2.7870417984218907
+          },
+          "javascript": {
+            "samples": [
+              8685.585399999945,
+              8675.156250000055,
+              8809.995850000087,
+              8947.491699999955,
+              8874.781249999978
+            ],
+            "median": 8809.995850000087,
+            "min": 8675.156250000055,
+            "max": 8947.491699999955,
+            "spread_percent": 3.0912097421691493
+          }
+        }
+      },
+      {
+        "case": "batch/single-call-loop-sum/4/16",
+        "input": {
+          "elements": 16,
+          "fields": 4,
+          "native_calls_per_iteration": 16,
+          "outer_array_validation": false
+        },
+        "iterations": 20000,
+        "warmup": 2000,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              12259.94795000006,
+              12121.677099999943,
+              12114.564599999903,
+              12169.787499999984,
+              12041.504150000037
+            ],
+            "median": 12121.677099999943,
+            "min": 12041.504150000037,
+            "max": 12259.94795000006,
+            "spread_percent": 1.8020922203910528
+          },
+          "javascript": {
+            "samples": [
+              1822.0479000001435,
+              1726.4041500000528,
+              1739.237499999945,
+              1797.302049999962,
+              1741.9416499998986
+            ],
+            "median": 1741.9416499998986,
+            "min": 1726.4041500000528,
+            "max": 1822.0479000001435,
+            "spread_percent": 5.490640286377919
+          }
+        }
+      },
+      {
+        "case": "batch/echo/4/256",
+        "input": {
+          "elements": 256,
+          "fields": 4,
+          "ownership_copies": 2,
+          "validation": "own Array indices and fixed record data fields"
+        },
+        "iterations": 5000,
+        "warmup": 500,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              424912.61680000025,
+              413878.08340000047,
+              424424.8081999998,
+              424642.5668000003,
+              420523.30000000075
+            ],
+            "median": 424424.8081999998,
+            "min": 413878.08340000047,
+            "max": 424912.61680000025,
+            "spread_percent": 2.5998794572818724
+          },
+          "javascript": {
+            "samples": [
+              146239.09159999967,
+              144669.7,
+              147907.2334000004,
+              146883.79179999974,
+              146154.20840000006
+            ],
+            "median": 146239.09159999967,
+            "min": 144669.7,
+            "max": 147907.2334000004,
+            "spread_percent": 2.2138631774709414
+          }
+        }
+      },
+      {
+        "case": "batch/async-echo/4/256",
+        "input": {
+          "elements": 256,
+          "fields": 4,
+          "ownership_copies": 2,
+          "validation": "own Array indices and fixed record data fields"
+        },
+        "iterations": 500,
+        "warmup": 50,
+        "completion": "sequential await per fulfilled/rejected call",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              422812.66799999867,
+              416638.9179999969,
+              417715.7499999885,
+              428850.8339999971,
+              428059.3339999905
+            ],
+            "median": 422812.66799999867,
+            "min": 416638.9179999969,
+            "max": 428850.8339999971,
+            "spread_percent": 2.8882568863807645
+          },
+          "javascript": {
+            "samples": [
+              147649.33200000087,
+              148148.91800000623,
+              149628.0839999963,
+              151519.5839999942,
+              149807.75000000722
+            ],
+            "median": 149628.0839999963,
+            "min": 147649.33200000087,
+            "max": 151519.5839999942,
+            "spread_percent": 2.5865812730673197
+          }
+        }
+      },
+      {
+        "case": "batch/normalize/4/256",
+        "input": {
+          "elements": 256,
+          "fields": 4,
+          "ownership_copies": 2,
+          "validation": "own Array indices and fixed record data fields"
+        },
+        "iterations": 5000,
+        "warmup": 500,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              428935.6334000011,
+              426943.43320000044,
+              444253.9665999997,
+              429813.9167999994,
+              424515.40000000095
+            ],
+            "median": 428935.6334000011,
+            "min": 424515.40000000095,
+            "max": 444253.9665999997,
+            "spread_percent": 4.601754916824937
+          },
+          "javascript": {
+            "samples": [
+              149246.78339999955,
+              150347.25840000028,
+              149599.7331999999,
+              150445.00839999964,
+              145697.4000000002
+            ],
+            "median": 149599.7331999999,
+            "min": 145697.4000000002,
+            "max": 150445.00839999964,
+            "spread_percent": 3.1735406865013362
+          }
+        }
+      },
+      {
+        "case": "batch/sum/4/256",
+        "input": {
+          "elements": 256,
+          "fields": 4,
+          "ownership_copies": 1,
+          "validation": "own Array indices and fixed record data fields"
+        },
+        "iterations": 5000,
+        "warmup": 500,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              248345.57499999937,
+              247861.9000000006,
+              247761.55,
+              247972.45839999962,
+              244806.1249999999
+            ],
+            "median": 247861.9000000006,
+            "min": 244806.1249999999,
+            "max": 248345.57499999937,
+            "spread_percent": 1.4279927653259537
+          },
+          "javascript": {
+            "samples": [
+              38793.06680000009,
+              38527.966800000286,
+              38409.466599998996,
+              38845.38339999999,
+              38182.21659999981
+            ],
+            "median": 38527.966800000286,
+            "min": 38182.21659999981,
+            "max": 38845.38339999999,
+            "spread_percent": 1.7212608270836032
+          }
+        }
+      },
+      {
+        "case": "batch/single-call-loop-echo/4/256",
+        "input": {
+          "elements": 256,
+          "fields": 4,
+          "native_calls_per_iteration": 256,
+          "outer_array_validation": false
+        },
+        "iterations": 5000,
+        "warmup": 500,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              313758.09159999917,
+              314473.2084000003,
+              312572.3499999993,
+              313898.14999999944,
+              310533.24160000193
+            ],
+            "median": 313758.09159999917,
+            "min": 310533.24160000193,
+            "max": 314473.2084000003,
+            "spread_percent": 1.2557339254285467
+          },
+          "javascript": {
+            "samples": [
+              135784.66679999983,
+              141440.88340000017,
+              140934.23340000008,
+              137012.8084000011,
+              137626.84160000063
+            ],
+            "median": 137626.84160000063,
+            "min": 135784.66679999983,
+            "max": 141440.88340000017,
+            "spread_percent": 4.109820827276987
+          }
+        }
+      },
+      {
+        "case": "batch/single-call-loop-normalize/4/256",
+        "input": {
+          "elements": 256,
+          "fields": 4,
+          "native_calls_per_iteration": 256,
+          "outer_array_validation": false
+        },
+        "iterations": 5000,
+        "warmup": 500,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              333682.5416000007,
+              340821.74159999995,
+              332867.9666000011,
+              336335.8833999984,
+              332355.41680000024
+            ],
+            "median": 333682.5416000007,
+            "min": 332355.41680000024,
+            "max": 340821.74159999995,
+            "spread_percent": 2.5372393651174745
+          },
+          "javascript": {
+            "samples": [
+              142753.0666000006,
+              144368.30839999893,
+              140166.62500000093,
+              139714.69999999972,
+              138681.98339999944
+            ],
+            "median": 140166.62500000093,
+            "min": 138681.98339999944,
+            "max": 144368.30839999893,
+            "spread_percent": 4.056832359343353
+          }
+        }
+      },
+      {
+        "case": "batch/single-call-loop-sum/4/256",
+        "input": {
+          "elements": 256,
+          "fields": 4,
+          "native_calls_per_iteration": 256,
+          "outer_array_validation": false
+        },
+        "iterations": 5000,
+        "warmup": 500,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              190254.94179999805,
+              192006.95839999826,
+              192701.5584000008,
+              190984.21659999876,
+              189470.54160000116
+            ],
+            "median": 190984.21659999876,
+            "min": 189470.54160000116,
+            "max": 192701.5584000008,
+            "spread_percent": 1.6917716330280534
+          },
+          "javascript": {
+            "samples": [
+              26747.5666000013,
+              26791.3750000007,
+              26682.41679999919,
+              27226.491599998553,
+              27011.316599999554
+            ],
+            "median": 26791.3750000007,
+            "min": 26682.41679999919,
+            "max": 27226.491599998553,
+            "spread_percent": 2.0307834144359806
+          }
+        }
+      },
+      {
+        "case": "batch/echo/4/4096",
+        "input": {
+          "elements": 4096,
+          "fields": 4,
+          "ownership_copies": 2,
+          "validation": "own Array indices and fixed record data fields"
+        },
+        "iterations": 312,
+        "warmup": 50,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              7261955.663461543,
+              7030366.320512817,
+              7246771.233974356,
+              7053788.996794865,
+              7078615.519230786
+            ],
+            "median": 7078615.519230786,
+            "min": 7030366.320512817,
+            "max": 7261955.663461543,
+            "spread_percent": 3.271675687421594
+          },
+          "javascript": {
+            "samples": [
+              2354828.791666641,
+              2359976.0929486924,
+              2382504.5416666768,
+              2389964.4775641114,
+              2386446.1794872065
+            ],
+            "median": 2382504.5416666768,
+            "min": 2354828.791666641,
+            "max": 2389964.4775641114,
+            "spread_percent": 1.4747374153121802
+          }
+        }
+      },
+      {
+        "case": "batch/async-echo/4/4096",
+        "input": {
+          "elements": 4096,
+          "fields": 4,
+          "ownership_copies": 2,
+          "validation": "own Array indices and fixed record data fields"
+        },
+        "iterations": 50,
+        "warmup": 50,
+        "completion": "sequential await per fulfilled/rejected call",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              7492885.839999944,
+              7060359.999999927,
+              7136788.339999911,
+              7074809.999999997,
+              7257726.679999905
+            ],
+            "median": 7136788.339999911,
+            "min": 7060359.999999927,
+            "max": 7492885.839999944,
+            "spread_percent": 6.060510966477983
+          },
+          "javascript": {
+            "samples": [
+              2466540.0000000955,
+              2538951.6600000206,
+              2456794.9999999837,
+              2490611.6799998563,
+              2480920.000000042
+            ],
+            "median": 2480920.000000042,
+            "min": 2456794.9999999837,
+            "max": 2538951.6600000206,
+            "spread_percent": 3.311540073845007
+          }
+        }
+      },
+      {
+        "case": "batch/normalize/4/4096",
+        "input": {
+          "elements": 4096,
+          "fields": 4,
+          "ownership_copies": 2,
+          "validation": "own Array indices and fixed record data fields"
+        },
+        "iterations": 312,
+        "warmup": 50,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              7319245.057692313,
+              7312512.554487162,
+              7132210.336538451,
+              7309811.698717964,
+              7287048.477564103
+            ],
+            "median": 7309811.698717964,
+            "min": 7132210.336538451,
+            "max": 7319245.057692313,
+            "spread_percent": 2.5586804265650924
+          },
+          "javascript": {
+            "samples": [
+              2406754.0064102686,
+              2471912.5256410153,
+              2468514.1538461605,
+              2425542.067307712,
+              2428192.0416666623
+            ],
+            "median": 2428192.0416666623,
+            "min": 2406754.0064102686,
+            "max": 2471912.5256410153,
+            "spread_percent": 2.6834170490906954
+          }
+        }
+      },
+      {
+        "case": "batch/sum/4/4096",
+        "input": {
+          "elements": 4096,
+          "fields": 4,
+          "ownership_copies": 1,
+          "validation": "own Array indices and fixed record data fields"
+        },
+        "iterations": 312,
+        "warmup": 50,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              4102815.570512832,
+              4182119.657051281,
+              4186439.7724358966,
+              4087300.7467948925,
+              4099270.4326923
+            ],
+            "median": 4102815.570512832,
+            "min": 4087300.7467948925,
+            "max": 4186439.7724358966,
+            "spread_percent": 2.4163656381125653
+          },
+          "javascript": {
+            "samples": [
+              632584.9358974479,
+              648066.2371794516,
+              622584.4006410345,
+              618130.0769230569,
+              636410.5224359101
+            ],
+            "median": 632584.9358974479,
+            "min": 618130.0769230569,
+            "max": 648066.2371794516,
+            "spread_percent": 4.732354274912405
+          }
+        }
+      },
+      {
+        "case": "batch/single-call-loop-echo/4/4096",
+        "input": {
+          "elements": 4096,
+          "fields": 4,
+          "native_calls_per_iteration": 4096,
+          "outer_array_validation": false
+        },
+        "iterations": 312,
+        "warmup": 50,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              5243806.221153836,
+              4894611.5128204925,
+              4961949.118589799,
+              4959410.657051288,
+              5116049.814102623
+            ],
+            "median": 4961949.118589799,
+            "min": 4894611.5128204925,
+            "max": 5243806.221153836,
+            "spread_percent": 7.037450404823689
+          },
+          "javascript": {
+            "samples": [
+              2324950.054487206,
+              2325642.362179422,
+              2224204.9935897132,
+              2214883.945512832,
+              2272008.147435908
+            ],
+            "median": 2272008.147435908,
+            "min": 2214883.945512832,
+            "max": 2325642.362179422,
+            "spread_percent": 4.874912829497857
+          }
+        }
+      },
+      {
+        "case": "batch/single-call-loop-normalize/4/4096",
+        "input": {
+          "elements": 4096,
+          "fields": 4,
+          "native_calls_per_iteration": 4096,
+          "outer_array_validation": false
+        },
+        "iterations": 312,
+        "warmup": 50,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              6602625.80128209,
+              5517711.137820488,
+              5435257.346153846,
+              5481210.070512763,
+              5454878.205128271
+            ],
+            "median": 5481210.070512763,
+            "min": 5435257.346153846,
+            "max": 6602625.80128209,
+            "spread_percent": 21.29764121627686
+          },
+          "javascript": {
+            "samples": [
+              2679954.3269230644,
+              3616733.3076922754,
+              2318022.7019230444,
+              2325754.9423077037,
+              2292514.6891026
+            ],
+            "median": 2325754.9423077037,
+            "min": 2292514.6891026,
+            "max": 3616733.3076922754,
+            "spread_percent": 56.93715165346418
+          }
+        }
+      },
+      {
+        "case": "batch/single-call-loop-sum/4/4096",
+        "input": {
+          "elements": 4096,
+          "fields": 4,
+          "native_calls_per_iteration": 4096,
+          "outer_array_validation": false
+        },
+        "iterations": 312,
+        "warmup": 50,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              3176385.685897493,
+              3148717.548076932,
+              3169795.673076852,
+              5408863.246794891,
+              3961269.7660256973
+            ],
+            "median": 3176385.685897493,
+            "min": 3148717.548076932,
+            "max": 5408863.246794891,
+            "spread_percent": 71.15463681732815
+          },
+          "javascript": {
+            "samples": [
+              438314.5032051499,
+              434058.75961541774,
+              565354.6987179233,
+              804223.1570512879,
+              651461.538461519
+            ],
+            "median": 565354.6987179233,
+            "min": 434058.75961541774,
+            "max": 804223.1570512879,
+            "spread_percent": 65.47471848651941
+          }
+        }
+      },
+      {
+        "case": "batch/echo/1/16",
+        "input": {
+          "elements": 16,
+          "fields": 1,
+          "ownership_copies": 2
+        },
+        "iterations": 20000,
+        "warmup": 2000,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              18264.187500000116,
+              13536.591649999902,
+              12858.250000000407,
+              14421.572899998864,
+              15543.543750001118
+            ],
+            "median": 14421.572899998864,
+            "min": 12858.250000000407,
+            "max": 18264.187500000116,
+            "spread_percent": 37.485075570363996
+          },
+          "javascript": {
+            "samples": [
+              4057.9666499994346,
+              3917.0666499994695,
+              3400.739600000088,
+              3574.818749999395,
+              3851.3645999992145
+            ],
+            "median": 3851.3645999992145,
+            "min": 3400.739600000088,
+            "max": 4057.9666499994346,
+            "spread_percent": 17.064783998883943
+          }
+        }
+      },
+      {
+        "case": "batch/echo/16/16",
+        "input": {
+          "elements": 16,
+          "fields": 16,
+          "ownership_copies": 2
+        },
+        "iterations": 20000,
+        "warmup": 2000,
+        "completion": "synchronous",
+        "ns_per_call": {
+          "wasm": {
+            "samples": [
+              109580.71874999878,
+              105377.89789999952,
+              101317.25204999966,
+              95896.32704999967,
+              101234.6437500004
+            ],
+            "median": 101317.25204999966,
+            "min": 95896.32704999967,
+            "max": 109580.71874999878,
+            "spread_percent": 13.506477350220585
+          },
+          "javascript": {
+            "samples": [
+              53312.12289999967,
+              42851.177100000496,
+              36453.29165000003,
+              38975.05625000049,
+              51261.808349999774
+            ],
+            "median": 42851.177100000496,
+            "min": 36453.29165000003,
+            "max": 53312.12289999967,
+            "spread_percent": 39.34274946673389
+          }
+        }
+      }
+    ]
+  }
+}
