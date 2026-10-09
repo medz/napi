@@ -106,6 +106,19 @@ export function runAssertions(api) {
   const beforeAdd = api.counter();
   equal(api.countedAdd(1, 2), 3, 'two-argument call recovers');
   equal(api.counter(), beforeAdd + 1, 'valid arguments enter Dart business once');
+  const profile = { count: 7, name: 'Wasm profile 你好' };
+  const profileResult = api.conditionalProfile(profile);
+  equal(profileResult.count, profile.count, 'conditional SDK int field roundtrip');
+  equal(profileResult.name, profile.name, 'conditional SDK string field roundtrip');
+  check(profileResult !== profile, 'conditional record result is independent');
+  profileResult.count = 9;
+  equal(profile.count, 7, 'conditional record result cannot mutate the input');
+  const badProfileCount = throws(() => api.conditionalProfile({ count: '7', name: 'name' }),
+    'conditional record validates its int field', null, TypeError);
+  equal(badProfileCount.message, 'parameter value["count"]: Expected a number', 'conditional count field has a precise path');
+  const badProfileName = throws(() => api.conditionalProfile({ count: 7, name: 1 }),
+    'conditional record validates its string field', null, TypeError);
+  equal(badProfileName.message, 'parameter value["name"]: Expected a string', 'conditional name field has a precise path');
   equal(api.identityInt(1, 2), 1, 'native Wasm ignores extra arguments');
   const unsafeResult = throws(() => api.oversizedInt(), 'integer result overflow uses RangeError', null, RangeError);
   check(!unsafeResult.message.includes('parameter '), 'result failure must not gain argument context');

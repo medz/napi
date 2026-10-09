@@ -41,6 +41,18 @@ environment:
     return readExports(file.path);
   }
 
+  Future<File> relatedLibrary(Map<String, String> sources) async {
+    final directory = Directory(
+      path.join(fixture.path, 'related_${sourceCount++}'),
+    );
+    await directory.create();
+    for (final source in sources.entries) {
+      await File(path.join(directory.path, source.key))
+          .writeAsString(source.value);
+    }
+    return File(path.join(directory.path, 'api.dart'));
+  }
+
   test(
     'record Lists preserve independent nullability and Future types',
     () async {
@@ -652,6 +664,124 @@ export declare function echo(value: User): User;
 ''');
     },
   );
+
+  test('Wasm analysis selects conditional imports and export chains', () async {
+    final entry = await relatedLibrary({
+      'stub.dart': '''
+typedef Count = int;
+typedef Profile = ({String name, Count count});
+''',
+      'web.dart': 'typedef Profile = ({String name, int count});\n',
+      'models.dart':
+          "export 'stub.dart' if (dart.library.js_interop) 'web.dart';\n",
+      'public.dart': "export 'models.dart' show Profile;\n",
+      'api.dart': '''
+import 'package:napi/napi.dart';
+import 'stub.dart' if (dart.library.js_interop) 'web.dart' as direct;
+import 'public.dart' as models;
+@napi
+direct.Profile echo(models.Profile value) => value;
+''',
+    });
+    final exports = await readExports(entry.path);
+    final profile = exports.single.returnType.recordAlias;
+    expect(
+      profile!.libraryUri,
+      File(path.join(entry.parent.path, 'web.dart')).uri.toString(),
+    );
+    expect(exports.single.parameters.single.type.recordAlias, profile);
+    expect(generateTypescript(exports), '''
+export type Profile = { "count": number; "name": string };
+export declare function echo(value: Profile): Profile;
+''');
+  });
+
+  test('Wasm analysis locates unsupported selected record fields', () async {
+    final entry = await relatedLibrary({
+      'stub.dart': 'typedef Profile = ({String name, int count});\n',
+      'web.dart': '''
+typedef Profile = ({
+  String name,
+  List<int> count,
+});
+''',
+      'models.dart':
+          "export 'stub.dart' if (dart.library.js_interop) 'web.dart';\n",
+      'api.dart': '''
+import 'package:napi/napi.dart';
+import 'models.dart' as models;
+@napi
+models.Profile echo(models.Profile value) => value;
+''',
+    });
+    await expectLater(
+      readExports(entry.path),
+      throwsA(
+        isA<ExportError>()
+            .having(
+              (error) => error.path,
+              'path',
+              path.join(entry.parent.path, 'web.dart'),
+            )
+            .having((error) => error.line, 'line', 3)
+            .having((error) => error.column, 'column', 3)
+            .having(
+              (error) => error.message,
+              'message',
+              contains('Profile.count'),
+            ),
+      ),
+    );
+  });
+
+  test('Wasm analysis disables io html js and preserves fallback', () async {
+    const unavailable = 'class Profile {}\nclass Fallback {}\n';
+    final entry = await relatedLibrary({
+      'fallback.dart': '''
+typedef Profile = ({String name, int count});
+typedef Fallback = ({bool available});
+''',
+      'web.dart': 'typedef Profile = ({String name, int count});\n',
+      'io.dart': unavailable,
+      'html.dart': unavailable,
+      'js.dart': unavailable,
+      'api.dart': '''
+import 'package:napi/napi.dart';
+import 'fallback.dart'
+  if (dart.library.io == 'false') 'io.dart'
+  if (dart.library.io) 'io.dart'
+  if (dart.library.html) 'html.dart'
+  if (dart.library.js) 'js.dart'
+  if (dart.library.ffi) 'io.dart'
+  if (dart.library._internal == 'false') 'io.dart'
+  if (dart.library.unknown == '') 'io.dart'
+  if (dart.library.js_interop) 'web.dart' as web;
+import 'fallback.dart'
+  if (dart.library.io) 'io.dart'
+  if (dart.library.html) 'html.dart'
+  if (dart.library.js) 'js.dart' as other;
+@napi
+web.Profile echo(web.Profile value) => value;
+@napi
+other.Fallback fallback(other.Fallback value) => value;
+''',
+    });
+    final exports = await readExports(entry.path);
+    expect(
+      exports.first.returnType.recordAlias!.libraryUri,
+      File(path.join(entry.parent.path, 'web.dart')).uri.toString(),
+    );
+    expect(
+      exports.last.returnType.recordAlias!.libraryUri,
+      File(path.join(entry.parent.path, 'fallback.dart')).uri.toString(),
+    );
+    expect(generateTypescript(exports), '''
+export type Fallback = { "available": boolean };
+export type Profile = { "count": number; "name": string };
+export declare function echo(value: Profile): Profile;
+export declare function fallback(value: Fallback): Fallback;
+''');
+  });
 
   test('record typedefs and functions in parts share a library', () async {
     final library = File(path.join(fixture.path, 'record_library.dart'));

@@ -1,10 +1,12 @@
 import {
   identityBool, identityInt, identityDouble, identityString, identityBytes,
   nullableBool, nullableInt, nullableDouble, nullableString, nullableBytes,
-  incrementCounter, counter, countedAdd, oversizedInt, throwError,
+  incrementCounter, counter, countedAdd, conditionalProfile, type Profile, oversizedInt, throwError,
   readFile, response, instantiate, $napiReadFile, fetch, URL, Error,
 } from '@napi/integration';
-import { identityInt as subpathInt } from '@napi/integration/module.wasm';
+import {
+  identityInt as subpathInt, conditionalProfile as subpathProfile, type Profile as SubpathProfile,
+} from '@napi/integration/module.wasm';
 
 const bool: boolean = identityBool(true);
 const int: number = identityInt(12);
@@ -19,6 +21,12 @@ const maybeBytes: Uint8Array | null = nullableBytes(null);
 const voidResult: void = incrementCounter();
 const count: number = counter();
 const sum: number = countedAdd(1, 2);
+const profile: Profile = conditionalProfile({ count: 7, name: 'root' });
+const subpathProfileResult: SubpathProfile = subpathProfile(profile);
+type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends
+  (<T>() => T extends B ? 1 : 2) ? true : false;
+const exactProfile: Equal<Profile, { count: number; name: string }> = true;
+const exactSubpathProfile: Equal<SubpathProfile, Profile> = true;
 const unsafe: number = oversizedInt();
 const exception: number = throwError('error');
 const readFileResult: string = readFile('name');
@@ -30,6 +38,7 @@ const urlResult: number = URL();
 const errorResult: string = Error();
 const subpathResult: number = subpathInt(42);
 void [bool, int, double, string, bytes, maybeBool, maybeInt, maybeDouble, maybeString, maybeBytes, voidResult, count, sum, unsafe, exception, readFileResult, responseResult, instantiateResult, dollarResult, fetchResult, urlResult, errorResult, subpathResult];
+void [profile, subpathProfileResult, exactProfile, exactSubpathProfile];
 
 // @ts-expect-error Wrong input type must not be accepted by generated declarations.
 identityBool(1);
@@ -54,3 +63,7 @@ const nonnullable: string = nullableString('value');
 countedAdd(1);
 // @ts-expect-error Both add arguments must be numbers.
 countedAdd(1, '2');
+// @ts-expect-error The conditional record count field is a number.
+conditionalProfile({ count: '7', name: 'root' });
+// @ts-expect-error The subpath record requires its string field.
+subpathProfile({ count: 7 });
