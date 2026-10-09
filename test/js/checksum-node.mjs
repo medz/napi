@@ -59,6 +59,17 @@ checksum('  文件 🚀 e\u0301 \ud800  ', offset);
 assert.equal(backing[1], 0xa5);
 assert.equal(backing[2 + binary.length], 0xa5);
 
+for (const length of [...Array.from({ length: 20 }, (_, index) => index), 63, 64, 65, 255, 256, 257]) {
+  const data = Uint8Array.from({ length }, (_, index) => (index * 31 + length * 7) & 0xff);
+  checksum(`tail-${length}`, data);
+  const position = length % 4 + 1;
+  const storage = Buffer.alloc(length + position + 4, 0xa5);
+  storage.set(data, position);
+  checksum(`offset-${length}`, storage.subarray(position, position + length));
+  assert.equal(storage[position - 1], 0xa5);
+  assert.equal(storage[position + length], 0xa5);
+}
+
 const cwd = fileURLToPath(new URL('.', import.meta.url));
 const main = fileURLToPath(new URL('./main.mjs', import.meta.url));
 function cli(args, input) {

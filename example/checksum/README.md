@@ -46,7 +46,11 @@ generated host helper beside the Wasm file. See [TypeScript](../../README.md#typ
 This is an application teaching example: Node already provides
 [`zlib.crc32`](https://nodejs.org/download/release/v22.19.0/docs/api/zlib.html#zlibcrc32data-value).
 It claims no speed advantage. The application holds the whole file in memory,
-pays the normal owned input-byte copy and scans the bytes once. A single
-256-entry CRC table is initialized on first use and reused; only scalar fields
-are returned in a new null-prototype object. Dart leaves the input unchanged.
+pays the normal owned input-byte copy and scans the bytes once. Four CRC tables
+(4 KiB total) are initialized on first use and reused. A shared-buffer view reads
+little-endian four-byte words, with the original byte update for the remaining
+0–3 bytes; this adds no payload copy. Only scalar fields are returned in a new
+null-prototype object. Dart leaves the input unchanged. See the
+[paired measurements](../../doc/performance.md#file-crc32-word-reads-unreleased)
+for the observed speed and size tradeoffs.
 CRC32 detects accidental corruption and does not authenticate content.
