@@ -6,6 +6,8 @@ import 'records_models.dart' as models;
 
 part 'batch_part.dart';
 
+typedef ReadonlyArray = ({int count});
+
 @napi
 List<models.User> normalizeUsers(List<models.User> users) => [
   for (final user in users)
@@ -28,6 +30,9 @@ int totalAge(List<models.User> users) =>
 
 @napi
 Future<int> totalAgeAsync(List<models.User> users) async => totalAge(users);
+
+@napi
+List<ReadonlyArray> echoReadonlyArrays(List<ReadonlyArray> values) => values;
 
 @napi
 List<models.User> echoUsers(List<models.User> values) => values;

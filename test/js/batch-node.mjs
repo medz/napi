@@ -15,7 +15,7 @@ const names = [
   'tracked', 'trackedAsync', 'readStored', 'readStoredAsync', 'changeStored',
   'repeatFirst', 'repeatFirstAsync', 'unsafeUsers', 'unsafeUsersAsync',
   'unsafeMixed', 'unsafeMixedAsync', 'echoPart', 'echoPartAsync',
-  'invalidLengthUsers', 'invalidLengthUsersAsync', 'invalidIndexReads',
+  'invalidLengthUsers', 'invalidLengthUsersAsync', 'invalidIndexReads', 'echoReadonlyArrays',
 ];
 for (const name of names) {
   assert.equal(typeof api[name], 'function', name);
@@ -23,7 +23,7 @@ for (const name of names) {
   assert.equal(api[name], relative[name], `${name} relative raw Wasm`);
   assert.match(Function.prototype.toString.call(api[name]), /\[native code\]/, name);
 }
-for (const name of ['User', 'UserAlias', 'MaybeUserAlias', 'Mixed', 'SpecialFields', 'BatchPart']) {
+for (const name of ['User', 'UserAlias', 'MaybeUserAlias', 'Mixed', 'SpecialFields', 'BatchPart', 'ReadonlyArray']) {
   assert.equal(Object.hasOwn(api, name), false, `${name} is only a nested type export`);
 }
 
@@ -122,7 +122,17 @@ try {
       const emptyOutput = await invoke(name, empty);
       equalBatch(emptyOutput, []);
       assert.notEqual(emptyOutput, empty);
-      equalBatch(await invoke(name, Object.freeze(input)), input);
+      Object.freeze(input[0]);
+      const frozen = Object.freeze(input);
+      const copied = await invoke(name, frozen);
+      equalBatch(copied, frozen);
+      assert.notEqual(copied, frozen);
+      assert.notEqual(copied[0], frozen[0]);
+      assert.equal(Object.isFrozen(copied), false);
+      assert.equal(Object.isFrozen(copied[0]), false);
+      copied[0].name = 'mutable frozen-input result';
+      copied.push(user());
+      assert.deepEqual(frozen, [user(), ...(nullableElement ? [null] : [])]);
       equalBatch(await invoke(name, input, [null]), input);
       if (nullableContainer) assert.equal(await invoke(name, null), null);
       else await failure(name, [null], TypeError, ['parameter values']);
@@ -139,6 +149,17 @@ try {
       }
     }
   }
+  const readonlyArrays = Object.freeze([Object.freeze({ count: 1 }), Object.freeze({ count: 2 })]);
+  const readonlyArrayOutput = invoke('echoReadonlyArrays', readonlyArrays);
+  equalBatch(readonlyArrayOutput, readonlyArrays);
+  assert.notEqual(readonlyArrayOutput, readonlyArrays);
+  assert.notEqual(readonlyArrayOutput[0], readonlyArrays[0]);
+  assert.notEqual(readonlyArrayOutput[1], readonlyArrays[1]);
+  assert.equal(Object.isFrozen(readonlyArrayOutput), false);
+  assert.equal(Object.isFrozen(readonlyArrayOutput[0]), false);
+  readonlyArrayOutput[0].count = 3;
+  readonlyArrayOutput.push({ count: 4 });
+  assert.deepEqual(readonlyArrays, [{ count: 1 }, { count: 2 }]);
   const source = [{ name: ' Ada ', age: 42, active: null }, { name: ' Lin ', age: -2, active: true }];
   const normalized = [{ name: 'Ada', age: 42, active: false }, { name: 'Lin', age: 0, active: true }];
   equalBatch(await invoke('normalizeUsers', source), normalized);

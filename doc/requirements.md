@@ -90,6 +90,14 @@ The project name is `napi`; the primary backend is Wasm ESM integration, not the
 - Verify direct business tests and the real shipped CLI, native package/subpath/relative function identity, required alias/signature types and positive/negative TypeScript consumers on all four Node versions. Build/pack/install the actual example once; preserve all existing regressions and external-Wasm bundle checks.
 - Gate release on final-head review/CI, exact-SHA merge and independent hosted-package validation including the complete application. This example expands no exported value support and makes no application speedup claim.
 
+## 0.9.0 contract
+
+- Render List parameters as readonly TypeScript arrays so mutable arrays, readonly arrays, frozen arrays and `as const` tuples are accepted. Preserve scalar/record types, required fields, public alias identity and independent element/container nullability; wrong element types and unsupported values remain rejected.
+- Keep result arrays mutable in synchronous and Future completion declarations. Readonly input declarations describe the caller's array; Dart still receives its own normal mutable List snapshot and outputs retain independent ownership.
+- Use array keyword syntax without a new global constructor. A public named-record alias called `ReadonlyArray` must compile, run and retain accurate parameter/result types. Reject the invalid TypeScript record alias `readonly` with a source diagnostic before compilation, while preserving valid function and parameter names.
+- Demonstrate the corrected API in the request-summary TypeScript consumer. Verify strict npm root/subpath and relative Wasm imports in NodeNext/Bundler, plus real frozen scalar and record inputs, unchanged callers and independently mutable outputs across all four Nodes using reused fixtures.
+- Preserve existing value/error/platform/SDK constraints, regressions and external-Wasm bundle checks. Add no runtime conversion branch, loader, framework or dependency; release requires final-head review/CI, exact-SHA merge and a fresh hosted consumer with artifact/source verification.
+
 ## Iteration priorities
 
 After publishing the first complete workflow, prioritize Future-to-Promise support, useful typed data structures, clear diagnostics, compiler/runtime compatibility, reproducible performance and size measurements, and real applications. Define consumer syntax, type and ownership rules, and acceptance cases before implementing each addition.

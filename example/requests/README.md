@@ -45,8 +45,10 @@ null-prototype objects. The command holds the whole input batch in memory and
 pays the normal validation/copy costs; this example makes no performance claim.
 
 The generated package exports `Observation` and `Summary` as TypeScript types,
-with `summarize(observations: Observation[]): Summary[]`. Check the shipped
-relative-import consumer with TypeScript 7.0.2:
+with `summarize(observations: readonly Observation[]): Summary[]`. Mutable,
+readonly, frozen and `as const` input arrays are accepted; result arrays and
+summary fields stay mutable. The shipped consumer demonstrates `as const`
+input. Check its relative Wasm import with TypeScript 7.0.2:
 
 ```sh
 npx --yes --package typescript@7.0.2 tsc --strict --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --allowArbitraryExtensions example/requests/consumer.mts

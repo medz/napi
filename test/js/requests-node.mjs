@@ -76,6 +76,17 @@ const emptyOutput = summarize(empty);
 assert.deepEqual(emptyOutput, []);
 assert.notEqual(emptyOutput, empty);
 assert.notEqual(summarize([]), emptyOutput);
+const frozenSample = Object.freeze(sampleText.trim().split('\n').map(line => Object.freeze(JSON.parse(line))));
+const frozenSnapshot = frozenSample.map(row => ({ ...row }));
+const frozenOutput = summarize(frozenSample);
+equalSummary(frozenOutput, sampleExpected);
+assert.notEqual(frozenOutput, frozenSample);
+assert.notEqual(frozenOutput[0], frozenSample[0]);
+assert.equal(Object.isFrozen(frozenOutput), false);
+assert.equal(Object.isFrozen(frozenOutput[0]), false);
+frozenOutput[0].totalDurationUs = 0;
+frozenOutput.push(frozenOutput[0]);
+assert.deepEqual(frozenSample, frozenSnapshot);
 
 const unicode = [
   { operation: 'read', durationUs: 3, success: true },

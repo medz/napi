@@ -75,7 +75,7 @@ void main() {
       expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
       final report = jsonDecode((result.stdout as String).trim()) as Map;
       expect(report['checks'] as int, greaterThan(1000));
-      expect(report['nativeFunctions'], 39);
+      expect(report['nativeFunctions'], 40);
       expect(report['retained'], isA<Map>());
       print('batch: ${result.stdout}');
     },
