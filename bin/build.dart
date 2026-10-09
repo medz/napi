@@ -158,7 +158,7 @@ Future<void> _build(List<String> arguments) async {
       },
       'files': assets,
       'engines': {'node': '^22.19.0 || >=24.5.0'},
-      'napi': {'generator': 'napi', 'version': '0.11.0'},
+      'napi': {'generator': 'napi', 'version': '0.11.1'},
     };
     await File(p.join(work.path, 'package.json')).writeAsString(
       '${const JsonEncoder.withIndent('  ').convert(manifest)}\n',
@@ -231,10 +231,15 @@ Directory _resolveDestination(String output) {
   }
   var ancestor = Directory(absolute);
   while (!ancestor.existsSync()) {
-    if (FileSystemEntity.typeSync(ancestor.path, followLinks: false) ==
-        FileSystemEntityType.link) {
+    final type = FileSystemEntity.typeSync(ancestor.path, followLinks: false);
+    if (type == FileSystemEntityType.link) {
       throw const FormatException(
         'Output path contains a broken symbolic link.',
+      );
+    }
+    if (type != FileSystemEntityType.notFound) {
+      throw FormatException(
+        'Output path contains a non-directory component: ${ancestor.path}',
       );
     }
     final parent = ancestor.parent;
@@ -285,10 +290,16 @@ Future<void> _publishOutput(
 }
 
 void _checkDestination(Directory directory) {
-  if (FileSystemEntity.typeSync(directory.path, followLinks: false) ==
-      FileSystemEntityType.link) {
+  final type = FileSystemEntity.typeSync(directory.path, followLinks: false);
+  if (type == FileSystemEntityType.link) {
     throw const FormatException(
       'Output directory must not be a symbolic link.',
+    );
+  }
+  if (type != FileSystemEntityType.notFound &&
+      type != FileSystemEntityType.directory) {
+    throw FormatException(
+      'Output path contains a non-directory component: ${directory.path}',
     );
   }
   if (!directory.existsSync()) return;
