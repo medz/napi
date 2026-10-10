@@ -2650,6 +2650,39 @@ int inspect(int delete, int arg0, int typeof, int arg1) => delete + arg0 + typeo
     },
   );
 
+  test(
+    'wildcard parameters retain their types with unique TS bindings',
+    () async {
+      final exports = await analyze('''
+import 'package:napi/napi.dart';
+@napi
+int wildcardSingle(int _) => 42;
+@napi
+String wildcardRepeated(int _, String _) => 'ignored';
+@napi
+String wildcardMixed(int _, int arg0, String _, bool typeof, int arg1) =>
+    '\$arg0:\$typeof:\$arg1';
+''');
+      expect(exports.first.parameters.single.name, '_');
+      expect(exports[1].parameters.map((parameter) => parameter.name), [
+        '_',
+        '_',
+      ]);
+      expect(exports.last.parameters.map((parameter) => parameter.type.kind), [
+        ValueKind.intType,
+        ValueKind.intType,
+        ValueKind.stringType,
+        ValueKind.boolType,
+        ValueKind.intType,
+      ]);
+      expect(generateTypescript(exports), '''
+export declare function wildcardSingle(arg0: number): number;
+export declare function wildcardRepeated(arg0: number, arg1: string): string;
+export declare function wildcardMixed(arg2: number, arg0: number, arg3: string, arg4: boolean, arg1: number): string;
+''');
+    },
+  );
+
   test('then remains a valid parameter name', () async {
     final exports = await analyze(
       "import 'package:napi/napi.dart';\n@napi\nint inspect(int then) => then;\n",

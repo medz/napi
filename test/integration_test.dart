@@ -108,7 +108,7 @@ void main() {
       expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
       final report = jsonDecode((result.stdout as String).trim()) as Map;
       expect(report['checks'] as int, greaterThan(10000));
-      expect(report['nativeFunctions'], 26);
+      expect(report['nativeFunctions'], 29);
       expect(report['retained'], isA<Map>());
     },
     timeout: const Timeout(Duration(minutes: 2)),

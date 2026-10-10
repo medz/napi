@@ -101,3 +101,13 @@ double countedAdd(double a, double b) {
 
 @napi
 Profile conditionalProfile(Profile value) => echoProfile(value);
+
+@napi
+int wildcardSingle(int _) => 42;
+
+@napi
+String wildcardRepeated(int _, String _) => 'ignored';
+
+@napi
+String wildcardMixed(int _, int arg0, String _, bool typeof, int arg1) =>
+    '$arg0:$typeof:$arg1';

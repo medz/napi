@@ -1,6 +1,7 @@
 import {
   identityBool, identityInt, identityDouble, identityString, identityBytes,
   nullableString, incrementCounter, countedAdd, conditionalProfile, type Profile, fetch, URL, Error,
+  wildcardSingle, wildcardRepeated, wildcardMixed,
 } from './dist/module.wasm';
 
 const bool: boolean = identityBool(true);
@@ -15,11 +16,19 @@ const profile: Profile = conditionalProfile({ count: 7, name: 'relative' });
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends
   (<T>() => T extends B ? 1 : 2) ? true : false;
 const exactProfile: Equal<Profile, { count: number; name: string }> = true;
+const singleWildcard: number = wildcardSingle(1);
+const repeatedWildcards: string = wildcardRepeated(1, 'ignored');
+const mixedWildcards: string = wildcardMixed(1, 7, 'ignored', true, 9);
+const exactSingleWildcard: Equal<typeof wildcardSingle, (value: number) => number> = true;
+const exactRepeatedWildcards: Equal<typeof wildcardRepeated, (first: number, second: string) => string> = true;
+const exactMixedWildcards: Equal<typeof wildcardMixed, (first: number, arg0: number, third: string, reserved: boolean, arg1: number) => string> = true;
 const fetchResult: string = fetch('body');
 const urlResult: number = URL();
 const errorResult: string = Error();
 void [bool, int, double, string, bytes, nullable, voidResult, sum, fetchResult, urlResult, errorResult];
 void [profile, exactProfile];
+void [singleWildcard, repeatedWildcards, mixedWildcards,
+  exactSingleWildcard, exactRepeatedWildcards, exactMixedWildcards];
 
 // @ts-expect-error Companion declarations must preserve the actual argument type.
 identityInt('42');
@@ -32,3 +41,18 @@ const wrong: string = nullableString(null);
 countedAdd('1', 2);
 // @ts-expect-error Relative Wasm declarations preserve the string record field.
 conditionalProfile({ count: 7, name: 1 });
+
+// @ts-expect-error Relative declarations require the ignored input too.
+wildcardSingle();
+// @ts-expect-error The ignored integer still uses number.
+wildcardSingle('1');
+// @ts-expect-error Repeated wildcards preserve positional arity.
+wildcardRepeated(1);
+// @ts-expect-error The second ignored input stays a string.
+wildcardRepeated(1, 2);
+// @ts-expect-error Mixed wildcards preserve the first ignored input type.
+wildcardMixed('1', 7, 'ignored', true, 9);
+// @ts-expect-error Mixed wildcard declarations preserve the third input type.
+wildcardMixed(1, 7, 2, true, 9);
+// @ts-expect-error The final named input remains required.
+wildcardMixed(1, 7, 'ignored', true);

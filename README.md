@@ -438,6 +438,9 @@ package itself uses `Uint8Array` types and adds no Node type dependency.
 
 Annotate public top-level functions in the entry library. Use explicit return types and required positional parameters. Extra arguments are ignored, as with ordinary native Wasm functions; missing arguments arrive as `undefined` and fail type checks.
 
+Wildcard (`_`) parameters keep their required positions and type checks; their
+declaration bindings use unique `argN` names.
+
 | Dart | JavaScript / TypeScript | Boundary behavior |
 | --- | --- | --- |
 | `void` | `void` | Return type only; returns `undefined` |
