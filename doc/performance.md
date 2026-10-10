@@ -536,3 +536,77 @@ introduced.
 The whole fixture has 36,180 Wasm bytes, 24,352 host bytes, 326 bytes per
 declaration and a 19,094-byte npm archive. These totals include four exports and
 Future support; they do not isolate the incremental size of byte List support.
+
+## Host List snapshots
+
+[`benchmark/list-snapshot-baseline.json`](../benchmark/list-snapshot-baseline.json)
+retains 3,484 raw samples for a `snapshotList` host-helper comparison. The
+candidate keeps ordered own-data-descriptor reads, uses Array literals for
+zero/one element and `Array.from` with a null-prototype array-like input for
+larger snapshots. It avoids a descriptor object and `Object.defineProperty`
+call for each output slot.
+
+The measurements reuse verified Dart 3.13.5 artifacts from
+`bcead2413e9acb6439e21a6546687c310ba56c7a`, replacing only the generated host
+helper body. Wasm, declarations, manifests and other host functions remain
+unchanged; this comparison required no compilation or download. A separate
+fresh producer build emitted the same five byte-fixture assets as the frozen
+candidate; its compilation count is recorded separately. The report
+retains both helper bodies, driver/asset hashes, counts, warmups, orders and
+raw ranges. It was run on Node 22.19.0 / V8 12.4.254.21-node.29,
+Apple M3 Max arm64, Darwin 27.0.0.
+
+Byte measurements use separate processes: before then after in the forward
+block, after then before in reverse. They are not same-process paired samples.
+The byte driver retains its 12 samples per route and original logical-work
+budget. Record rounds rotate nine routes in one process, with five samples
+per route and reversed base order in the second process. Scalar rounds alternate
+before/after in one process, with seven samples and reversed initial order in
+the second process. Timed consumption is identical within each comparison;
+value and ownership assertions run outside timing. No explicit GC or timing
+threshold is used. JIT, garbage collection and system load are uncontrolled.
+
+Representative forward medians in **microseconds per completed native call**:
+
+| Input / operation | Calls / sample | Before | After | Change | Reverse change |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 256 integers / sync echo | 1,024 | 77.939 | 57.133 | −26.70% | −25.96% |
+| 256 integers / Future echo | 256 | 79.879 | 58.025 | −27.36% | −26.24% |
+| 256 × 32 bytes / sync echo | 1,024 | 141.261 | 124.980 | −11.53% | −14.39% |
+| 256 three-field records / sync echo | 256 | 287.657 | 265.093 | −7.84% | −9.15% |
+
+The scalar cases above use 102/100 warmups for sync/Future calls; byte and
+record cases use 200/100. The forward byte ranges overlap
+(135.722–148.142 → 119.192–148.524µs), while its reverse medians also improve.
+Async byte and larger-payload cases show no uniform improvement. Representative
+byte batches still cost more than per-element native loops, which omit outer
+Array validation. Real application performance and startup were not measured.
+
+Long empty-input checks use nine alternating samples, 1,000,000 sync calls or
+100,000 completed Future calls, with 100,000/10,000 warmups. Sync medians rise
+41.003 → 43.609ns in forward and 41.291 → 44.215ns in reverse: about 3ns
+(6–7%) more per empty call. Future changes are −1.29% / +2.09%, with overlapping
+ranges. The archive separately preserves 296 historical scalar/empty samples
+and the 36-sample rejected empty-Array-constructor experiment. That experiment
+has only a forward round and contributes no final-candidate result.
+
+The `bytes`, `collections`, `batch` and `requests` host files each shrink by
+59 bytes (24,352 → 24,293; 32,868 → 32,809; 33,784 → 33,725;
+28,845 → 28,786). Other four artifacts per fixture are byte-identical.
+
+To repeat the host-only comparison, copy already-built fixture directories and
+replace just the helper body using the before/after bodies retained in the
+report, then reuse those artifacts:
+
+```sh
+node benchmark/bytes.mjs before-fixtures/bytes/dist/module.wasm > bytes-before.json
+node benchmark/bytes.mjs after-fixtures/bytes/dist/module.wasm > bytes-after.json
+node benchmark/record-snapshot.mjs after-fixtures records-forward.json forward before-fixtures
+node benchmark/list-scalars.mjs before-fixtures/collections/dist after-fixtures/collections/dist forward > scalars-forward.json
+node benchmark/list-scalars.mjs before-fixtures/collections/dist after-fixtures/collections/dist forward --empty > empty-forward.json
+```
+
+Repeat the byte commands in opposite process order for the reverse block;
+pass `reverse` to the other drivers. The current scalar driver also provides
+the long empty check with `--empty`; historical driver bodies and hashes remain
+in the archive for the earlier reports.

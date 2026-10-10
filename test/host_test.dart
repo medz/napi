@@ -65,6 +65,25 @@ void main() {
     },
   );
 
+  test('list snapshots preserve descriptors, reflection order and exception identity', () async {
+    final host = generateHost(_compiler, [bridgeImport('snapshotList')])
+        .replaceFirst(
+          RegExp(r'^import \* as dartExports from [^\n]+;\n', multiLine: true),
+          'const dartExports = {};\n',
+        );
+    final node =
+        Platform.environment['NAPI_NODE22'] ??
+        Platform.environment['NAPI_NODE'] ??
+        'node';
+    final result = await Process.run(node, [
+      '--input-type=module',
+      '--eval',
+      '$host\n$_listAssertions',
+    ]);
+    expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
+    expect(result.stdout, 'host list snapshots passed\n');
+  });
+
   test(
     'record byte copy diagnostics are emitted only for their own import',
     () {
@@ -245,6 +264,151 @@ assert.equal(_i4(largest, -1), 'non-index data key');
 assert.equal(Object.hasOwn(largest, '-1'), false);
 assert.equal(largest.length, 0xffffffff);
 console.log('host snapshots passed');
+''';
+
+const _listAssertions = r'''
+import assert from 'node:assert/strict';
+import vm from 'node:vm';
+const snapshotList = _i0;
+const context = 'parameter values';
+function checkSnapshot(input, expected) {
+  const output = snapshotList(input, context);
+  assert.deepEqual(output, expected);
+  assert.notEqual(output, input);
+  assert.equal(Object.getPrototypeOf(output), Array.prototype);
+  for (let index = 0; index < output.length; index++) {
+    assert.deepEqual(Object.getOwnPropertyDescriptor(output, String(index)), {
+      value: expected[index], writable: true, enumerable: true, configurable: true,
+    });
+  }
+  return output;
+}
+const empty = [];
+checkSnapshot(empty, []);
+assert.notEqual(snapshotList(empty, context), snapshotList(empty, context));
+checkSnapshot([1], [1]);
+checkSnapshot(Object.freeze([1, null, 3]), [1, null, 3]);
+const hidden = [1, 2];
+Object.defineProperty(hidden, '1', {value: 2, enumerable: false});
+checkSnapshot(hidden, [1, 2]);
+const nullPrototype = [1, 2];
+Object.setPrototypeOf(nullPrototype, null);
+checkSnapshot(nullPrototype, [1, 2]);
+checkSnapshot(vm.runInNewContext('[1, 2]'), [1, 2]);
+const object = {value: 1};
+const source = [object, 2];
+const copy = checkSnapshot(source, [object, 2]);
+source[1] = 99;
+assert.equal(copy[1], 2);
+assert.equal(copy[0], object, 'Host snapshots retain references for later leaf conversion');
+let getters = 0;
+function unused() { getters++; throw new Error('unused getter'); }
+const extras = [1, 2];
+Object.defineProperty(extras, 'unused', {get: unused});
+Object.defineProperty(extras, Symbol.iterator, {get: unused});
+checkSnapshot(extras, [1, 2]);
+const accessor = [1, 2];
+Object.defineProperty(accessor, '1', {get: unused});
+const inherited = [1, , 3];
+Object.setPrototypeOf(inherited, Object.create(Array.prototype, {'1': {get: unused}}));
+for (const input of [[1, , 3], inherited, accessor]) {
+  assert.throws(() => snapshotList(input, context), error => error instanceof TypeError &&
+    error.message === 'parameter values[1]: Expected an own data index');
+}
+assert.equal(getters, 0);
+for (const input of [null, undefined, {}, {length: 1, 0: 1}, new Uint8Array(1)]) {
+  assert.throws(() => snapshotList(input, context), error => error instanceof TypeError &&
+    error.message === 'parameter values: Expected an Array');
+}
+const order = [];
+const changing = [1, 2, 3];
+const reflected = new Proxy(changing, {
+  get() { throw new Error('No ordinary reads'); },
+  getOwnPropertyDescriptor(target, key) {
+    order.push(key);
+    if (key === '0') { target[1] = 20; target.push(4); }
+    return Reflect.getOwnPropertyDescriptor(target, key);
+  },
+});
+checkSnapshot(reflected, [1, 20, 3]);
+assert.deepEqual(order, ['length', '0', '1', '2']);
+for (const [length, kind, message] of [
+  ['1', TypeError, 'Expected a numeric Array length'],
+  [null, TypeError, 'Expected a numeric Array length'],
+  [-1, RangeError, 'Expected a valid Array length'],
+  [.5, RangeError, 'Expected a valid Array length'],
+  [NaN, RangeError, 'Expected a valid Array length'],
+  [Infinity, RangeError, 'Expected a valid Array length'],
+  [4294967296, RangeError, 'Expected a valid Array length'],
+]) {
+  const reads = [];
+  const input = new Proxy([], {getOwnPropertyDescriptor(target, key) {
+    reads.push(key);
+    if (key === 'length') return {value: length, writable: true, enumerable: false, configurable: false};
+    throw new Error('Length must be validated first');
+  }});
+  assert.throws(() => snapshotList(input, context), error => error instanceof kind &&
+    error.message === context + ': ' + message);
+  assert.deepEqual(reads, ['length']);
+}
+for (const reason of [new Error('original'), new TypeError('original type'),
+                     {original: true}, 'original string', 42, Symbol('original'), null, undefined]) {
+  for (const position of ['length', '1']) {
+    const input = new Proxy([1, 2], {getOwnPropertyDescriptor(target, key) {
+      if (key === position) throw reason;
+      return Reflect.getOwnPropertyDescriptor(target, key);
+    }});
+    let threw = false;
+    try {
+      snapshotList(input, context);
+    } catch (error) {
+      threw = true;
+      assert.equal(error, reason);
+    }
+    assert(threw, 'The original thrown value must propagate');
+  }
+}
+// Restore global prototypes before assertions, which may allocate their own arrays.
+const poisonedInput = [1, 2, 3];
+const poisonedSingle = [4];
+const inheritedIterator = Object.getOwnPropertyDescriptor(Object.prototype, Symbol.iterator);
+const inheritedIndex = Object.getOwnPropertyDescriptor(Object.prototype, '1');
+const arrayIndex = Object.getOwnPropertyDescriptor(Array.prototype, '0');
+const arraySpecies = Object.getOwnPropertyDescriptor(Array, Symbol.species);
+let poisonCalls = 0;
+function poison() { poisonCalls++; throw new Error('Inherited snapshot trap'); }
+let multiOutput, singleOutput, emptyOutput;
+try {
+  Object.defineProperty(Object.prototype, Symbol.iterator, {get: poison, configurable: true});
+  Object.defineProperty(Object.prototype, '1', {get: poison, configurable: true});
+  Object.defineProperty(Array.prototype, '0', {get: poison, set: poison, configurable: true});
+  Object.defineProperty(Array, Symbol.species, {get: poison, configurable: true});
+  multiOutput = snapshotList(poisonedInput, context);
+  singleOutput = snapshotList(poisonedSingle, context);
+  emptyOutput = snapshotList(empty, context);
+} finally {
+  if (arraySpecies) Object.defineProperty(Array, Symbol.species, arraySpecies);
+  else delete Array[Symbol.species];
+  if (arrayIndex) Object.defineProperty(Array.prototype, '0', arrayIndex);
+  else delete Array.prototype[0];
+  if (inheritedIndex) Object.defineProperty(Object.prototype, '1', inheritedIndex);
+  else delete Object.prototype[1];
+  if (inheritedIterator) Object.defineProperty(Object.prototype, Symbol.iterator, inheritedIterator);
+  else delete Object.prototype[Symbol.iterator];
+}
+assert.equal(poisonCalls, 0);
+assert.deepEqual(multiOutput, [1, 2, 3]);
+assert.deepEqual(singleOutput, [4]);
+assert.deepEqual(emptyOutput, []);
+for (const output of [multiOutput, singleOutput, emptyOutput]) {
+  assert.equal(Object.getPrototypeOf(output), Array.prototype);
+  for (let index = 0; index < output.length; index++) {
+    assert.deepEqual(Object.getOwnPropertyDescriptor(output, String(index)), {
+      value: output[index], writable: true, enumerable: true, configurable: true,
+    });
+  }
+}
+console.log('host list snapshots passed');
 ''';
 
 const _byteAssertions = r'''
