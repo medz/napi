@@ -218,8 +218,44 @@ calling methods on the returned object. Key order is not an API guarantee.
 Proxy reflection traps still execute as ordinary JavaScript operations; thrown
 exceptions follow the existing error policy.
 
-Nested collections, byte-array elements, non-String or nullable Map keys,
+Nested collections, Map byte values, non-String or nullable Map keys,
 raw List/Map types, and collection aliases are rejected before compilation.
+
+Use `List<Uint8List>` to process multiple byte arrays in one native Wasm call:
+
+```dart
+import 'dart:typed_data';
+import 'package:napi/napi.dart';
+
+@napi
+List<Uint8List> invertAll(List<Uint8List> chunks) {
+  for (final chunk in chunks) {
+    for (var index = 0; index < chunk.length; index++) {
+      chunk[index] ^= 0xff;
+    }
+  }
+  return chunks;
+}
+```
+
+```ts
+import { invertAll } from './dist/module.wasm';
+
+const chunks = [new Uint8Array([0, 128, 255]), new Uint8Array([1])] as const;
+const result: Uint8Array[] = invertAll(chunks);
+// result: [Uint8Array([255, 127, 0]), Uint8Array([254])]
+// chunks retains its original bytes.
+```
+
+Each non-null input element is copied before business code runs or a Promise
+returns. Every result element receives separate storage, including repeated
+byte references. Node `Buffer`, offset views and cross-realm byte arrays follow
+the same rules as direct `Uint8List` values. Detached and out-of-bounds resizable
+views fail with a `TypeError` containing the element path. These copies do not
+make Proxy traps or concurrent shared-buffer writes an atomic transaction.
+Container and element nullability remain independent: `List<Uint8List?>?`
+accepts `readonly (Uint8Array | null)[] | null`; `undefined` is rejected.
+`Future<List<Uint8List>>` returns `Promise<Uint8Array[]>` with the same copy rules.
 
 ## Data objects
 
@@ -325,7 +361,7 @@ returns the same bytes in multiple fields or rows. Nullable byte fields remain
 required; pass `null`, never `undefined`. Detached and out-of-bounds resizable
 views fail with a `TypeError` containing the field path. These copies do not
 make Proxy traps or concurrent shared-buffer writes an atomic transaction.
-`List<Uint8List>` and Map byte values remain unsupported.
+Map byte values remain unsupported.
 
 ## Batches of data objects
 
@@ -457,7 +493,7 @@ declaration bindings use unique `argN` names.
 | `double` | `number` | Preserves NaN, Infinity, and negative zero |
 | `String` | `string` | Preserves UTF-16 code units |
 | `Uint8List` | `Uint8Array` | Copies in and out; Node `Buffer` and cross-realm arrays accepted |
-| `List<T>` | `readonly T[]` → `T[]` | Scalars or flat named records; independent input/output Arrays and record objects |
+| `List<T>` | `readonly T[]` → `T[]` | Scalars, bytes or flat named records; independent Arrays, record objects and byte storage |
 | `Map<String,T>` | `Record<string,T>` | Scalars or flat named records; independent null-prototype objects and byte storage |
 | Named record / record typedef | Object shape / exported type | Required flat scalar/byte fields; independent null-prototype output and byte storage |
 | `T?` | `T \| null` | Accepts `null`; rejects `undefined` |
@@ -467,10 +503,10 @@ Invalid arguments throw `TypeError`; unsafe integers throw `RangeError`. Dart `A
 
 Non-generic typedefs resolving to SDK `bool`, `int`, `double`, `String` or
 `Uint8List` work wherever that leaf type is supported: direct values, Future
-completions, scalar List/Map values, non-null String Map keys and record fields.
+completions, scalar List/Map values, byte List elements, non-null String Map keys
+and record fields.
 Effective nullability is preserved, including nullable typedef definitions.
-Generic alias chains and aliases for other types are rejected; `List<Bytes>`
-remains unsupported when `Bytes` resolves to `Uint8List`. Imported, private and
+Generic alias chains and aliases for other types are rejected. Imported, private and
 same-named leaf aliases are expanded without introducing TS bindings; public
 record aliases retain their existing naming and conflict checks.
 

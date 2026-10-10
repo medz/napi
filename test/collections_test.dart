@@ -74,7 +74,7 @@ void main() {
       expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
       final report = jsonDecode((result.stdout as String).trim()) as Map;
       expect(report['checks'] as int, greaterThan(1000));
-      expect(report['nativeFunctions'], 86);
+      expect(report['nativeFunctions'], 102);
       expect(report['retained'], isA<Map>());
       print('collections: ${result.stdout}');
     },

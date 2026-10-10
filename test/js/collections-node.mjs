@@ -4,7 +4,7 @@ import { runInNewContext } from 'node:vm';
 import * as api from '@napi/collections';
 import * as subpath from '@napi/collections/module.wasm';
 import * as relative from './dist/module.wasm';
-import { listInt } from './dist/module.wasm';
+import { listInt, invertAll } from './dist/module.wasm';
 
 const scalars = [
   ['Bool', [false, true], [1, '', {}, new Boolean(true)]],
@@ -17,6 +17,9 @@ const variants = [
   ['NullableContainer', true, false], ['NullableBoth', true, true],
 ];
 const identities = [];
+for (const [prefix] of variants) {
+  identities.push(`list${prefix}Bytes`, `list${prefix}BytesAsync`);
+}
 for (const container of ['list', 'map']) {
   for (const [scalar] of scalars) {
     for (const [prefix] of variants) {
@@ -28,7 +31,9 @@ const names = [...identities, 'calls', 'trackedList', 'trackedListAsync',
   'trackedMap', 'trackedMapAsync', 'readList', 'readListAsync', 'readMap',
   'readMapAsync', 'changeRetained', 'unsafeList', 'unsafeListAsync', 'unsafeMap', 'unsafeMapAsync',
   'formatterRangeList', 'formatterRangeListAsync', 'formatterTypeList', 'formatterTypeListAsync',
-  'formatterRangeMap', 'formatterRangeMapAsync', 'formatterTypeMap', 'formatterTypeMapAsync'];
+  'formatterRangeMap', 'formatterRangeMapAsync', 'formatterTypeMap', 'formatterTypeMapAsync',
+  'invertAll', 'invertAllAsync', 'trackedBytes', 'trackedBytesAsync', 'readBytes', 'readBytesAsync',
+  'failingBytes', 'failingBytesAsync'];
 for (const name of names) {
   assert.equal(typeof api[name], 'function', name);
   assert.equal(api[name], subpath[name], `${name} package subpath`);
@@ -36,6 +41,7 @@ for (const name of names) {
   assert.match(Function.prototype.toString.call(api[name]), /\[native code\]/, `${name} raw function`);
 }
 assert.equal(listInt, api.listInt);
+assert.equal(invertAll, api.invertAll);
 
 let checks = 0;
 function invoke(name, ...args) {
@@ -84,6 +90,21 @@ function equalList(actual, expected) {
     assert(Object.hasOwn(Object.getOwnPropertyDescriptor(actual, i), 'value'));
   }
 }
+function equalBytes(actual, expected) {
+  assert(Array.isArray(actual));
+  assert.equal(actual.length, expected.length);
+  for (let index = 0; index < expected.length; index++) {
+    assert(Object.hasOwn(Object.getOwnPropertyDescriptor(actual, index), 'value'));
+    if (expected[index] === null) {
+      assert.equal(actual[index], null);
+    } else {
+      assert(actual[index] instanceof Uint8Array);
+      assert(actual[index].buffer instanceof ArrayBuffer);
+      assert.equal(actual[index].buffer.resizable, false);
+      assert.deepEqual(Array.from(actual[index]), Array.from(expected[index]));
+    }
+  }
+}
 
 const unhandled = [];
 const onUnhandled = error => unhandled.push(error);
@@ -125,6 +146,124 @@ try {
       }
     }
   }
+
+  // Byte Lists compose dense Array snapshots with owned storage at every slot.
+  for (const [prefix, nullableContainer, nullableLeaf] of variants) {
+    for (const suffix of ['', 'Async']) {
+      const name = `list${prefix}Bytes${suffix}`;
+      const bytes = new Uint8Array([0, 128, 255]);
+      const input = Object.freeze([bytes, bytes, new Uint8Array(), ...(nullableLeaf ? [null] : [])]);
+      const output = await invoke(name, input);
+      equalBytes(output, input);
+      assert.notEqual(output, input);
+      assert.notEqual(output[0].buffer, bytes.buffer);
+      assert.notEqual(output[0].buffer, output[1].buffer);
+      output[0][0] = 9; output.push(new Uint8Array([7]));
+      assert.equal(output[1][0], 0); assert.equal(bytes[0], 0);
+      const empty = Object.freeze([]);
+      const emptyOutput = await invoke(name, empty);
+      equalBytes(emptyOutput, []); assert.notEqual(emptyOutput, empty);
+      if (nullableContainer) assert.equal(await invoke(name, null), null);
+      else await failure(name, [null], TypeError, ['parameter values']);
+      await failure(name, [undefined], TypeError, ['parameter values']);
+      await failure(name, [], TypeError, ['parameter values']);
+      await failure(name, [[bytes, undefined]], TypeError, ['parameter values[1]']);
+      if (!nullableLeaf) await failure(name, [[bytes, null]], TypeError, ['parameter values[1]']);
+    }
+  }
+  let byteGetterCalls = 0;
+  for (const suffix of ['', 'Async']) {
+    const name = `listBytes${suffix}`;
+    const bytes = new Uint8Array([1]);
+    const accessor = [bytes, bytes];
+    Object.defineProperty(accessor, '1', { get() { byteGetterCalls++; return bytes; } });
+    const inherited = [bytes, , bytes];
+    Object.setPrototypeOf(inherited, Object.assign(Object.create(Array.prototype), { 1: bytes }));
+    for (const input of [[bytes, , bytes], accessor, inherited]) {
+      await failure(name, [input], TypeError, ['parameter values[1]']);
+    }
+    await failure(name, [bytes], TypeError, ['parameter values']);
+    for (const bad of [new Uint16Array(1), new DataView(new ArrayBuffer(1)), new ArrayBuffer(1), [], new Proxy(bytes, {})]) {
+      await failure(name, [[bytes, bad]], TypeError, ['parameter values[1]']);
+    }
+    const detached = new Uint8Array([2]);
+    structuredClone(detached.buffer, { transfer: [detached.buffer] });
+    await failure(name, [[bytes, detached]], TypeError, ['parameter values[1]']);
+    const resizable = new ArrayBuffer(8, { maxByteLength: 16 });
+    const offset = new Uint8Array(resizable, 2, 3); offset.set([0, 128, 255]);
+    equalBytes(await invoke(name, [offset]), [new Uint8Array([0, 128, 255])]);
+    resizable.resize(1);
+    await failure(name, [[bytes, offset]], TypeError, ['parameter values[1]']);
+    const shared = new Uint8Array(new SharedArrayBuffer(3)); shared.set([0, 128, 255]);
+    equalBytes(await invoke(name, [shared]), [new Uint8Array([0, 128, 255])]);
+    const buffer = Buffer.from([99, 0, 128, 255, 88]).subarray(1, 4);
+    equalBytes(await invoke(name, [buffer]), [new Uint8Array([0, 128, 255])]);
+    const foreign = runInNewContext('[new Uint8Array([0, 128, 255])]');
+    equalBytes(await invoke(name, foreign), [new Uint8Array([0, 128, 255])]);
+    const extra = [bytes];
+    Object.defineProperty(extra, 'ignored', { get() { byteGetterCalls++; throw Error('array extra'); } });
+    for (const key of ['length', 'byteLength', 'byteOffset', 'buffer', Symbol.iterator, Symbol.toStringTag]) {
+      Object.defineProperty(bytes, key, { get() { byteGetterCalls++; throw Error('byte getter'); } });
+    }
+    equalBytes(await invoke(name, extra), [new Uint8Array([1])]);
+    const original = new TypeError('byte List reflection');
+    await assert.rejects(async () => invoke(name, new Proxy([bytes], {
+      getOwnPropertyDescriptor() { throw original; },
+    })), error => error === original);
+  }
+  assert.equal(byteGetterCalls, 0);
+  for (const suffix of ['', 'Async']) {
+    await failure(`failingBytes${suffix}`, [2], RangeError, ['result[1]', 'byte getter']);
+    for (const length of [-1, 0x100000000]) {
+      await failure(`failingBytes${suffix}`, [length], RangeError, ['result']);
+    }
+    const bytes = new Uint8Array([0, 128, 255]);
+    const pending = invoke(`invertAll${suffix}`, [bytes, bytes]);
+    assert.deepEqual(bytes, new Uint8Array([0, 128, 255]), 'Dart mutation uses independent input copies');
+    equalBytes(await pending, [new Uint8Array([255, 127, 0]), new Uint8Array([255, 127, 0])]);
+    const name = `trackedBytes${suffix}`;
+    const before = invoke('calls');
+    await failure(name, [[bytes, undefined], []], TypeError, ['parameter first[1]']);
+    await failure(name, [[bytes], [bytes, new Uint16Array(1)]], TypeError, ['parameter second[1]']);
+    assert.equal(invoke('calls'), before, 'every byte List argument validates before business entry');
+    const firstBytes = new Uint8Array([1, 2]); const secondBytes = new Uint8Array([3, 4]);
+    const first = [firstBytes]; const second = [secondBytes];
+    const result = invoke(name, first, second);
+    firstBytes.fill(7); first.length = 0;
+    structuredClone(secondBytes.buffer, { transfer: [secondBytes.buffer] }); second.length = 0;
+    equalBytes(await result, [new Uint8Array([3, 4])]);
+    const saved = await invoke(`readBytes${suffix}`);
+    equalBytes(saved, [new Uint8Array([1, 2])]);
+    saved[0][0] = 9; saved.push(new Uint8Array([9]));
+    equalBytes(await invoke(`readBytes${suffix}`), [new Uint8Array([1, 2])]);
+    const previous = invoke('readBytes'); invoke('changeRetained');
+    equalBytes(previous, [new Uint8Array([1, 2])]);
+    const duplicated = await invoke(`readBytes${suffix}`);
+    equalBytes(duplicated, [new Uint8Array([254, 2]), new Uint8Array([254, 2])]);
+    assert.notEqual(duplicated[0].buffer, duplicated[1].buffer, 'repeated Dart references copy on every output slot');
+    duplicated[0][0] = 8; assert.equal(duplicated[1][0], 254);
+  }
+  // Owned-copy TypeErrors carry an index; other JS reasons retain identity.
+  const byteInput = [new Uint8Array([1]), new Uint8Array([2])];
+  const OriginalUint8Array = globalThis.Uint8Array;
+  try {
+    for (const suffix of ['', 'Async']) {
+      const copyError = new TypeError('byte List copy');
+      let copies = 0;
+      globalThis.Uint8Array = class extends OriginalUint8Array {
+        constructor(...args) { if (++copies === 2) throw copyError; super(...args); }
+      };
+      await failure(`listBytes${suffix}`, [byteInput], TypeError, ['parameter values[1]', 'byte List copy']);
+      globalThis.Uint8Array = class { constructor() { throw copyError; } };
+      await failure(`readBytes${suffix}`, [], TypeError, ['result[0]', 'byte List copy']);
+      const original = new RangeError('byte List original');
+      globalThis.Uint8Array = class { constructor() { throw original; } };
+      await assert.rejects(async () => invoke(`listBytes${suffix}`, byteInput), error => error === original);
+    }
+  } finally {
+    globalThis.Uint8Array = OriginalUint8Array;
+  }
+  equalBytes(await invoke('listBytesAsync', byteInput), byteInput);
 
   // Own dense indices only. Extra named/symbol properties are ignored.
   let getterCalls = 0;
@@ -367,6 +506,9 @@ try {
         assert.equal(list[4095], 4095); assert.equal(object.k4095, 4095);
         pending.push(invoke('listIntAsync', inputList).then(result => assert.equal(result[4095], 4095)));
         pending.push(invoke('mapIntAsync', inputMap).then(result => assert.equal(result.k4095, 4095)));
+        const byteInputs = [new Uint8Array(4096), new Uint8Array(4096)];
+        assert.equal(invoke('listBytes', byteInputs)[1].length, 4096);
+        pending.push(invoke('listBytesAsync', byteInputs).then(result => assert.equal(result[1].length, 4096)));
       }
       await Promise.all(pending);
     }
