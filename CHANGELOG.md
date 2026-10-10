@@ -1,3 +1,11 @@
+## 0.14.0
+
+- Export `List<Uint8List>` as readonly `Uint8Array` array parameters and mutable array results, including independent container/element nullability and Future completions. Snapshot all inputs before business code or Promise return; copy each byte occurrence independently and retain index paths for invalid views.
+- Include Dart function and emitted public record typedef documentation as JSDoc in both declaration files. Preserve the outer alias's own comment, Markdown and literal Dartdoc references/directives; escape comment terminators without expanding documentation.
+- Generate distinct TypeScript bindings for Dart wildcard parameters, including repeated `_` names and collisions with existing `argN` or reserved-word fallback names. Preserve positional types and native argument validation.
+- Declare Dart 3.13 explicitly in generated bridges so existing packages with older default language versions can build without changing their source, pubspec or package configuration. Keep the required SDK at `^3.13.5`.
+- Retain byte-List conversion costs and reduce measured host List snapshot construction overhead while preserving descriptor/prototype and ownership rules. Recorded scalar, byte and record gains are workload-specific; empty synchronous calls cost about 3ns more. No application, startup or general async-byte speedup is claimed.
+
 ## 0.13.0
 
 - Export dictionaries of flat named records as `Map<String, User>` → `Record<string, User>`, including nullable containers/values/fields, byte fields and Future results. Preserve precise public types, key/field errors, call-time snapshots and independently owned output objects and bytes.
