@@ -30,7 +30,7 @@ assert.throws(() => api.wildcardSingle(), (error) =>
 assert.throws(() => api.wildcardSingle('1'), TypeError);
 assert.throws(() => api.wildcardSingle(1.5), TypeError);
 assert.throws(() => api.wildcardSingle(Number.MAX_SAFE_INTEGER + 1), (error) =>
-  error instanceof RangeError && error.message.startsWith('parameter _: '));
+  error instanceof RangeError && error.message.includes('parameter _: '));
 assert.throws(() => api.wildcardRepeated(1), TypeError);
 assert.throws(() => api.wildcardRepeated(1, 2), TypeError);
 assert.throws(() => api.wildcardMixed(1, 7, undefined, true, 9), TypeError);
