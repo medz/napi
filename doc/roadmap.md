@@ -140,15 +140,21 @@ ordinary-constraint consumer before the
 [GitHub Release](https://github.com/medz/napi/releases/tag/v0.12.0) was announced.
 Quota recovery does not trigger publication.
 
-## Unreleased development
+## 0.13.0 — keyed data objects and measured conversion improvements
 
+- [#85: Prepare the complete upgrade milestone](https://github.com/medz/napi/issues/85).
 - [#75: Read checksum input four bytes at a time](https://github.com/medz/napi/issues/75), with recorded performance and artifact costs.
 - [#77: Document the verified Webpack external-Wasm route](https://github.com/medz/napi/issues/77), including the current Dart WasmGC parser limitation.
 - [#79: Dictionaries of flat named records](https://github.com/medz/napi/issues/79), including direct operation lookup in the request-summary application.
+- [#81: Reduce measured record snapshot allocations](https://github.com/medz/napi/issues/81), preserving descriptor/prototype checks and independently owned outputs.
 
-These development units accumulate toward a later complete upgrade. See the
-[dictionary contract](requirements.md#record-dictionaries-unreleased-development);
-merging a unit does not change package versions or trigger publication.
+These reviewed development units form one upgrade for keyed application data
+and lower measured conversion costs. Acceptance includes exact types,
+sync/Future snapshots, byte ownership, keyed request summaries, complete checksum
+consumers and three external-Wasm bundles. See the
+[milestone contract](requirements.md#0130-contract). Publication requires the
+reviewed release-preparation commit, complete CI, main/tag identity and frozen
+public-package acceptance before announcing the GitHub Release.
 
 ## Next — compiler compatibility and real applications
 

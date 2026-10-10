@@ -353,7 +353,7 @@ can vary widely. Retain raw samples, increase counts and repeat on the same
 machine before claiming a regression or improvement. Build/import and old
 first-call scopes must be compared separately.
 
-## File CRC32 word reads (unreleased)
+## File CRC32 word reads (0.13.0)
 
 The existing file-checksum example now uses slicing-by-four over a `ByteData`
 view of its already-owned input. It reads a little-endian word for each complete
@@ -405,7 +405,7 @@ Build both phases with the same SDK. The before source is
 example. The command checks native function identity and declaration equality,
 uses Node CRC32 as a correctness reference, and emits raw samples and hashes.
 
-## Host record snapshots (unreleased)
+## Host record snapshots (0.13.0)
 
 [`benchmark/record-snapshot-baseline.json`](../benchmark/record-snapshot-baseline.json)
 retains two fresh-process, same-process A/B rounds on Node 26.11.1

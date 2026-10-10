@@ -1,3 +1,11 @@
+## 0.13.0
+
+- Export dictionaries of flat named records as `Map<String, User>` → `Record<string, User>`, including nullable containers/values/fields, byte fields and Future results. Preserve precise public types, key/field errors, call-time snapshots and independently owned output objects and bytes.
+- Query the request-summary application by operation through `summarizeByOperation`, while retaining its sorted NDJSON CLI and existing aggregation rules.
+- Reduce measured record snapshot allocations using a direct single-field path and own data slots for multiple fields. Retain paired raw samples, descriptor/prototype regressions and artifact hashes; measured gains apply to the recorded workload and host, not general application speed.
+- Read checksum example inputs four bytes at a time with checked byte-view conversion and a byte-wise tail. Retain exact CRC/counting results, offset/ownership checks and the measured artifact/call costs; no speed advantage over Node's built-ins is claimed.
+- Document the verified Webpack 5.111.1 external-Wasm ESM route and its Dart WasmGC parser limitation. Keep the compiler/runtime matrix, native Wasm import API and zero generated runtime dependencies.
+
 ## 0.12.0
 
 - Reuse ordinary Dart model typedefs for SDK bool/int/double/String/Uint8List in supported signatures, with preserved nullability and canonical TypeScript types. Add no runtime brands or separate leaf-type exports.

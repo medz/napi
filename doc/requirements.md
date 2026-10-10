@@ -143,7 +143,7 @@ Its existing tag and frozen evidence are retained.
 - Verify imported/prefixed/re-exported aliases, nullable chains, precise positive/negative TS consumers, native package/subpath/relative imports and both complete applications. Build each of the existing seven fixture groups once and reuse artifacts across Node 22.19.0/24.5.0/24.21.0/26.11.1, with Dart 3.13.5, TypeScript 7.0.2 NodeNext/Bundler and esbuild 0.28.2 external-Wasm checks.
 - Require independent final-SHA review, complete CI, zero-warning pub dry-run and exact-SHA merge. Verify package/generator metadata and main/tag source identity before publication. Validate the real public package with a new ordinary-constraint consumer and empty pub cache, freeze expectations before execution and independently inspect actual source/archive/compiled/packed artifacts and logs before announcing the GitHub Release. Preserve the unpublished v0.11.1 tag; quota recovery does not trigger publication.
 
-## Record dictionaries (unreleased development)
+## 0.13.0 contract
 
 [#79](https://github.com/medz/napi/issues/79) extends the existing value model
 with one `Map<String, flat named record>` layer. Earlier version contracts above
@@ -167,8 +167,21 @@ describe the published versions, including their former Map-record restriction.
   retained byte storage, malformed output maps and recovery across the existing
   Node matrix. Build and pack each fixture once for matrix reuse.
 - Demonstrate operation lookup through `summarizeByOperation` while retaining
-  the sorted request-summary CLI. Complete independent final-SHA review and CI
-  before merging; accumulate this work for a later release milestone.
+  the sorted request-summary CLI. Include the checked four-byte checksum example
+  and record snapshot optimization while preserving all value/error/ownership
+  rules. Retain paired raw samples, precise artifact hashes and bounded performance
+  conclusions; verify prototype/descriptor regressions without timing gates.
+- Keep Dart 3.13.5, the existing four Node runtimes, accurate NodeNext/Bundler
+  declarations and three esbuild external-Wasm bundles. The separately verified
+  Webpack external-Wasm route does not establish transformed-Wasm or browser support.
+- Concentrate pub and generator version 0.13.0, cumulative changelog and upgrade
+  instructions in [#85](https://github.com/medz/napi/issues/85). Require independent
+  final-SHA review, full CI and zero-warning pub dry-run before exact-SHA merge.
+  Verify main/tag source identity, then the public package with a frozen ordinary
+  `napi: ^0.13.0` dependency, empty pub cache and official archive/cache/tag equality.
+  Build and pack eight fixtures once, reuse native/application/type consumers on
+  the four runtimes, and independently inspect actual logs and assets before the
+  GitHub Release announcement. Preserve prior tags and unrelated work.
 
 ## Iteration priorities
 
