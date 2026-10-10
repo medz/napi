@@ -226,17 +226,16 @@ napi.snapshotList = (value, context) => {
   if (!Number.isInteger(length) || length < 0 || length > 0xffffffff) {
     throw new RangeError(context + ': Expected a valid Array length');
   }
-  const snapshot = new Array(length);
-  for (let index = 0; index < length; index++) {
+  if (length === 0) return [];
+  const read = (_, index) => {
     const descriptor = Object.getOwnPropertyDescriptor(value, index);
     if (!descriptor || !Object.hasOwn(descriptor, 'value')) {
       throw new TypeError(context + '[' + index + ']: Expected an own data index');
     }
-    Object.defineProperty(snapshot, index, {
-      value: descriptor.value, writable: true, enumerable: true, configurable: true,
-    });
-  }
-  return snapshot;
+    return descriptor.value;
+  };
+  return length === 1 ? [read(null, 0)]
+    : Array.from({ __proto__: null, length }, read);
 };
 ''',
   'newMap': 'napi.newMap = () => Object.create(null);',
