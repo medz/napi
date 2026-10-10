@@ -1,5 +1,5 @@
 import * as api from '@napi/collections';
-import { listInt as subpathListInt, listNullableBothIntAsync as subpathNullableList, mapNullableBothStringAsync as subpathMap } from '@napi/collections/module.wasm';
+import { listInt as subpathListInt, listNullableBothIntAsync as subpathNullableList, mapNullableBothStringAsync as subpathMap, listBytes as subpathBytes, listNullableBothBytesAsync as subpathNullableBytes } from '@napi/collections/module.wasm';
 
 type Equal<X, Y> = (<T>() => T extends X ? 1 : 2) extends (<T>() => T extends Y ? 1 : 2) ? true : false;
 const exactInput: Equal<Parameters<typeof api.listInt>[0], readonly number[]> = true;
@@ -11,6 +11,46 @@ const exactOutput: Equal<ReturnType<typeof api.listInt>, number[]> = true;
 const exactAsyncOutput: Equal<ReturnType<typeof api.listIntAsync>, Promise<number[]>> = true;
 const readonlyNumbers: readonly number[] = [42];
 const readonlyNullableNumbers: readonly (number | null)[] = [42, null];
+const exactByteInput: Equal<Parameters<typeof api.listBytes>[0], readonly Uint8Array[]> = true;
+const exactNullableByteInput: Equal<Parameters<typeof api.listNullableBytes>[0], readonly (Uint8Array | null)[]> = true;
+const exactByteContainer: Equal<Parameters<typeof api.listNullableContainerBytes>[0], readonly Uint8Array[] | null> = true;
+const exactByteBoth: Equal<Parameters<typeof subpathNullableBytes>[0], readonly (Uint8Array | null)[] | null> = true;
+const exactByteOutput: Equal<ReturnType<typeof api.listBytes>, Uint8Array[]> = true;
+const exactBytePromise: Equal<ReturnType<typeof api.listBytesAsync>, Promise<Uint8Array[]>> = true;
+const exactNullableBytePromise: Equal<ReturnType<typeof subpathNullableBytes>, Promise<Array<Uint8Array | null> | null>> = true;
+const readonlyBytes: readonly Uint8Array[] = [new Uint8Array([1, 2])];
+const bytes: Uint8Array[] = api.listBytes(readonlyBytes);
+const bytesLater: Promise<Uint8Array[]> = api.listBytesAsync(readonlyBytes);
+const nullableBytes: Array<Uint8Array | null> = api.listNullableBytes([new Uint8Array(), null] as const);
+const nullableBytesLater: Promise<Array<Uint8Array | null>> = api.listNullableBytesAsync([null]);
+const nullableByteContainer: Uint8Array[] | null = api.listNullableContainerBytes(null);
+const nullableByteContainerLater: Promise<Uint8Array[] | null> = api.listNullableContainerBytesAsync(null);
+const nullableByteBoth: Array<Uint8Array | null> | null = api.listNullableBothBytes(null);
+const subpathByteOutput: Uint8Array[] = subpathBytes(Object.freeze(readonlyBytes));
+const nullableByteResolved: Array<Uint8Array | null> | null = await subpathNullableBytes(Object.freeze([new Uint8Array(), null]));
+bytes[0][0] = 3; bytes.push(new Uint8Array());
+subpathByteOutput.push(new Uint8Array());
+nullableByteResolved?.push(null);
+void [exactByteInput, exactNullableByteInput, exactByteContainer, exactByteBoth, exactByteOutput,
+  exactBytePromise, exactNullableBytePromise, bytesLater, nullableBytes, nullableBytesLater,
+  nullableByteContainer, nullableByteContainerLater, nullableByteBoth];
+
+// @ts-expect-error Byte List leaves are Uint8Array values rather than integers.
+api.listBytes([1]);
+// @ts-expect-error Other typed arrays preserve their distinct element type.
+api.listBytes([new Uint16Array(1)]);
+// @ts-expect-error The outer container is a JavaScript Array.
+api.listBytes(new Uint8Array(1));
+// @ts-expect-error Nullable byte leaves still exclude undefined.
+subpathNullableBytes([undefined]);
+// @ts-expect-error Nullable byte containers do not permit null leaves.
+api.listNullableContainerBytes([null]);
+// @ts-expect-error Nullable byte leaves do not permit a null container.
+api.listNullableBytes(null);
+// @ts-expect-error Only one List layer is supported.
+api.listBytes([[new Uint8Array()]]);
+// @ts-expect-error Future byte Lists remain Promise values.
+const synchronousBytes: Uint8Array[] = api.listBytesAsync(readonlyBytes);
 
 const listBool: Array<boolean> = api.listBool([true] as const);
 const listBoolAsync: Promise<Array<boolean>> = api.listBoolAsync([true]);

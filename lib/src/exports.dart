@@ -476,15 +476,21 @@ class _ExportVisitor extends RecursiveAstVisitor<void> {
           'Type aliases are not supported in @napi signatures.',
         );
       }
+      final isBytes =
+          leaf is InterfaceType &&
+          leaf.element.name == 'Uint8List' &&
+          leaf.element.library.uri.toString() == 'dart:typed_data';
       if (!leaf.isDartCoreBool &&
           !leaf.isDartCoreInt &&
           !leaf.isDartCoreDouble &&
-          !leaf.isDartCoreString) {
+          !leaf.isDartCoreString &&
+          (isMap || !isBytes)) {
         _fail(
           unit,
           offset,
           'Unsupported @napi collection leaf type "${leaf.getDisplayString()}". '
-          'Use bool, int, double, or String (optionally nullable), as in List<int> or Map<String, String>.',
+          'Use ${isMap ? 'bool, int, double, or String' : 'bool, int, double, String, or Uint8List'} '
+          '(optionally nullable), as in List<int> or Map<String, String>.',
         );
       }
       return ValueType(

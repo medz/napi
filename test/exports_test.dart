@@ -1832,6 +1832,173 @@ export declare function labels(values: Record<string, string>): Record<string, s
 ''');
   });
 
+  test(
+    'byte Lists preserve SDK identity, nullability and Future types',
+    () async {
+      final exports = await analyze('''
+import 'dart:async' as tasks;
+import 'dart:core' as core;
+import 'dart:typed_data' as bytes;
+import 'package:napi/napi.dart';
+@napi
+core.List<bytes.Uint8List> chunks(core.List<bytes.Uint8List> values) => values;
+@napi
+core.List<bytes.Uint8List?> elements(core.List<bytes.Uint8List?> values) => values;
+@napi
+core.List<bytes.Uint8List>? container(core.List<bytes.Uint8List>? values) => values;
+@napi
+core.List<bytes.Uint8List?>? both(core.List<bytes.Uint8List?>? values) => values;
+@napi
+tasks.Future<core.List<bytes.Uint8List>> later(core.List<bytes.Uint8List> values) async => values;
+@napi
+tasks.Future<core.List<bytes.Uint8List?>?> laterBoth(core.List<bytes.Uint8List?>? values) => tasks.Future.value(values);
+''');
+      expect(
+        exports.map(
+          (export) => (
+            export.returnType.nullable,
+            export.returnType.elementType!.nullable,
+          ),
+        ),
+        [
+          (false, false),
+          (false, true),
+          (true, false),
+          (true, true),
+          (false, false),
+          (true, true),
+        ],
+      );
+      expect(exports.map((export) => export.isAsync), [
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+      ]);
+      for (final export in exports) {
+        final input = export.parameters.single.type;
+        final result = export.returnType;
+        expect(input.kind, ValueKind.listType);
+        expect(result.kind, ValueKind.listType);
+        expect(input.elementType!.kind, ValueKind.uint8ListType);
+        expect(result.elementType!.kind, ValueKind.uint8ListType);
+        expect(input.nullable, result.nullable);
+        expect(input.elementType!.nullable, result.elementType!.nullable);
+        expect(input.elementType!.elementType, isNull);
+      }
+      expect(generateTypescript(exports), '''
+export declare function chunks(values: readonly Uint8Array[]): Uint8Array[];
+export declare function elements(values: readonly (Uint8Array | null)[]): Array<Uint8Array | null>;
+export declare function container(values: readonly Uint8Array[] | null): Uint8Array[] | null;
+export declare function both(values: readonly (Uint8Array | null)[] | null): Array<Uint8Array | null> | null;
+export declare function later(values: readonly Uint8Array[]): Promise<Uint8Array[]>;
+export declare function laterBoth(values: readonly (Uint8Array | null)[] | null): Promise<Array<Uint8Array | null> | null>;
+''');
+    },
+  );
+
+  test(
+    'byte List leaf aliases expand imported chains without bindings',
+    () async {
+      final entry = await relatedLibrary({
+        'bytes.dart': '''
+import 'dart:typed_data' as sdk;
+typedef _Bytes = sdk.Uint8List;
+typedef Bytes = _Bytes;
+typedef MaybeBytes = Bytes?;
+''',
+        'public.dart': "export 'bytes.dart';\n",
+        'api.dart': '''
+import 'package:napi/napi.dart';
+import 'public.dart' as bytes;
+@napi
+List<bytes.Bytes> chunks(List<bytes.Bytes> values) => values;
+@napi
+List<bytes.MaybeBytes>? optional(List<bytes.MaybeBytes>? values) => values;
+@napi
+Future<List<bytes.Bytes?>> later(List<bytes.Bytes?> values) async => values;
+''',
+      });
+      final exports = await readExports(entry.path);
+      expect(
+        exports.map((export) => export.returnType.elementType!.kind),
+        List.filled(3, ValueKind.uint8ListType),
+      );
+      expect(exports.map((export) => export.returnType.elementType!.nullable), [
+        false,
+        true,
+        true,
+      ]);
+      expect(generateTypescript(exports), '''
+export declare function chunks(values: readonly Uint8Array[]): Uint8Array[];
+export declare function optional(values: readonly (Uint8Array | null)[] | null): Array<Uint8Array | null> | null;
+export declare function later(values: readonly (Uint8Array | null)[]): Promise<Array<Uint8Array | null>>;
+''');
+    },
+  );
+
+  for (final type in ['Uint8List', 'Bytes']) {
+    test('byte Lists reject the same-named user leaf $type', () async {
+      await expectLater(
+        analyze('''
+import 'dart:typed_data' as sdk;
+import 'package:napi/napi.dart';
+class Uint8List {}
+typedef Bytes = Uint8List;
+@napi
+void inspect(List<$type> values) {}
+'''),
+        throwsA(
+          isA<ExportError>()
+              .having((error) => error.line, 'line', 6)
+              .having((error) => error.column, 'column', 14)
+              .having(
+                (error) => error.message,
+                'message',
+                contains(
+                  type == 'Bytes'
+                      ? 'Type aliases are not supported'
+                      : 'collection leaf type "Uint8List"',
+                ),
+              ),
+        ),
+      );
+    });
+  }
+
+  for (final (declaration, type) in [
+    ('typedef Bytes<T> = sdk.Uint8List;', 'List<Bytes<int>>'),
+    (
+      'typedef Base<T> = sdk.Uint8List; typedef Bytes = Base<int>;',
+      'List<Bytes>',
+    ),
+    ('typedef Chunks = List<sdk.Uint8List>;', 'Chunks'),
+  ]) {
+    test('byte Lists reject generic or container aliases in $type', () async {
+      await expectLater(
+        analyze('''
+import 'dart:typed_data' as sdk;
+import 'package:napi/napi.dart';
+$declaration
+@napi
+void inspect($type values) {}
+'''),
+        throwsA(
+          isA<ExportError>()
+              .having((error) => error.line, 'line', 5)
+              .having((error) => error.column, 'column', 14)
+              .having(
+                (error) => error.message,
+                'message',
+                contains('Type aliases are not supported'),
+              ),
+        ),
+      );
+    });
+  }
+
   test('collection and scalar leaf nullability remain independent', () async {
     final exports = await analyze('''
 import 'package:napi/napi.dart';
@@ -1947,12 +2114,15 @@ export declare function flags(): Promise<boolean[]>;
       'Map<String, Object?>',
       'collection leaf type "Object?"',
     ),
-    'byte List leaf': ('List<Uint8List>', 'collection leaf type "Uint8List"'),
     'byte Map leaf': (
       'Map<String, Uint8List?>',
       'collection leaf type "Uint8List?"',
     ),
     'nested List': ('List<List<int>>', 'collection leaf type "List<int>"'),
+    'nested byte List': (
+      'List<List<Uint8List>>',
+      'collection leaf type "List<Uint8List>"',
+    ),
     'Map inside List': (
       'List<Map<String, int>>',
       'collection leaf type "Map<String, int>"',
@@ -2105,7 +2275,7 @@ import 'dart:async';
 import 'dart:typed_data';
 import 'package:napi/napi.dart';
 @napi
-Future<List<Uint8List>> bad() => throw UnimplementedError();
+Future<Map<String, Uint8List>> bad() => throw UnimplementedError();
 '''),
         throwsA(
           isA<ExportError>()
@@ -2400,7 +2570,7 @@ void inspect(Map<Key, int> values) {}
     );
   });
 
-  for (final type in ['List<Bytes>', 'Map<String, Bytes?>']) {
+  for (final type in ['Map<String, Bytes>', 'Map<String, Bytes?>']) {
     test('SDK leaf aliases do not admit $type', () async {
       await expectLater(
         analyze('''

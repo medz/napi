@@ -257,8 +257,37 @@ void main() {
     expect(source, isNot(contains('copyRecordBytes')));
     expect(source, isNot(contains('_readRecordBytes')));
     expect(source, isNot(contains('_writeRecordBytes')));
+    expect(source, isNot(contains('_readByteList')));
+    expect(source, isNot(contains('_writeByteList')));
     expect(source, contains('_readRecordField'));
     expect(source, contains('_readLeaf<T>'));
+  });
+
+  test('byte Lists include copies without record or Map helpers', () {
+    const bytes = ValueType(
+      ValueKind.listType,
+      nullable: true,
+      elementType: ValueType(ValueKind.uint8ListType, nullable: true),
+    );
+    final source = generateBridge([
+      const Export(
+        name: 'copyAll',
+        parameters: [Parameter(name: 'chunks', type: bytes)],
+        returnType: bytes,
+        isAsync: true,
+      ),
+    ], 'file:///business.dart');
+    expect(source, contains('raw0.isNull ? null : _readByteList<Uint8List?>'));
+    expect(
+      source,
+      contains('_writeByteList<Uint8List?>(result, true, "result")'),
+    );
+    expect(source, contains("_readBytes(element, '\$context[\$index]')"));
+    expect(RegExp('napi.copyRecordBytes').allMatches(source).length, 1);
+    expect(source, isNot(contains('napi.snapshotRecord')));
+    expect(source, isNot(contains('napi.snapshotMap')));
+    expect(source, isNot(contains('napi.newMap')));
+    expect(source, isNot(contains("import 'dart:convert';")));
   });
 
   test('record dollar fields are literal keys and static Dart accesses', () {

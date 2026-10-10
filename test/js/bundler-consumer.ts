@@ -4,13 +4,17 @@ import {
   mapNullableString,
   listNullableBothDoubleAsync,
   mapNullableBothStringAsync,
+  invertAll,
+  listNullableBothBytesAsync,
 } from '@napi/collections';
-import { listInt as subpathListInt } from '@napi/collections/module.wasm';
-import { listInt as relativeListInt } from './dist/module.wasm';
+import { listInt as subpathListInt, invertAll as subpathInvertAll } from '@napi/collections/module.wasm';
+import { listInt as relativeListInt, invertAll as relativeInvertAll } from './dist/module.wasm';
 
 assert.equal(listInt, subpathListInt);
 assert.equal(listInt, relativeListInt);
-for (const fn of [listInt, mapNullableString, listNullableBothDoubleAsync, mapNullableBothStringAsync]) {
+assert.equal(invertAll, subpathInvertAll);
+assert.equal(invertAll, relativeInvertAll);
+for (const fn of [listInt, mapNullableString, listNullableBothDoubleAsync, mapNullableBothStringAsync, invertAll, listNullableBothBytesAsync]) {
   assert.match(Function.prototype.toString.call(fn), /\[native code\]/);
 }
 
@@ -50,9 +54,18 @@ assert.equal(await mapNullableBothStringAsync(null), null);
 assert.throws(() => listInt([Number.MAX_SAFE_INTEGER + 1]), RangeError);
 await assert.rejects(listNullableBothDoubleAsync([undefined] as never), TypeError);
 assert.deepEqual(relativeListInt([42]), [42]);
+const byteInput = new Uint8Array([0, 128, 255]);
+const byteOutput: Uint8Array[] = relativeInvertAll(Object.freeze([byteInput, byteInput]));
+assert.deepEqual(byteOutput, [new Uint8Array([255, 127, 0]), new Uint8Array([255, 127, 0])]);
+assert.deepEqual(byteInput, new Uint8Array([0, 128, 255]));
+assert.notEqual(byteOutput[0].buffer, byteOutput[1].buffer);
+const bytePending: Promise<Array<Uint8Array | null> | null> = listNullableBothBytesAsync([byteInput, null]);
+byteInput.fill(7);
+assert.deepEqual(await bytePending, [new Uint8Array([0, 128, 255]), null]);
+assert.equal(await listNullableBothBytesAsync(null), null);
 
 console.log(JSON.stringify({
   node: process.version, v8: process.versions.v8,
-  nativeFunctions: 4, package: true, subpath: true, relative: true,
-  copied: true, nullable: true, promise: true,
+  nativeFunctions: 6, package: true, subpath: true, relative: true,
+  copied: true, bytes: true, nullable: true, promise: true,
 }));

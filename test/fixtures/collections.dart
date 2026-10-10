@@ -1,10 +1,69 @@
 import 'dart:collection';
+import 'dart:typed_data';
 
 import 'package:napi/napi.dart';
 
 typedef Flag = bool;
 typedef UserId = int;
 typedef Key = String;
+typedef Bytes = Uint8List;
+
+@napi
+List<Bytes> listBytes(List<Bytes> values) => values;
+
+@napi
+Future<List<Uint8List>> listBytesAsync(List<Uint8List> values) async {
+  await Future<void>.value();
+  return values;
+}
+
+@napi
+List<Uint8List?> listNullableBytes(List<Uint8List?> values) => values;
+
+@napi
+Future<List<Uint8List?>> listNullableBytesAsync(List<Uint8List?> values) async {
+  await Future<void>.value();
+  return values;
+}
+
+@napi
+List<Uint8List>? listNullableContainerBytes(List<Uint8List>? values) => values;
+
+@napi
+Future<List<Uint8List>?> listNullableContainerBytesAsync(
+  List<Uint8List>? values,
+) async {
+  await Future<void>.value();
+  return values;
+}
+
+@napi
+List<Uint8List?>? listNullableBothBytes(List<Uint8List?>? values) => values;
+
+@napi
+Future<List<Uint8List?>?> listNullableBothBytesAsync(
+  List<Uint8List?>? values,
+) async {
+  await Future<void>.value();
+  return values;
+}
+
+@napi
+List<Uint8List> invertAll(List<Uint8List> values) {
+  for (final bytes in values) {
+    for (var index = 0; index < bytes.length; index++) {
+      bytes[index] ^= 0xff;
+    }
+  }
+  return values;
+}
+
+@napi
+Future<List<Uint8List>> invertAllAsync(List<Uint8List> values) async {
+  invertAll(values);
+  await Future<void>.value();
+  return values;
+}
 
 @napi
 List<Flag> listBool(List<Flag> values) => values;
@@ -332,6 +391,7 @@ Future<Map<String, String?>?> mapNullableBothStringAsync(
 var _calls = 0;
 List<int> _list = [];
 Map<String, String?> _map = {};
+List<Uint8List> _bytes = [];
 
 @napi
 int calls() => _calls;
@@ -376,6 +436,30 @@ Future<Map<String, String?>> trackedMapAsync(
 }
 
 @napi
+List<Uint8List> trackedBytes(List<Uint8List> first, List<Uint8List> second) {
+  _calls++;
+  _bytes = first;
+  return second;
+}
+
+@napi
+Future<List<Uint8List>> trackedBytesAsync(
+  List<Uint8List> first,
+  List<Uint8List> second,
+) async {
+  _calls++;
+  _bytes = first;
+  await Future<void>.value();
+  return second;
+}
+
+@napi
+List<Uint8List> readBytes() => _bytes;
+
+@napi
+Future<List<Uint8List>> readBytesAsync() async => _bytes;
+
+@napi
 List<int> readList() => _list;
 
 @napi
@@ -391,6 +475,10 @@ Future<Map<String, String?>> readMapAsync() async => _map;
 void changeRetained() {
   if (_list.isNotEmpty) _list[0] = -7;
   _map['stored'] = 'changed';
+  if (_bytes.isNotEmpty) {
+    if (_bytes.first.isNotEmpty) _bytes.first[0] ^= 0xff;
+    _bytes.add(_bytes.first);
+  }
 }
 
 @napi
@@ -427,6 +515,30 @@ final class _FailingList extends ListBase<int> {
   @override
   void operator []=(int index, int value) => throw UnimplementedError();
 }
+
+final class _FailingByteList extends ListBase<Uint8List> {
+  _FailingByteList(this._length);
+  final int _length;
+  @override
+  int get length => _length;
+  @override
+  set length(int value) => throw UnimplementedError();
+  @override
+  Uint8List operator [](int index) {
+    if (index == 0) return Uint8List.fromList([1]);
+    throw RangeError('byte getter');
+  }
+
+  @override
+  void operator []=(int index, Uint8List value) => throw UnimplementedError();
+}
+
+@napi
+List<Uint8List> failingBytes(int length) => _FailingByteList(length);
+
+@napi
+Future<List<Uint8List>> failingBytesAsync(int length) async =>
+    failingBytes(length);
 
 final class _FailingMap extends MapBase<String, int> {
   _FailingMap(this.error);

@@ -12,6 +12,11 @@ String generateBridge(List<Export> exports, String sourceImport) {
   ];
   final usesLists = types.any((type) => type.kind == ValueKind.listType);
   final usesMaps = types.any((type) => type.kind == ValueKind.mapType);
+  final usesByteLists = types.any(
+    (type) =>
+        type.kind == ValueKind.listType &&
+        type.elementType!.kind == ValueKind.uint8ListType,
+  );
   final recordLists = <String>{
     for (final type in types)
       if (type.kind == ValueKind.listType &&
@@ -42,6 +47,7 @@ String generateBridge(List<Export> exports, String sourceImport) {
     ),
   );
   final usesBytes =
+      usesByteLists ||
       usesRecordBytes ||
       types.any((type) => type.kind == ValueKind.uint8ListType);
   final output = StringBuffer()
@@ -60,6 +66,7 @@ String generateBridge(List<Export> exports, String sourceImport) {
     output.writeln(_collectionHelpers);
   }
   if (usesLists) output.writeln(_listHelpers);
+  if (usesByteLists) output.writeln(_byteListHelpers);
   if (usesMaps || records.isNotEmpty) output.writeln(_objectHelpers);
   if (usesMaps) output.writeln(_mapHelpers);
   if (records.isNotEmpty) {
@@ -152,6 +159,8 @@ String _read(
     ValueKind.doubleType => '_readDouble($value, ${_literal(context)})',
     ValueKind.stringType => '_readString($value, ${_literal(context)})',
     ValueKind.uint8ListType => '_readBytes($value, ${_literal(context)})',
+    ValueKind.listType when type.elementType!.kind == ValueKind.uint8ListType =>
+      '_readByteList<${_leafType(type.elementType!)}>($value, ${type.elementType!.nullable}, ${_literal(context)})',
     ValueKind.listType when type.elementType!.kind == ValueKind.recordType =>
       '_readRecordList${recordIds[_recordShape(type.elementType!)]!}<${_recordType(type.elementType!)}${type.elementType!.nullable ? '?' : ''}>($value, ${type.elementType!.nullable}, ${_literal(context)})',
     ValueKind.mapType when type.elementType!.kind == ValueKind.recordType =>
@@ -176,6 +185,8 @@ String _write(
     ValueKind.stringType => 'externRefForJSAny($value.toJS)',
     ValueKind.intType => '_writeInt($value)',
     ValueKind.uint8ListType => '_copyBytes(externRefForJSAny($value.toJS))',
+    ValueKind.listType when type.elementType!.kind == ValueKind.uint8ListType =>
+      '_writeByteList<${_leafType(type.elementType!)}>($value, ${type.elementType!.nullable}, ${_literal(context)})',
     ValueKind.listType when type.elementType!.kind == ValueKind.recordType =>
       '_writeRecordList${recordIds[_recordShape(type.elementType!)]!}<${_recordType(type.elementType!)}${type.elementType!.nullable ? '?' : ''}>($value, ${type.elementType!.nullable}, ${_literal(context)})',
     ValueKind.mapType when type.elementType!.kind == ValueKind.recordType =>
@@ -542,6 +553,47 @@ WasmExternRef _writeList<T>(List<T> value, int kind, bool nullable, String conte
   } catch (error) {
     _conversionError(error, '$context[$index]');
   }
+}
+''';
+
+const _byteListHelpers = r'''
+List<T> _readByteList<T>(WasmExternRef? value, bool nullable, String context) {
+  final snapshot = _snapshotList(value, externRefForJSAny(context.toJS));
+  final length = _arrayLength(snapshot).toIntUnsigned();
+  final result = <T>[];
+  for (var index = 0; index < length; index++) {
+    final element = _arrayGet(snapshot, WasmI32.fromInt(index));
+    result.add(nullable && element.isNull ? null as T
+        : _readBytes(element, '$context[$index]') as T);
+  }
+  return result;
+}
+
+WasmExternRef _writeByteList<T>(List<T> value, bool nullable, String context) {
+  int length;
+  try {
+    length = value.length;
+    if (length < 0 || length > 0xffffffff) {
+      throw RangeError('List length must be within the JavaScript Array range');
+    }
+  } catch (error) {
+    _conversionError(error, context);
+  }
+  final result = _newList(WasmI32.fromInt(length));
+  for (var index = 0; index < length; index++) {
+    WasmExternRef? bytes;
+    try {
+      final element = value[index];
+      bytes = nullable && element == null ? WasmExternRef.nullRef
+          : externRefForJSAny((element as Uint8List).toJS);
+    } catch (error) {
+      _conversionError(error, '$context[$index]');
+    }
+    final copied = bytes.isNull ? WasmExternRef.nullRef
+        : _copyRecordBytes(bytes, externRefForJSAny(context.toJS), externRefForJSAny('[$index]'.toJS));
+    _arraySet(result, WasmI32.fromInt(index), copied);
+  }
+  return result;
 }
 ''';
 
