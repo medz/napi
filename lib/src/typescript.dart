@@ -36,7 +36,7 @@ String generateTypescript(List<Export> exports) {
     var nextArgument = 0;
     for (final parameter in export.parameters) {
       var name = parameter.name;
-      if (javascriptKeywords.contains(name)) {
+      if (name == '_' || javascriptKeywords.contains(name)) {
         do {
           name = 'arg${nextArgument++}';
         } while (!usedNames.add(name));

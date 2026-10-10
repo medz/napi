@@ -12,6 +12,7 @@ const publicNames = [
   'nullableBytes', 'oversizedInt', 'throwError', 'throwRange', 'throwArgument',
   'readFile', 'response', 'instantiate', '$napiReadFile', 'fetch', 'URL', 'Error',
   'incrementCounter', 'counter', 'countedAdd', 'conditionalProfile',
+  'wildcardSingle', 'wildcardRepeated', 'wildcardMixed',
 ];
 for (const name of publicNames) {
   assert.equal(typeof api[name], 'function', `${name} is a named function export`);
@@ -21,6 +22,21 @@ for (const name of publicNames) {
     `${name} is a raw Wasm function`);
 }
 const checks = runAssertions(api);
+assert.equal(api.wildcardSingle(1), 42);
+assert.equal(api.wildcardRepeated(1, 'unused'), 'ignored');
+assert.equal(api.wildcardMixed(1, 7, 'unused', true, 9), '7:true:9');
+assert.throws(() => api.wildcardSingle(), (error) =>
+  error instanceof TypeError && error.message.startsWith('parameter _: '));
+assert.throws(() => api.wildcardSingle('1'), TypeError);
+assert.throws(() => api.wildcardSingle(1.5), TypeError);
+assert.throws(() => api.wildcardSingle(Number.MAX_SAFE_INTEGER + 1), (error) =>
+  error instanceof RangeError && error.message.startsWith('parameter _: '));
+assert.throws(() => api.wildcardRepeated(1), TypeError);
+assert.throws(() => api.wildcardRepeated(1, 2), TypeError);
+assert.throws(() => api.wildcardMixed(1, 7, undefined, true, 9), TypeError);
+assert.equal(api.wildcardSingle(2), 42, 'wildcard calls recover after input errors');
+assert.equal(api.wildcardRepeated(2, 'valid'), 'ignored');
+assert.equal(api.wildcardMixed(2, 9, 'valid', false, 7), '9:false:7');
 assert.equal(relative.identityInt(42), 42);
 assert.equal(relative.identityString('relative 你好'), 'relative 你好');
 assert.deepEqual(relative.identityBytes(new Uint8Array([1, 128, 255])), new Uint8Array([1, 128, 255]));
