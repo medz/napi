@@ -51,6 +51,6 @@ pays the normal owned input-byte copy and scans the bytes once. Four CRC tables
 little-endian four-byte words, with the original byte update for the remaining
 0–3 bytes; this adds no payload copy. Only scalar fields are returned in a new
 null-prototype object. Dart leaves the input unchanged. See the
-[paired measurements](../../doc/performance.md#file-crc32-word-reads-unreleased)
+[paired measurements](../../doc/performance.md#file-crc32-word-reads-0130)
 for the observed speed and size tradeoffs.
 CRC32 detects accidental corruption and does not authenticate content.

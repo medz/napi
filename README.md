@@ -97,37 +97,43 @@ node example/checksum/main.mjs example/checksum/sample.txt
 
 The example reuses byte records and makes no speedup claim over Node's built-ins.
 
-## Upgrading to 0.12.0
+## Upgrading to 0.13.0
 
-Use `napi: ^0.12.0` in your Dart dependencies and rebuild generated packages
-with the existing build command; the `^0.11.0` range excludes this release.
-SDK and tested runtime requirements are
-unchanged; the generated npm package's version is still set by `--version`.
+Use `napi: ^0.13.0` in your Dart dependencies and rebuild generated packages
+with the existing build command; the `^0.12.0` range excludes this release.
+SDK and tested runtime requirements are unchanged; the generated npm package's
+version is still set by `--version`.
 
-Ordinary model definitions can now reuse SDK leaf typedefs:
+Flat data objects can now be indexed by key in one native Wasm call:
 
 ```dart
-typedef UserId = int;
-typedef User = ({UserId id, String name});
+typedef User = ({int id, String name});
 
 @napi
-User normalize(User user) => (id: user.id, name: user.name.trim());
+Map<String, User> normalizeById(Map<String, User> users) => {
+  for (final entry in users.entries)
+    entry.key: (id: entry.value.id, name: entry.value.name.trim()),
+};
 ```
 
 ```ts
-import { normalize } from './dist/module.wasm';
+import { normalizeById } from './dist/module.wasm';
+import type { User } from './dist/module.wasm';
 
-normalize({ id: 7, name: ' Ada ' }); // { id: 7, name: 'Ada' }
+const users: Record<string, User> = normalizeById({
+  ada: { id: 7, name: ' Ada ' },
+});
+console.log(users.ada.name); // Ada
 ```
 
-The declaration exports `User` with `id: number`; leaf names expand to existing
-types. Nullability, safe integers and output ownership keep their existing
-rules. Build analysis now selects the same conditional Wasm imports as the
-compiler, invalid values identify their argument, and output-file failures
-are diagnosed before compilation. Error categories are unchanged; tests that
-compare exact parameter-error messages need to account for the added names.
-See the [milestone contract](doc/requirements.md#0120-contract)
-and [tested platforms](doc/platforms.md).
+The request-summary application also supports operation lookup through
+`summarizeByOperation`. Dictionaries preserve nullable values, byte fields,
+call-time snapshots and independent output ownership. Record snapshots and the
+checksum example include [measured conversion improvements](doc/performance.md);
+these measurements do not promise application speedups. Existing exports and
+error categories retain their contracts. See the
+[milestone contract](doc/requirements.md#0130-contract) and
+[tested platforms](doc/platforms.md).
 
 ## Async functions
 
