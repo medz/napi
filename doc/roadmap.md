@@ -133,14 +133,13 @@ with accurate TS declarations. See the [milestone contract](requirements.md#0120
 keeps light documentation checks separate from the complete source/runtime
 validation needed by these changes.
 
-The output-path fix is included in 0.12.0. The unpublished `v0.11.1` tag and
-frozen evidence are retained. The public baseline is
-[0.12.0](https://pub.dev/packages/napi/versions/0.12.0), verified with a fresh
-ordinary-constraint consumer before the
+The output-path fix was included in 0.12.0, verified with a fresh
+ordinary-constraint consumer before its
 [GitHub Release](https://github.com/medz/napi/releases/tag/v0.12.0) was announced.
-Quota recovery does not trigger publication.
+The unpublished `v0.11.1` tag and frozen evidence are retained. Quota recovery
+does not trigger publication.
 
-## 0.13.0 — keyed data objects and measured conversion improvements
+## 0.13.0 — released: keyed data objects and measured conversion improvements
 
 - [#85: Prepare the complete upgrade milestone](https://github.com/medz/napi/issues/85).
 - [#75: Read checksum input four bytes at a time](https://github.com/medz/napi/issues/75), with recorded performance and artifact costs.
@@ -152,9 +151,15 @@ These reviewed development units form one upgrade for keyed application data
 and lower measured conversion costs. Acceptance includes exact types,
 sync/Future snapshots, byte ownership, keyed request summaries, complete checksum
 consumers and three external-Wasm bundles. See the
-[milestone contract](requirements.md#0130-contract). Publication requires the
-reviewed release-preparation commit, complete CI, main/tag identity and frozen
-public-package acceptance before announcing the GitHub Release.
+[milestone contract](requirements.md#0130-contract).
+
+The public baseline is [0.13.0](https://pub.dev/packages/napi/versions/0.13.0).
+A fresh consumer resolved ordinary `napi: ^0.13.0` from an empty cache; official
+archive, installed package and release-tag sources matched. All eight packed
+fixtures and three external-Wasm application bundles passed on the four
+[tested Node runtimes](platforms.md), with strict TypeScript NodeNext/Bundler
+consumers. Independent artifact and raw-log reviews passed before the
+[GitHub Release](https://github.com/medz/napi/releases/tag/v0.13.0) was announced.
 
 ## Next — compiler compatibility and real applications
 
