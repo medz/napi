@@ -1,0 +1,3322 @@
+{
+  "schema": 1,
+  "recordedAt": "2026-10-10T03:52:12.833Z",
+  "modulePath": "/Users/seven/Documents/Codex/2026-10-08/yan/work/byte-list-costs/consumer/node_modules/@napi/benchmark-bytes/module.wasm",
+  "configuration": {
+    "runs": 12,
+    "iterations": 2000,
+    "warmup": 200,
+    "budget": 16777216
+  },
+  "driver_sha256": "51be9086c3792f31c691c9b0cb478e3ec7cd9e322ebb84a51ca0f14932743f4c",
+  "environment": {
+    "node": "v22.19.0",
+    "v8": "12.4.254.21-node.29",
+    "os": "darwin 27.0.0",
+    "arch": "arm64",
+    "cpu": "Apple M3 Max"
+  },
+  "artifacts": {
+    "module.wasm": {
+      "bytes": 36180,
+      "sha256": "5a9b20c0ece4fc9546d4de524d0cb248cd2d089215822b14cded74d4a477142b"
+    },
+    "module.imports.mjs": {
+      "bytes": 24352,
+      "sha256": "993326462d1922bb13fc10b0a97d3ba9206f83c04ad6ef6a68d48e6bc608cac6"
+    },
+    "index.d.ts": {
+      "bytes": 326,
+      "sha256": "776980a1bd26ea426ebf95f50c0b760c9400aa4f8e0d89b0027f93965a3bd428"
+    },
+    "module.d.wasm.ts": {
+      "bytes": 326,
+      "sha256": "776980a1bd26ea426ebf95f50c0b760c9400aa4f8e0d89b0027f93965a3bd428"
+    },
+    "package.json": {
+      "bytes": 527,
+      "sha256": "b6f94f5cf9d0493bd08c60070d5514d4a1bc309f5419d7d15286f64222b39d9d"
+    }
+  },
+  "preflight": [
+    "sync/wasm_batch: Buffer, offset and cross-realm views; empty/repeated inputs; independent output storage and caller bytes",
+    "sync/wasm_per_chunk: Buffer, offset and cross-realm views; empty/repeated inputs; independent output storage and caller bytes",
+    "sync/javascript_batch: Buffer, offset and cross-realm views; empty/repeated inputs; independent output storage and caller bytes",
+    "async/wasm_batch: Buffer, offset and cross-realm views; empty/repeated inputs; independent output storage and caller bytes",
+    "async/wasm_per_chunk: Buffer, offset and cross-realm views; empty/repeated inputs; independent output storage and caller bytes",
+    "async/javascript_batch: Buffer, offset and cross-realm views; empty/repeated inputs; independent output storage and caller bytes",
+    "sync/wasm_batch: rejects holes, inherited/accessor indices, non-Arrays and invalid byte brands without invoking the index getter",
+    "sync/javascript_batch: rejects holes, inherited/accessor indices, non-Arrays and invalid byte brands without invoking the index getter",
+    "async/wasm_batch: rejects holes, inherited/accessor indices, non-Arrays and invalid byte brands without invoking the index getter",
+    "async/javascript_batch: rejects holes, inherited/accessor indices, non-Arrays and invalid byte brands without invoking the index getter",
+    "async/wasm_batch: copies storage and membership before Promise return; later mutation and transfer do not change results",
+    "async/wasm_per_chunk: copies storage and membership before Promise return; later mutation and transfer do not change results",
+    "async/javascript_batch: copies storage and membership before Promise return; later mutation and transfer do not change results"
+  ],
+  "input_pattern": "(chunkIndex * 17 + byteOffset * 31 + 7) & 255",
+  "notes": [
+    "One supplied compiled package; no rebuild, download, packing, import-time measurement or timing gate.",
+    "Batch routes validate own Array data indices and copy each byte input and output. Per-chunk routes use Array.map/native calls without outer Array validation.",
+    "JavaScript covers the measured dense own-data Arrays and byte brands, with real input/output copies. Semantic ownership boundaries match; physical allocation and Dart-owned representations differ. It is not the complete Proxy/error contract.",
+    "Async batches return one Promise; repeated native Futures use Promise.all; JavaScript copies all input before one await. Scheduling and Promise counts differ; these are completed application routes, not equivalent scheduler microbenchmarks.",
+    "Every six samples use all route-order permutations. Other run counts may leave an incomplete final cycle. All routes consume identical output length and first/last bytes of every element inside timing; full correctness checks are outside timing.",
+    "Counts scale by max(1, two payload-copy byte counts, 64 units per leaf) with a floor bounded by iterations; work units are a sampling heuristic, not a physical allocation measurement.",
+    "JIT, garbage collection, filesystem caches and system load are uncontrolled. Raw samples and spreads do not establish an application speed guarantee.",
+    "Fixture export sets affect package size; supplied artifact sizes do not isolate the incremental cost of byte List support."
+  ],
+  "sink": -815144680,
+  "cases": [
+    {
+      "chunks": 0,
+      "bytesPerChunk": 0,
+      "family": "empty",
+      "totalBytes": 0,
+      "input_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "calls": 2000,
+      "warmup": 200,
+      "workPerCall": 1,
+      "orders": [
+        [
+          "wasm_batch",
+          "wasm_per_chunk",
+          "javascript_batch"
+        ],
+        [
+          "wasm_batch",
+          "javascript_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "wasm_per_chunk",
+          "wasm_batch",
+          "javascript_batch"
+        ],
+        [
+          "wasm_per_chunk",
+          "javascript_batch",
+          "wasm_batch"
+        ],
+        [
+          "javascript_batch",
+          "wasm_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "javascript_batch",
+          "wasm_per_chunk",
+          "wasm_batch"
+        ],
+        [
+          "wasm_batch",
+          "wasm_per_chunk",
+          "javascript_batch"
+        ],
+        [
+          "wasm_batch",
+          "javascript_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "wasm_per_chunk",
+          "wasm_batch",
+          "javascript_batch"
+        ],
+        [
+          "wasm_per_chunk",
+          "javascript_batch",
+          "wasm_batch"
+        ],
+        [
+          "javascript_batch",
+          "wasm_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "javascript_batch",
+          "wasm_per_chunk",
+          "wasm_batch"
+        ]
+      ],
+      "ns_per_batch": {
+        "wasm_batch": {
+          "samples": [
+            480.79149999999873,
+            166.79149999999865,
+            186.77049999999974,
+            116.85450000000053,
+            64.99999999999773,
+            65.97899999999868,
+            96.87500000000071,
+            67.12499999999721,
+            59.478999999999616,
+            56.04149999999919,
+            48.81249999999681,
+            47.750000000000625
+          ],
+          "min": 47.750000000000625,
+          "median": 66.55199999999795,
+          "max": 480.79149999999873,
+          "spread_percent": 650.6814220459362
+        },
+        "wasm_per_chunk": {
+          "samples": [
+            111.70800000000014,
+            54.104000000000596,
+            40.687500000000654,
+            58.000000000001606,
+            17.062500000001535,
+            17.312499999999176,
+            17.021000000003284,
+            16.937500000000938,
+            42.020500000003125,
+            17.02099999999973,
+            15.4170000000029,
+            15.229500000000229
+          ],
+          "min": 15.229500000000229,
+          "median": 17.187500000000355,
+          "max": 111.70800000000014,
+          "spread_percent": 561.3294545454424
+        },
+        "javascript_batch": {
+          "samples": [
+            274.5420000000003,
+            222.9789999999987,
+            157.14550000000037,
+            216.25000000000048,
+            156.41650000000237,
+            125.31249999999972,
+            114.4999999999996,
+            116.22900000000058,
+            128.93749999999926,
+            85.95850000000027,
+            134.7290000000001,
+            75.18749999999841
+          ],
+          "min": 75.18749999999841,
+          "median": 131.83324999999968,
+          "max": 274.5420000000003,
+          "spread_percent": 151.2171625898644
+        }
+      },
+      "ns_per_chunk": null
+    },
+    {
+      "chunks": 1,
+      "bytesPerChunk": 0,
+      "family": "per_chunk",
+      "totalBytes": 0,
+      "input_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "calls": 2000,
+      "warmup": 200,
+      "workPerCall": 64,
+      "orders": [
+        [
+          "wasm_batch",
+          "javascript_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "wasm_per_chunk",
+          "wasm_batch",
+          "javascript_batch"
+        ],
+        [
+          "wasm_per_chunk",
+          "javascript_batch",
+          "wasm_batch"
+        ],
+        [
+          "javascript_batch",
+          "wasm_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "javascript_batch",
+          "wasm_per_chunk",
+          "wasm_batch"
+        ],
+        [
+          "wasm_batch",
+          "wasm_per_chunk",
+          "javascript_batch"
+        ],
+        [
+          "wasm_batch",
+          "javascript_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "wasm_per_chunk",
+          "wasm_batch",
+          "javascript_batch"
+        ],
+        [
+          "wasm_per_chunk",
+          "javascript_batch",
+          "wasm_batch"
+        ],
+        [
+          "javascript_batch",
+          "wasm_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "javascript_batch",
+          "wasm_per_chunk",
+          "wasm_batch"
+        ],
+        [
+          "wasm_batch",
+          "wasm_per_chunk",
+          "javascript_batch"
+        ]
+      ],
+      "ns_per_batch": {
+        "wasm_batch": {
+          "samples": [
+            1153.1875000000014,
+            837.6875000000013,
+            834.6249999999991,
+            673.7915000000002,
+            712.1664999999986,
+            743.2085000000015,
+            653.9999999999999,
+            719.7500000000011,
+            631.9374999999994,
+            619.0205000000013,
+            636.8954999999943,
+            715.3959999999984
+          ],
+          "min": 619.0205000000013,
+          "median": 713.7812499999984,
+          "max": 1153.1875000000014,
+          "spread_percent": 74.83623308961971
+        },
+        "wasm_per_chunk": {
+          "samples": [
+            412.0835000000014,
+            366.8334999999985,
+            276.937499999999,
+            247.3124999999996,
+            247.58299999999878,
+            209.45849999999666,
+            266.4584999999988,
+            228.81250000000009,
+            253.41650000000016,
+            219.68749999999915,
+            210.1249999999979,
+            191.97900000000345
+          ],
+          "min": 191.97900000000345,
+          "median": 247.4477499999992,
+          "max": 412.0835000000014,
+          "spread_percent": 88.94988942109947
+        },
+        "javascript_batch": {
+          "samples": [
+            477.95850000000326,
+            427.2914999999991,
+            352.7085000000021,
+            343.89599999999734,
+            268.29199999999884,
+            343.6875000000015,
+            322.29150000000215,
+            322.60400000000186,
+            293.9790000000002,
+            304.1664999999973,
+            276.0210000000001,
+            317.10450000000634
+          ],
+          "min": 268.29199999999884,
+          "median": 322.447750000002,
+          "max": 477.95850000000326,
+          "spread_percent": 65.02340301645867
+        }
+      },
+      "ns_per_chunk": {
+        "wasm_batch": {
+          "samples": [
+            1153.1875000000014,
+            837.6875000000013,
+            834.6249999999991,
+            673.7915000000002,
+            712.1664999999986,
+            743.2085000000015,
+            653.9999999999999,
+            719.7500000000011,
+            631.9374999999994,
+            619.0205000000013,
+            636.8954999999943,
+            715.3959999999984
+          ],
+          "min": 619.0205000000013,
+          "median": 713.7812499999984,
+          "max": 1153.1875000000014,
+          "spread_percent": 74.83623308961971
+        },
+        "wasm_per_chunk": {
+          "samples": [
+            412.0835000000014,
+            366.8334999999985,
+            276.937499999999,
+            247.3124999999996,
+            247.58299999999878,
+            209.45849999999666,
+            266.4584999999988,
+            228.81250000000009,
+            253.41650000000016,
+            219.68749999999915,
+            210.1249999999979,
+            191.97900000000345
+          ],
+          "min": 191.97900000000345,
+          "median": 247.4477499999992,
+          "max": 412.0835000000014,
+          "spread_percent": 88.94988942109947
+        },
+        "javascript_batch": {
+          "samples": [
+            477.95850000000326,
+            427.2914999999991,
+            352.7085000000021,
+            343.89599999999734,
+            268.29199999999884,
+            343.6875000000015,
+            322.29150000000215,
+            322.60400000000186,
+            293.9790000000002,
+            304.1664999999973,
+            276.0210000000001,
+            317.10450000000634
+          ],
+          "min": 268.29199999999884,
+          "median": 322.447750000002,
+          "max": 477.95850000000326,
+          "spread_percent": 65.02340301645867
+        }
+      }
+    },
+    {
+      "chunks": 1,
+      "bytesPerChunk": 32,
+      "family": "per_chunk",
+      "totalBytes": 32,
+      "input_sha256": "8e889f10b21cdd1b3ad72f740317a827d76e1b5b3f721e33c566f06d1deff8ea",
+      "calls": 2000,
+      "warmup": 200,
+      "workPerCall": 64,
+      "orders": [
+        [
+          "wasm_per_chunk",
+          "wasm_batch",
+          "javascript_batch"
+        ],
+        [
+          "wasm_per_chunk",
+          "javascript_batch",
+          "wasm_batch"
+        ],
+        [
+          "javascript_batch",
+          "wasm_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "javascript_batch",
+          "wasm_per_chunk",
+          "wasm_batch"
+        ],
+        [
+          "wasm_batch",
+          "wasm_per_chunk",
+          "javascript_batch"
+        ],
+        [
+          "wasm_batch",
+          "javascript_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "wasm_per_chunk",
+          "wasm_batch",
+          "javascript_batch"
+        ],
+        [
+          "wasm_per_chunk",
+          "javascript_batch",
+          "wasm_batch"
+        ],
+        [
+          "javascript_batch",
+          "wasm_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "javascript_batch",
+          "wasm_per_chunk",
+          "wasm_batch"
+        ],
+        [
+          "wasm_batch",
+          "wasm_per_chunk",
+          "javascript_batch"
+        ],
+        [
+          "wasm_batch",
+          "javascript_batch",
+          "wasm_per_chunk"
+        ]
+      ],
+      "ns_per_batch": {
+        "wasm_batch": {
+          "samples": [
+            757.8334999999968,
+            701.2080000000012,
+            744.7289999999996,
+            638.4790000000038,
+            657.75,
+            726.7085000000009,
+            710.2709999999987,
+            671.7704999999938,
+            709.3539999999975,
+            646.1874999999964,
+            697.5624999999965,
+            689.1874999999956
+          ],
+          "min": 638.4790000000038,
+          "median": 699.3852499999989,
+          "max": 757.8334999999968,
+          "spread_percent": 17.065630137323197
+        },
+        "wasm_per_chunk": {
+          "samples": [
+            265.37499999999875,
+            284.06249999999744,
+            232.47950000000372,
+            345.8960000000033,
+            283.4164999999942,
+            257.64600000000115,
+            298.2085000000012,
+            271.93749999999994,
+            256.37499999999847,
+            280.4999999999964,
+            244.12500000000392,
+            320.2914999999962
+          ],
+          "min": 232.47950000000372,
+          "median": 276.2187499999982,
+          "max": 345.8960000000033,
+          "spread_percent": 41.060391446996384
+        },
+        "javascript_batch": {
+          "samples": [
+            279.3334999999999,
+            340.7084999999981,
+            345.97949999999855,
+            338.9375000000001,
+            319.89599999999996,
+            370.85400000000135,
+            338.81249999999596,
+            350.06249999999994,
+            362.49999999999716,
+            325.9374999999949,
+            322.7290000000025,
+            325.2704999999949
+          ],
+          "min": 279.3334999999999,
+          "median": 338.87499999999807,
+          "max": 370.85400000000135,
+          "spread_percent": 27.007156030985456
+        }
+      },
+      "ns_per_chunk": {
+        "wasm_batch": {
+          "samples": [
+            757.8334999999968,
+            701.2080000000012,
+            744.7289999999996,
+            638.4790000000038,
+            657.75,
+            726.7085000000009,
+            710.2709999999987,
+            671.7704999999938,
+            709.3539999999975,
+            646.1874999999964,
+            697.5624999999965,
+            689.1874999999956
+          ],
+          "min": 638.4790000000038,
+          "median": 699.3852499999989,
+          "max": 757.8334999999968,
+          "spread_percent": 17.065630137323197
+        },
+        "wasm_per_chunk": {
+          "samples": [
+            265.37499999999875,
+            284.06249999999744,
+            232.47950000000372,
+            345.8960000000033,
+            283.4164999999942,
+            257.64600000000115,
+            298.2085000000012,
+            271.93749999999994,
+            256.37499999999847,
+            280.4999999999964,
+            244.12500000000392,
+            320.2914999999962
+          ],
+          "min": 232.47950000000372,
+          "median": 276.2187499999982,
+          "max": 345.8960000000033,
+          "spread_percent": 41.060391446996384
+        },
+        "javascript_batch": {
+          "samples": [
+            279.3334999999999,
+            340.7084999999981,
+            345.97949999999855,
+            338.9375000000001,
+            319.89599999999996,
+            370.85400000000135,
+            338.81249999999596,
+            350.06249999999994,
+            362.49999999999716,
+            325.9374999999949,
+            322.7290000000025,
+            325.2704999999949
+          ],
+          "min": 279.3334999999999,
+          "median": 338.87499999999807,
+          "max": 370.85400000000135,
+          "spread_percent": 27.007156030985456
+        }
+      }
+    },
+    {
+      "chunks": 1,
+      "bytesPerChunk": 1024,
+      "family": "per_chunk",
+      "totalBytes": 1024,
+      "input_sha256": "8d7e566766f6bd1bb4cac87cadfde681197f9243f4d2692a0fd12674092212a7",
+      "calls": 2000,
+      "warmup": 200,
+      "workPerCall": 2048,
+      "orders": [
+        [
+          "wasm_per_chunk",
+          "javascript_batch",
+          "wasm_batch"
+        ],
+        [
+          "javascript_batch",
+          "wasm_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "javascript_batch",
+          "wasm_per_chunk",
+          "wasm_batch"
+        ],
+        [
+          "wasm_batch",
+          "wasm_per_chunk",
+          "javascript_batch"
+        ],
+        [
+          "wasm_batch",
+          "javascript_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "wasm_per_chunk",
+          "wasm_batch",
+          "javascript_batch"
+        ],
+        [
+          "wasm_per_chunk",
+          "javascript_batch",
+          "wasm_batch"
+        ],
+        [
+          "javascript_batch",
+          "wasm_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "javascript_batch",
+          "wasm_per_chunk",
+          "wasm_batch"
+        ],
+        [
+          "wasm_batch",
+          "wasm_per_chunk",
+          "javascript_batch"
+        ],
+        [
+          "wasm_batch",
+          "javascript_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "wasm_per_chunk",
+          "wasm_batch",
+          "javascript_batch"
+        ]
+      ],
+      "ns_per_batch": {
+        "wasm_batch": {
+          "samples": [
+            818.7080000000009,
+            859.3539999999962,
+            843.4580000000053,
+            864.2295000000005,
+            841.2705000000002,
+            866.9374999999989,
+            768.9584999999965,
+            848.8954999999976,
+            864.1250000000014,
+            829.2085000000071,
+            924.4790000000052,
+            1023.0000000000103
+          ],
+          "min": 768.9584999999965,
+          "median": 854.1247499999969,
+          "max": 1023.0000000000103,
+          "spread_percent": 29.74290348102133
+        },
+        "wasm_per_chunk": {
+          "samples": [
+            581.4999999999984,
+            491.9584999999955,
+            418.22900000000374,
+            413.0205000000018,
+            510.72899999999777,
+            414.1040000000018,
+            657.229000000001,
+            507.4795000000023,
+            428.5625000000124,
+            401.9375000000025,
+            648.4795000000076,
+            401.3334999999927
+          ],
+          "min": 401.3334999999927,
+          "median": 460.26050000000396,
+          "max": 657.229000000001,
+          "spread_percent": 55.59797114894849
+        },
+        "javascript_batch": {
+          "samples": [
+            784.0209999999956,
+            577.7914999999965,
+            563.020999999999,
+            625.5205000000003,
+            498.6250000000041,
+            571.4375000000018,
+            667.1874999999972,
+            550.4789999999957,
+            665.6460000000095,
+            571.52099999999,
+            684.3750000000028,
+            538.3539999999982
+          ],
+          "min": 498.6250000000041,
+          "median": 574.6562499999932,
+          "max": 784.0209999999956,
+          "spread_percent": 49.663777258142574
+        }
+      },
+      "ns_per_chunk": {
+        "wasm_batch": {
+          "samples": [
+            818.7080000000009,
+            859.3539999999962,
+            843.4580000000053,
+            864.2295000000005,
+            841.2705000000002,
+            866.9374999999989,
+            768.9584999999965,
+            848.8954999999976,
+            864.1250000000014,
+            829.2085000000071,
+            924.4790000000052,
+            1023.0000000000103
+          ],
+          "min": 768.9584999999965,
+          "median": 854.1247499999969,
+          "max": 1023.0000000000103,
+          "spread_percent": 29.74290348102133
+        },
+        "wasm_per_chunk": {
+          "samples": [
+            581.4999999999984,
+            491.9584999999955,
+            418.22900000000374,
+            413.0205000000018,
+            510.72899999999777,
+            414.1040000000018,
+            657.229000000001,
+            507.4795000000023,
+            428.5625000000124,
+            401.9375000000025,
+            648.4795000000076,
+            401.3334999999927
+          ],
+          "min": 401.3334999999927,
+          "median": 460.26050000000396,
+          "max": 657.229000000001,
+          "spread_percent": 55.59797114894849
+        },
+        "javascript_batch": {
+          "samples": [
+            784.0209999999956,
+            577.7914999999965,
+            563.020999999999,
+            625.5205000000003,
+            498.6250000000041,
+            571.4375000000018,
+            667.1874999999972,
+            550.4789999999957,
+            665.6460000000095,
+            571.52099999999,
+            684.3750000000028,
+            538.3539999999982
+          ],
+          "min": 498.6250000000041,
+          "median": 574.6562499999932,
+          "max": 784.0209999999956,
+          "spread_percent": 49.663777258142574
+        }
+      }
+    },
+    {
+      "chunks": 16,
+      "bytesPerChunk": 0,
+      "family": "per_chunk",
+      "totalBytes": 0,
+      "input_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "calls": 2000,
+      "warmup": 200,
+      "workPerCall": 1024,
+      "orders": [
+        [
+          "javascript_batch",
+          "wasm_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "javascript_batch",
+          "wasm_per_chunk",
+          "wasm_batch"
+        ],
+        [
+          "wasm_batch",
+          "wasm_per_chunk",
+          "javascript_batch"
+        ],
+        [
+          "wasm_batch",
+          "javascript_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "wasm_per_chunk",
+          "wasm_batch",
+          "javascript_batch"
+        ],
+        [
+          "wasm_per_chunk",
+          "javascript_batch",
+          "wasm_batch"
+        ],
+        [
+          "javascript_batch",
+          "wasm_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "javascript_batch",
+          "wasm_per_chunk",
+          "wasm_batch"
+        ],
+        [
+          "wasm_batch",
+          "wasm_per_chunk",
+          "javascript_batch"
+        ],
+        [
+          "wasm_batch",
+          "javascript_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "wasm_per_chunk",
+          "wasm_batch",
+          "javascript_batch"
+        ],
+        [
+          "wasm_per_chunk",
+          "javascript_batch",
+          "wasm_batch"
+        ]
+      ],
+      "ns_per_batch": {
+        "wasm_batch": {
+          "samples": [
+            8805.875,
+            8400.292000000007,
+            8604.854000000003,
+            8664.60400000001,
+            8547.312500000004,
+            8470.832999999999,
+            8677.791499999983,
+            8314.958500000017,
+            8351.5625,
+            8371.250000000004,
+            8210.437499999984,
+            8073.271000000005
+          ],
+          "min": 8073.271000000005,
+          "median": 8435.562500000004,
+          "max": 8805.875,
+          "spread_percent": 8.684708340433664
+        },
+        "wasm_per_chunk": {
+          "samples": [
+            3151.978999999997,
+            2996.853999999999,
+            2976.9584999999947,
+            2913.4169999999813,
+            3071.978999999999,
+            3106.625000000008,
+            3024.4789999999853,
+            2917.333500000012,
+            2993.8750000000027,
+            2909.479000000005,
+            2992.1039999999834,
+            2919.6249999999964
+          ],
+          "min": 2909.479000000005,
+          "median": 2992.9894999999933,
+          "max": 3151.978999999997,
+          "spread_percent": 8.102266980889603
+        },
+        "javascript_batch": {
+          "samples": [
+            2213.916499999996,
+            2229.1040000000066,
+            2271.562500000002,
+            2232.0210000000034,
+            2266.416499999991,
+            2233.604000000014,
+            2236.1875,
+            2265.6875000000127,
+            2358.3545000000186,
+            2286.4999999999895,
+            2132.6250000000186,
+            2182.0209999999915
+          ],
+          "min": 2132.6250000000186,
+          "median": 2234.895750000007,
+          "max": 2358.3545000000186,
+          "spread_percent": 10.100225032867828
+        }
+      },
+      "ns_per_chunk": {
+        "wasm_batch": {
+          "samples": [
+            550.3671875,
+            525.0182500000004,
+            537.8033750000002,
+            541.5377500000006,
+            534.2070312500002,
+            529.4270624999999,
+            542.3619687499989,
+            519.6849062500011,
+            521.97265625,
+            523.2031250000002,
+            513.152343749999,
+            504.5794375000003
+          ],
+          "min": 504.5794375000003,
+          "median": 527.2226562500002,
+          "max": 550.3671875,
+          "spread_percent": 8.684708340433664
+        },
+        "wasm_per_chunk": {
+          "samples": [
+            196.99868749999982,
+            187.30337499999993,
+            186.05990624999967,
+            182.08856249999883,
+            191.99868749999993,
+            194.1640625000005,
+            189.02993749999908,
+            182.33334375000075,
+            187.11718750000017,
+            181.8424375000003,
+            187.00649999999897,
+            182.47656249999977
+          ],
+          "min": 181.8424375000003,
+          "median": 187.06184374999958,
+          "max": 196.99868749999982,
+          "spread_percent": 8.102266980889603
+        },
+        "javascript_batch": {
+          "samples": [
+            138.36978124999976,
+            139.31900000000041,
+            141.9726562500001,
+            139.5013125000002,
+            141.65103124999945,
+            139.60025000000087,
+            139.76171875,
+            141.6054687500008,
+            147.39715625000116,
+            142.90624999999935,
+            133.28906250000117,
+            136.37631249999947
+          ],
+          "min": 133.28906250000117,
+          "median": 139.68098437500043,
+          "max": 147.39715625000116,
+          "spread_percent": 10.100225032867828
+        }
+      }
+    },
+    {
+      "chunks": 16,
+      "bytesPerChunk": 32,
+      "family": "per_chunk",
+      "totalBytes": 512,
+      "input_sha256": "11b420d6d710721c07f5eb5de16222d746cd63e0fcd254ef8438ee7b606882b1",
+      "calls": 2000,
+      "warmup": 200,
+      "workPerCall": 1024,
+      "orders": [
+        [
+          "javascript_batch",
+          "wasm_per_chunk",
+          "wasm_batch"
+        ],
+        [
+          "wasm_batch",
+          "wasm_per_chunk",
+          "javascript_batch"
+        ],
+        [
+          "wasm_batch",
+          "javascript_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "wasm_per_chunk",
+          "wasm_batch",
+          "javascript_batch"
+        ],
+        [
+          "wasm_per_chunk",
+          "javascript_batch",
+          "wasm_batch"
+        ],
+        [
+          "javascript_batch",
+          "wasm_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "javascript_batch",
+          "wasm_per_chunk",
+          "wasm_batch"
+        ],
+        [
+          "wasm_batch",
+          "wasm_per_chunk",
+          "javascript_batch"
+        ],
+        [
+          "wasm_batch",
+          "javascript_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "wasm_per_chunk",
+          "wasm_batch",
+          "javascript_batch"
+        ],
+        [
+          "wasm_per_chunk",
+          "javascript_batch",
+          "wasm_batch"
+        ],
+        [
+          "javascript_batch",
+          "wasm_batch",
+          "wasm_per_chunk"
+        ]
+      ],
+      "ns_per_batch": {
+        "wasm_batch": {
+          "samples": [
+            9293.14550000001,
+            9269.999999999982,
+            9457.625000000007,
+            9122.62499999997,
+            9073.125000000004,
+            9211.770999999999,
+            9241.458000000022,
+            9439.999999999998,
+            9419.916999999998,
+            9453.291499999978,
+            9452.875000000005,
+            9740.45799999999
+          ],
+          "min": 9073.125000000004,
+          "median": 9356.531250000004,
+          "max": 9740.45799999999,
+          "spread_percent": 7.132269237063529
+        },
+        "wasm_per_chunk": {
+          "samples": [
+            3744.3125000000064,
+            3998.416500000019,
+            3763.9580000000024,
+            3813.895500000001,
+            3892.4374999999714,
+            3706.2290000000075,
+            3869.624999999985,
+            3668.4584999999856,
+            4117.479000000003,
+            3788.562500000012,
+            3841.4790000000494,
+            4025.4790000000185
+          ],
+          "min": 3668.4584999999856,
+          "median": 3827.6872500000254,
+          "max": 4117.479000000003,
+          "spread_percent": 11.730856537456512
+        },
+        "javascript_batch": {
+          "samples": [
+            2549.02100000001,
+            2668.916499999966,
+            2758.1665000000157,
+            2655.208499999958,
+            2549.2080000000215,
+            2648.187499999949,
+            2599.3540000000053,
+            2667.603999999983,
+            2513.8750000000414,
+            2723.8960000000247,
+            2640.2914999999894,
+            2703.0624999999873
+          ],
+          "min": 2513.8750000000414,
+          "median": 2651.6979999999535,
+          "max": 2758.1665000000157,
+          "spread_percent": 9.212644124631787
+        }
+      },
+      "ns_per_chunk": {
+        "wasm_batch": {
+          "samples": [
+            580.8215937500006,
+            579.3749999999989,
+            591.1015625000005,
+            570.1640624999982,
+            567.0703125000002,
+            575.7356874999999,
+            577.5911250000014,
+            589.9999999999999,
+            588.7448124999999,
+            590.8307187499986,
+            590.8046875000003,
+            608.7786249999994
+          ],
+          "min": 567.0703125000002,
+          "median": 584.7832031250002,
+          "max": 608.7786249999994,
+          "spread_percent": 7.132269237063529
+        },
+        "wasm_per_chunk": {
+          "samples": [
+            234.0195312500004,
+            249.90103125000118,
+            235.24737500000015,
+            238.36846875000006,
+            243.2773437499982,
+            231.63931250000047,
+            241.85156249999906,
+            229.2786562499991,
+            257.3424375000002,
+            236.78515625000074,
+            240.0924375000031,
+            251.59243750000115
+          ],
+          "min": 229.2786562499991,
+          "median": 239.2304531250016,
+          "max": 257.3424375000002,
+          "spread_percent": 11.730856537456512
+        },
+        "javascript_batch": {
+          "samples": [
+            159.31381250000064,
+            166.80728124999789,
+            172.38540625000098,
+            165.95053124999737,
+            159.32550000000134,
+            165.51171874999682,
+            162.45962500000033,
+            166.72524999999894,
+            157.1171875000026,
+            170.24350000000155,
+            165.01821874999933,
+            168.9414062499992
+          ],
+          "min": 157.1171875000026,
+          "median": 165.7311249999971,
+          "max": 172.38540625000098,
+          "spread_percent": 9.212644124631787
+        }
+      }
+    },
+    {
+      "chunks": 16,
+      "bytesPerChunk": 1024,
+      "family": "per_chunk",
+      "totalBytes": 16384,
+      "input_sha256": "9fef03139f9f8dcf6d1f5c9b244988346917c853304b595c75f2f878457367a6",
+      "calls": 512,
+      "warmup": 200,
+      "workPerCall": 32768,
+      "orders": [
+        [
+          "wasm_batch",
+          "wasm_per_chunk",
+          "javascript_batch"
+        ],
+        [
+          "wasm_batch",
+          "javascript_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "wasm_per_chunk",
+          "wasm_batch",
+          "javascript_batch"
+        ],
+        [
+          "wasm_per_chunk",
+          "javascript_batch",
+          "wasm_batch"
+        ],
+        [
+          "javascript_batch",
+          "wasm_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "javascript_batch",
+          "wasm_per_chunk",
+          "wasm_batch"
+        ],
+        [
+          "wasm_batch",
+          "wasm_per_chunk",
+          "javascript_batch"
+        ],
+        [
+          "wasm_batch",
+          "javascript_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "wasm_per_chunk",
+          "wasm_batch",
+          "javascript_batch"
+        ],
+        [
+          "wasm_per_chunk",
+          "javascript_batch",
+          "wasm_batch"
+        ],
+        [
+          "javascript_batch",
+          "wasm_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "javascript_batch",
+          "wasm_per_chunk",
+          "wasm_batch"
+        ]
+      ],
+      "ns_per_batch": {
+        "wasm_batch": {
+          "samples": [
+            12902.017578124925,
+            16985.02734374996,
+            13387.20703124996,
+            13593.099609374936,
+            13380.533203125156,
+            17894.369140625033,
+            13128.744140625147,
+            13319.009765625056,
+            13251.302734375025,
+            13167.316406250018,
+            13474.527343749987,
+            13640.951171875138
+          ],
+          "min": 12902.017578124925,
+          "median": 13383.870117187558,
+          "max": 17894.369140625033,
+          "spread_percent": 37.30125530797652
+        },
+        "wasm_per_chunk": {
+          "samples": [
+            6855.712890625032,
+            7516.925781249961,
+            7385.498046874828,
+            7287.597656249867,
+            7239.257812500011,
+            8070.3945312501355,
+            7658.853515625008,
+            7557.210937499947,
+            8226.48242187518,
+            10685.710937500036,
+            6751.058593749804,
+            7506.1035156251955
+          ],
+          "min": 6751.058593749804,
+          "median": 7511.514648437578,
+          "max": 10685.710937500036,
+          "spread_percent": 52.38161047277801
+        },
+        "javascript_batch": {
+          "samples": [
+            7707.681640624964,
+            7849.447265624975,
+            6938.802734375083,
+            7214.925781249936,
+            7328.531249999992,
+            11021.322265625022,
+            7434.001953124935,
+            8101.236328124984,
+            7162.189453124856,
+            8610.107421874958,
+            8611.408203124782,
+            7614.746093750125
+          ],
+          "min": 6938.802734375083,
+          "median": 7661.213867187544,
+          "max": 11021.322265625022,
+          "spread_percent": 53.28815514125107
+        }
+      },
+      "ns_per_chunk": {
+        "wasm_batch": {
+          "samples": [
+            806.3760986328078,
+            1061.5642089843725,
+            836.7004394531225,
+            849.5687255859335,
+            836.2833251953223,
+            1118.3980712890645,
+            820.5465087890717,
+            832.438110351566,
+            828.2064208984391,
+            822.9572753906261,
+            842.1579589843742,
+            852.5594482421961
+          ],
+          "min": 806.3760986328078,
+          "median": 836.4918823242224,
+          "max": 1118.3980712890645,
+          "spread_percent": 37.30125530797652
+        },
+        "wasm_per_chunk": {
+          "samples": [
+            428.4820556640645,
+            469.80786132812256,
+            461.59362792967676,
+            455.4748535156167,
+            452.4536132812507,
+            504.39965820313347,
+            478.678344726563,
+            472.3256835937467,
+            514.1551513671988,
+            667.8569335937523,
+            421.9411621093627,
+            469.1314697265747
+          ],
+          "min": 421.9411621093627,
+          "median": 469.46966552734864,
+          "max": 667.8569335937523,
+          "spread_percent": 52.38161047277801
+        },
+        "javascript_batch": {
+          "samples": [
+            481.7301025390602,
+            490.59045410156097,
+            433.6751708984427,
+            450.932861328121,
+            458.0332031249995,
+            688.8326416015639,
+            464.62512207030846,
+            506.3272705078115,
+            447.6368408203035,
+            538.1317138671849,
+            538.2130126952989,
+            475.9216308593828
+          ],
+          "min": 433.6751708984427,
+          "median": 478.8258666992215,
+          "max": 688.8326416015639,
+          "spread_percent": 53.28815514125107
+        }
+      }
+    },
+    {
+      "chunks": 256,
+      "bytesPerChunk": 0,
+      "family": "per_chunk",
+      "totalBytes": 0,
+      "input_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "calls": 1024,
+      "warmup": 200,
+      "workPerCall": 16384,
+      "orders": [
+        [
+          "wasm_batch",
+          "javascript_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "wasm_per_chunk",
+          "wasm_batch",
+          "javascript_batch"
+        ],
+        [
+          "wasm_per_chunk",
+          "javascript_batch",
+          "wasm_batch"
+        ],
+        [
+          "javascript_batch",
+          "wasm_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "javascript_batch",
+          "wasm_per_chunk",
+          "wasm_batch"
+        ],
+        [
+          "wasm_batch",
+          "wasm_per_chunk",
+          "javascript_batch"
+        ],
+        [
+          "wasm_batch",
+          "javascript_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "wasm_per_chunk",
+          "wasm_batch",
+          "javascript_batch"
+        ],
+        [
+          "wasm_per_chunk",
+          "javascript_batch",
+          "wasm_batch"
+        ],
+        [
+          "javascript_batch",
+          "wasm_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "javascript_batch",
+          "wasm_per_chunk",
+          "wasm_batch"
+        ],
+        [
+          "wasm_batch",
+          "wasm_per_chunk",
+          "javascript_batch"
+        ]
+      ],
+      "ns_per_batch": {
+        "wasm_batch": {
+          "samples": [
+            130222.61621093767,
+            132534.1796874999,
+            126828.49121093743,
+            127409.2607421875,
+            125504.5976562501,
+            127084.14746093721,
+            130034.87207031262,
+            126054.76855468734,
+            129281.69824218738,
+            130073.68945312515,
+            130526.81445312464,
+            129002.4414062496
+          ],
+          "min": 125504.5976562501,
+          "median": 129142.06982421849,
+          "max": 132534.1796874999,
+          "spread_percent": 5.443293607434135
+        },
+        "wasm_per_chunk": {
+          "samples": [
+            49599.28417968751,
+            49303.01953125005,
+            47799.76367187522,
+            46161.78320312492,
+            46286.45800781262,
+            49349.6914062499,
+            48798.70605468728,
+            48898.15234374995,
+            46452.83984375004,
+            49487.18261718721,
+            49179.8095703122,
+            49455.72949218757
+          ],
+          "min": 46161.78320312492,
+          "median": 49038.980957031075,
+          "max": 49599.28417968751,
+          "spread_percent": 7.009731665457309
+        },
+        "javascript_batch": {
+          "samples": [
+            31186.68554687498,
+            30133.300781250095,
+            29269.7353515623,
+            29945.190429687686,
+            29245.84960937504,
+            30790.64941406262,
+            31897.909179687824,
+            30854.573242187656,
+            29491.4140625,
+            31824.17773437507,
+            31974.12109374964,
+            30915.161132812675
+          ],
+          "min": 29245.84960937504,
+          "median": 30822.61132812514,
+          "max": 31974.12109374964,
+          "spread_percent": 8.85152609339461
+        }
+      },
+      "ns_per_chunk": {
+        "wasm_batch": {
+          "samples": [
+            508.6820945739753,
+            517.7116394042965,
+            495.4237937927243,
+            497.6924247741699,
+            490.25233459472696,
+            496.422451019286,
+            507.94871902465866,
+            492.4014396667474,
+            505.00663375854447,
+            508.1003494262701,
+            509.8703689575181,
+            503.9157867431625
+          ],
+          "min": 490.25233459472696,
+          "median": 504.46121025085347,
+          "max": 517.7116394042965,
+          "spread_percent": 5.443293607434135
+        },
+        "wasm_per_chunk": {
+          "samples": [
+            193.74720382690433,
+            192.5899200439455,
+            186.71782684326257,
+            180.31946563720672,
+            180.80647659301803,
+            192.77223205566366,
+            190.6199455261222,
+            191.00840759277324,
+            181.45640563964858,
+            193.30930709838754,
+            192.10863113403204,
+            193.1864433288577
+          ],
+          "min": 180.31946563720672,
+          "median": 191.55851936340264,
+          "max": 193.74720382690433,
+          "spread_percent": 7.009731665457309
+        },
+        "javascript_batch": {
+          "samples": [
+            121.8229904174804,
+            117.70820617675818,
+            114.33490371704023,
+            116.97340011596752,
+            114.24160003662125,
+            120.27597427368211,
+            124.60120773315556,
+            120.52567672729553,
+            115.20083618164062,
+            124.31319427490261,
+            124.89891052245953,
+            120.76234817504951
+          ],
+          "min": 114.24160003662125,
+          "median": 120.40082550048882,
+          "max": 124.89891052245953,
+          "spread_percent": 8.85152609339461
+        }
+      }
+    },
+    {
+      "chunks": 256,
+      "bytesPerChunk": 32,
+      "family": "per_chunk",
+      "totalBytes": 8192,
+      "input_sha256": "1c2d19f2182ff44771f6ad4b92896ccbd3fa1b368c1ae1a05ccba7e26f0a9f25",
+      "calls": 1024,
+      "warmup": 200,
+      "workPerCall": 16384,
+      "orders": [
+        [
+          "wasm_per_chunk",
+          "wasm_batch",
+          "javascript_batch"
+        ],
+        [
+          "wasm_per_chunk",
+          "javascript_batch",
+          "wasm_batch"
+        ],
+        [
+          "javascript_batch",
+          "wasm_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "javascript_batch",
+          "wasm_per_chunk",
+          "wasm_batch"
+        ],
+        [
+          "wasm_batch",
+          "wasm_per_chunk",
+          "javascript_batch"
+        ],
+        [
+          "wasm_batch",
+          "javascript_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "wasm_per_chunk",
+          "wasm_batch",
+          "javascript_batch"
+        ],
+        [
+          "wasm_per_chunk",
+          "javascript_batch",
+          "wasm_batch"
+        ],
+        [
+          "javascript_batch",
+          "wasm_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "javascript_batch",
+          "wasm_per_chunk",
+          "wasm_batch"
+        ],
+        [
+          "wasm_batch",
+          "wasm_per_chunk",
+          "javascript_batch"
+        ],
+        [
+          "wasm_batch",
+          "javascript_batch",
+          "wasm_per_chunk"
+        ]
+      ],
+      "ns_per_batch": {
+        "wasm_batch": {
+          "samples": [
+            144483.1132812503,
+            143460.08300781233,
+            141240.47851562515,
+            149147.94921874997,
+            146058.63476562497,
+            139982.258789062,
+            142434.97753906276,
+            139772.54296874974,
+            140021.1582031252,
+            141887.24804687515,
+            138480.22460937503,
+            141599.85351562465
+          ],
+          "min": 138480.22460937503,
+          "median": 141743.55078124988,
+          "max": 149147.94921874997,
+          "spread_percent": 7.52607406162573
+        },
+        "wasm_per_chunk": {
+          "samples": [
+            62114.09472656282,
+            62250.976562500335,
+            67341.71582031224,
+            67660.40039062471,
+            67008.91113281315,
+            60055.297851562274,
+            59560.3437500003,
+            60281.04589843775,
+            60932.12890625033,
+            62097.94140624947,
+            64868.12402343745,
+            61853.27148437558
+          ],
+          "min": 59560.3437500003,
+          "median": 62106.01806640615,
+          "max": 67660.40039062471,
+          "spread_percent": 13.042305549139407
+        },
+        "javascript_batch": {
+          "samples": [
+            37939.98242187513,
+            37335.65332031219,
+            38076.904296874935,
+            37985.3115234372,
+            38779.17480468706,
+            37052.042968749534,
+            36699.015625000444,
+            36853.718750000655,
+            36487.019531249665,
+            36742.75781250014,
+            37636.352539062835,
+            37205.56640625006
+          ],
+          "min": 36487.019531249665,
+          "median": 37270.60986328112,
+          "max": 38779.17480468706,
+          "spread_percent": 6.150034254458556
+        }
+      },
+      "ns_per_chunk": {
+        "wasm_batch": {
+          "samples": [
+            564.387161254884,
+            560.3909492492669,
+            551.7206192016607,
+            582.6091766357421,
+            570.5415420532225,
+            546.8056983947735,
+            556.3866310119639,
+            545.9864959716787,
+            546.9576492309578,
+            554.247062683106,
+            540.9383773803712,
+            553.1244277954088
+          ],
+          "min": 540.9383773803712,
+          "median": 553.6857452392574,
+          "max": 582.6091766357421,
+          "spread_percent": 7.52607406162573
+        },
+        "wasm_per_chunk": {
+          "samples": [
+            242.63318252563602,
+            243.16787719726693,
+            263.0535774230947,
+            264.29843902587777,
+            261.7535591125514,
+            234.59100723266513,
+            232.65759277343867,
+            235.47283554077245,
+            238.01612854004034,
+            242.570083618162,
+            253.39110946655254,
+            241.61434173584212
+          ],
+          "min": 232.65759277343867,
+          "median": 242.60163307189902,
+          "max": 264.29843902587777,
+          "spread_percent": 13.042305549139407
+        },
+        "javascript_batch": {
+          "samples": [
+            148.20305633544973,
+            145.84239578246948,
+            148.7379074096677,
+            148.38012313842657,
+            151.48115158080884,
+            144.73454284667787,
+            143.35552978515798,
+            143.95983886719006,
+            142.527420043944,
+            143.52639770507867,
+            147.0170021057142,
+            145.3342437744143
+          ],
+          "min": 142.527420043944,
+          "median": 145.58831977844187,
+          "max": 151.48115158080884,
+          "spread_percent": 6.150034254458556
+        }
+      }
+    },
+    {
+      "chunks": 256,
+      "bytesPerChunk": 1024,
+      "family": "per_chunk",
+      "totalBytes": 262144,
+      "input_sha256": "3eea6d2ef1f9f075f27e3ec3549b54aa786b5d427618e09a4aa8e0e4453a485c",
+      "calls": 32,
+      "warmup": 32,
+      "workPerCall": 524288,
+      "orders": [
+        [
+          "wasm_per_chunk",
+          "javascript_batch",
+          "wasm_batch"
+        ],
+        [
+          "javascript_batch",
+          "wasm_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "javascript_batch",
+          "wasm_per_chunk",
+          "wasm_batch"
+        ],
+        [
+          "wasm_batch",
+          "wasm_per_chunk",
+          "javascript_batch"
+        ],
+        [
+          "wasm_batch",
+          "javascript_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "wasm_per_chunk",
+          "wasm_batch",
+          "javascript_batch"
+        ],
+        [
+          "wasm_per_chunk",
+          "javascript_batch",
+          "wasm_batch"
+        ],
+        [
+          "javascript_batch",
+          "wasm_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "javascript_batch",
+          "wasm_per_chunk",
+          "wasm_batch"
+        ],
+        [
+          "wasm_batch",
+          "wasm_per_chunk",
+          "javascript_batch"
+        ],
+        [
+          "wasm_batch",
+          "javascript_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "wasm_per_chunk",
+          "wasm_batch",
+          "javascript_batch"
+        ]
+      ],
+      "ns_per_batch": {
+        "wasm_batch": {
+          "samples": [
+            194290.37500000844,
+            233598.93749997695,
+            228919.25000001834,
+            343020.8437499971,
+            178992.18750000047,
+            213372.37500000582,
+            194045.56249997995,
+            181850.24999999654,
+            184989.5625000215,
+            206402.34374999977,
+            184097.65625000317,
+            192217.4375000054
+          ],
+          "min": 178992.18750000047,
+          "median": 194167.96874999418,
+          "max": 343020.8437499971,
+          "spread_percent": 84.4777113887388
+        },
+        "wasm_per_chunk": {
+          "samples": [
+            114190.12499999326,
+            141891.93750002005,
+            184164.0625000025,
+            129958.31249997992,
+            96795.56250000588,
+            164411.46874998935,
+            98528.62500000015,
+            141739.59375000323,
+            136677.09374999505,
+            98369.78124999974,
+            120798.18749998594,
+            139632.81249999683
+          ],
+          "min": 96795.56250000588,
+          "median": 133317.70312498749,
+          "max": 184164.0625000025,
+          "spread_percent": 65.53405733227136
+        },
+        "javascript_batch": {
+          "samples": [
+            140251.31249999846,
+            182345.03125000856,
+            99319.00000000837,
+            140031.24999999272,
+            139091.15625000367,
+            148126.31250001118,
+            135660.1562499975,
+            140279.9687500078,
+            95093.74999998954,
+            131298.18750002186,
+            138164.0624999818,
+            136731.78124997776
+          ],
+          "min": 95093.74999998954,
+          "median": 138627.60937499272,
+          "max": 182345.03125000856,
+          "spread_percent": 62.93932474446784
+        }
+      },
+      "ns_per_chunk": {
+        "wasm_batch": {
+          "samples": [
+            758.946777343783,
+            912.495849609285,
+            894.2158203125716,
+            1339.9251708984261,
+            699.1882324218768,
+            833.4858398437727,
+            757.9904785155467,
+            710.3525390624865,
+            722.615478515709,
+            806.2591552734366,
+            719.1314697265749,
+            750.8493652343961
+          ],
+          "min": 699.1882324218768,
+          "median": 758.4686279296648,
+          "max": 1339.9251708984261,
+          "spread_percent": 84.4777113887388
+        },
+        "wasm_per_chunk": {
+          "samples": [
+            446.0551757812237,
+            554.2653808594533,
+            719.3908691406348,
+            507.64965820304656,
+            378.10766601564796,
+            642.2322998046459,
+            384.87744140625057,
+            553.6702880859501,
+            533.8948974609182,
+            384.2569580078115,
+            471.8679199218201,
+            545.4406738281126
+          ],
+          "min": 378.10766601564796,
+          "median": 520.7722778319824,
+          "max": 719.3908691406348,
+          "spread_percent": 65.53405733227136
+        },
+        "javascript_batch": {
+          "samples": [
+            547.856689453119,
+            712.2852783203459,
+            387.9648437500327,
+            546.9970703124716,
+            543.3248291015768,
+            578.6184082031687,
+            529.9224853515527,
+            547.968627929718,
+            371.45996093745913,
+            512.8835449219604,
+            539.703369140554,
+            534.1085205077256
+          ],
+          "min": 371.45996093745913,
+          "median": 541.5140991210653,
+          "max": 712.2852783203459,
+          "spread_percent": 62.93932474446784
+        }
+      }
+    },
+    {
+      "chunks": 1,
+      "bytesPerChunk": 65536,
+      "family": "fixed_total",
+      "totalBytes": 65536,
+      "input_sha256": "ef4636928161808e87035fa51983821677527ccd9661991c5d0126a778b2268a",
+      "calls": 128,
+      "warmup": 128,
+      "workPerCall": 131072,
+      "orders": [
+        [
+          "javascript_batch",
+          "wasm_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "javascript_batch",
+          "wasm_per_chunk",
+          "wasm_batch"
+        ],
+        [
+          "wasm_batch",
+          "wasm_per_chunk",
+          "javascript_batch"
+        ],
+        [
+          "wasm_batch",
+          "javascript_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "wasm_per_chunk",
+          "wasm_batch",
+          "javascript_batch"
+        ],
+        [
+          "wasm_per_chunk",
+          "javascript_batch",
+          "wasm_batch"
+        ],
+        [
+          "javascript_batch",
+          "wasm_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "javascript_batch",
+          "wasm_per_chunk",
+          "wasm_batch"
+        ],
+        [
+          "wasm_batch",
+          "wasm_per_chunk",
+          "javascript_batch"
+        ],
+        [
+          "wasm_batch",
+          "javascript_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "wasm_per_chunk",
+          "wasm_batch",
+          "javascript_batch"
+        ],
+        [
+          "wasm_per_chunk",
+          "javascript_batch",
+          "wasm_batch"
+        ]
+      ],
+      "ns_per_batch": {
+        "wasm_batch": {
+          "samples": [
+            5267.578125000227,
+            3822.585937498957,
+            2901.039062500388,
+            3674.8046874990337,
+            3760.093749995974,
+            3514.0000000026816,
+            3890.6249999968168,
+            3610.0234375027185,
+            2978.843749993132,
+            3725.257812497773,
+            3578.773437496352,
+            3631.515625002635
+          ],
+          "min": 2901.039062500388,
+          "median": 3653.160156250834,
+          "max": 5267.578125000227,
+          "spread_percent": 64.78059984450755
+        },
+        "wasm_per_chunk": {
+          "samples": [
+            2791.9921874968168,
+            2468.7499999984652,
+            3139.648437503695,
+            3275.71874999677,
+            2594.4062500045106,
+            3137.3671874987963,
+            2759.4453124990537,
+            2499.6796874958704,
+            3179.6875000011937,
+            3169.921874999204,
+            2618.492187501431,
+            3118.812499998569
+          ],
+          "min": 2468.7499999984652,
+          "median": 2955.4023437476926,
+          "max": 3275.71874999677,
+          "spread_percent": 27.30486939301138
+        },
+        "javascript_batch": {
+          "samples": [
+            3523.765625004671,
+            3743.812500005106,
+            2562.4999999962483,
+            2566.734375001545,
+            2780.2734375015348,
+            2620.1171874973284,
+            2616.2109374965326,
+            3192.3828125002274,
+            2723.6328125042064,
+            2790.3671875009195,
+            2675.45312499351,
+            2684.5703124962483
+          ],
+          "min": 2562.4999999962483,
+          "median": 2704.1015625002274,
+          "max": 3743.812500005106,
+          "spread_percent": 43.68595160740226
+        }
+      },
+      "ns_per_chunk": {
+        "wasm_batch": {
+          "samples": [
+            5267.578125000227,
+            3822.585937498957,
+            2901.039062500388,
+            3674.8046874990337,
+            3760.093749995974,
+            3514.0000000026816,
+            3890.6249999968168,
+            3610.0234375027185,
+            2978.843749993132,
+            3725.257812497773,
+            3578.773437496352,
+            3631.515625002635
+          ],
+          "min": 2901.039062500388,
+          "median": 3653.160156250834,
+          "max": 5267.578125000227,
+          "spread_percent": 64.78059984450755
+        },
+        "wasm_per_chunk": {
+          "samples": [
+            2791.9921874968168,
+            2468.7499999984652,
+            3139.648437503695,
+            3275.71874999677,
+            2594.4062500045106,
+            3137.3671874987963,
+            2759.4453124990537,
+            2499.6796874958704,
+            3179.6875000011937,
+            3169.921874999204,
+            2618.492187501431,
+            3118.812499998569
+          ],
+          "min": 2468.7499999984652,
+          "median": 2955.4023437476926,
+          "max": 3275.71874999677,
+          "spread_percent": 27.30486939301138
+        },
+        "javascript_batch": {
+          "samples": [
+            3523.765625004671,
+            3743.812500005106,
+            2562.4999999962483,
+            2566.734375001545,
+            2780.2734375015348,
+            2620.1171874973284,
+            2616.2109374965326,
+            3192.3828125002274,
+            2723.6328125042064,
+            2790.3671875009195,
+            2675.45312499351,
+            2684.5703124962483
+          ],
+          "min": 2562.4999999962483,
+          "median": 2704.1015625002274,
+          "max": 3743.812500005106,
+          "spread_percent": 43.68595160740226
+        }
+      }
+    },
+    {
+      "chunks": 16,
+      "bytesPerChunk": 4096,
+      "family": "fixed_total",
+      "totalBytes": 65536,
+      "input_sha256": "efcff8dcd1be3671b2b3b4cc6f1af1d673444988c815898d857955ae50cea83c",
+      "calls": 128,
+      "warmup": 128,
+      "workPerCall": 131072,
+      "orders": [
+        [
+          "javascript_batch",
+          "wasm_per_chunk",
+          "wasm_batch"
+        ],
+        [
+          "wasm_batch",
+          "wasm_per_chunk",
+          "javascript_batch"
+        ],
+        [
+          "wasm_batch",
+          "javascript_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "wasm_per_chunk",
+          "wasm_batch",
+          "javascript_batch"
+        ],
+        [
+          "wasm_per_chunk",
+          "javascript_batch",
+          "wasm_batch"
+        ],
+        [
+          "javascript_batch",
+          "wasm_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "javascript_batch",
+          "wasm_per_chunk",
+          "wasm_batch"
+        ],
+        [
+          "wasm_batch",
+          "wasm_per_chunk",
+          "javascript_batch"
+        ],
+        [
+          "wasm_batch",
+          "javascript_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "wasm_per_chunk",
+          "wasm_batch",
+          "javascript_batch"
+        ],
+        [
+          "wasm_per_chunk",
+          "javascript_batch",
+          "wasm_batch"
+        ],
+        [
+          "javascript_batch",
+          "wasm_batch",
+          "wasm_per_chunk"
+        ]
+      ],
+      "ns_per_batch": {
+        "wasm_batch": {
+          "samples": [
+            19881.83593750392,
+            16524.09375000019,
+            19991.53124999964,
+            19305.335937495725,
+            19227.210937494023,
+            18624.679687498257,
+            18355.789062503904,
+            15689.45312499892,
+            17743.164062494543,
+            18705.398437504075,
+            18680.984375002652,
+            22514.96875000214
+          ],
+          "min": 15689.45312499892,
+          "median": 18693.19140625336,
+          "max": 22514.96875000214,
+          "spread_percent": 36.513377928179274
+        },
+        "wasm_per_chunk": {
+          "samples": [
+            14875.976562500171,
+            13695.96093749692,
+            12959.960937500626,
+            11446.60937499964,
+            12748.046875003638,
+            9367.187500004093,
+            10555.98437499583,
+            13334.312500006718,
+            13019.859374999498,
+            9406.578124995234,
+            12807.289062500615,
+            20047.851562502216
+          ],
+          "min": 9367.187500004093,
+          "median": 12883.62500000062,
+          "max": 20047.851562502216,
+          "spread_percent": 82.90107840376919
+        },
+        "javascript_batch": {
+          "samples": [
+            16396.812499998246,
+            14573.242187502445,
+            10032.546874995773,
+            10356.765624997877,
+            10306.312499999138,
+            10113.609374997168,
+            13003.578125001524,
+            9988.929687494874,
+            10588.867187500739,
+            10444.656250001572,
+            10381.515624999338,
+            10931.64062500307
+          ],
+          "min": 9988.929687494874,
+          "median": 10413.085937500455,
+          "max": 16396.812499998246,
+          "spread_percent": 61.53682828475257
+        }
+      },
+      "ns_per_chunk": {
+        "wasm_batch": {
+          "samples": [
+            1242.614746093995,
+            1032.7558593750118,
+            1249.4707031249775,
+            1206.5834960934828,
+            1201.7006835933764,
+            1164.042480468641,
+            1147.236816406494,
+            980.5908203124325,
+            1108.947753905909,
+            1169.0874023440047,
+            1167.5615234376658,
+            1407.1855468751337
+          ],
+          "min": 980.5908203124325,
+          "median": 1168.324462890835,
+          "max": 1407.1855468751337,
+          "spread_percent": 36.513377928179274
+        },
+        "wasm_per_chunk": {
+          "samples": [
+            929.7485351562607,
+            855.9975585935575,
+            809.9975585937891,
+            715.4130859374775,
+            796.7529296877274,
+            585.4492187502558,
+            659.7490234372394,
+            833.3945312504198,
+            813.7412109374686,
+            587.9111328122021,
+            800.4555664062884,
+            1252.9907226563885
+          ],
+          "min": 585.4492187502558,
+          "median": 805.2265625000388,
+          "max": 1252.9907226563885,
+          "spread_percent": 82.90107840376919
+        },
+        "javascript_batch": {
+          "samples": [
+            1024.8007812498904,
+            910.8276367189028,
+            627.0341796872358,
+            647.2978515623673,
+            644.1445312499461,
+            632.100585937323,
+            812.7236328125953,
+            624.3081054684296,
+            661.8041992187962,
+            652.7910156250982,
+            648.8447265624586,
+            683.2275390626919
+          ],
+          "min": 624.3081054684296,
+          "median": 650.8178710937784,
+          "max": 1024.8007812498904,
+          "spread_percent": 61.53682828475257
+        }
+      }
+    },
+    {
+      "chunks": 256,
+      "bytesPerChunk": 256,
+      "family": "fixed_total",
+      "totalBytes": 65536,
+      "input_sha256": "08e255af6a533659d6b62c71bb7f21d48dcad6dae899412cde9f5f784befd005",
+      "calls": 128,
+      "warmup": 128,
+      "workPerCall": 131072,
+      "orders": [
+        [
+          "wasm_batch",
+          "wasm_per_chunk",
+          "javascript_batch"
+        ],
+        [
+          "wasm_batch",
+          "javascript_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "wasm_per_chunk",
+          "wasm_batch",
+          "javascript_batch"
+        ],
+        [
+          "wasm_per_chunk",
+          "javascript_batch",
+          "wasm_batch"
+        ],
+        [
+          "javascript_batch",
+          "wasm_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "javascript_batch",
+          "wasm_per_chunk",
+          "wasm_batch"
+        ],
+        [
+          "wasm_batch",
+          "wasm_per_chunk",
+          "javascript_batch"
+        ],
+        [
+          "wasm_batch",
+          "javascript_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "wasm_per_chunk",
+          "wasm_batch",
+          "javascript_batch"
+        ],
+        [
+          "wasm_per_chunk",
+          "javascript_batch",
+          "wasm_batch"
+        ],
+        [
+          "javascript_batch",
+          "wasm_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "javascript_batch",
+          "wasm_per_chunk",
+          "wasm_batch"
+        ]
+      ],
+      "ns_per_batch": {
+        "wasm_batch": {
+          "samples": [
+            177648.4374999967,
+            178393.88281250023,
+            179549.14843750204,
+            181731.1249999989,
+            179447.91406250006,
+            176420.89843749886,
+            174463.2187499988,
+            179437.8281249962,
+            196830.72656249578,
+            177673.49999999738,
+            181408.85156249453,
+            177496.0937499941
+          ],
+          "min": 174463.2187499988,
+          "median": 178915.8554687482,
+          "max": 196830.72656249578,
+          "spread_percent": 12.501691230157059
+        },
+        "wasm_per_chunk": {
+          "samples": [
+            93432.28906249834,
+            99692.05468750175,
+            99878.57812500067,
+            100403.32031250188,
+            95851.56250000182,
+            99507.81250000063,
+            92430.99218750217,
+            98262.3671875018,
+            110680.00781249764,
+            102132.8124999954,
+            94423.49999999777,
+            99291.3437500036
+          ],
+          "min": 92430.99218750217,
+          "median": 99399.57812500211,
+          "max": 110680.00781249764,
+          "spread_percent": 18.35924856949194
+        },
+        "javascript_batch": {
+          "samples": [
+            95750.00000000244,
+            90757.81250000148,
+            88805.66406250522,
+            97906.57812499859,
+            93703.45312499495,
+            95716.46874999828,
+            96589.84375000301,
+            90270.83593750262,
+            95887.04687499927,
+            94632.81249999511,
+            95573.24218749841,
+            96840.82031250086
+          ],
+          "min": 88805.66406250522,
+          "median": 95644.85546874834,
+          "max": 97906.57812499859,
+          "spread_percent": 9.51532000115475
+        }
+      },
+      "ns_per_chunk": {
+        "wasm_batch": {
+          "samples": [
+            693.9392089843622,
+            696.851104736329,
+            701.3638610839923,
+            709.8872070312457,
+            700.9684143066409,
+            689.1441345214799,
+            681.4969482421828,
+            700.9290161132664,
+            768.8700256347491,
+            694.0371093749898,
+            708.6283264159943,
+            693.3441162109144
+          ],
+          "min": 681.4969482421828,
+          "median": 698.8900604247976,
+          "max": 768.8700256347491,
+          "spread_percent": 12.501691230157059
+        },
+        "wasm_per_chunk": {
+          "samples": [
+            364.96987915038414,
+            389.4220886230537,
+            390.15069580078386,
+            392.20046997071046,
+            374.4201660156321,
+            388.70239257812744,
+            361.05856323243034,
+            383.8373718261789,
+            432.3437805175689,
+            398.95629882810704,
+            368.8417968749913,
+            387.85681152345154
+          ],
+          "min": 361.05856323243034,
+          "median": 388.2796020507895,
+          "max": 432.3437805175689,
+          "spread_percent": 18.35924856949194
+        },
+        "javascript_batch": {
+          "samples": [
+            374.02343750000955,
+            354.5227050781308,
+            346.89712524416103,
+            382.44757080077574,
+            366.0291137695115,
+            373.8924560546808,
+            377.30407714844927,
+            352.6204528808696,
+            374.5587768554659,
+            369.6594238281059,
+            373.3329772949157,
+            378.2844543457065
+          ],
+          "min": 346.89712524416103,
+          "median": 373.6127166747982,
+          "max": 382.44757080077574,
+          "spread_percent": 9.51532000115475
+        }
+      }
+    },
+    {
+      "chunks": 0,
+      "bytesPerChunk": 1024,
+      "family": "async",
+      "asynchronous": true,
+      "totalBytes": 0,
+      "input_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "calls": 2000,
+      "warmup": 200,
+      "workPerCall": 1,
+      "orders": [
+        [
+          "wasm_batch",
+          "javascript_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "wasm_per_chunk",
+          "wasm_batch",
+          "javascript_batch"
+        ],
+        [
+          "wasm_per_chunk",
+          "javascript_batch",
+          "wasm_batch"
+        ],
+        [
+          "javascript_batch",
+          "wasm_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "javascript_batch",
+          "wasm_per_chunk",
+          "wasm_batch"
+        ],
+        [
+          "wasm_batch",
+          "wasm_per_chunk",
+          "javascript_batch"
+        ],
+        [
+          "wasm_batch",
+          "javascript_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "wasm_per_chunk",
+          "wasm_batch",
+          "javascript_batch"
+        ],
+        [
+          "wasm_per_chunk",
+          "javascript_batch",
+          "wasm_batch"
+        ],
+        [
+          "javascript_batch",
+          "wasm_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "javascript_batch",
+          "wasm_per_chunk",
+          "wasm_batch"
+        ],
+        [
+          "wasm_batch",
+          "wasm_per_chunk",
+          "javascript_batch"
+        ]
+      ],
+      "ns_per_batch": {
+        "wasm_batch": {
+          "samples": [
+            2164.520999999695,
+            1804.5210000000222,
+            898.3539999999267,
+            928.0205000000024,
+            939.0834999999242,
+            783.9164999995775,
+            890.2079999998024,
+            786.5209999999934,
+            821.1874999997235,
+            769.5834999999533,
+            800.4165000002104,
+            789.1045000001213
+          ],
+          "min": 769.5834999999533,
+          "median": 855.6977499997629,
+          "max": 2164.520999999695,
+          "spread_percent": 163.01754912878152
+        },
+        "wasm_per_chunk": {
+          "samples": [
+            401.8335000000661,
+            376.291499999752,
+            315.16650000003216,
+            315.416500000083,
+            323.479000000134,
+            333.5414999996829,
+            324.10449999997576,
+            325.22900000003574,
+            356.41649999979563,
+            348.77099999994243,
+            329.3329999996786,
+            392.47900000009395
+          ],
+          "min": 315.16650000003216,
+          "median": 331.4372499996807,
+          "max": 401.8335000000661,
+          "spread_percent": 26.148841145682162
+        },
+        "javascript_batch": {
+          "samples": [
+            541.1665000001448,
+            461.41699999998315,
+            424.64599999993874,
+            397.770500000206,
+            382.41650000009037,
+            385.27049999993324,
+            380.93750000007276,
+            396.72950000021956,
+            383.8960000002771,
+            380.02100000039724,
+            432.9170000000886,
+            374.8749999999745
+          ],
+          "min": 374.8749999999745,
+          "median": 391.0000000000764,
+          "max": 541.1665000001448,
+          "spread_percent": 42.52979539645467
+        }
+      },
+      "ns_per_chunk": null
+    },
+    {
+      "chunks": 1,
+      "bytesPerChunk": 1024,
+      "family": "async",
+      "asynchronous": true,
+      "totalBytes": 1024,
+      "input_sha256": "8d7e566766f6bd1bb4cac87cadfde681197f9243f4d2692a0fd12674092212a7",
+      "calls": 2000,
+      "warmup": 200,
+      "workPerCall": 2048,
+      "orders": [
+        [
+          "wasm_per_chunk",
+          "wasm_batch",
+          "javascript_batch"
+        ],
+        [
+          "wasm_per_chunk",
+          "javascript_batch",
+          "wasm_batch"
+        ],
+        [
+          "javascript_batch",
+          "wasm_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "javascript_batch",
+          "wasm_per_chunk",
+          "wasm_batch"
+        ],
+        [
+          "wasm_batch",
+          "wasm_per_chunk",
+          "javascript_batch"
+        ],
+        [
+          "wasm_batch",
+          "javascript_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "wasm_per_chunk",
+          "wasm_batch",
+          "javascript_batch"
+        ],
+        [
+          "wasm_per_chunk",
+          "javascript_batch",
+          "wasm_batch"
+        ],
+        [
+          "javascript_batch",
+          "wasm_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "javascript_batch",
+          "wasm_per_chunk",
+          "wasm_batch"
+        ],
+        [
+          "wasm_batch",
+          "wasm_per_chunk",
+          "javascript_batch"
+        ],
+        [
+          "wasm_batch",
+          "javascript_batch",
+          "wasm_per_chunk"
+        ]
+      ],
+      "ns_per_batch": {
+        "wasm_batch": {
+          "samples": [
+            2042.8329999999733,
+            1631.479500000296,
+            1773.2084999997824,
+            1661.1874999998693,
+            1558.8960000000043,
+            1551.7500000000837,
+            1449.999999999818,
+            1641.1670000002232,
+            1743.9580000000205,
+            1718.7290000001667,
+            1586.187500000051,
+            1620.4164999999196
+          ],
+          "min": 1449.999999999818,
+          "median": 1636.3232500002596,
+          "max": 2042.8329999999733,
+          "spread_percent": 36.2295774994373
+        },
+        "wasm_per_chunk": {
+          "samples": [
+            1508.7915000003704,
+            1490.6664999998613,
+            1338.854000000083,
+            1283.7920000001761,
+            1332.728999999745,
+            1256.2294999997903,
+            1481.6459999997278,
+            1389.8125000000618,
+            1380.4165000001376,
+            1203.0000000004293,
+            1272.0420000000559,
+            1246.9164999997702
+          ],
+          "min": 1203.0000000004293,
+          "median": 1335.7914999999139,
+          "max": 1508.7915000003704,
+          "spread_percent": 22.89215794530515
+        },
+        "javascript_batch": {
+          "samples": [
+            787.7085000000079,
+            940.8124999999928,
+            919.0419999999904,
+            1000.0414999999521,
+            861.9374999998399,
+            983.6664999997993,
+            826.0209999998552,
+            880.9375000000728,
+            906.5835000001243,
+            806.8539999999302,
+            863.8959999998405,
+            805.771000000277
+          ],
+          "min": 787.7085000000079,
+          "median": 872.4167499999567,
+          "max": 1000.0414999999521,
+          "spread_percent": 24.33848272628359
+        }
+      },
+      "ns_per_chunk": {
+        "wasm_batch": {
+          "samples": [
+            2042.8329999999733,
+            1631.479500000296,
+            1773.2084999997824,
+            1661.1874999998693,
+            1558.8960000000043,
+            1551.7500000000837,
+            1449.999999999818,
+            1641.1670000002232,
+            1743.9580000000205,
+            1718.7290000001667,
+            1586.187500000051,
+            1620.4164999999196
+          ],
+          "min": 1449.999999999818,
+          "median": 1636.3232500002596,
+          "max": 2042.8329999999733,
+          "spread_percent": 36.2295774994373
+        },
+        "wasm_per_chunk": {
+          "samples": [
+            1508.7915000003704,
+            1490.6664999998613,
+            1338.854000000083,
+            1283.7920000001761,
+            1332.728999999745,
+            1256.2294999997903,
+            1481.6459999997278,
+            1389.8125000000618,
+            1380.4165000001376,
+            1203.0000000004293,
+            1272.0420000000559,
+            1246.9164999997702
+          ],
+          "min": 1203.0000000004293,
+          "median": 1335.7914999999139,
+          "max": 1508.7915000003704,
+          "spread_percent": 22.89215794530515
+        },
+        "javascript_batch": {
+          "samples": [
+            787.7085000000079,
+            940.8124999999928,
+            919.0419999999904,
+            1000.0414999999521,
+            861.9374999998399,
+            983.6664999997993,
+            826.0209999998552,
+            880.9375000000728,
+            906.5835000001243,
+            806.8539999999302,
+            863.8959999998405,
+            805.771000000277
+          ],
+          "min": 787.7085000000079,
+          "median": 872.4167499999567,
+          "max": 1000.0414999999521,
+          "spread_percent": 24.33848272628359
+        }
+      }
+    },
+    {
+      "chunks": 16,
+      "bytesPerChunk": 1024,
+      "family": "async",
+      "asynchronous": true,
+      "totalBytes": 16384,
+      "input_sha256": "9fef03139f9f8dcf6d1f5c9b244988346917c853304b595c75f2f878457367a6",
+      "calls": 512,
+      "warmup": 200,
+      "workPerCall": 32768,
+      "orders": [
+        [
+          "wasm_per_chunk",
+          "javascript_batch",
+          "wasm_batch"
+        ],
+        [
+          "javascript_batch",
+          "wasm_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "javascript_batch",
+          "wasm_per_chunk",
+          "wasm_batch"
+        ],
+        [
+          "wasm_batch",
+          "wasm_per_chunk",
+          "javascript_batch"
+        ],
+        [
+          "wasm_batch",
+          "javascript_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "wasm_per_chunk",
+          "wasm_batch",
+          "javascript_batch"
+        ],
+        [
+          "wasm_per_chunk",
+          "javascript_batch",
+          "wasm_batch"
+        ],
+        [
+          "javascript_batch",
+          "wasm_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "javascript_batch",
+          "wasm_per_chunk",
+          "wasm_batch"
+        ],
+        [
+          "wasm_batch",
+          "wasm_per_chunk",
+          "javascript_batch"
+        ],
+        [
+          "wasm_batch",
+          "javascript_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "wasm_per_chunk",
+          "wasm_batch",
+          "javascript_batch"
+        ]
+      ],
+      "ns_per_batch": {
+        "wasm_batch": {
+          "samples": [
+            14502.035156249704,
+            15463.70312500045,
+            15583.822265623936,
+            14834.960937500697,
+            13025.960937499192,
+            14625.732421874814,
+            14079.833984375511,
+            14990.884765625267,
+            13898.761718751373,
+            14917.806640625031,
+            13672.76953125085,
+            13749.185546874543
+          ],
+          "min": 13025.960937499192,
+          "median": 14563.88378906226,
+          "max": 15583.822265623936,
+          "spread_percent": 17.563044069644004
+        },
+        "wasm_per_chunk": {
+          "samples": [
+            15220.458984375186,
+            14295.492187500258,
+            14869.79101562369,
+            14351.806640625853,
+            16010.986328124587,
+            15645.751953124787,
+            16109.537109375793,
+            16820.312500000156,
+            16593.423828126673,
+            14322.833984374838,
+            14637.613281250238,
+            14447.021484373934
+          ],
+          "min": 14295.492187500258,
+          "median": 15045.124999999438,
+          "max": 16820.312500000156,
+          "spread_percent": 16.78165061772496
+        },
+        "javascript_batch": {
+          "samples": [
+            6564.697265625697,
+            6754.8007812501255,
+            6969.156250001162,
+            7676.02539062473,
+            7964.599609374901,
+            9200.521484373781,
+            7059.406250000677,
+            7059.490234375688,
+            6945.800781251066,
+            7423.50195312369,
+            8594.562499999014,
+            7029.785156250412
+          ],
+          "min": 6564.697265625697,
+          "median": 7059.448242188182,
+          "max": 9200.521484373781,
+          "spread_percent": 37.337538690291055
+        }
+      },
+      "ns_per_chunk": {
+        "wasm_batch": {
+          "samples": [
+            906.3771972656065,
+            966.4814453125281,
+            973.988891601496,
+            927.1850585937935,
+            814.1225585936995,
+            914.1082763671759,
+            879.9896240234694,
+            936.9302978515792,
+            868.6726074219608,
+            932.3629150390644,
+            854.5480957031781,
+            859.324096679659
+          ],
+          "min": 814.1225585936995,
+          "median": 910.2427368163912,
+          "max": 973.988891601496,
+          "spread_percent": 17.563044069644004
+        },
+        "wasm_per_chunk": {
+          "samples": [
+            951.2786865234491,
+            893.4682617187661,
+            929.3619384764806,
+            896.9879150391158,
+            1000.6866455077867,
+            977.8594970702992,
+            1006.8460693359871,
+            1051.2695312500098,
+            1037.088989257917,
+            895.1771240234274,
+            914.8508300781399,
+            902.9388427733709
+          ],
+          "min": 893.4682617187661,
+          "median": 940.3203124999649,
+          "max": 1051.2695312500098,
+          "spread_percent": 16.78165061772496
+        },
+        "javascript_batch": {
+          "samples": [
+            410.29357910160604,
+            422.17504882813284,
+            435.57226562507265,
+            479.7515869140456,
+            497.7874755859313,
+            575.0325927733613,
+            441.2128906250423,
+            441.2181396484805,
+            434.1125488281916,
+            463.96887207023065,
+            537.1601562499384,
+            439.36157226565075
+          ],
+          "min": 410.29357910160604,
+          "median": 441.2155151367614,
+          "max": 575.0325927733613,
+          "spread_percent": 37.337538690291055
+        }
+      }
+    },
+    {
+      "chunks": 256,
+      "bytesPerChunk": 1024,
+      "family": "async",
+      "asynchronous": true,
+      "totalBytes": 262144,
+      "input_sha256": "3eea6d2ef1f9f075f27e3ec3549b54aa786b5d427618e09a4aa8e0e4453a485c",
+      "calls": 32,
+      "warmup": 32,
+      "workPerCall": 524288,
+      "orders": [
+        [
+          "javascript_batch",
+          "wasm_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "javascript_batch",
+          "wasm_per_chunk",
+          "wasm_batch"
+        ],
+        [
+          "wasm_batch",
+          "wasm_per_chunk",
+          "javascript_batch"
+        ],
+        [
+          "wasm_batch",
+          "javascript_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "wasm_per_chunk",
+          "wasm_batch",
+          "javascript_batch"
+        ],
+        [
+          "wasm_per_chunk",
+          "javascript_batch",
+          "wasm_batch"
+        ],
+        [
+          "javascript_batch",
+          "wasm_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "javascript_batch",
+          "wasm_per_chunk",
+          "wasm_batch"
+        ],
+        [
+          "wasm_batch",
+          "wasm_per_chunk",
+          "javascript_batch"
+        ],
+        [
+          "wasm_batch",
+          "javascript_batch",
+          "wasm_per_chunk"
+        ],
+        [
+          "wasm_per_chunk",
+          "wasm_batch",
+          "javascript_batch"
+        ],
+        [
+          "wasm_per_chunk",
+          "javascript_batch",
+          "wasm_batch"
+        ]
+      ],
+      "ns_per_batch": {
+        "wasm_batch": {
+          "samples": [
+            204345.0312499999,
+            210346.37500000032,
+            181587.21874999627,
+            204912.7500000054,
+            193505.18749999424,
+            190028.6562500071,
+            204954.4062500104,
+            182975.28125000893,
+            202075.49999997808,
+            211376.31250002186,
+            205406.25000001,
+            193360.656249979
+          ],
+          "min": 181587.21874999627,
+          "median": 203210.265624989,
+          "max": 211376.31250002186,
+          "spread_percent": 14.659246499386684
+        },
+        "wasm_per_chunk": {
+          "samples": [
+            261875.0000000034,
+            258830.71875000495,
+            241641.93749999185,
+            227119.78124999633,
+            229919.28125000527,
+            253467.43749997814,
+            464750.0000000093,
+            248384.12500000116,
+            242371.0937500232,
+            246717.43749996723,
+            230147.156250041,
+            236476.5625000018
+          ],
+          "min": 227119.78124999633,
+          "median": 244544.26562499523,
+          "max": 464750.0000000093,
+          "spread_percent": 97.1726808407011
+        },
+        "javascript_batch": {
+          "samples": [
+            153679.68749998795,
+            107964.84374998271,
+            93865.87500000588,
+            103958.34375000845,
+            96312.49999998204,
+            126947.90624999542,
+            238225.24999999927,
+            131476.56249998364,
+            94959.62500000132,
+            107828.12499996908,
+            97046.87499998954,
+            117380.21874998594
+          ],
+          "min": 93865.87500000588,
+          "median": 107896.4843749759,
+          "max": 238225.24999999927,
+          "spread_percent": 133.79432688306775
+        }
+      },
+      "ns_per_chunk": {
+        "wasm_batch": {
+          "samples": [
+            798.2227783203122,
+            821.6655273437513,
+            709.325073242173,
+            800.4404296875211,
+            755.8796386718525,
+            742.2994384765902,
+            800.6031494141031,
+            714.7471923828474,
+            789.3574218749144,
+            825.6887207032104,
+            802.3681640625391,
+            755.3150634764804
+          ],
+          "min": 709.325073242173,
+          "median": 793.7901000976133,
+          "max": 825.6887207032104,
+          "spread_percent": 14.659246499386684
+        },
+        "wasm_per_chunk": {
+          "samples": [
+            1022.9492187500133,
+            1011.0574951172068,
+            943.9138183593432,
+            887.1866455077982,
+            898.1221923828331,
+            990.1071777342896,
+            1815.4296875000364,
+            970.2504882812545,
+            946.7620849610281,
+            963.739990234247,
+            899.0123291017227,
+            923.736572265632
+          ],
+          "min": 887.1866455077982,
+          "median": 955.2510375976376,
+          "max": 1815.4296875000364,
+          "spread_percent": 97.1726808407011
+        },
+        "javascript_batch": {
+          "samples": [
+            600.3112792968279,
+            421.73767089836997,
+            366.66357421877296,
+            406.0872802734705,
+            376.22070312492986,
+            495.8902587890446,
+            930.5673828124972,
+            513.5803222655611,
+            370.9360351562552,
+            421.2036132811292,
+            379.08935546870913,
+            458.5164794921326
+          ],
+          "min": 366.66357421877296,
+          "median": 421.4706420897496,
+          "max": 930.5673828124972,
+          "spread_percent": 133.79432688306775
+        }
+      }
+    }
+  ],
+  "provenance": {
+    "compiler": "Dart SDK version: 3.13.5 (stable) (Tue Sep 29 01:00:52 2026 -0700) on \"macos_arm64\"",
+    "generator_commit": "ed649df55516af43af809c8c17f8098327d65c3a",
+    "generator_version": "0.13.0",
+    "source_sha256": {
+      "benchmark/fixtures/bytes.dart": "b7ea3bbeb8c2bedacca2fc009119b05f83230ab24e0e19de9e7bb8fba1b3b6d9",
+      "lib/src/bridge.dart": "17548f6f28778160a4dfe915696df64e1c3606d43a820bd40b7a81197b956786",
+      "lib/src/exports.dart": "a23dc279f17d45c0b587410cb8244389fa77c228f336a2a03a62f36815a7c626",
+      "lib/src/wasm.dart": "ee2afe6f6a445128cbef1f5da0910999de47bdf67111a941220d26975e5ba042",
+      "pubspec.yaml": "07e645dd3262a2f3f13f814aa14267ee2dab641b8865fb6c3868eb0145ccb0da"
+    },
+    "build_command": [
+      "dart",
+      "run",
+      "napi:build",
+      "benchmark/fixtures/bytes.dart",
+      "--name",
+      "@napi/benchmark-bytes",
+      "--out",
+      "<artifact-directory>"
+    ],
+    "measurement_command": [
+      "node",
+      "benchmark/bytes.mjs",
+      "<artifact-directory>/module.wasm"
+    ],
+    "compile_pack_install_counts": [
+      1,
+      1,
+      1
+    ],
+    "built_tar_installed_equal_assets": 5,
+    "archive": {
+      "sha256": "4ceab6f247263895fa9c825f59a454c9514fb811980b19b275ded1238bb251c6",
+      "bytes": 19094
+    },
+    "downloads": 0
+  }
+}

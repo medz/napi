@@ -475,3 +475,64 @@ output independence and null-prototype records, records asset and driver hashes,
 and writes every sample. Omit the last argument for a single-artifact
 Map/List/per-row baseline. Native export identity, invalid input, byte ownership
 and async error behavior are covered separately by runtime acceptance.
+
+## Byte List conversion costs
+
+[`benchmark/byte-list-baseline.json`](../benchmark/byte-list-baseline.json)
+retains 612 raw samples across 13 synchronous and four asynchronous cases.
+One four-function fixture provides both native byte and byte List echoes,
+including their Future equivalents. It was compiled, packed and installed once
+with Dart 3.13.5 using the generator at
+`ed649df55516af43af809c8c17f8098327d65c3a`; the report
+records fixture, generator, driver, artifact and archive hashes. There were no
+downloads. The installed package was measured on Node 22.19.0 /
+V8 12.4.254.21-node.29, Apple M3 Max arm64, Darwin 27.0.0.
+
+```sh
+dart run napi:build benchmark/fixtures/bytes.dart --name @napi/benchmark-bytes --out .dart_tool/benchmark-bytes
+node benchmark/bytes.mjs .dart_tool/benchmark-bytes/module.wasm > byte-list-results.json
+```
+
+The second command reuses the supplied artifact without rebuilding or packing.
+Defaults are 12 samples per route, at most 2,000 calls and 200 warmups. Counts
+scale by payload bytes and element count; the 16 MiB logical-work budget is a
+scaling target with a 30-call floor, not a hard memory limit. All six route-order
+permutations occur twice per case. Timed consumption reads the output length
+and first/last bytes of every element; full content and ownership assertions
+run outside timing. Preflight also checks Buffer, offset and cross-realm inputs,
+repeated references, invalid Array indices without invoking getters, and
+async snapshots after caller mutation and transfer.
+
+Selected medians in **microseconds per completed batch or loop**:
+
+| Mode / elements × bytes | Calls / sample | Wasm batch | Wasm per-element loop | JS batch | Wasm batch spread % |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Sync / 16 × 32 | 2,000 | 9.357 | 3.828 | 2.652 | 7.1 |
+| Sync / 256 × 0 | 1,024 | 129.142 | 49.039 | 30.823 | 5.4 |
+| Sync / 256 × 32 | 1,024 | 141.744 | 62.106 | 37.271 | 7.5 |
+| Sync / 1 × 65,536 | 128 | 3.653 | 2.955 | 2.704 | 64.8 |
+| Sync / 16 × 4,096 | 128 | 18.693 | 12.884 | 10.413 | 36.5 |
+| Sync / 256 × 256 | 128 | 178.916 | 99.400 | 95.645 | 12.5 |
+| Future / 16 × 1,024 | 512 | 14.564 | 15.045 | 7.059 | 17.6 |
+| Future / 256 × 1,024 | 32 | 203.210 | 244.544 | 107.896 | 14.7 |
+
+The synchronous batch is slower than the repeated native calls in these echoes.
+It validates the outer Array's own data indices and converts a Dart List; the
+loop uses `Array.map` and omits that outer-container validation. At a fixed
+65,536 payload bytes, more elements cost more work. The empty-byte cases show
+that conversion still has costs without payload copying, but do not isolate
+individual validation, allocation or boundary operations.
+
+All routes copy byte inputs and outputs into independent storage. The JS
+reference preserves those semantic ownership boundaries for the measured dense
+Arrays, rather than matching Dart's physical representations or the complete
+Proxy/error contract. Async batches return one Promise; repeated native Futures
+use `Promise.all`, and JS copies inputs before one await. Promise counts and
+scheduling differ. Some async batch medians are lower, but ranges overlap or
+vary widely; this run establishes no async speedup or application advantage.
+JIT, GC and system load are uncontrolled. No optimization or timing gate is
+introduced.
+
+The whole fixture has 36,180 Wasm bytes, 24,352 host bytes, 326 bytes per
+declaration and a 19,094-byte npm archive. These totals include four exports and
+Future support; they do not isolate the incremental size of byte List support.

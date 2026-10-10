@@ -256,6 +256,8 @@ make Proxy traps or concurrent shared-buffer writes an atomic transaction.
 Container and element nullability remain independent: `List<Uint8List?>?`
 accepts `readonly (Uint8Array | null)[] | null`; `undefined` is rejected.
 `Future<List<Uint8List>>` returns `Promise<Uint8Array[]>` with the same copy rules.
+See [byte List conversion costs](doc/performance.md#byte-list-conversion-costs)
+before assuming one batch call is faster than repeated byte calls.
 
 ## Data objects
 
