@@ -161,6 +161,27 @@ fixtures and three external-Wasm application bundles passed on the four
 consumers. Independent artifact and raw-log reviews passed before the
 [GitHub Release](https://github.com/medz/napi/releases/tag/v0.13.0) was announced.
 
+## 0.14.0 — planned: binary Lists and TypeScript usability
+
+- [#103: Prepare the complete upgrade milestone](https://github.com/medz/napi/issues/103).
+- [#97: Support batches of Uint8List](https://github.com/medz/napi/issues/97), with independent input/output byte ownership and precise sync/Future types.
+- [#93: Preserve function documentation](https://github.com/medz/napi/issues/93) and [#95: preserve public record typedef documentation](https://github.com/medz/napi/issues/95) in both TypeScript declaration files.
+- [#91: Generate valid wildcard parameter bindings](https://github.com/medz/napi/issues/91), preserving positional types and avoiding generated-name collisions.
+- [#89: Keep bridge language independent of the source package](https://github.com/medz/napi/issues/89), with an explicit Dart 3.13 declaration and unchanged business/package settings.
+- [#99: Measure byte List conversion costs](https://github.com/medz/napi/issues/99) and [#101: reduce measured List snapshot overhead](https://github.com/medz/napi/issues/101), retaining raw evidence and the approximately 3ns empty synchronous-call tradeoff.
+
+The accumulated work forms one usable upgrade for binary composition and typed
+API discovery. It adds no loader, dependency or platform claim. Acceptance keeps
+the native import API, SDK/runtime matrix, ownership and descriptor rules, with
+bounded conversion measurements and no application or general async-byte
+speedup claim. See the [milestone contract](requirements.md#0140-contract).
+
+Publication remains pending final release review and CI. After publishing the
+reviewed tag, build one frozen consumer from the publicly resolved package and
+reuse its packed artifact across the four Nodes before announcing the GitHub
+Release. Read prior exact-tree CI evidence instead of repeating completed
+benchmarks or the full fixture builds for public acceptance.
+
 ## Next — compiler compatibility and real applications
 
 - Validate new stable Dart SDK releases before expanding the tested compiler table; preserve clear diagnostics for unsupported helper layouts.

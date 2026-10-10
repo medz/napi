@@ -183,6 +183,57 @@ describe the published versions, including their former Map-record restriction.
   the four runtimes, and independently inspect actual logs and assets before the
   GitHub Release announcement. Preserve prior tags and unrelated work.
 
+## 0.14.0 contract
+
+[#103](https://github.com/medz/napi/issues/103) combines binary Lists, TypeScript
+API documentation and ordinary-package compatibility in one planned upgrade.
+Earlier contracts describe the former restrictions of their published versions.
+
+- Support one SDK `List<Uint8List>` layer, including supported transparent byte
+  leaf aliases, independent container/element nullability and Future completion
+  values. Generate readonly input Arrays, mutable results and precise Promise
+  types. Map byte values, nested collections and collection aliases remain excluded.
+- Snapshot Array membership and copy every non-null byte input before business
+  code or Promise return. Every output occurrence owns separate storage, including
+  repeated references. Preserve Buffer, offset/cross-realm/shared/resizable view
+  rules, index paths, error identity and recovery. Reject undefined, holes,
+  inherited/accessor indices and invalid byte views without calling getters;
+  reflection traps and concurrent shared writes are not an atomic transaction.
+- Emit JSDoc for annotated functions and reachable public record typedefs in
+  both declaration files. Use each outer alias's own comment, including imported,
+  re-exported and part declarations. Preserve Markdown and literal Dartdoc
+  references/directives; escape terminators, omit empty/unused comments and do
+  not add runtime schema or separate leaf-alias bindings.
+- Give Dart `_` parameters unique TypeScript bindings without colliding with
+  existing parameter names or reserved-word fallbacks. Retain resolved positional
+  types and native input validation. Explicitly declare Dart 3.13 for generated
+  bridge helpers independently of the source package's default language version;
+  preserve business source, pubspec and package configuration.
+- Reduce measured host List snapshot construction costs while retaining ordered
+  own descriptor reads and independent own data slots. Preserve inherited-setter,
+  iterator, species, Proxy/error and helper-isolation behavior. Keep raw before/
+  after samples, hashes and run orders, including the approximately 3ns empty
+  synchronous-call tradeoff; claim no general async-byte, startup or application
+  speedup. See the [recorded comparison](performance.md#host-list-snapshots).
+- Preserve one native Wasm import API, zero generated runtime dependencies,
+  SDK `^3.13.5` and the four tested Node runtimes. Require the final release tree's
+  format/analyze/tests, eight runtime fixtures, strict NodeNext/Bundler types and
+  three esbuild external-Wasm applications; reuse each artifact across the matrix.
+- Concentrate pub/generator version 0.14.0, cumulative changelog and upgrade
+  instructions in the release-preparation PR. Require independent final-SHA
+  review of source/generated/packed assets, full CI, zero-warning pub dry-run and
+  exact-SHA merge before publishing the reviewed tag. Read completed exact-tree
+  CI evidence without repeating baselines or downloading the same artifacts again.
+- Separately resolve the public `napi: ^0.14.0` package from an empty cache and
+  verify official archive/cache/tag source equivalence. Compile the frozen new
+  consumer once from that resolved package, pack/install once and reuse it on
+  all four Nodes. Verify native package/subpath/relative imports, strict types,
+  byte snapshots/copies/errors, both declaration comments and ordinary language/
+  wildcard cases. Reuse no prepublication artifact as public-package proof;
+  broaden builds only for a concrete unresolved failure. Independently inspect
+  actual assets/logs before announcing the GitHub Release. Preserve prior tags
+  and unrelated work; quota recovery is not a publication trigger.
+
 ## Iteration priorities
 
 After publishing the first complete workflow, prioritize Future-to-Promise support, useful typed data structures, clear diagnostics, compiler/runtime compatibility, reproducible performance and size measurements, and real applications. Define consumer syntax, type and ownership rules, and acceptance cases before implementing each addition.

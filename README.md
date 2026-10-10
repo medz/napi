@@ -105,43 +105,51 @@ node example/checksum/main.mjs example/checksum/sample.txt
 
 The example reuses byte records and makes no speedup claim over Node's built-ins.
 
-## Upgrading to 0.13.0
+## Upgrading to 0.14.0
 
-Use `napi: ^0.13.0` in your Dart dependencies and rebuild generated packages
-with the existing build command; the `^0.12.0` range excludes this release.
-SDK and tested runtime requirements are unchanged; the generated npm package's
-version is still set by `--version`.
+This milestone adds binary Lists, TypeScript API documentation and build fixes
+for ordinary Dart packages. After publication, use `napi: ^0.14.0` and rebuild
+with the existing command; `^0.13.0` excludes this version. Dart `^3.13.5` and
+the [tested Node runtimes](doc/platforms.md) are unchanged. The generated npm
+package's version remains controlled by `--version`.
 
-Flat data objects can now be indexed by key in one native Wasm call:
+Process independently supplied byte chunks in one native call:
 
 ```dart
-typedef User = ({int id, String name});
+import 'dart:typed_data';
+import 'package:napi/napi.dart';
 
+/// Join independently supplied binary chunks in order.
 @napi
-Map<String, User> normalizeById(Map<String, User> users) => {
-  for (final entry in users.entries)
-    entry.key: (id: entry.value.id, name: entry.value.name.trim()),
-};
+Uint8List joinChunks(List<Uint8List> chunks) {
+  final bytes = BytesBuilder(copy: false);
+  for (final chunk in chunks) {
+    bytes.add(chunk);
+  }
+  return bytes.takeBytes();
+}
 ```
 
 ```ts
-import { normalizeById } from './dist/module.wasm';
-import type { User } from './dist/module.wasm';
+import { joinChunks } from './dist/module.wasm';
 
-const users: Record<string, User> = normalizeById({
-  ada: { id: 7, name: ' Ada ' },
-});
-console.log(users.ada.name); // Ada
+const chunks = [new Uint8Array([1, 2]), new Uint8Array([3])] as const;
+const bytes: Uint8Array = joinChunks(chunks); // [1, 2, 3]
 ```
 
-The request-summary application also supports operation lookup through
-`summarizeByOperation`. Dictionaries preserve nullable values, byte fields,
-call-time snapshots and independent output ownership. Record snapshots and the
-checksum example include [measured conversion improvements](doc/performance.md);
-these measurements do not promise application speedups. Existing exports and
-error categories retain their contracts. See the
-[milestone contract](doc/requirements.md#0130-contract) and
-[tested platforms](doc/platforms.md).
+The boundary copies every input chunk before Dart runs and independently copies
+the result. `copy: false` avoids another copy while the builder holds those
+Dart-owned inputs; it does not expose caller storage. Nullable byte Lists and
+Future results follow the same [copy rules](#lists-and-maps).
+
+Function and public record typedef comments now appear in both declaration
+files. Wildcard parameters receive distinct TypeScript names, and generated
+bridges explicitly use Dart 3.13 even in packages with an older default language
+version; business sources and package configuration retain their own settings.
+The [List snapshot measurements](doc/performance.md#host-list-snapshots) include
+an approximately 3ns empty synchronous-call tradeoff and imply no application
+or general async-byte speedup. See the
+[milestone contract](doc/requirements.md#0140-contract).
 
 ## Async functions
 
