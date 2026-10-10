@@ -409,7 +409,7 @@ uses Node CRC32 as a correctness reference, and emits raw samples and hashes.
 
 [`benchmark/record-snapshot-baseline.json`](../benchmark/record-snapshot-baseline.json)
 retains two fresh-process, same-process A/B rounds on Node 26.11.1
-(V8 14.6.202.34-node.37), Apple M3 Max, arm64, macOS 27.0.0. Both use the
+(V8 14.6.202.34-node.37), Apple M3 Max, arm64, Darwin 27.0.0. Both use the
 Dart 3.13.5 CI fixtures from `e06a091529ea3c1e271e5ed5fec9377198d0f637`.
 Only the generated `snapshotRecord` host body changes; the Wasm, both
 declarations and package manifests are byte-identical. No Dart compilation or
