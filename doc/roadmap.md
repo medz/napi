@@ -153,7 +153,7 @@ sync/Future snapshots, byte ownership, keyed request summaries, complete checksu
 consumers and three external-Wasm bundles. See the
 [milestone contract](requirements.md#0130-contract).
 
-The public baseline is [0.13.0](https://pub.dev/packages/napi/versions/0.13.0).
+The 0.13.0 release is [available on pub.dev](https://pub.dev/packages/napi/versions/0.13.0).
 A fresh consumer resolved ordinary `napi: ^0.13.0` from an empty cache; official
 archive, installed package and release-tag sources matched. All eight packed
 fixtures and three external-Wasm application bundles passed on the four
@@ -161,7 +161,7 @@ fixtures and three external-Wasm application bundles passed on the four
 consumers. Independent artifact and raw-log reviews passed before the
 [GitHub Release](https://github.com/medz/napi/releases/tag/v0.13.0) was announced.
 
-## 0.14.0 — planned: binary Lists and TypeScript usability
+## 0.14.0 — released: binary Lists and TypeScript usability
 
 - [#103: Prepare the complete upgrade milestone](https://github.com/medz/napi/issues/103).
 - [#97: Support batches of Uint8List](https://github.com/medz/napi/issues/97), with independent input/output byte ownership and precise sync/Future types.
@@ -176,11 +176,21 @@ the native import API, SDK/runtime matrix, ownership and descriptor rules, with
 bounded conversion measurements and no application or general async-byte
 speedup claim. See the [milestone contract](requirements.md#0140-contract).
 
-Publication remains pending final release review and CI. After publishing the
-reviewed tag, build one frozen consumer from the publicly resolved package and
-reuse its packed artifact across the four Nodes before announcing the GitHub
-Release. Read prior exact-tree CI evidence instead of repeating completed
-benchmarks or the full fixture builds for public acceptance.
+The public baseline is [0.14.0](https://pub.dev/packages/napi/versions/0.14.0).
+The independently reviewed release tree passed full CI with all eight runtime
+fixtures, strict TypeScript consumers and three external-Wasm applications on
+the four [tested Node runtimes](platforms.md).
+
+A separate frozen consumer resolved ordinary `napi: ^0.14.0` from an empty cache.
+All 113 official archive files matched the installed cache and reviewed release
+tag. It compiled, packed and installed once; the same artifact passed native
+package/subpath/relative imports and byte ownership/errors on the four Nodes.
+Strict NodeNext/Bundler types, wildcard/language cases and 18 documentation
+queries also passed.
+Independent source, artifact and raw-log review passed before the
+[GitHub Release](https://github.com/medz/napi/releases/tag/v0.14.0) was announced.
+Public acceptance reused no prepublication artifact and added no benchmark or
+old-fixture rebuild.
 
 ## Next — compiler compatibility and real applications
 

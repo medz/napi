@@ -186,7 +186,7 @@ describe the published versions, including their former Map-record restriction.
 ## 0.14.0 contract
 
 [#103](https://github.com/medz/napi/issues/103) combines binary Lists, TypeScript
-API documentation and ordinary-package compatibility in one planned upgrade.
+API documentation and ordinary-package compatibility in one upgrade.
 Earlier contracts describe the former restrictions of their published versions.
 
 - Support one SDK `List<Uint8List>` layer, including supported transparent byte
