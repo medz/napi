@@ -23,6 +23,11 @@ String generateTypescript(List<Export> exports) {
     ..sort((a, b) => a.recordAlias!.name.compareTo(b.recordAlias!.name));
   for (final type in aliasTypes) {
     final alias = type.recordAlias!;
+    final documentation = alias.documentationComment;
+    if (documentation != null) {
+      final comment = _documentation(documentation);
+      if (comment.isNotEmpty) declarations.add(comment);
+    }
     declarations.add(
       'export type ${alias.name} = ${_record(type)}${alias.nullable ? ' | null' : ''};',
     );

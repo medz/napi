@@ -109,7 +109,9 @@ void main() {
     ], workingDirectory: consumer.path);
     expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
     final report = jsonDecode((result.stdout as String).trim()) as Map;
-    expect(report['documentationChecks'], 6);
+    expect(report['documentationChecks'], 18);
+    expect(report['functionDocumentationChecks'], 6);
+    expect(report['aliasDocumentationChecks'], 12);
     print('documentation: ${result.stdout}');
   }, skip: skipTypescript);
   for (final resolution in ['NodeNext', 'Bundler']) {
