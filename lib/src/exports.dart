@@ -60,6 +60,7 @@ final class Export {
     required this.parameters,
     required this.returnType,
     this.isAsync = false,
+    this.documentationComment,
   });
 
   final String name;
@@ -68,6 +69,7 @@ final class Export {
   /// The completion value type when [isAsync] is true.
   final ValueType returnType;
   final bool isAsync;
+  final String? documentationComment;
 }
 
 final class ExportError implements Exception {
@@ -392,6 +394,7 @@ class _ExportVisitor extends RecursiveAstVisitor<void> {
           annotation: returnAnnotation,
         ),
         isAsync: isAsync,
+        documentationComment: element.documentationComment,
       ),
     );
   }

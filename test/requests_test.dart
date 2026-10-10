@@ -102,6 +102,16 @@ void main() {
   final skipTypescript = tsc == null
       ? 'Set NAPI_TSC to TypeScript bin/tsc. CI requires this check.'
       : false;
+  test('TypeScript imports retain the request API documentation', () async {
+    final result = await Process.run(node, [
+      p.join(root.path, 'test/js/documentation.mjs'),
+      tsc!,
+    ], workingDirectory: consumer.path);
+    expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
+    final report = jsonDecode((result.stdout as String).trim()) as Map;
+    expect(report['documentationChecks'], 6);
+    print('documentation: ${result.stdout}');
+  }, skip: skipTypescript);
   for (final resolution in ['NodeNext', 'Bundler']) {
     Future<ProcessResult> typecheck(String file, {bool arbitrary = false}) =>
         Process.run(node, [
