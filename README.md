@@ -71,9 +71,11 @@ add(20, 22);
 
 Both package entries point to `module.wasm`. The generated package has no npm runtime dependencies. Keep `module.imports.mjs` beside the Wasm file: the Wasm module imports these compiler and value-conversion helpers automatically.
 
-Function documentation written with Dart `///` or `/** ... */` comments is
-included as JSDoc in both generated declaration files. JavaScript and TypeScript
-tools can read the same API description through package or relative Wasm imports.
+Function and exported public record typedef documentation written with Dart
+`///` or `/** ... */` comments is included as JSDoc in both generated declaration
+files. JavaScript and TypeScript tools can read the same API description through
+package or relative Wasm imports. Typedefs retain their own outer alias comment,
+without inheriting documentation from an underlying alias.
 Markdown text and examples are preserved; Dartdoc references and directives are
 copied as text, without expansion. Comment terminators are escaped for TypeScript.
 

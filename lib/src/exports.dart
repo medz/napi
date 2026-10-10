@@ -29,7 +29,12 @@ enum ValueKind {
 }
 
 typedef RecordField = ({String name, ValueType type});
-typedef RecordAlias = ({String name, String libraryUri, bool nullable});
+typedef RecordAlias = ({
+  String name,
+  String libraryUri,
+  bool nullable,
+  String? documentationComment,
+});
 
 final class ValueType {
   const ValueType(
@@ -553,6 +558,7 @@ class _ExportVisitor extends RecursiveAstVisitor<void> {
         libraryUri: element.library.uri.toString(),
         nullable:
             element.aliasedType.nullabilitySuffix == NullabilitySuffix.question,
+        documentationComment: element.documentationComment,
       );
       final previous = recordAliases[name];
       if (previous != null && previous.libraryUri != alias.libraryUri) {

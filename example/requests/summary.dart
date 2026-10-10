@@ -1,6 +1,11 @@
 import 'package:napi/napi.dart';
 
+/// One request observation with duration measured in microseconds.
+/// durationUs must be a nonnegative JavaScript safe integer.
 typedef Observation = ({String operation, int durationUs, bool success});
+
+/// Counts and total microsecond duration for one exact operation name.
+/// totalDurationUs remains within the JavaScript safe integer range.
 typedef Summary = ({
   String operation,
   int calls,

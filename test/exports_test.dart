@@ -2651,6 +2651,172 @@ int inspect(int delete, int arg0, int typeof, int arg1) => delete + arg0 + typeo
   );
 
   test(
+    'record alias documentation preserves public outer aliases and provenance',
+    () async {
+      final library = await relatedLibrary({
+        'models.dart': '''
+/// Base documentation must not be inherited.
+typedef Base = ({int count});
+/// First counts use a nonnegative JavaScript safe integer.
+typedef First = Base;
+/** Second counts may be absent. */
+typedef Second = Base?;
+typedef Outer = Base;
+/// Unused documentation must not be exported.
+typedef Unused = ({String label});
+/// Leaf aliases keep their existing expansion.
+typedef Count = int;
+''',
+        'reexport.dart': "export 'models.dart';\n",
+        'api.dart': '''
+import 'package:napi/napi.dart';
+import 'models.dart' as models;
+import 'reexport.dart' as exposed;
+@napi
+List<models.First> first(List<exposed.First> values) => values;
+@napi
+Map<String, exposed.First?>? keyed(Map<String, models.First?>? values) => values;
+@napi
+Future<List<exposed.Second>?> later(List<models.Second>? values) async => values;
+@napi
+models.Outer outer(exposed.Outer value) => value;
+@napi
+models.Count count(models.Count value) => value;
+''',
+      });
+      final exports = await readExports(library.path);
+      final first = exports.first.returnType.elementType!.recordAlias!;
+      final second = exports[2].returnType.elementType!.recordAlias!;
+      final outer = exports[3].returnType.recordAlias!;
+      expect(
+        first.documentationComment,
+        '/// First counts use a nonnegative JavaScript safe integer.',
+      );
+      expect(
+        second.documentationComment,
+        '/** Second counts may be absent. */',
+      );
+      expect(outer.documentationComment, isNull);
+      expect(first.libraryUri, library.uri.resolve('models.dart').toString());
+      expect(
+        exports.first.parameters.single.type.elementType!.recordAlias,
+        first,
+      );
+      expect(exports[1].returnType.elementType!.recordAlias, first);
+      expect(generateTypescript(exports), '''
+/**
+ * First counts use a nonnegative JavaScript safe integer.
+ */
+export type First = { "count": number };
+export type Outer = { "count": number };
+/**
+ * Second counts may be absent.
+ */
+export type Second = { "count": number } | null;
+export declare function first(values: readonly First[]): First[];
+export declare function keyed(values: Record<string, First | null> | null): Record<string, First | null> | null;
+export declare function later(values: readonly Second[] | null): Promise<Array<Second> | null>;
+export declare function outer(value: Outer): Outer;
+export declare function count(value: number): number;
+''');
+    },
+  );
+
+  test(
+    'record alias documentation normalizes comments and omits empty bodies',
+    () async {
+      final exports = await analyze('''
+import 'package:napi/napi.dart';
+/// A line-comment model.
+///
+///     const item = { count: 1 };
+/// Literal */ export type Injected = number; remains documentation.
+typedef Line = ({int count});
+/**
+ * A block-comment model.
+ *
+ *     const item = { count: 2 };
+ */
+typedef Block = ({int count});
+///
+typedef EmptyLine = ({int count});
+/** */
+typedef Spaced = ({int count});
+/**/
+typedef Compact = ({int count});
+@napi
+Block swap(Line value) => value;
+@napi
+EmptyLine empty(EmptyLine value) => value;
+@napi
+Spaced spaced(Spaced value) => value;
+@napi
+Compact compact(Compact value) => value;
+''');
+      expect(
+        exports
+            .skip(1)
+            .map(
+              (export) => export.returnType.recordAlias!.documentationComment,
+            ),
+        ['///', '/** */', '/**/'],
+      );
+      expect(generateTypescript(exports), r'''
+/**
+ * A block-comment model.
+ *
+ *     const item = { count: 2 };
+ */
+export type Block = { "count": number };
+export type Compact = { "count": number };
+export type EmptyLine = { "count": number };
+/**
+ * A line-comment model.
+ *
+ *     const item = { count: 1 };
+ * Literal *\/ export type Injected = number; remains documentation.
+ */
+export type Line = { "count": number };
+export type Spaced = { "count": number };
+export declare function swap(value: Line): Block;
+export declare function empty(value: EmptyLine): EmptyLine;
+export declare function spaced(value: Spaced): Spaced;
+export declare function compact(value: Compact): Compact;
+''');
+    },
+  );
+
+  test('record alias documentation follows library part typedefs', () async {
+    final library = await relatedLibrary({
+      'api.dart': '''
+import 'package:napi/napi.dart';
+part 'models.dart';
+@napi
+Future<List<PartModel>> later(List<PartModel> values) async => values;
+''',
+      'models.dart': '''
+part of 'api.dart';
+/// Counts declared in the library part.
+typedef PartModel = ({int count});
+''',
+    });
+    final exports = await readExports(library.path);
+    final alias = exports.single.returnType.elementType!.recordAlias!;
+    expect(alias.libraryUri, library.uri.toString());
+    expect(
+      alias.documentationComment,
+      '/// Counts declared in the library part.',
+    );
+    expect(generateTypescript(exports), '''
+/**
+ * Counts declared in the library part.
+ */
+export type PartModel = { "count": number };
+export declare function later(values: readonly PartModel[]): Promise<PartModel[]>;
+''');
+  });
+
+  test(
     'function documentation preserves paragraphs, code and literal closers',
     () async {
       final exports = await analyze('''

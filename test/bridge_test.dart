@@ -20,6 +20,7 @@ void main() {
           name: 'User',
           libraryUri: 'package:users/a.dart',
           nullable: false,
+          documentationComment: '/// User model.',
         ),
       );
       const nullable = ValueType(
@@ -30,6 +31,7 @@ void main() {
           name: 'Account',
           libraryUri: 'package:users/b.dart',
           nullable: true,
+          documentationComment: '/// Nullable account model.',
         ),
       );
       final source = generateBridge([
@@ -290,6 +292,7 @@ void main() {
         name: 'User',
         libraryUri: 'package:users/a.dart',
         nullable: false,
+        documentationComment: null,
       ),
     );
     const maybe = ValueType(
@@ -300,6 +303,7 @@ void main() {
         name: 'MaybeUser',
         libraryUri: 'package:users/b.dart',
         nullable: true,
+        documentationComment: '/// Nullable user model.',
       ),
     );
     const users = ValueType(ValueKind.listType, elementType: user);
