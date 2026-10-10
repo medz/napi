@@ -45,11 +45,52 @@ String generateTypescript(List<Export> exports) {
     }
     final valueType = _type(export.returnType);
     final returnType = export.isAsync ? 'Promise<$valueType>' : valueType;
+    final documentation = export.documentationComment;
+    if (documentation != null) {
+      final comment = _documentation(documentation);
+      if (comment.isNotEmpty) declarations.add(comment);
+    }
     declarations.add(
       'export declare function ${export.name}(${parameters.join(', ')}): $returnType;',
     );
   }
   return '${declarations.join('\n')}\n';
+}
+
+String _documentation(String comment) {
+  if (comment == '/**/') return '';
+  final lineComment = comment.startsWith('///');
+  final body = lineComment ? comment : comment.substring(3, comment.length - 2);
+  final prefix = RegExp(lineComment ? r'^[ \t]*/// ?' : r'^[ \t]*\* ?');
+  final lines = const LineSplitter().convert(body).map((line) {
+    return line.replaceFirst(prefix, '');
+  }).toList();
+  if (!lineComment && lines.isNotEmpty) lines[0] = lines.first.trimLeft();
+  while (lines.isNotEmpty && lines.first.trim().isEmpty) {
+    lines.removeAt(0);
+  }
+  while (lines.isNotEmpty && lines.last.trim().isEmpty) {
+    lines.removeLast();
+  }
+  if (lines.isEmpty) return '';
+  if (!lineComment) {
+    final indent = lines
+        .where((line) => line.trim().isNotEmpty)
+        .map((line) => RegExp(r'^[ \t]*').firstMatch(line)![0]!.length)
+        .reduce((a, b) => a < b ? a : b);
+    for (var index = 0; index < lines.length; index++) {
+      lines[index] = lines[index].length < indent
+          ? ''
+          : lines[index].substring(indent);
+    }
+    lines[lines.length - 1] = lines.last.trimRight();
+  }
+  return [
+    '/**',
+    for (final line in lines)
+      line.isEmpty ? ' *' : ' * ${line.replaceAll('*/', r'*\/')}',
+    ' */',
+  ].join('\n');
 }
 
 String _parameterType(ValueType type) {

@@ -96,6 +96,7 @@ void main() {
       expect(declarations, contains('export type FileInput'));
       expect(declarations, contains('export type FileChecksum'));
       expect(declarations, contains('export declare function checksum'));
+      expect(declarations, contains(' * Computes reflected CRC-32'));
       expect(
         await File(p.join(output.path, 'module.d.wasm.ts')).readAsString(),
         declarations,

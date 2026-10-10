@@ -2651,6 +2651,149 @@ int inspect(int delete, int arg0, int typeof, int arg1) => delete + arg0 + typeo
   );
 
   test(
+    'function documentation preserves paragraphs, code and literal closers',
+    () async {
+      final exports = await analyze('''
+import 'package:napi/napi.dart';
+/// Adds [left] and [right].
+///
+///     add(1, 2); // 3
+///
+/// Literal */ remains documentation.
+@napi
+int add(int left, int right) => left + right;
+/// Helper documentation must stay private.
+int helper(int value) => value;
+// Ordinary comments must not become documentation.
+/* Nor ordinary block comments. */
+@napi
+Future<int> plain(int value) async => helper(value);
+''');
+      expect(exports.map((export) => export.name), ['add', 'plain']);
+      expect(exports.first.documentationComment, '''
+/// Adds [left] and [right].
+///
+///     add(1, 2); // 3
+///
+/// Literal */ remains documentation.''');
+      expect(exports.last.documentationComment, isNull);
+      expect(generateTypescript(exports), r'''
+/**
+ * Adds [left] and [right].
+ *
+ *     add(1, 2); // 3
+ *
+ * Literal *\/ remains documentation.
+ */
+export declare function add(left: number, right: number): number;
+export declare function plain(value: number): Promise<number>;
+''');
+    },
+  );
+
+  test(
+    'function documentation accepts single and multiline block comments',
+    () async {
+      final exports = await analyze('''
+import 'package:napi/napi.dart';
+/** Returns the value unchanged. */
+@napi
+bool same(bool value) => value;
+/**
+ * Returns [value] later.
+ *
+ *     await later('text');
+ */
+@napi
+Future<String?> later(String? value) async => value;
+/**
+  Returns a sorted list.
+
+      order([2, 1]);
+*/
+@napi
+List<int> order(List<int> values) => [...values]..sort();
+''');
+      expect(
+        exports.every((export) => export.documentationComment != null),
+        isTrue,
+      );
+      expect(generateTypescript(exports), '''
+/**
+ * Returns the value unchanged.
+ */
+export declare function same(value: boolean): boolean;
+/**
+ * Returns [value] later.
+ *
+ *     await later('text');
+ */
+export declare function later(value: string | null): Promise<string | null>;
+/**
+ * Returns a sorted list.
+ *
+ *     order([2, 1]);
+ */
+export declare function order(values: readonly number[]): number[];
+''');
+    },
+  );
+
+  test('empty documentation produces only the function declaration', () async {
+    final exports = await analyze('''
+import 'package:napi/napi.dart';
+///
+@napi
+int line() => 1;
+/** */
+@napi
+int spaced() => 1;
+/**/
+@napi
+int compact() => 1;
+''');
+    expect(exports.map((export) => export.documentationComment), [
+      '///',
+      '/** */',
+      '/**/',
+    ]);
+    expect(generateTypescript(exports), '''
+export declare function line(): number;
+export declare function spaced(): number;
+export declare function compact(): number;
+''');
+  });
+
+  test(
+    'function documentation follows annotated library part functions',
+    () async {
+      final library = await relatedLibrary({
+        'api.dart': '''
+import 'package:napi/napi.dart';
+part 'functions.dart';
+''',
+        'functions.dart': '''
+part of 'api.dart';
+/// Returns the part's answer.
+@napi
+Future<int> answer() async => 42;
+''',
+      });
+      final exports = await readExports(library.path);
+      expect(
+        exports.single.documentationComment,
+        "/// Returns the part's answer.",
+      );
+      expect(generateTypescript(exports), '''
+/**
+ * Returns the part's answer.
+ */
+export declare function answer(): Promise<number>;
+''');
+    },
+  );
+
+  test(
     'wildcard parameters retain their types with unique TS bindings',
     () async {
       final exports = await analyze('''
