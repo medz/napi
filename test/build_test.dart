@@ -182,6 +182,104 @@ void main() {
     },
   );
 
+  test(
+    'builds in an existing package with an older language version',
+    () async {
+      final pubspec = File(p.join(work.path, 'pubspec.yaml'));
+      final originalPubspec =
+          '''
+name: napi_existing_package_fixture
+environment:
+  sdk: '>=2.17.0 <4.0.0'
+dependencies:
+  napi:
+    path: ${jsonEncode(root)}
+''';
+      await pubspec.writeAsString(originalPubspec);
+      final source = File(p.join(work.path, 'lib', 'math.dart'));
+      await source.parent.create(recursive: true);
+      const originalSource = '''
+import 'package:napi/napi.dart';
+
+@napi
+int add(int a, int b) => a + b;
+
+@napi
+List<int> increment(List<int> values) {
+  for (var index = 0; index < values.length; index++) {
+    values[index]++;
+  }
+  return values;
+}
+''';
+      await source.writeAsString(originalSource);
+      final resolved = await Process.run(Platform.resolvedExecutable, [
+        'pub',
+        'get',
+        '--offline',
+      ], workingDirectory: work.path);
+      expect(
+        resolved.exitCode,
+        0,
+        reason: '${resolved.stdout}${resolved.stderr}',
+      );
+      final configuration = File(
+        p.join(work.path, '.dart_tool', 'package_config.json'),
+      );
+      final originalConfiguration = await configuration.readAsString();
+      final packages =
+          (jsonDecode(originalConfiguration)
+                  as Map<String, dynamic>)['packages']
+              as List<dynamic>;
+      expect(
+        packages.singleWhere(
+          (dynamic package) =>
+              package['name'] == 'napi_existing_package_fixture',
+        )['languageVersion'],
+        '2.17',
+      );
+      final output = p.join(work.path, 'dist');
+      final result = await build([
+        source.path,
+        '--name',
+        '@example/existing-package',
+        '--out',
+        output,
+      ]);
+      expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
+      expect(await pubspec.readAsString(), originalPubspec);
+      expect(await source.readAsString(), originalSource);
+      expect(await configuration.readAsString(), originalConfiguration);
+      final imported = await Process.run('node', [
+        '--input-type=module',
+        '-e',
+        '''
+import assert from 'node:assert/strict';
+import { add, increment } from ${jsonEncode(File(p.join(output, 'module.wasm')).uri.toString())};
+assert.equal(add(1, 2), 3);
+assert.throws(() => add(1.5, 2), TypeError);
+const input = [1, 2, 3];
+const result = increment(input);
+assert.deepEqual(result, [2, 3, 4]);
+assert.deepEqual(input, [1, 2, 3]);
+assert.notStrictEqual(result, input);
+result[0] = 99;
+assert.deepEqual(input, [1, 2, 3]);
+console.log('existing package imports passed');
+''',
+      ]);
+      expect(
+        imported.exitCode,
+        0,
+        reason: '${imported.stdout}${imported.stderr}',
+      );
+      expect(
+        (imported.stdout as String).trim(),
+        'existing package imports passed',
+      );
+    },
+  );
+
   test('builds a workspace member using the shared package configuration', () async {
     final member = Directory(p.join(work.path, 'packages', 'api'));
     await Directory(p.join(member.path, 'lib')).create(recursive: true);
