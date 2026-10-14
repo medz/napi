@@ -1,0 +1,12 @@
+// Generated specialized facade; ready when ESM import resolves.
+import { initialize } from './bootstrap.mjs';
+import { unwrap } from './errors.mjs';
+const api = await initialize();
+function __napiCall0(a0, a1) {
+  if (typeof a0 !== "number") throw new TypeError("add.left must be a number");
+  if (!Number.isSafeInteger(a0)) throw new RangeError("add.left must be a safe integer");
+  if (typeof a1 !== "number") throw new TypeError("add.right must be a number");
+  if (!Number.isSafeInteger(a1)) throw new RangeError("add.right must be a safe integer");
+  return unwrap(api.c0(a0, a1));
+}
+export { __napiCall0 as add };

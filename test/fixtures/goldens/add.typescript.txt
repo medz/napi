@@ -1,0 +1,2 @@
+// Generated from the same lowered contracts as the runtime wrappers.
+export declare function add(a0: number, a1: number): number;

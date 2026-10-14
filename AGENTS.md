@@ -1,16 +1,26 @@
 # Development
 
-Keep this package small: one annotation, one build command, one export model.
-Business logic must execute in Dart Wasm with real named Wasm exports.
-Consumers import functions directly from .wasm or an npm entry pointing to it.
-Do not replace that API with manual initialization or a JavaScript entrypoint.
-Do not add a native addon backend, build_runner, or a plugin framework.
+This branch replaces the experimental direct-Wasm binding implementation with
+one Dart package and a staged binding compiler. Business logic executes in Dart
+Wasm. Generate Node/Bun ESM facades and TypeScript declarations; a successful
+import means the API is ready. Use public Dart interop and the untouched SDK
+loader. No native addon, browser distribution, build_runner or plugin framework.
 
-Run format, analyze, tests (including Node and TypeScript), and pub dry-run for
-code, tests, tools, dependency or CI changes. Ordinary non-executable Markdown
-changes limited to AGENTS.md, README.md, CHANGELOG.md and doc/**/*.md use
-git diff --check in CI. Mixed or unknown paths and uncertain history use full CI.
-Document tested compiler/runtime versions; the Dart Wasm interop is experimental.
+Read doc/architecture.md for stage boundaries and adapter contracts. Only the
+frontend imports analyzer. IR, lowering plans and emitted source are distinct.
+Runtime never imports compiler/build modules. Unimplemented capabilities fail
+explicitly; do not create no-op engines or pretend fixtures are complete features.
+The current runnable scope is the explicitly selected scalar function fixture.
+Annotation discovery, full conversion engines and production packaging are later
+issues. Do not restore the legacy implementation or a compatibility layer.
+
+Run format, analyze, unit tests, the Node/Bun/TypeScript fixture runner, CI-scope
+tests and pub dry-run for code, tests, tools, dependencies or CI changes. See
+README.md for commands. Ordinary non-executable Markdown changes limited to
+AGENTS.md, README.md, CHANGELOG.md and doc/**/*.md use git diff --check in CI.
+Mixed or uncertain changes use full CI. Record exact tested versions; Dart Wasm
+interop is experimental. Historical released-version contracts are preserved in
+CHANGELOG.md, doc/history/0.14.0 and benchmark/history, not current guarantees.
 
 # Code review
 

@@ -8,8 +8,6 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-24.04
-    outputs:
-      docs_only: ${{ steps.scope.outputs.docs_only }}
     env:
       CI_EVENT_NAME: ${{ github.event_name }}
       CI_BASE_SHA: ${{ (github.event_name == 'pull_request' && github.event.pull_request.base.sha) || (github.event_name == 'push' && github.event.before) || '' }}
@@ -36,128 +34,29 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         if: steps.scope.outputs.docs_only != 'true'
         with:
-          node-version: 22.19.0
+          node-version: 24.19.0
           package-manager-cache: false
       - run: dart pub get
         if: steps.scope.outputs.docs_only != 'true'
-      - run: dart format --output=none --set-exit-if-changed bin lib test example benchmark tool
+      - run: dart format --output=none --set-exit-if-changed lib test tool
         if: steps.scope.outputs.docs_only != 'true'
       - run: dart analyze --fatal-infos
         if: steps.scope.outputs.docs_only != 'true'
-      - run: npm install --prefix .dart_tool/js --no-save --no-package-lock --ignore-scripts --no-audit --no-fund typescript@7.0.2 esbuild@0.28.2
-        if: steps.scope.outputs.docs_only != 'true'
-      - name: Build and install runtime fixtures once
-        if: steps.scope.outputs.docs_only != 'true'
-        run: |
-          node -p 'JSON.stringify({node: process.version, v8: process.versions.v8})'
-          dart run tool/runtime_fixtures.dart
       - run: dart test
         if: steps.scope.outputs.docs_only != 'true'
-        env:
-          NAPI_RUNTIME_FIXTURES: ${{ github.workspace }}/.dart_tool/runtime-fixtures
-          NAPI_TSC: ${{ github.workspace }}/.dart_tool/js/node_modules/typescript/bin/tsc
-      - name: Bundle applications with external Wasm
+      - name: Install pinned fixture tools
         if: steps.scope.outputs.docs_only != 'true'
+        run: npm install --prefix .dart_tool/js --no-save --no-package-lock --ignore-scripts --no-audit --no-fund typescript@7.0.2 @oven/bun-linux-x64@1.4.3
+      - name: Verify packed Wasm ESM fixture in Node, Bun and TypeScript
+        if: steps.scope.outputs.docs_only != 'true'
+        env:
+          NAPI_BUN: ${{ github.workspace }}/.dart_tool/js/node_modules/@oven/bun-linux-x64/bin/bun
+          NAPI_TSC: ${{ github.workspace }}/.dart_tool/js/node_modules/.bin/tsc
         run: |
-          cp test/js/bundler-consumer.ts .dart_tool/runtime-fixtures/collections/
-          for fixture in collections batch record-maps; do
-            source_file=bundler-consumer.ts
-            if [ "$fixture" != collections ]; then source_file="$fixture-bundler-consumer.ts"; fi
-            fixture_path=".dart_tool/runtime-fixtures/$fixture"
-            node .dart_tool/js/node_modules/esbuild/bin/esbuild "$fixture_path/$source_file" --bundle --platform=node --format=esm --target=node22 "--external:@napi/$fixture" '--external:*.wasm' --outfile="$fixture_path/bundler-consumer.mjs" --metafile="$fixture_path/bundler-meta.json"
-            node --input-type=module -e '
-              import assert from "node:assert/strict";
-              import { readFileSync } from "node:fs";
-              const meta = JSON.parse(readFileSync(process.argv[1], "utf8"));
-              const packageName = process.argv[2];
-              assert.equal(Object.keys(meta.inputs).length, 1);
-              assert(Object.keys(meta.inputs)[0].endsWith(process.argv[3]));
-              const imports = Object.values(meta.outputs).flatMap(output => output.imports);
-              const userImports = imports.filter(entry => !entry.path.startsWith("node:"));
-              assert.deepEqual(userImports.map(entry => entry.path).sort(), ["./dist/module.wasm", packageName, packageName + "/module.wasm"].sort());
-              for (const entry of userImports) {
-                assert.equal(entry.external, true);
-                assert.equal(entry.kind, "import-statement");
-              }
-            ' "$fixture_path/bundler-meta.json" "@napi/$fixture" "$source_file"
-            node "$fixture_path/bundler-consumer.mjs"
-          done
+          dart --version
+          node -p 'JSON.stringify({node: process.version, v8: process.versions.v8})'
+          "$NAPI_BUN" --version
+          "$NAPI_TSC" --version
+          dart run tool/runtime_fixtures.dart
       - run: dart pub publish --dry-run
         if: steps.scope.outputs.docs_only != 'true'
-      - name: Archive fixtures and JavaScript tools for reuse
-        if: steps.scope.outputs.docs_only != 'true'
-        run: tar -czf .dart_tool/runtime-fixtures.tgz -C .dart_tool runtime-fixtures js
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: steps.scope.outputs.docs_only != 'true'
-        with:
-          name: runtime-fixtures
-          path: .dart_tool/runtime-fixtures.tgz
-          include-hidden-files: true
-          compression-level: 0
-          retention-days: 3
-
-  runtime:
-    needs: check
-    runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        node: [24.5.0, 24.21.0, 26.11.1]
-    steps:
-      - name: Documentation-only change
-        if: needs.check.outputs.docs_only == 'true'
-        run: echo 'Documentation-only change; runtime validation is skipped.'
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        if: needs.check.outputs.docs_only != 'true'
-        with:
-          node-version: ${{ matrix.node }}
-          package-manager-cache: false
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        if: needs.check.outputs.docs_only != 'true'
-        with:
-          name: runtime-fixtures
-          path: .dart_tool
-      - run: tar -xzf .dart_tool/runtime-fixtures.tgz -C .dart_tool
-        if: needs.check.outputs.docs_only != 'true'
-      - name: Verify native Wasm consumers and declarations
-        if: needs.check.outputs.docs_only != 'true'
-        run: |
-          cat .dart_tool/runtime-fixtures/metadata.json
-          node -p 'JSON.stringify({node: process.version, v8: process.versions.v8})'
-          tsc_path="$GITHUB_WORKSPACE/.dart_tool/js/node_modules/typescript/bin/tsc"
-          for fixture in integration async collections records batch record-maps requests checksum; do
-            case "$fixture" in
-              integration) runtime_script=node.mjs; package_consumer=consumer.ts; relative_consumer=relative.ts ;;
-              async) runtime_script=async-node.mjs; package_consumer=async-consumer.ts; relative_consumer=async-relative.ts ;;
-              collections) runtime_script=collections-node.mjs; package_consumer=collections-consumer.ts; relative_consumer=collections-relative.ts ;;
-              records) runtime_script=records-node.mjs; package_consumer=records-consumer.ts; relative_consumer=records-relative.ts ;;
-              batch) runtime_script=batch-node.mjs; package_consumer=batch-consumer.ts; relative_consumer=batch-relative.ts ;;
-              record-maps) runtime_script=record-maps-node.mjs; package_consumer=record-maps-consumer.ts; relative_consumer=record-maps-relative.ts ;;
-              requests) runtime_script=requests-node.mjs; package_consumer=requests-consumer.ts; relative_consumer=consumer.mts ;;
-              checksum) runtime_script=checksum-node.mjs; package_consumer=checksum-consumer.ts; relative_consumer=consumer.mts ;;
-            esac
-            (
-              cd ".dart_tool/runtime-fixtures/$fixture"
-              node --expose-gc "$runtime_script"
-              type_args=()
-              case "$fixture" in
-                records|batch|record-maps|checksum) type_args=(--types node) ;;
-              esac
-              for resolution in NodeNext Bundler; do
-                module_mode=ESNext
-                if [ "$resolution" = NodeNext ]; then module_mode=NodeNext; fi
-                node "$tsc_path" --strict --noEmit --target ES2022 --module "$module_mode" --moduleResolution "$resolution" "${type_args[@]}" "$package_consumer"
-                node "$tsc_path" --strict --noEmit --target ES2022 --module "$module_mode" --moduleResolution "$resolution" "${type_args[@]}" --allowArbitraryExtensions "$relative_consumer"
-                if [ "$fixture" = checksum ]; then continue; fi
-                if node "$tsc_path" --strict --noEmit --target ES2022 --module "$module_mode" --moduleResolution "$resolution" "${type_args[@]}" "$relative_consumer" > without-extension-option.log 2>&1; then
-                  echo "Relative Wasm declarations unexpectedly passed without allowArbitraryExtensions"
-                  exit 1
-                fi
-                grep -q TS6263 without-extension-option.log
-                grep -q module.d.wasm.ts without-extension-option.log
-              done
-            )
-          done
-          node .dart_tool/runtime-fixtures/collections/bundler-consumer.mjs
-          node .dart_tool/runtime-fixtures/batch/bundler-consumer.mjs
-          node .dart_tool/runtime-fixtures/record-maps/bundler-consumer.mjs
