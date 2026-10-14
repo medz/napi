@@ -217,7 +217,8 @@ List<List<int>> _sections(List<int> bytes) {
 }
 
 // A deliberately small synthetic loader of the recognized pinned shape.
-const _hostFixture = '''
+const _hostFixture =
+    '''
 const builtins = {builtins: ['js-string']};
 const builtins = {builtins: ['js-string']};
   async instantiate(additionalImports, {loadDeferredModules, loadDeferredId} = {}) {
@@ -249,7 +250,7 @@ const builtins = {builtins: ['js-string']};
     dartInstance = await WebAssembly.instantiate(this.module, {
       ...baseImports,
       ...additionalImports,
-      
+${'      '}
       "wasm:js-string": jsStringPolyfill,
     });
 

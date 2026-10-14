@@ -10,6 +10,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
       - uses: dart-lang/setup-dart@v1
         with:
           sdk: 3.13.5
@@ -24,4 +26,4 @@ jobs:
       - run: npm install --prefix .dart_tool/js --no-save --no-package-lock --ignore-scripts --no-audit --no-fund typescript@7.0.2
       - run: dart run tool/verify.dart
       - run: dart pub publish --dry-run
-      - run: git diff --check
+      - run: git diff --check HEAD^ HEAD
