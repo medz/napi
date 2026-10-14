@@ -3,7 +3,7 @@ import 'dart:io';
 
 import 'package:analyzer/dart/analysis/analysis_context_collection.dart';
 // The public collection constructor cannot supply declared variables. Keep this
-// analyzer-version-pinned implementation detail inside the frontend adapter.
+// analyzer-version-bounded implementation detail inside the frontend adapter.
 // ignore: implementation_imports
 import 'package:analyzer/src/dart/analysis/analysis_context_collection.dart';
 
