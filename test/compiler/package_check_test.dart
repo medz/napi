@@ -5,10 +5,10 @@ import '../../tool/check_package.dart';
 const warning = '''Publishing napi to pub.dev:\nlib/\nValidating package...
 Package validation found the following potential issue:
 * Your dependency on "analyzer" should allow more than one version. For example:
-  
+
   dependencies:
     analyzer: ^14.5.0
-  
+
   Constraints that are too tight will make it difficult for people to use your package
   along with other packages that also depend on "analyzer".
 The server may enforce additional checks.
@@ -26,6 +26,7 @@ void main() {
 
   test('accepts only the intentional exact analyzer pin warning', () {
     expect(accepted(warning), isTrue);
+    expect(accepted(warning.replaceAll('\n\n', '\n  \n')), isTrue);
     expect(accepted(warning.replaceAll('\n', '\r\n')), isTrue);
   });
 
