@@ -140,39 +140,47 @@ void main() {
   });
 
   test(
-    'Windows publication supports normalized and extended-length paths',
+    'Windows publication preserves pinned dart:io path normalization',
     () async {
-      final parent = await Directory('${root.path}/parent').create();
-      // Explicit extended paths preserve literal trailing dots/spaces. Ordinary
-      // Win32 paths instead use dart:io's normal slash/dot-segment handling.
-      final extendedParent =
-          r'\\?\' + parent.absolute.path.replaceAll('/', r'\');
-      final paths = [
-        '$extendedParent\\output.',
-        '$extendedParent\\output ',
-        '${parent.path}/nested/../output',
-      ];
-      for (final path in paths) {
-        final staged = await parent.createTemp('staged-');
-        await File('${staged.path}/marker').writeAsString(path);
-        final output = Directory(path);
-        publishDirectory(staged, output);
-        expect(
-          await File('${output.path}${Platform.pathSeparator}marker')
-              .readAsString(),
-          path,
+      // Dart normalizes a terminal dot/space differently from an interior
+      // segment, even in extended paths. Compare with Directory.renameSync
+      // itself rather than claiming literal trailing-name support.
+      for (final name in ['output.', 'output ', 'nested/../output']) {
+        final expectedParent = await root.createTemp('expected-');
+        final actualParent = await root.createTemp('actual-');
+        final expectedSource = await Directory('${expectedParent.path}/staged')
+            .create();
+        final actualSource = await Directory('${actualParent.path}/staged')
+            .create();
+        await File('${expectedSource.path}/marker').writeAsString('keep');
+        await File('${actualSource.path}/marker').writeAsString('keep');
+        expectedSource.renameSync('${expectedParent.path}/$name');
+        final output = Directory('${actualParent.path}/$name');
+        publishDirectory(actualSource, output);
+        expect(await actualSource.exists(), isFalse);
+        expect(await expectedSource.exists(), isFalse);
+        final expectedEntry = await expectedParent.list().single;
+        final actualEntry = await actualParent.list().single;
+        String basename(FileSystemEntity entry) =>
+            entry.uri.pathSegments.where((segment) => segment.isNotEmpty).last;
+        expect(basename(actualEntry), basename(expectedEntry));
+        final marker = File(
+          '${actualEntry.path}${Platform.pathSeparator}marker',
         );
-        final competitor = await parent.createTemp('competitor-');
+        final expectedMarker = File(
+          '${expectedEntry.path}${Platform.pathSeparator}marker',
+        );
+        expect(
+          await marker.readAsString(),
+          await expectedMarker.readAsString(),
+        );
+        final competitor = await actualParent.createTemp('competitor-');
         expect(
           () => publishDirectory(competitor, output),
           throwsA(isA<FileSystemException>()),
         );
-        expect(
-          await File('${output.path}${Platform.pathSeparator}marker')
-              .readAsString(),
-          path,
-        );
-        await output.delete(recursive: true);
+        expect(await marker.readAsString(), 'keep');
+        expect(await competitor.exists(), isTrue);
       }
     },
     skip: !Platform.isWindows,
