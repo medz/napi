@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import { add, calls } from '@napi/foundation-fixture';
+import { add as subpath } from '@napi/foundation-fixture/module.wasm';
+assert(import.meta.resolve('@napi/foundation-fixture').endsWith('/module.wasm'));
+assert(import.meta.resolve('@napi/foundation-fixture/module.wasm').endsWith('/module.wasm'));
+assert.equal(add, subpath);
+assert.equal(calls(), 0);
+assert.equal(add(10, 32), 42);
+assert.equal(calls(), 1);
+console.log('Installed package root/subpath resolve to actual Wasm: passed');

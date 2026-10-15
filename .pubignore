@@ -1,7 +1,4 @@
 .github/
-.dart_tool/
-work/
-dist/
-pubspec.lock
+test/
+tool/
 AGENTS.md
-/benchmark/results.json

@@ -1,0 +1,82 @@
+// Handwritten direct-Wasm proof, not generated class support.
+// ignore_for_file: import_internal_library
+import 'dart:_wasm';
+import 'dart:_js_interop_wasm';
+import 'dart:js_interop';
+
+int constructorCalls = 0;
+int opaqueCalls = 0;
+int numberCalls = 0;
+
+class Counter {
+  Counter(this.value) {
+    constructorCalls++;
+  }
+  int value;
+  int add(int delta) => value += delta;
+}
+
+// Keeping raw JS payloads here avoids conflating JS undefined with Dart null.
+// This experimental wrapper is deliberately not a proposed public opaque API.
+class OpaqueValue {
+  const OpaqueValue(this.reference);
+  final WasmExternRef? reference;
+}
+
+OpaqueValue requiredOpaque(OpaqueValue value) {
+  opaqueCalls++;
+  return value;
+}
+
+OpaqueValue optionalOpaque([OpaqueValue? value]) {
+  opaqueCalls++;
+  return value ?? OpaqueValue(externRefForJSAny('dart-default'.toJS));
+}
+
+int optionalNumber([int value = 7]) {
+  numberCalls++;
+  return value;
+}
+
+@pragma('wasm:export', 'counterNew')
+WasmExternRef counterNew(WasmI32 initial) =>
+    WasmAnyRef.fromObject(Counter(initial.toIntSigned())).externalize();
+
+@pragma('wasm:export', 'counterAdd')
+WasmI32 counterAdd(WasmExternRef ref, WasmI32 delta) {
+  final counter = ref.internalize().toObject() as Counter;
+  return WasmI32.fromInt(counter.add(delta.toIntSigned()));
+}
+
+@pragma('wasm:export', 'counterValue')
+WasmI32 counterValue(WasmExternRef ref) =>
+    WasmI32.fromInt((ref.internalize().toObject() as Counter).value);
+
+@pragma('wasm:export', 'requiredOpaqueCall')
+WasmExternRef? requiredOpaqueCall(WasmExternRef? ref) =>
+    requiredOpaque(OpaqueValue(ref)).reference;
+
+@pragma('wasm:export', 'optionalOpaqueCall')
+WasmExternRef? optionalOpaqueCall(WasmI32 present, WasmExternRef? ref) =>
+    (present.toIntSigned() == 0
+            ? optionalOpaque()
+            : optionalOpaque(OpaqueValue(ref)))
+        .reference;
+
+@pragma('wasm:export', 'optionalNumberCall')
+WasmI32 optionalNumberCall(WasmI32 present, WasmI32 value) => WasmI32.fromInt(
+  present.toIntSigned() == 0
+      ? optionalNumber()
+      : optionalNumber(value.toIntSigned()),
+);
+
+@pragma('wasm:export', 'constructorCount')
+WasmI32 constructorCount() => WasmI32.fromInt(constructorCalls);
+
+@pragma('wasm:export', 'opaqueCount')
+WasmI32 opaqueCount() => WasmI32.fromInt(opaqueCalls);
+
+@pragma('wasm:export', 'numberCount')
+WasmI32 numberCount() => WasmI32.fromInt(numberCalls);
+
+void main() => throw StateError('Consumer must never invoke Dart main');

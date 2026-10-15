@@ -1,10 +1,6 @@
-/// Marks a public top-level function as a native WebAssembly ES module export.
+/// Declarations selected for a napi binding.
 ///
-/// Exported functions must be synchronous and use required positional
-/// parameters with supported value types.
-const napi = Napi();
+/// Annotation discovery is implemented separately from the compiler foundation.
+library;
 
-/// The annotation type used by [napi].
-final class Napi {
-  const Napi();
-}
+export 'src/api/annotation.dart';
