@@ -27,3 +27,18 @@ jobs:
       - run: dart run tool/verify.dart
       - run: dart pub publish --dry-run
       - run: git diff --check HEAD^ HEAD
+
+  publication:
+    name: Atomic publication (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: 3.13.5
+      - run: dart pub get
+      - run: dart test test/compiler/publish_test.dart

@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { add, calls, echo, fail } from './module.wasm';
+import { add, calls, echo, fail, evaluate, argumentCount } from './module.wasm';
 
 const compiled = await WebAssembly.compile(readFileSync(new URL('./module.wasm', import.meta.url)), {builtins: ['js-string']});
 const exports = WebAssembly.Module.exports(compiled);
-for (const name of ['add', 'calls', 'echo', 'fail']) {
+for (const name of ['add', 'calls', 'echo', 'fail', 'evaluate', 'argumentCount']) {
   assert.deepEqual(exports.find(e => e.name === name), {name, kind: 'function'});
 }
 const imports = WebAssembly.Module.imports(compiled);
@@ -12,6 +12,9 @@ assert(imports.some(e => e.module === './boundary.mjs' && e.name === 'readInt'))
 assert(imports.some(e => e.module === './host.mjs'));
 assert(imports.every(e => e.module.startsWith('./') || e.module === 'wasm:js-string'));
 assert.equal(calls(), 0, 'import does not run Dart business main');
+assert.equal(evaluate(40), 41, 'Dart eval declaration uses a safe export alias');
+assert.equal(argumentCount(40), 42, 'Dart arguments declaration uses a safe export alias');
+assert(!exports.some(e => e.name === 'eval' || e.name === 'arguments'));
 assert.equal(add(2, 3), 5);
 assert.equal(calls(), 1);
 assert.equal(add.length, 2);

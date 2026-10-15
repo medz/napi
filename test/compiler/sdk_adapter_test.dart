@@ -14,8 +14,10 @@ void main() {
       ),
       returnsNormally,
     );
+    // Simulated version output, independent of which SDKs have been released.
     for (final version in [
       'Dart SDK version: 3.13.6 (stable)',
+      'Dart SDK version: 3.14.0 (stable)',
       'Dart SDK version: 3.13.5 (dev)',
       'Dart SDK version: 3.13.50 (stable)',
       'not a Dart SDK',
@@ -31,6 +33,15 @@ void main() {
         ),
       );
     }
+  });
+
+  test('pubspec admits exactly the SDK supported by the private adapter', () {
+    final pubspec = File('pubspec.yaml').readAsStringSync();
+    final sdkConstraint = RegExp(
+      r"^  sdk: '([^']+)'$",
+      multiLine: true,
+    ).firstMatch(pubspec)?.group(1);
+    expect(sdkConstraint, supportedDartSdkVersion);
   });
 
   test('unknown SDK host layout fails closed with a useful diagnostic', () {

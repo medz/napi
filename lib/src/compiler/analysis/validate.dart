@@ -88,6 +88,9 @@ ValidatedModule validate(BindingModule module) {
     }
     if (!_identifier.hasMatch(function.exportName) ||
         _reserved.contains(function.exportName) ||
+        // These are valid Dart identifiers and declaration parameter names,
+        // but cannot be local bindings in an unaliased strict-mode ESM import.
+        const {'eval', 'arguments'}.contains(function.exportName) ||
         function.exportName == 'then' ||
         function.exportName.startsWith('wasm_')) {
       reject('NAPI_NAME', 'Export name is not a supported public identifier.');

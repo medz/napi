@@ -8,6 +8,7 @@ import '../compiler/ir/model.dart';
 import '../compiler/linker/dart_module_linker.dart';
 import '../compiler/lowering/plan.dart';
 import '../compiler/sdk_adapter/dart_sdk_adapter.dart';
+import 'publish.dart';
 
 final class BuiltModule {
   final Directory directory;
@@ -19,7 +20,7 @@ final class BuiltModule {
 /// Build fresh artifacts from semantic IR. Annotation discovery is separate.
 ///
 /// The destination must not exist. Compilation and linking finish in a sibling
-/// staging directory before a completed artifact directory is renamed into place.
+/// staging directory before an atomic no-replace rename publishes the artifacts.
 /// This intentionally does not implement the package/rebuild system in #134/135.
 Future<BuiltModule> buildModule({
   required BindingModule bindings,
@@ -62,7 +63,7 @@ Future<BuiltModule> buildModule({
     await File('${artifact.path}/module.d.wasm.ts')
         .writeAsString(emitDeclarations(plan));
     await File(compiled.sdkLicensePath).copy('${artifact.path}/DART_LICENSE');
-    await artifact.rename(target.path);
+    publishDirectory(artifact, target);
     return BuiltModule(target, compiled.version);
   } finally {
     if (await staging.exists()) await staging.delete(recursive: true);

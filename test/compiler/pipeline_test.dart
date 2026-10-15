@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:napi/src/compiler/analysis/validate.dart';
 import 'package:napi/src/compiler/emit/dart/entrypoint.dart';
 import 'package:napi/src/compiler/emit/js/boundary.dart';
@@ -12,11 +14,12 @@ FunctionBinding function({
   String? export,
   BindingType type = const SafeIntType(),
   ParameterPresence presence = ParameterPresence.required,
+  String parameterName = 'value',
 }) => FunctionBinding(
   declaration: DeclarationId(source, name),
   exportName: export ?? name,
   source: SourceLocation(source, 10, 3),
-  parameters: [ParameterBinding('value', type, presence: presence)],
+  parameters: [ParameterBinding(parameterName, type, presence: presence)],
   result: const SafeIntType(),
 );
 BindingModule module(Iterable<FunctionBinding> functions) =>
@@ -67,6 +70,60 @@ void main() {
       throwsA(isA<BindingDiagnostic>()),
     );
   });
+  test('strict-mode binding names are rejected only as exports', () {
+    for (final name in ['eval', 'arguments']) {
+      expect(
+        () => validate(module([function(name: name)])),
+        throwsA(
+          isA<BindingDiagnostic>()
+              .having((e) => e.code, 'code', 'NAPI_NAME')
+              .having((e) => e.source?.offset, 'source offset', 10),
+        ),
+      );
+      expect(
+        () => validate(module([function(export: name)])),
+        throwsA(
+          isA<BindingDiagnostic>().having((e) => e.code, 'code', 'NAPI_NAME'),
+        ),
+      );
+      final plan = lower(
+        validate(
+          module([
+            function(name: name, export: 'safeName', parameterName: name),
+          ]),
+        ),
+      );
+      expect(emitDart(plan), contains('target.$name(a0)'));
+      expect(emitDart(plan), contains("@pragma('wasm:export', 'safeName')"));
+      expect(
+        emitDeclarations(plan),
+        contains('safeName($name: number): number'),
+      );
+    }
+  });
+  test(
+    'Node strict-mode imports require aliases for eval and arguments',
+    () async {
+      final directory = await Directory.systemTemp.createTemp('napi-names-');
+      addTearDown(() => directory.delete(recursive: true));
+      final consumer = File('${directory.path}/consumer.mjs');
+      for (final name in ['eval', 'arguments']) {
+        await consumer.writeAsString("import {$name} from './module.wasm';");
+        final rejected = await Process.run('node', ['--check', consumer.path]);
+        expect(rejected.exitCode, isNot(0));
+        expect(rejected.stderr, contains('SyntaxError'));
+        await consumer.writeAsString(
+          "import {$name as safeName} from './module.wasm';",
+        );
+        final accepted = await Process.run('node', ['--check', consumer.path]);
+        expect(
+          accepted.exitCode,
+          0,
+          reason: '${accepted.stdout}${accepted.stderr}',
+        );
+      }
+    },
+  );
   test('unsupported presence never silently becomes fixed arity', () {
     for (final presence in ParameterPresence.values.skip(1)) {
       expect(

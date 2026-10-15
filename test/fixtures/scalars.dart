@@ -9,6 +9,9 @@ Count add(Count a, Count b) {
 
 int calls() => _calls;
 int echo(int value) => value;
+// Strict-mode JavaScript binding restrictions do not apply to Dart names.
+int eval(int arguments) => arguments + 1;
+int arguments(int eval) => eval + 2;
 int fail(int mode) {
   if (mode == 1) throw StateError('intentional failure');
   if (mode == 2) throw _Unprintable();

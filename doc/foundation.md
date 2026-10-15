@@ -111,8 +111,16 @@ requires a reviewed adapter change and fresh conformance execution.
 
 `buildModule` accepts semantic IR and writes only to a new output directory. It
 stages compilation/linking before renaming completed artifacts into place and
-cleans temporary files on failure. Existing output, including a symlink, is
-rejected. This is a conservative first-build boundary; incremental replacement,
+cleans temporary files on failure. Publication uses a build-time-only native
+no-replace rename: `renameat2(RENAME_NOREPLACE)` on Linux,
+`renamex_np(RENAME_EXCL)` on macOS, and the pinned Dart SDK's Windows
+`Directory.renameSync` implementation (`MoveFileExW` without replacement). Existing output, including an empty directory or symlink created while
+the compiler runs, is rejected without deleting or modifying it. Unsupported
+hosts, missing native symbols, and filesystems without exclusive rename fail
+closed; there is no check-then-rename fallback. The host FFI is not imported by
+generated Dart or shipped in the Wasm artifacts. Linux runs full conformance;
+macOS/Windows CI separately exercises the publication primitive, which does not
+establish compiler/runtime support on those hosts. This is a conservative first-build boundary; incremental replacement,
 package-name validation, package assets/licenses, and consumer metadata assembly
 remain the scoped work in #134/#135 and #106.
 
