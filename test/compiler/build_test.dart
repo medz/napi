@@ -41,7 +41,7 @@ Future<void> _expectCompetitor(Directory root, String kind) async {
   final output = '${root.path}/output';
   if (kind.endsWith('symlink')) {
     final linked = '${root.path}/linked';
-    expect(await Link(output).target(), linked);
+    expect(Uri.file(await Link(output).target()), Uri.file(linked));
     if (kind == 'directory symlink') {
       expect(await File('$linked/keep').readAsString(), 'keep');
       expect(await Directory(linked).list().length, 1);

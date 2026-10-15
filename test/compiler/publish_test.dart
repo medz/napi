@@ -59,11 +59,12 @@ void main() {
         await File(linkedPath).writeAsString('keep');
       }
       final link = await Link(target.path).create(linkedPath);
+      final originalTarget = await link.target();
       expect(
         () => publishDirectory(source, target),
         throwsA(isA<FileSystemException>()),
       );
-      expect(await link.target(), linkedPath);
+      expect(await link.target(), originalTarget);
       expect(await File('${source.path}/marker').readAsString(), 'artifact');
       if (kind == 'directory') {
         expect(await File('$linkedPath/keep').readAsString(), 'keep');
@@ -139,23 +140,38 @@ void main() {
   });
 
   test(
-    'Windows publication uses the same path normalization as dart:io',
+    'Windows publication supports normalized and extended-length paths',
     () async {
       final parent = await Directory('${root.path}/parent').create();
-      // Cover slash normalization, dot segments and the trailing-dot/space
-      // behavior of Dart's GetFullPathNameW + PathAllocCanonicalize conversion.
-      for (final name in ['output.', 'output ', 'nested/../output']) {
+      // Explicit extended paths preserve literal trailing dots/spaces. Ordinary
+      // Win32 paths instead use dart:io's normal slash/dot-segment handling.
+      final extendedParent =
+          r'\\?\' + parent.absolute.path.replaceAll('/', r'\');
+      final paths = [
+        '$extendedParent\\output.',
+        '$extendedParent\\output ',
+        '${parent.path}/nested/../output',
+      ];
+      for (final path in paths) {
         final staged = await parent.createTemp('staged-');
-        await File('${staged.path}/marker').writeAsString(name);
-        final output = Directory('${parent.path}/$name');
+        await File('${staged.path}/marker').writeAsString(path);
+        final output = Directory(path);
         publishDirectory(staged, output);
-        expect(await File('${output.path}/marker').readAsString(), name);
+        expect(
+          await File('${output.path}${Platform.pathSeparator}marker')
+              .readAsString(),
+          path,
+        );
         final competitor = await parent.createTemp('competitor-');
         expect(
           () => publishDirectory(competitor, output),
           throwsA(isA<FileSystemException>()),
         );
-        expect(await File('${output.path}/marker').readAsString(), name);
+        expect(
+          await File('${output.path}${Platform.pathSeparator}marker')
+              .readAsString(),
+          path,
+        );
         await output.delete(recursive: true);
       }
     },
