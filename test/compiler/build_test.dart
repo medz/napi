@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:napi/src/build/build.dart';
+import 'package:napi/src/compiler/analysis/validate.dart';
+import 'package:napi/src/compiler/front_end/frontend.dart';
 import 'package:napi/src/compiler/sdk_adapter/dart_sdk_adapter.dart';
 import 'package:test/test.dart';
 
@@ -117,6 +119,40 @@ Future<void> createCompetitor(Directory root, String kind) =>
 String _dartString(String value) => jsonEncode(value).replaceAll(r'$', r'\$');
 
 void main() {
+  test('external functions fail before creating output or staging', () async {
+    final root = await Directory.systemTemp.createTemp('napi-external-');
+    addTearDown(() => root.delete(recursive: true));
+    final source = File('${root.path}/entry.dart');
+    await source.writeAsString('''
+import 'package:napi/napi.dart';
+@NAPI()
+external int unavailable(int value);
+''');
+    final packages = File('.dart_tool/package_config.json').absolute.path;
+    final module = await AnnotationFrontend(packagesPath: packages)
+        .read(source.uri);
+    expect(module.functions.single.isExternal, isTrue);
+    expect(() => validateDeclarations(module), returnsNormally);
+    await expectLater(
+      buildLibrary(
+        library: source.uri,
+        output: Directory('${root.path}/not-created/output'),
+        packagesPath: packages,
+        // Reaching the compiler would try to launch a missing executable.
+        sdk: DartSdkAdapter(executable: 'does-not-exist'),
+      ),
+      throwsA(
+        isA<BindingDiagnostic>()
+            .having((error) => error.code, 'code', 'NAPI_EXTERNAL')
+            .having((error) => error.source?.uri, 'source URI', source.uri)
+            .having((error) => error.source?.line, 'line', 3),
+      ),
+    );
+    expect(await root.list().map((entry) => entry.path).toList(), [
+      source.path,
+    ]);
+  });
+
   for (final kind in _kinds) {
     test('existing $kind is rejected without changing user files', () async {
       final root = await Directory.systemTemp.createTemp('napi-preserve-');

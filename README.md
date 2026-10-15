@@ -26,6 +26,8 @@ The annotation frontend records complete declaration metadata; build-time checks
 reject unsupported signatures before writing output. Complete scalar/optional/class
 execution and production npm package assembly remain separate work in
 [#114](https://github.com/medz/napi/issues/114). See [annotation syntax and scope](doc/annotations.md).
+Annotated sources import `package:napi/napi.dart`; separate Dart VM build scripts
+use `buildLibrary` from `package:napi/build.dart`.
 
 ## Verify
 

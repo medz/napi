@@ -68,10 +68,30 @@ platform.
 when no runtime engine exists for their signatures. Building separately checks
 backend capabilities before creating output: currently only nongeneric top-level
 functions with required positional, nonnullable int inputs and int results are
-supported. Optional/named parameters, nullable values, other types and classes
-produce source diagnostics; selected unsupported declarations are never dropped.
+supported. Optional/named parameters, nullable values, other types, external
+functions and classes produce source diagnostics; selected unsupported
+declarations are never dropped.
 
 `buildLibrary` connects discovery to the existing direct-Wasm build pipeline.
+Use its build-time entrypoint in a separate Dart VM script:
+
+```dart
+import 'dart:io';
+import 'package:napi/build.dart';
+
+Future<void> main() async {
+  await buildLibrary(
+    library: File('lib/bindings.dart').absolute.uri,
+    output: Directory('output'),
+    packagesPath: File('.dart_tool/package_config.json').absolute.path,
+  );
+}
+```
+
+The source library imports only `package:napi/napi.dart` for `NAPI`. The separate
+build entrypoint exposes the command, its result and source diagnostics without
+pulling analyzer or host-only build dependencies into the Wasm source graph.
+
 The scalar fixture now uses annotations, including renamed functions and a
 reexported entry library. Real Node consumers still use:
 

@@ -382,6 +382,12 @@ ValidatedModule validate(BindingModule module) {
     if (function.isAsync || function.isGenerator) {
       reject('NAPI_TYPE', 'Async and generator functions are not supported.');
     }
+    if (function.isExternal) {
+      reject(
+        'NAPI_EXTERNAL',
+        'External functions require an external-capable backend.',
+      );
+    }
     for (final parameter in function.parameters) {
       if (!_identifier.hasMatch(parameter.name) ||
           _reserved.contains(parameter.name)) {

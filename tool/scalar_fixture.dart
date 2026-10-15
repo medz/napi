@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:napi/src/build/build.dart';
+import 'package:napi/build.dart';
 import 'package:napi/src/compiler/ir/model.dart';
 import 'package:napi/src/compiler/front_end/frontend.dart';
 
