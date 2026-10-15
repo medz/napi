@@ -124,7 +124,7 @@ void main() {
       await _createCompetitor(root, kind);
       await expectLater(
         buildModule(
-          bindings: scalarBindings(),
+          bindings: await scalarBindings(),
           output: Directory('${root.path}/output'),
         ),
         throwsArgumentError,
@@ -139,7 +139,7 @@ void main() {
         final sdk = await _racingSdk(root, kind);
         await expectLater(
           buildModule(
-            bindings: scalarBindings(),
+            bindings: await scalarBindings(),
             output: Directory('${root.path}/output'),
             sdk: sdk,
             packagesPath: '.dart_tool/package_config.json',
@@ -161,7 +161,7 @@ void main() {
     final output = Directory('${root.path}/output');
     await expectLater(
       buildModule(
-        bindings: scalarBindings(),
+        bindings: await scalarBindings(),
         output: output,
         sdk: DartSdkAdapter(executable: 'node'),
       ),

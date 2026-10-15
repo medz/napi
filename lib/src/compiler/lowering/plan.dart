@@ -31,12 +31,16 @@ final class FunctionPlan {
 }
 
 final class ModulePlan {
+  /// Import the selected entry surface, not the origin of a re-exported member.
   final Uri source;
   final List<FunctionPlan> functions;
   ModulePlan._(this.source, Iterable<FunctionPlan> functions)
     : functions = List.unmodifiable(functions);
 }
 
+/// Descriptive validation alone cannot produce an executable plan. The
+/// backend-capability wrapper guarantees that no class or unsupported callable
+/// metadata can be silently lost here.
 ModulePlan lower(ValidatedModule module) => ModulePlan._(
   module.bindings.source,
   module.bindings.functions.map(FunctionPlan._),

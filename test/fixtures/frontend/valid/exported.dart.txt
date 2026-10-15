@@ -1,0 +1,11 @@
+import 'package:napi/napi.dart';
+
+/// This function originates in another library.
+@NAPI(name: 'fromReexport')
+int kept(int value) => value;
+
+@NAPI()
+int hidden(int value) => value;
+
+@NAPI()
+int notShown(int value) => value;

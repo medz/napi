@@ -1,0 +1,285 @@
+{
+  "source": "entry.dart",
+  "functions": [
+    {
+      "declaration": {
+        "library": "entry.dart",
+        "name": "sum",
+        "kind": "function"
+      },
+      "exportName": "calculate",
+      "source": {
+        "uri": "entry.dart",
+        "offset": 108,
+        "length": 3,
+        "line": 5,
+        "column": 6
+      },
+      "exportSurface": "entry.dart",
+      "callPath": "sum",
+      "documentation": "/// Adds two values and an optional offset.",
+      "parameters": [
+        {
+          "name": "first",
+          "type": {
+            "kind": "safeInt",
+            "nullability": "nonNullable",
+            "semantics": "scalar"
+          },
+          "kind": "requiredPositional",
+          "presence": "required",
+          "hasDefault": false,
+          "source": {
+            "uri": "entry.dart",
+            "offset": 116,
+            "length": 5,
+            "line": 5,
+            "column": 14
+          },
+          "flags": []
+        },
+        {
+          "name": "second",
+          "type": {
+            "kind": "safeInt",
+            "nullability": "nonNullable",
+            "semantics": "scalar"
+          },
+          "kind": "requiredNamed",
+          "presence": "required",
+          "hasDefault": false,
+          "source": {
+            "uri": "entry.dart",
+            "offset": 137,
+            "length": 6,
+            "line": 5,
+            "column": 35
+          },
+          "flags": []
+        },
+        {
+          "name": "offset",
+          "type": {
+            "kind": "safeInt",
+            "nullability": "nonNullable",
+            "semantics": "scalar"
+          },
+          "kind": "optionalNamed",
+          "presence": "optional",
+          "hasDefault": true,
+          "defaultSource": "3",
+          "source": {
+            "uri": "entry.dart",
+            "offset": 149,
+            "length": 6,
+            "line": 5,
+            "column": 47
+          },
+          "flags": []
+        }
+      ],
+      "result": {
+        "kind": "safeInt",
+        "nullability": "nullable",
+        "semantics": "scalar"
+      },
+      "typeParameters": [],
+      "flags": []
+    }
+  ],
+  "classes": [
+    {
+      "declaration": {
+        "library": "entry.dart",
+        "name": "Counter",
+        "kind": "classType"
+      },
+      "exportName": "CounterApi",
+      "source": {
+        "uri": "entry.dart",
+        "offset": 256,
+        "length": 7,
+        "line": 10,
+        "column": 7
+      },
+      "exportSurface": "entry.dart",
+      "callPath": "Counter",
+      "documentation": "/// A small mutable counter.",
+      "members": [
+        {
+          "declaration": {
+            "library": "entry.dart",
+            "name": "new",
+            "kind": "constructor",
+            "owner": {
+              "library": "entry.dart",
+              "name": "Counter",
+              "kind": "classType"
+            }
+          },
+          "source": {
+            "uri": "entry.dart",
+            "offset": 304,
+            "length": 7,
+            "line": 12,
+            "column": 3
+          },
+          "kind": "constructor",
+          "selection": "implicit",
+          "exportName": null,
+          "hasExplicitExportName": false,
+          "callPath": "new",
+          "documentation": "/// Starts at the supplied value.",
+          "parameters": [
+            {
+              "name": "value",
+              "type": {
+                "kind": "safeInt",
+                "nullability": "nonNullable",
+                "semantics": "scalar"
+              },
+              "kind": "requiredPositional",
+              "presence": "required",
+              "hasDefault": false,
+              "source": {
+                "uri": "entry.dart",
+                "offset": 317,
+                "length": 5,
+                "line": 12,
+                "column": 16
+              },
+              "flags": [
+                "initializingFormal"
+              ]
+            }
+          ],
+          "typeParameters": [],
+          "result": {
+            "kind": "declared",
+            "nullability": "nonNullable",
+            "semantics": "reference",
+            "declaration": {
+              "library": "entry.dart",
+              "name": "Counter",
+              "kind": "classType"
+            },
+            "typeArguments": []
+          },
+          "flags": []
+        },
+        {
+          "declaration": {
+            "library": "entry.dart",
+            "name": "value",
+            "kind": "field",
+            "owner": {
+              "library": "entry.dart",
+              "name": "Counter",
+              "kind": "classType"
+            }
+          },
+          "source": {
+            "uri": "entry.dart",
+            "offset": 382,
+            "length": 5,
+            "line": 16,
+            "column": 7
+          },
+          "kind": "field",
+          "selection": "explicit",
+          "exportName": "current",
+          "hasExplicitExportName": true,
+          "callPath": "value",
+          "documentation": "/// The current count.",
+          "parameters": [],
+          "typeParameters": [],
+          "type": {
+            "kind": "safeInt",
+            "nullability": "nonNullable",
+            "semantics": "scalar"
+          },
+          "flags": []
+        },
+        {
+          "declaration": {
+            "library": "entry.dart",
+            "name": "doubled",
+            "kind": "getter",
+            "owner": {
+              "library": "entry.dart",
+              "name": "Counter",
+              "kind": "classType"
+            }
+          },
+          "source": {
+            "uri": "entry.dart",
+            "offset": 400,
+            "length": 7,
+            "line": 18,
+            "column": 11
+          },
+          "kind": "getter",
+          "selection": "implicit",
+          "exportName": "doubled",
+          "hasExplicitExportName": false,
+          "callPath": "doubled",
+          "parameters": [],
+          "typeParameters": [],
+          "result": {
+            "kind": "safeInt",
+            "nullability": "nonNullable",
+            "semantics": "scalar"
+          },
+          "flags": []
+        },
+        {
+          "declaration": {
+            "library": "entry.dart",
+            "name": "reset",
+            "kind": "method",
+            "owner": {
+              "library": "entry.dart",
+              "name": "Counter",
+              "kind": "classType"
+            }
+          },
+          "source": {
+            "uri": "entry.dart",
+            "offset": 453,
+            "length": 5,
+            "line": 21,
+            "column": 8
+          },
+          "kind": "method",
+          "selection": "excluded",
+          "exportName": "reset",
+          "hasExplicitExportName": false,
+          "callPath": "reset",
+          "parameters": [],
+          "typeParameters": [],
+          "result": {
+            "kind": "void",
+            "nullability": "nonNullable",
+            "semantics": "scalar"
+          },
+          "flags": []
+        }
+      ],
+      "typeParameters": [],
+      "supertype": {
+        "kind": "declared",
+        "nullability": "nonNullable",
+        "semantics": "reference",
+        "declaration": {
+          "library": "dart:core",
+          "name": "Object",
+          "kind": "classType"
+        },
+        "typeArguments": []
+      },
+      "interfaces": [],
+      "mixins": [],
+      "flags": []
+    }
+  ]
+}

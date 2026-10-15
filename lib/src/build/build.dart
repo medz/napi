@@ -4,6 +4,7 @@ import '../compiler/analysis/validate.dart';
 import '../compiler/emit/dart/entrypoint.dart';
 import '../compiler/emit/js/boundary.dart';
 import '../compiler/emit/typescript/declarations.dart';
+import '../compiler/front_end/frontend.dart';
 import '../compiler/ir/model.dart';
 import '../compiler/linker/dart_module_linker.dart';
 import '../compiler/lowering/plan.dart';
@@ -17,7 +18,24 @@ final class BuiltModule {
   File get wasm => File('${directory.path}/module.wasm');
 }
 
-/// Build fresh artifacts from semantic IR. Annotation discovery is separate.
+/// Discover annotated declarations and build their supported direct-Wasm API.
+///
+/// Unsupported selected declarations fail before output or staging is created.
+Future<BuiltModule> buildLibrary({
+  required Uri library,
+  required Directory output,
+  String? packagesPath,
+  AnnotationFrontend? frontend,
+  DartSdkAdapter? sdk,
+}) async => buildModule(
+  bindings: await (frontend ?? AnnotationFrontend(packagesPath: packagesPath))
+      .read(library),
+  output: output,
+  sdk: sdk,
+  packagesPath: packagesPath,
+);
+
+/// Build fresh artifacts from semantic IR.
 ///
 /// The destination must not exist. Compilation and linking finish in a sibling
 /// staging directory before an atomic no-replace rename publishes the artifacts.

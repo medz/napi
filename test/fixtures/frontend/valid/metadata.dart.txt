@@ -1,0 +1,206 @@
+import 'package:napi/napi.dart';
+
+typedef Count = int;
+typedef Id<T> = T;
+typedef Mapper = R Function<R extends num>(R value);
+
+/// Generic types and named parameters survive discovery.
+@NAPI()
+Map<String, List<T?>>? describe<T extends num>(
+  T value, {
+  required int count,
+  String? label = 'hello',
+  void Function(int, {String? label})? callback,
+}) => null;
+
+@NAPI()
+T documented<
+  /// The documented type parameter.
+  T extends Object
+>(
+  /// The documented value parameter.
+  T value,
+) => value;
+
+@NAPI()
+int optionalValues(int value, [int count = 7, int? nullable]) => value;
+
+@NAPI()
+int explicitNull({int? value = null}) => value ?? 0;
+
+@NAPI()
+Count countAlias(Count value) => value;
+
+@NAPI()
+Id<int> genericAlias(Id<int> value) => value;
+
+@NAPI()
+double floatingPoint(double value) => value;
+
+@NAPI()
+Mapper genericCallback(Mapper mapper) => mapper;
+
+@NAPI()
+void separateCallbacks(
+  T Function<T extends num>(T value) first,
+  T Function<T extends num>(T value) second,
+) {}
+
+@NAPI()
+(int, {String? label, double weight})? recordValue(
+  (int, {String? label, double weight})? value,
+) => value;
+
+@NAPI()
+dynamic dynamicValue(dynamic value) => value;
+
+@NAPI()
+void voidValue() {}
+
+@NAPI()
+Never neverValue() => throw StateError('never');
+
+@NAPI()
+Future<int> asyncValue() async => 1;
+
+@NAPI()
+Iterable<int> generatorValue() sync* {
+  yield 1;
+}
+
+@NAPI()
+external int externalValue(int value);
+
+class Base {
+  final int inherited;
+  const Base({this.inherited = 1});
+  void inheritedMethod() {}
+}
+
+mixin Feature {
+  void mixedInMethod() {}
+}
+
+abstract interface class Sized {
+  int get size;
+}
+
+/// A generic class retains its own public members.
+@NAPI(name: 'Box')
+class Container<T extends num> extends Base with Feature implements Sized {
+  /// The primary constructor.
+  @NAPI(name: 'create')
+  Container(this.value, {super.inherited = 1});
+
+  Container.named(this.value);
+
+  factory Container.empty(T value) => Container(value);
+
+  /// The stored payload.
+  @NAPI(name: 'payload')
+  final T value;
+
+  late String lazy;
+  static const int limit = 4;
+  double ratio = 1.5;
+
+  @NAPI(exclude: true)
+  void ignored() {}
+
+  @NAPI(name: 'mapValue')
+  R map<R extends Object>(R Function(T) transform) => transform(value);
+
+  @NAPI(name: 'nullable')
+  T? get nullableValue => value;
+  @NAPI(name: 'nullable')
+  set nullableValue(T? value) {}
+
+  static int twice(int value) => value * 2;
+
+  @NAPI(name: 'ignored')
+  void visible() {}
+
+  @NAPI(name: 'shared')
+  void instanceScope() {}
+  @NAPI(name: 'shared')
+  static void staticScope() {}
+
+  Container<T> operator +(Container<T> other) => this;
+  Future<int> asyncMethod() async => 1;
+  Iterable<int> generatorMethod() sync* {
+    yield 1;
+  }
+
+  @override
+  int get size => 1;
+
+  void assign(covariant Object value) {}
+  void _privateMethod() {}
+  int get _privateGetter => 0;
+}
+
+@NAPI()
+final class Immutable {
+  const Immutable(this.value);
+  final int value;
+}
+
+@NAPI()
+abstract class AbstractValue {
+  int get value;
+  external void externalMethod();
+}
+
+@NAPI()
+class ImplicitConstructor {}
+
+@NAPI()
+abstract base class BaseFlag {}
+
+@NAPI()
+sealed class SealedFlag {}
+
+@NAPI()
+abstract interface class InterfaceFlag {}
+
+@NAPI()
+mixin class MixinFlag {}
+
+enum Choice { first }
+extension type Wrapped(int value) {}
+
+@NAPI()
+Choice choiceValue(Choice value) => value;
+
+@NAPI()
+Feature? mixinValue(Feature? value) => value;
+
+@NAPI()
+Wrapped extensionValue(Wrapped value) => value;
+
+@NAPI()
+class Combined = Base with Feature;
+
+@NAPI()
+int wildcardValues(int _, int _, int p0) => p0;
+
+class CallbackBase<T> {}
+mixin CallbackMixin<T> {}
+abstract interface class CallbackInterface<T> {}
+
+@NAPI()
+class CallbackOwner extends CallbackBase<T Function<T>(T)>
+    with CallbackMixin<T Function<T>(T)>
+    implements CallbackInterface<T Function<T>(T)> {}
+
+@NAPI()
+class OtherCallbackOwner extends CallbackBase<T Function<T>(T)> {}
+
+@NAPI()
+class GenericWildcards<_, _> {}
+
+@NAPI()
+void genericWildcards<_, _>() {}
+
+@NAPI()
+void wildcardCallback(void Function<_, _>() callback) {}
