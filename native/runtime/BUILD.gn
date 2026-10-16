@@ -1,0 +1,27 @@
+# Adapted from Dart SDK 3.13.5 runtime/engine/BUILD.gn. See DART_LICENSE.
+# Copy this directory to runtime/napi in the pinned SDK before preparing a
+# Product VM cache. The maintainer bundle script compiles its own runtime.cc.
+source_set("napi_runtime_set") {
+  include_dirs = [ ".", "..", "//third_party/boringssl/src/include", "//third_party" ]
+  sources = [
+    "../bin/dart_embedder_api_impl.cc",
+    "../bin/vmservice_impl.cc",
+    "runtime.cc",
+    "runtime.h",
+  ]
+  defines = [ "NAPI_DART_RUNTIME_BUILD" ]
+  configs += [
+    "..:dart_aotruntime_config",
+    "..:dart_arch_config",
+    "..:dart_config",
+    "..:dart_os_config",
+  ]
+  deps = [ "..:libdart_aotruntime", "../bin:common_embedder_dart_io", "../bin:libdart_builtin" ]
+}
+
+shared_library("napi_runtime") {
+  deps = [ ":napi_runtime_set" ]
+  if (is_mac) {
+    ldflags = [ "-Wl,-install_name,@rpath/libnapi_runtime.dylib" ]
+  }
+}

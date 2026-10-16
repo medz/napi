@@ -12,15 +12,26 @@ import '../compiler/linker/dart_module_linker.dart';
 import '../compiler/lowering/plan.dart';
 import '../compiler/sdk_adapter/dart_sdk_adapter.dart';
 import 'publish.dart';
+import 'native.dart';
+
+enum BuildTarget { wasm, native }
 
 final class BuiltModule {
   final Directory directory;
   final String sdkVersion;
-  const BuiltModule(this.directory, this.sdkVersion);
+  final BuildTarget target;
+  const BuiltModule(
+    this.directory,
+    this.sdkVersion, {
+    this.target = BuildTarget.wasm,
+  });
   File get wasm => File('${directory.path}/module.wasm');
+  File get entrypoint => File(
+    '${directory.path}/${target == BuildTarget.wasm ? 'module.wasm' : 'module.mjs'}',
+  );
 }
 
-/// Discover selected declarations and build their supported direct-Wasm API.
+/// Discover selected declarations and build the requested target.
 ///
 /// Unsupported selected declarations fail before output or staging is created.
 Future<BuiltModule> buildLibrary({
@@ -30,6 +41,8 @@ Future<BuiltModule> buildLibrary({
   ExternalLibrary? external,
   BindingFrontend? frontend,
   DartSdkAdapter? sdk,
+  BuildTarget target = BuildTarget.wasm,
+  Directory? nativeRuntime,
 }) async {
   if (external != null && frontend != null) {
     throw ArgumentError('Provide external selections or a frontend, not both.');
@@ -43,13 +56,22 @@ Future<BuiltModule> buildLibrary({
   final selectedFrontend =
       frontend ??
       (external == null
-          ? AnnotationFrontend(packagesPath: effectivePackages)
-          : ExternalFrontend(external, packagesPath: effectivePackages));
+          ? AnnotationFrontend(
+              packagesPath: effectivePackages,
+              native: target == BuildTarget.native,
+            )
+          : ExternalFrontend(
+              external,
+              packagesPath: effectivePackages,
+              native: target == BuildTarget.native,
+            ));
   return buildModule(
     bindings: await selectedFrontend.read(library),
     output: output,
     sdk: sdk,
     packagesPath: effectivePackages,
+    target: target,
+    nativeRuntime: nativeRuntime,
   );
 }
 
@@ -57,28 +79,47 @@ Future<BuiltModule> buildLibrary({
 ///
 /// The destination must not exist. Compilation and linking finish in a sibling
 /// staging directory before an atomic no-replace rename publishes the artifacts.
-/// This intentionally does not implement the package/rebuild system in #134/135.
+/// Package assembly is separate; output replacement remains #135.
 Future<BuiltModule> buildModule({
   required BindingModule bindings,
   required Directory output,
   DartSdkAdapter? sdk,
   String? packagesPath,
+  BuildTarget target = BuildTarget.wasm,
+  Directory? nativeRuntime,
 }) async {
+  if (target == BuildTarget.native) {
+    if (nativeRuntime == null) {
+      throw ArgumentError(
+        'Native builds require a precompiled nativeRuntime bundle.',
+      );
+    }
+    return buildNativeModule(
+      bindings: bindings,
+      output: output,
+      runtime: nativeRuntime,
+      packagesPath: packagesPath,
+      executable: sdk?.executable,
+    );
+  }
+  if (nativeRuntime != null) {
+    throw ArgumentError('nativeRuntime is only valid for BuildTarget.native.');
+  }
   final plan = lower(validate(bindings));
   final callableGlobals = plan.functions
       .where((f) => f.representation == ExportRepresentation.callableGlobal)
       .toList();
   final hasCalls = callableGlobals.isNotEmpty;
-  final target = output.absolute;
-  if (await FileSystemEntity.type(target.path, followLinks: false) !=
+  final destination = output.absolute;
+  if (await FileSystemEntity.type(destination.path, followLinks: false) !=
       FileSystemEntityType.notFound) {
-    throw ArgumentError('Output already exists: ${target.path}');
+    throw ArgumentError('Output already exists: ${destination.path}');
   }
   if (!await File.fromUri(bindings.source).exists()) {
     throw ArgumentError('Source library does not exist: ${bindings.source}');
   }
-  await target.parent.create(recursive: true);
-  final staging = await target.parent.createTemp('.napi-build-');
+  await destination.parent.create(recursive: true);
+  final staging = await destination.parent.createTemp('.napi-build-');
   try {
     final source = File('${staging.path}/entrypoint.dart');
     await source.writeAsString(emitDart(plan));
@@ -121,8 +162,8 @@ Future<BuiltModule> buildModule({
     await File('${artifact.path}/module.d.wasm.ts')
         .writeAsString(emitDeclarations(plan));
     await File(compiled.sdkLicensePath).copy('${artifact.path}/DART_LICENSE');
-    publishDirectory(artifact, target);
-    return BuiltModule(target, compiled.version);
+    publishDirectory(artifact, destination);
+    return BuiltModule(destination, compiled.version);
   } finally {
     if (await staging.exists()) await staging.delete(recursive: true);
   }

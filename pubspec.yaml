@@ -1,5 +1,5 @@
 name: napi
-description: Export Dart libraries as directly importable WebAssembly modules for Node.
+description: Generate Dart bindings for Node-API addons and WebAssembly modules.
 version: 0.14.0
 repository: https://github.com/medz/napi
 issue_tracker: https://github.com/medz/napi/issues
@@ -10,6 +10,7 @@ dependencies:
   # Wasm platform configuration uses version-specific analyzer APIs.
   analyzer: 14.5.0
   path: ^1.9.1
+  crypto: ^3.0.7
 dev_dependencies:
   lints: ^6.1.0
   test: ^1.32.0

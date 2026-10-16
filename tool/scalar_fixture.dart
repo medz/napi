@@ -15,6 +15,7 @@ Future<void> buildScalarFixture(Directory output) async {
     packagesPath: '.dart_tool/package_config.json',
   );
   for (final entry in {
+    'test/integration/scalar_contract.mjs': 'scalar_contract.mjs',
     'test/integration/scalars.mjs': 'test.mjs',
     'test/typescript/scalars.mts': 'consumer.mts',
   }.entries) {

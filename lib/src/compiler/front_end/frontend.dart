@@ -13,7 +13,7 @@ import '../../api/annotation.dart';
 import '../analysis/validate.dart';
 import '../ir/model.dart';
 import 'external.dart';
-import 'wasm_analysis.dart';
+import 'sdk_analysis.dart';
 
 /// Source annotations and external bindings meet at this boundary.
 abstract interface class BindingFrontend {
@@ -27,7 +27,12 @@ abstract interface class BindingFrontend {
 final class AnnotationFrontend implements BindingFrontend {
   final String? sdkPath;
   final String? packagesPath;
-  const AnnotationFrontend({this.sdkPath, this.packagesPath});
+  final bool native;
+  const AnnotationFrontend({
+    this.sdkPath,
+    this.packagesPath,
+    this.native = false,
+  });
 
   @override
   Future<BindingModule> read(Uri library) async {
@@ -39,7 +44,8 @@ final class AnnotationFrontend implements BindingFrontend {
     }
     final path = p.normalize(File.fromUri(library).absolute.path);
     final entry = File(path).uri;
-    final contexts = createWasmAnalysisContext(
+    final contexts = createSdkAnalysisContext(
+      native: native,
       path: path,
       sdkPath: sdkPath,
       packageConfigFile: packagesPath == null
@@ -80,7 +86,13 @@ final class ExternalFrontend implements BindingFrontend {
   final ExternalLibrary selections;
   final String? sdkPath;
   final String? packagesPath;
-  const ExternalFrontend(this.selections, {this.sdkPath, this.packagesPath});
+  final bool native;
+  const ExternalFrontend(
+    this.selections, {
+    this.sdkPath,
+    this.packagesPath,
+    this.native = false,
+  });
 
   @override
   Future<BindingModule> read(Uri library) async {
@@ -98,7 +110,8 @@ final class ExternalFrontend implements BindingFrontend {
     final anchor = p.normalize(
       library.scheme == 'file' ? File.fromUri(library).absolute.path : packages,
     );
-    final contexts = createWasmAnalysisContext(
+    final contexts = createSdkAnalysisContext(
+      native: native,
       path: anchor,
       sdkPath: sdkPath,
       packageConfigFile: File(packages).existsSync() ? packages : null,

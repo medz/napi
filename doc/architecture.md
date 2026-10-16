@@ -4,8 +4,10 @@ The product is a Dart counterpart to napi-rs: one annotation, one build command,
 one export model, and matching JavaScript/TypeScript APIs across native Node-API
 and Wasm targets. This is the target architecture. The current compiler generates
 Wasm scalar and structural functions with positional and named parameters,
-external selections, and fresh npm assembly; native addons and complete class
-bindings remain development work.
+external selections, and fresh npm assembly. The experimental macOS arm64 native
+target generates synchronous scalar and reference-class AOT bindings against a
+precompiled runtime bundle. Complete classes/lifetimes, other native targets and
+automatic runtime supply remain development work; see [native scope](native.md).
 
 ## Public contract
 

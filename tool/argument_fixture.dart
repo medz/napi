@@ -9,6 +9,7 @@ Future<void> buildArgumentFixture(Directory output) async {
     packagesPath: '.dart_tool/package_config.json',
   );
   for (final entry in {
+    'test/integration/argument_contract.mjs': 'argument_contract.mjs',
     'test/integration/arguments.mjs': 'test.mjs',
     'test/typescript/arguments.mts': 'consumer.mts',
   }.entries) {

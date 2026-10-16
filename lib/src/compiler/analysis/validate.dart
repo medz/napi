@@ -496,7 +496,7 @@ ValidatedModule validate(BindingModule module) {
       if (!optional && parameter.hasDefault) {
         reject('NAPI_DEFAULT', 'Required parameters cannot have defaults.');
       }
-      if (optional) _checkDefault(parameter, function.source);
+      if (optional) validateParameterDefault(parameter, function.source);
     }
     if (!_isBackendValue(function.result)) {
       reject(
@@ -508,7 +508,11 @@ ValidatedModule validate(BindingModule module) {
   return ValidatedModule._(declarations.bindings);
 }
 
-void _checkDefault(ParameterBinding parameter, SourceLocation source) {
+/// Validate defaults shared by the scalar native and Wasm backends.
+void validateParameterDefault(
+  ParameterBinding parameter,
+  SourceLocation source,
+) {
   final value = parameter.defaultValue?.value;
   final type = parameter.type;
   if (!_isBackendScalar(type) &&

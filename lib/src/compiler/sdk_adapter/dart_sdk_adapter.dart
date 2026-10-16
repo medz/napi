@@ -63,7 +63,7 @@ final class DartSdkAdapter {
     }
     verifyVersionOutput(versionText);
 
-    final dart = _resolveExecutable(executable);
+    final dart = resolveExecutable(executable);
     final bin = File(dart).parent;
     final runtime = File(
       '${bin.path}/${Platform.isWindows ? 'dartaotruntime.exe' : 'dartaotruntime'}',
@@ -119,7 +119,7 @@ final class DartSdkAdapter {
     );
   }
 
-  static String _resolveExecutable(String executable) {
+  static String resolveExecutable(String executable) {
     if (executable.contains('/') || executable.contains(r'\')) {
       return File(executable).resolveSymbolicLinksSync();
     }

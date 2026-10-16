@@ -14,7 +14,8 @@ import 'package:path/path.dart' as p;
 
 import '../sdk_adapter/dart_sdk_adapter.dart';
 
-/// Creates the analyzer view of the SDK used by [DartSdkAdapter].
+/// Creates the analyzer view for Wasm, or VM AOT when [native] is true.
+/// Both mappings retain target-specific conditional imports and core identity.
 ///
 /// Analyzer's normal SDK map covers several targets and can substitute
 /// `dart2jsPath` entries. Its public context factory also cannot configure
@@ -22,13 +23,15 @@ import '../sdk_adapter/dart_sdk_adapter.dart';
 /// the `wasm` target's unpatched source libraries through an in-memory metadata
 /// overlay and give the resolver the same library environment as dart2wasm.
 /// In particular, retain the real `dart:core` int and double declarations.
-AnalysisContextCollection createWasmAnalysisContext({
+AnalysisContextCollection createSdkAnalysisContext({
   required String path,
   String? sdkPath,
   String? packageConfigFile,
+  bool native = false,
 }) {
+  final target = native ? 'vm' : 'wasm';
   final sdk = p.normalize(p.absolute(sdkPath ?? getSdkPath()));
-  final libraries = _readWasmLibraries(sdk);
+  final libraries = _readLibraries(sdk, target);
   final metadata = StringBuffer('const libraries = {\n');
   final variables = <String, String>{};
   for (final entry in libraries.entries) {
@@ -37,10 +40,13 @@ AnalysisContextCollection createWasmAnalysisContext({
     metadata.writeln(
       '  ${jsonEncode(name)}: const LibraryInfo(${jsonEncode(info.uri)}),',
     );
-    // dart2wasm 3.13.5 also disables FFI's environment declaration, even
+    // dart2wasm 3.13.5 disables FFI's environment declaration, even
     // though the shared libraries.json target contains its stub sources.
+    // AOT disables mirrors even though VM metadata includes its library.
     // Unsupported names must be absent, not defined as the string "false".
-    if (info.conditional && !name.startsWith('_') && name != 'ffi') {
+    if (info.conditional &&
+        !name.startsWith('_') &&
+        (native ? name != 'mirrors' : name != 'ffi')) {
       variables['dart.library.$name'] = 'true';
     }
   }
@@ -80,21 +86,21 @@ AnalysisContextCollection createWasmAnalysisContext({
               p.join(sdk, 'lib', p.fromUri(entry.value.uri)),
         )) {
       unawaited(collection.dispose());
-      throw const SdkCompatibilityException(
+      throw SdkCompatibilityException(
         'NAPI_SDK_LAYOUT',
-        'Analyzer did not select the configured Wasm SDK libraries.',
+        'Analyzer did not select the configured $target SDK libraries.',
       );
     }
   }
   return collection;
 }
 
-typedef _WasmLibrary = ({String uri, bool conditional});
+typedef _SdkLibrary = ({String uri, bool conditional});
 
-Map<String, _WasmLibrary> _readWasmLibraries(String sdk) {
+Map<String, _SdkLibrary> _readLibraries(String sdk, String selectedTarget) {
   Never invalid(String message) => throw SdkCompatibilityException(
     'NAPI_SDK_LAYOUT',
-    'Cannot configure Dart $supportedDartSdkVersion Wasm analysis: $message',
+    'Cannot configure Dart $supportedDartSdkVersion $selectedTarget analysis: $message',
   );
 
   try {
@@ -102,7 +108,7 @@ Map<String, _WasmLibrary> _readWasmLibraries(String sdk) {
     if (version != supportedDartSdkVersion) {
       throw SdkCompatibilityException(
         'NAPI_SDK_VERSION',
-        'Wasm analysis requires Dart $supportedDartSdkVersion. Found: $version',
+        '$selectedTarget analysis requires Dart $supportedDartSdkVersion. Found: $version',
       );
     }
     final specification = jsonDecode(
@@ -112,13 +118,13 @@ Map<String, _WasmLibrary> _readWasmLibraries(String sdk) {
       invalid('libraries.json is not an object.');
     }
     final visiting = <String>{};
-    Map<String, _WasmLibrary> resolve(String target) {
+    Map<String, _SdkLibrary> resolve(String target) {
       if (!visiting.add(target)) invalid('Cyclic SDK target: $target.');
       final definition = specification[target];
       if (definition is! Map<String, dynamic>) {
         invalid('Missing SDK target: $target.');
       }
-      final result = <String, _WasmLibrary>{};
+      final result = <String, _SdkLibrary>{};
       final includes = definition['include'] ?? const [];
       if (includes is! List) invalid('Invalid includes for $target.');
       for (final include in includes) {
@@ -152,6 +158,10 @@ Map<String, _WasmLibrary> _readWasmLibraries(String sdk) {
             direct != 'always') {
           invalid('Unsupported dart:${entry.key} metadata.');
         }
+        // The distributed stable SDK omits this VM-private service source;
+        // it is absent from its analyzer metadata too. Keep other missing
+        // sources fatal rather than silently hiding public libraries.
+        if (selectedTarget == 'vm' && entry.key == '_vmservice') continue;
         if (!File(p.join(sdk, 'lib', p.fromUri(uri))).existsSync()) {
           invalid('Missing source for dart:${entry.key}.');
         }
@@ -161,9 +171,11 @@ Map<String, _WasmLibrary> _readWasmLibraries(String sdk) {
       return result;
     }
 
-    final libraries = resolve('wasm');
+    final libraries = resolve(selectedTarget);
     if (libraries['core']?.uri != 'core/core.dart') {
-      invalid('The Wasm target must use the real dart:core declarations.');
+      invalid(
+        'The $selectedTarget target must use the real dart:core declarations.',
+      );
     }
     return libraries;
   } on FileSystemException catch (error) {

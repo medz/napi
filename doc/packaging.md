@@ -1,4 +1,4 @@
-# Fresh npm Wasm packages
+# Fresh npm packages
 
 `assembleWasmPackage` from `package:napi/build.dart` assembles an already built
 `BuiltModule` into a new npm directory. It does not compile again or replace an
@@ -47,7 +47,13 @@ UTF-16 strings, and invalid argument rejection. The compiler remains pinned to
 Dart 3.13.5 and its experimental Wasm integration; use the repository's tested
 Node and TypeScript versions from CI.
 
-This is the fresh Wasm assembly groundwork for #134. A supported native runtime
-distribution, native package assembly, and shared cross-backend package
-conformance remain open. It neither claims native support nor falls back between
-backends. Rebuild/replacement behavior remains #135.
+`assembleNativePackage` uses the same metadata, assets and atomic publication
+rules for a `BuildTarget.native` module. Its root and `./native` exports load
+`module.mjs` with `module.d.mts` declarations. It copies business AOT and only the
+manifest-declared bridge/runtime/license files, validating their hashes again
+after copying. The initial native package is macOS arm64; conflicting `os` or
+`cpu` metadata is rejected. See [native setup and scope](native.md).
+
+These are single-target assembly APIs. Shared cross-backend selection/fallback,
+runtime supply automation and other native platforms remain #134/#144;
+rebuild/replacement behavior remains #135.
