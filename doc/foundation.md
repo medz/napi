@@ -1,5 +1,10 @@
 # Direct-Wasm foundation
 
+This document describes the existing JS-dependent development foundation.
+The [single-Wasm contract](single-wasm.md) supersedes its acceptance of JS host
+dependencies and JS-valued globals for future deliverables. The implementation
+below remains useful regression evidence; it does not meet that new contract.
+
 This implements the bounded foundation in #115, following #107 and #114. It
 removes the old implementation, tests, fixtures, benchmarks, examples, and
 historical documentation. The repository, Git history, MIT license, development
