@@ -331,7 +331,7 @@ void _checkType(BindingType type, SourceLocation source) {
   }
 }
 
-/// Check the current fixed-arity scalar backend, after declaration checks.
+/// Check the scalar backend, after declaration checks.
 ///
 /// Unsupported metadata is rejected explicitly; it is never erased to make a
 /// declaration fit the backend or silently omitted from the lowered module.
@@ -341,7 +341,7 @@ ValidatedModule validate(BindingModule module) {
     throw BindingDiagnostic(
       'NAPI_CLASS',
       'Class declarations require a class-capable backend; '
-          'the current backend only generates required scalar functions.',
+          'the current backend only generates scalar functions.',
       module.classes.first.source,
     );
   }
@@ -388,19 +388,50 @@ ValidatedModule validate(BindingModule module) {
         'External functions require an external-capable backend.',
       );
     }
+    var optionalPositional = false;
+    var named = false;
     for (final parameter in function.parameters) {
       if (!_identifier.hasMatch(parameter.name) ||
           _reserved.contains(parameter.name)) {
         reject('NAPI_PARAMETER', 'Unsupported backend parameter name.');
       }
-      if (parameter.presence != ParameterPresence.required ||
-          parameter.kind != ParameterKind.requiredPositional ||
-          parameter.hasDefault) {
+      final optional =
+          parameter.kind == ParameterKind.optionalPositional ||
+          parameter.kind == ParameterKind.optionalNamed;
+      if (parameter.presence !=
+          (optional
+              ? ParameterPresence.optional
+              : ParameterPresence.required)) {
         reject(
           'NAPI_PRESENCE',
-          'Presence-sensitive calls require a callable-global plan (#118); '
-              'the foundation only generates required scalar functions.',
+          'Parameter presence must match its Dart kind. Opaque presence '
+              'requires the opaque conversion engine (#125).',
         );
+      }
+      switch (parameter.kind) {
+        case ParameterKind.requiredPositional:
+          if (optionalPositional || named) {
+            reject(
+              'NAPI_PARAMETER',
+              'Required positional parameters must come first.',
+            );
+          }
+        case ParameterKind.optionalPositional:
+          if (named) {
+            reject(
+              'NAPI_PARAMETER',
+              'Dart cannot mix optional positional and named parameters.',
+            );
+          }
+          optionalPositional = true;
+        case ParameterKind.requiredNamed || ParameterKind.optionalNamed:
+          if (optionalPositional) {
+            reject(
+              'NAPI_PARAMETER',
+              'Dart cannot mix optional positional and named parameters.',
+            );
+          }
+          named = true;
       }
       if (!_isBackendScalar(parameter.type)) {
         reject(
@@ -409,12 +440,42 @@ ValidatedModule validate(BindingModule module) {
               '${parameter.type.semantics.name} type and nullability.',
         );
       }
+      if (!optional && parameter.hasDefault) {
+        reject('NAPI_DEFAULT', 'Required parameters cannot have defaults.');
+      }
+      if (optional) _checkDefault(parameter, function.source);
     }
     if (!_isBackendScalar(function.result)) {
       reject('NAPI_TYPE', 'The current backend only generates scalar results.');
     }
   }
   return ValidatedModule._(declarations.bindings);
+}
+
+void _checkDefault(ParameterBinding parameter, SourceLocation source) {
+  final value = parameter.defaultValue?.value;
+  final type = parameter.type;
+  final valid = parameter.hasDefault && parameter.defaultValue == null
+      ? false
+      : value == null
+      ? type.nullability == TypeNullability.nullable
+      : type is SafeIntType
+      ? value is int
+      : switch ((type as DeclaredType).declaration.name) {
+          'bool' => value is bool,
+          'String' => value is String,
+          'double' => value is double || value is int,
+          _ => false,
+        };
+  if (!valid) {
+    throw BindingDiagnostic(
+      'NAPI_DEFAULT',
+      'Default for ${parameter.name} must resolve to a compatible scalar '
+          'constant (or null for a nullable parameter); source expressions '
+          'are never copied into generated calls.',
+      parameter.source ?? source,
+    );
+  }
 }
 
 bool _isBackendScalar(BindingType type) {

@@ -44,6 +44,7 @@ LinkedDartModule linkDartModule({
     _checkSpecifier(entry.value);
   }
   final helpers = extractDartHostHelpers(rawMjsText);
+  final stringConstants = extractDartStringConstants(rawMjsText);
   final input = _Reader(rawWasmBytes);
   _readHeader(input);
   final output = BytesBuilder(copy: false)..add(_header);
@@ -111,6 +112,16 @@ LinkedDartModule linkDartModule({
             _unknownImport(module, name);
           }
           expression = jsonEncode(name);
+        } else if (module == 's') {
+          final index = int.tryParse(name);
+          if (!_isImmutableExternref(descriptor) ||
+              index == null ||
+              index.toString() != name ||
+              index < 0 ||
+              index >= stringConstants.length) {
+            _unknownImport(module, name);
+          }
+          expression = jsonEncode(stringConstants[index]);
         } else if (module == 'dart2wasm') {
           if (kind != 0) _unknownImport(module, name);
           verifyDartHostImport(helpers, name);
@@ -156,7 +167,7 @@ LinkedDartModule linkDartModule({
   );
 }
 
-/// A public Wasm module whose immutable externref exports are real JS values.
+/// A public Wasm module combining native functions and real JS values.
 ///
 /// Node's native Wasm ESM loader unwraps immutable globals. A constructor or
 /// argument-preserving function can therefore stay directly importable from
@@ -165,13 +176,20 @@ LinkedDartModule linkDartModule({
 Uint8List buildPublicWasmFacade({
   required String hostSpecifier,
   required List<String> exportNames,
+  Map<String, int> nativeFunctions = const {},
+  String coreSpecifier = './core.wasm',
 }) {
   _checkSpecifier(hostSpecifier);
-  if (exportNames.toSet().length != exportNames.length ||
-      exportNames.any((name) => name.isEmpty)) {
+  _checkSpecifier(coreSpecifier);
+  final names = [...exportNames, ...nativeFunctions.keys];
+  if (names.toSet().length != names.length ||
+      names.any((name) => name.isEmpty)) {
     throw ArgumentError('Facade export names must be nonempty and unique.');
   }
-  for (final name in exportNames) {
+  if (nativeFunctions.values.any((arity) => arity < 0)) {
+    throw ArgumentError('Native facade function arities must be nonnegative.');
+  }
+  for (final name in names) {
     if (name == 'then' ||
         name.startsWith('wasm:') ||
         name.startsWith('wasm-js:')) {
@@ -183,8 +201,8 @@ Uint8List buildPublicWasmFacade({
       );
     }
   }
-  final imports = BytesBuilder(copy: false)..add(_u32(exportNames.length));
-  final exports = BytesBuilder(copy: false)..add(_u32(exportNames.length));
+  final imports = BytesBuilder(copy: false)..add(_u32(names.length));
+  final exports = BytesBuilder(copy: false)..add(_u32(names.length));
   for (var index = 0; index < exportNames.length; index++) {
     imports
       ..add(_name(hostSpecifier))
@@ -196,6 +214,34 @@ Uint8List buildPublicWasmFacade({
       ..add(_u32(index));
   }
   final output = BytesBuilder(copy: false)..add(_header);
+  if (nativeFunctions.isNotEmpty) {
+    final arities = nativeFunctions.values.toSet().toList();
+    final types = BytesBuilder(copy: false)..add(_u32(arities.length));
+    for (final arity in arities) {
+      types
+        ..addByte(0x60)
+        ..add(_u32(arity))
+        ..add(List.filled(arity, 0x6f))
+        ..add(const [1, 0x6f]);
+    }
+    final payload = types.takeBytes();
+    output
+      ..addByte(1)
+      ..add(_u32(payload.length))
+      ..add(payload);
+    var functionIndex = 0;
+    for (final function in nativeFunctions.entries) {
+      imports
+        ..add(_name(coreSpecifier))
+        ..add(_name(function.key))
+        ..addByte(0)
+        ..add(_u32(arities.indexOf(function.value)));
+      exports
+        ..add(_name(function.key))
+        ..addByte(0)
+        ..add(_u32(functionIndex++));
+    }
+  }
   for (final section in [(2, imports.takeBytes()), (7, exports.takeBytes())]) {
     output
       ..addByte(section.$1)
@@ -209,6 +255,7 @@ const _header = [0, 0x61, 0x73, 0x6d, 1, 0, 0, 0];
 const _standardModules = {'Math', 'Date', 'Object', 'Array', 'Reflect'};
 const _compilerModules = {
   '',
+  's',
   'dart2wasm',
   'wasm:js-string',
   'WebAssembly',

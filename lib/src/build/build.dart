@@ -3,6 +3,7 @@ import 'dart:io';
 import '../compiler/analysis/validate.dart';
 import '../compiler/emit/dart/entrypoint.dart';
 import '../compiler/emit/js/boundary.dart';
+import '../compiler/emit/js/arguments.dart';
 import '../compiler/emit/typescript/declarations.dart';
 import '../compiler/front_end/frontend.dart';
 import '../compiler/ir/model.dart';
@@ -47,6 +48,10 @@ Future<BuiltModule> buildModule({
   String? packagesPath,
 }) async {
   final plan = lower(validate(bindings));
+  final callableGlobals = plan.functions
+      .where((f) => f.representation == ExportRepresentation.callableGlobal)
+      .toList();
+  final hasCalls = callableGlobals.isNotEmpty;
   final target = output.absolute;
   if (await FileSystemEntity.type(target.path, followLinks: false) !=
       FileSystemEntityType.notFound) {
@@ -69,11 +74,29 @@ Future<BuiltModule> buildModule({
       rawWasmBytes: await File(compiled.wasmPath).readAsBytes(),
       rawMjsText: await File(compiled.jsPath).readAsString(),
       hostSpecifier: './host.mjs',
-      coreSpecifier: './module.wasm',
+      coreSpecifier: hasCalls ? './core.wasm' : './module.wasm',
       additionalImports: {'napi': './boundary.mjs'},
     );
     final artifact = await Directory('${staging.path}/artifact').create();
-    await File('${artifact.path}/module.wasm').writeAsBytes(linked.wasmBytes);
+    await File('${artifact.path}/${hasCalls ? 'core' : 'module'}.wasm')
+        .writeAsBytes(linked.wasmBytes);
+    if (hasCalls) {
+      await File('${artifact.path}/calls.mjs')
+          .writeAsString(emitArgumentCalls(plan));
+      await File('${artifact.path}/module.wasm').writeAsBytes(
+        buildPublicWasmFacade(
+          hostSpecifier: './calls.mjs',
+          exportNames: callableGlobals
+              .map((f) => f.binding.exportName)
+              .toList(),
+          nativeFunctions: {
+            for (final f in plan.functions)
+              if (f.representation == ExportRepresentation.nativeFunction)
+                f.binding.exportName: f.inputs.length,
+          },
+        ),
+      );
+    }
     await File('${artifact.path}/host.mjs')
         .writeAsString(linked.hostJavaScript);
     await File('${artifact.path}/boundary.mjs')

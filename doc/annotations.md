@@ -73,8 +73,8 @@ supported: `bool`, `String`, `double`, `int`, `BigInt`, and their nullable forms
 `@NAPI(bigint: true)` selects fixed JavaScript `bigint` representation for every
 Dart `int` parameter/result of that function, including nullable ints and typedefs.
 It does not change other scalar types; Dart `BigInt` always uses JavaScript
-`bigint`. See [scalar conversion semantics](scalars.md). Optional/named parameters,
-other types, external functions and classes produce source diagnostics; selected
+`bigint`. See [scalar conversion semantics](scalars.md) and
+[optional/named arguments and defaults](arguments.md). Other types, external functions and classes produce source diagnostics; selected
 unsupported declarations are never dropped.
 
 `buildLibrary` connects discovery to the existing direct-Wasm build pipeline.
@@ -105,6 +105,6 @@ import { add } from './module.wasm';
 ```
 
 The actual `.wasm` exports, direct installed-package entry, safe-integer checks,
-strict TypeScript checks and atomic output publication remain unchanged. Optional
-argument-presence execution, structural/reference conversions, external bindings
+strict TypeScript checks and atomic output publication remain unchanged.
+Structural/reference conversions, external bindings
 and class runtime engines belong to subsequent work.

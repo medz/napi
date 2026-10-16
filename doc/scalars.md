@@ -1,9 +1,9 @@
 # Scalar conversion contract
 
-Generated nongeneric top-level functions support required positional scalar
-parameters and scalar results. The annotation frontend, lowering, Dart/JavaScript
+Generated nongeneric top-level functions support scalar parameters and results,
+including [optional and named arguments](arguments.md). The annotation frontend, lowering, Dart/JavaScript
 boundary and generated TypeScript declarations share the same conversion policy.
-Every public binding remains a real named Wasm function export; consumers import
+Every public binding remains a real named Wasm export; consumers import
 it directly from `.wasm`, without a JavaScript entrypoint or manual initialization.
 
 ## Representations
@@ -63,8 +63,8 @@ function is invoked, including arguments in branches the function would not use.
 
 `null` is accepted only for nullable types. Explicit `undefined` and missing
 required arguments always fail, even for nullable parameters. A nullable
-parameter is not optional. Optional positional and named parameter execution
-remain separate work.
+parameter is not optional. Optional positional and named parameters default for
+omission and `undefined`; explicit `null` still requires a nullable type.
 
 Number-represented `int` rejects fractions, NaN, infinities and unsafe integers.
 Both its inputs and results are range-checked; an out-of-range result fails
@@ -94,6 +94,7 @@ the module: subsequent valid calls remain usable.
 
 Generated TypeScript declarations use the exact fixed representation, explicit
 `| null` where appropriate, and required parameters without `?` or `undefined`.
+Optional parameters and options properties follow the argument contract.
 The integration fixtures compile real annotated Dart to Wasm and test runtime
 behavior, including hostile inputs and recovery. Strict consumer tests exercise
 both TypeScript NodeNext and Bundler resolution. The currently tested toolchain

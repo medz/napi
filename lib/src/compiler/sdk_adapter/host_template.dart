@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'dart_sdk_adapter.dart';
 
 /// Extracts compiler-owned helpers, without changing their implementation.
@@ -23,7 +25,85 @@ String extractDartHostHelpers(String source) {
       '      "wasm:js-string": jsStringPolyfill,\n'
       '    });\n\n'
       '    return new InstantiatedApp(this, dartInstance);';
-  const expectedBase = '''    const baseImports = {
+  int unique(String marker) {
+    final index = source.indexOf(marker);
+    if (index < 0 || source.indexOf(marker, index + 1) >= 0) _layoutError();
+    return index;
+  }
+
+  final instanceIndex = unique(instance);
+  final start = unique(helpers);
+  final importsIndex = unique(imports);
+  final baseIndex = unique(base);
+  final polyfillIndex = unique(polyfill);
+  final instantiateIndex = unique(instantiate);
+  extractDartStringConstants(source);
+  if (instanceIndex + instance.length != start ||
+      importsIndex <= start ||
+      baseIndex <= importsIndex ||
+      polyfillIndex <= baseIndex ||
+      instantiateIndex <= polyfillIndex ||
+      !source.substring(start, baseIndex).endsWith('    };\n\n') ||
+      !RegExp(r'    };\s*$')
+          .hasMatch(source.substring(polyfillIndex, instantiateIndex)) ||
+      RegExp(r"const builtins = \{builtins: \['js-string'\]\};")
+              .allMatches(source)
+              .length !=
+          2) {
+    _layoutError();
+  }
+  return source.substring(start, baseIndex);
+}
+
+/// The pinned compiler uses indexed strings when UTF-16 cannot fit a UTF-8
+/// Wasm import name. Accept only its exact table layout and JSON string values;
+/// never evaluate JavaScript from the loader.
+List<String> extractDartStringConstants(String source) {
+  const base = '    const baseImports = {\n';
+  const polyfill = '    const jsStringPolyfill = {\n';
+  final start = source.indexOf(base);
+  final end = source.indexOf(polyfill);
+  if (start < 0 ||
+      end <= start ||
+      source.indexOf(base, start + 1) >= 0 ||
+      source.indexOf(polyfill, end + 1) >= 0) {
+    _layoutError();
+  }
+  var body = source.substring(start, end);
+  final strings = <String>[];
+  const table = '      s: [\n';
+  const close = '      ],\n';
+  final tableStart = body.indexOf(table);
+  if (tableStart >= 0) {
+    final tableEnd = body.indexOf(close, tableStart + table.length);
+    if (tableEnd < 0 || body.indexOf(table, tableStart + 1) >= 0) {
+      _layoutError();
+    }
+    if (!body
+        .substring(tableEnd + close.length)
+        .startsWith(
+          '      "": new Proxy({}, { get(_, prop) { return prop; } }),\n',
+        )) {
+      _layoutError();
+    }
+    final rows = body.substring(tableStart + table.length, tableEnd);
+    if (rows.isEmpty || !rows.endsWith('\n')) _layoutError();
+    for (final row in rows.substring(0, rows.length - 1).split('\n')) {
+      if (!row.startsWith('        "') || !row.endsWith('",')) {
+        _layoutError();
+      }
+      Object? value;
+      try {
+        value = jsonDecode(row.substring(8, row.length - 1));
+      } on FormatException {
+        _layoutError();
+      }
+      if (value is! String) _layoutError();
+      strings.add(value);
+    }
+    body = body.replaceRange(tableStart, tableEnd + close.length, '');
+  }
+  const expected = '''    const baseImports = {
       dart2wasm: dart2wasm,
       Math: Math,
       Date: Date,
@@ -38,34 +118,8 @@ String extractDartHostHelpers(String source) {
     };
 
 ''';
-  int unique(String marker) {
-    final index = source.indexOf(marker);
-    if (index < 0 || source.indexOf(marker, index + 1) >= 0) _layoutError();
-    return index;
-  }
-
-  final instanceIndex = unique(instance);
-  final start = unique(helpers);
-  final importsIndex = unique(imports);
-  final baseIndex = unique(base);
-  final polyfillIndex = unique(polyfill);
-  final instantiateIndex = unique(instantiate);
-  if (instanceIndex + instance.length != start ||
-      importsIndex <= start ||
-      baseIndex <= importsIndex ||
-      polyfillIndex <= baseIndex ||
-      instantiateIndex <= polyfillIndex ||
-      source.substring(baseIndex, polyfillIndex) != expectedBase ||
-      !source.substring(start, baseIndex).endsWith('    };\n\n') ||
-      !RegExp(r'    };\s*$')
-          .hasMatch(source.substring(polyfillIndex, instantiateIndex)) ||
-      RegExp(r"const builtins = \{builtins: \['js-string'\]\};")
-              .allMatches(source)
-              .length !=
-          2) {
-    _layoutError();
-  }
-  return source.substring(start, baseIndex);
+  if (body != expected) _layoutError();
+  return List.unmodifiable(strings);
 }
 
 /// The compiler currently emits an identifier-keyed object of host functions.

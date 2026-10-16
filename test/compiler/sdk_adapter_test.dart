@@ -78,10 +78,14 @@ void main() {
       final source = File('${directory.path}/entry.dart');
       await source.writeAsString(r'''
 import 'dart:_wasm';
+import 'dart:_js_interop_wasm';
+import 'dart:js_interop';
 int calls = 0;
 @pragma('wasm:export', 'add')
 WasmI32 add(WasmI32 left, WasmI32 right) =>
     WasmI32.fromInt(left.toIntSigned() + right.toIntSigned() + calls++);
+@pragma('wasm:export', 'text')
+WasmExternRef? text() => externRefForJSAny('a\ud800b\udfff'.toJS);
 void main() => throw StateError('Business main must not run');
 ''');
       final compilation = await DartSdkAdapter().compile(
@@ -93,6 +97,29 @@ void main() => throw StateError('Business main must not run');
       expect(File('${directory.path}/raw.wasm.map').existsSync(), isFalse);
       final original = await File(compilation.wasmPath).readAsBytes();
       final rawHost = await File(compilation.jsPath).readAsString();
+      expect(extractDartStringConstants(rawHost), ['a\ud800b\udfff']);
+      for (final table in [
+        '      s: [\n        1,\n      ],\n',
+        '      s: [\n        (() => "executed")(),\n      ],\n',
+        '      s: [\n        "unterminated,\n      ],\n',
+        '      s: [\n      ],\n',
+        '      s: [\n        "value",\n      ],\n      extra: true,\n',
+      ]) {
+        final changed = rawHost.replaceFirst(
+          RegExp(r'      s: \[\n(?:[^\n]*\n)*?      \],\n'),
+          table,
+        );
+        expect(
+          () => extractDartHostHelpers(changed),
+          throwsA(
+            isA<SdkCompatibilityException>().having(
+              (error) => error.code,
+              'diagnostic',
+              'NAPI_SDK_HOST_LAYOUT',
+            ),
+          ),
+        );
+      }
       final linked = linkDartModule(
         rawWasmBytes: original,
         rawMjsText: rawHost,
@@ -106,11 +133,12 @@ void main() => throw StateError('Business main must not run');
           .writeAsBytes(linked.wasmBytes);
       await File('${directory.path}/host.mjs')
           .writeAsString(linked.hostJavaScript);
-      await File('${directory.path}/consumer.mjs').writeAsString('''
+      await File('${directory.path}/consumer.mjs').writeAsString(r'''
 import assert from 'node:assert/strict';
-import {add} from './module.wasm';
+import {add, text} from './module.wasm';
 assert.equal(add(2, 3), 5);
 assert.equal(add(2, 3), 6);
+assert.equal(text(), 'a\ud800b\udfff');
 console.log('direct-sdk-ok');
 ''');
       final result = await Process.run('node', [

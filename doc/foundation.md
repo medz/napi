@@ -34,6 +34,7 @@ engine. No empty feature directories stand in for implementations.
 | API | Wasm export kind | Contract |
 | --- | --- | --- |
 | Generated required scalar function | `function` | externref inputs; fixed arity; not constructible |
+| Generated optional/named scalar function | immutable externref `global` | captures argc and own named-property presence |
 | Presence-sensitive function proof | immutable externref `global` | original JS callable; captures actual argument count |
 | Class constructor proof | immutable externref `global` | original JS class; supports `new` and private receiver branding |
 
@@ -65,8 +66,9 @@ call convention.
 
 These fixtures validate the representation and linking route. They are not an
 annotation/class generator, general opaque storage engine, resource policy, or a
-claim of leak freedom. Generated optional calls are diagnosed until #118;
-generated classes and opaque carriers follow #123 and #125. Those implementations
+claim of leak freedom. Generated optional and named scalar calls now use the same
+representation; see [the argument contract](arguments.md). Generated classes and
+opaque carriers follow #123 and #125. Those implementations
 must add their full ownership, identity, failure, and lifetime contracts.
 
 ## Linking and initialization
