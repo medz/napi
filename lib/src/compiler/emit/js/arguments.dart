@@ -48,56 +48,147 @@ String emitArgumentCalls(ModulePlan plan) {
 import * as core from './core.wasm';
 import {useDefault, readOptions} from './boundary.mjs';
 ''');
+  final names = <CallPlan, String>{};
+  for (final (index, call) in plan.calls.indexed) {
+    final named = call.parameters.where(_named);
+    if (named.isEmpty) continue;
+    names[call] = 'names$index';
+    result.writeln(
+      'const names$index = new Set('
+      '${jsonEncode(named.map((p) => p.name).toList())});',
+    );
+  }
   for (final (index, function) in plan.functions.indexed) {
     if (function.representation != ExportRepresentation.callableGlobal) {
       continue;
     }
-    final parameters = function.binding.parameters;
-    final named = parameters.where((p) => _named(p)).toList();
-    final positionalCount = parameters.length - named.length;
-    if (named.isNotEmpty) {
-      result.writeln(
-        'const names$index = new Set('
-        '${jsonEncode(named.map((p) => p.name).toList())});',
-      );
-    }
     result.writeln('const call$index = (...args) => {');
-    // Capture own property descriptors once; accessors are never invoked.
-    if (named.isNotEmpty) {
-      result.writeln(
-        '  const options = readOptions(args[$positionalCount], '
-        'args.length > $positionalCount, '
-        'names$index, '
-        '${jsonEncode('${function.binding.exportName} options')});',
-      );
-    }
-    for (final (i, parameter) in parameters.indexed) {
-      final key = jsonEncode(parameter.name);
-      final supplied = _named(parameter)
-          ? 'Object.hasOwn(options, $key)'
-          : 'args.length > $i';
-      result.writeln('  const s$i = $supplied;');
-      result.writeln(
-        '  const p$i = ${_named(parameter) ? 's$i ? options[$key].value : undefined' : 'args[$i]'};',
-      );
-      result.writeln(
-        '  const d$i = useDefault(p$i, s$i, '
-        '${jsonEncode(parameter.presence.name)}, '
-        '${jsonEncode(function.inputs[i].context)});',
-      );
-    }
+    final arguments = _arguments(
+      result,
+      function,
+      function.binding.exportName,
+      names[function],
+    );
     result.writeln(
       '  return core[${jsonEncode(function.coreExportName)}]('
-      '${[
-        for (final (i, p) in parameters.indexed) ...[if (_optional(p)) 'd$i ? 1 : 0', 'p$i'],
-      ].join(', ')});',
+      '$arguments);',
     );
     result.writeln(
       '};\nexport {call$index as ${function.binding.exportName}};',
     );
   }
+  for (final (index, binding) in plan.classes.indexed) {
+    final local = 'class$index';
+    result.writeln('class $local {\n  #reference;\n  constructor(...args) {');
+    final arguments = _arguments(
+      result,
+      binding.constructor,
+      binding.binding.exportName,
+      names[binding.constructor],
+      indent: '    ',
+    );
+    result.writeln(
+      '    this.#reference = core[${jsonEncode(binding.constructor.coreExportName)}]($arguments);\n  }',
+    );
+    for (final member in binding.members) {
+      final prefix = member.isStatic ? 'static ' : '';
+      final name = jsonEncode(member.exportName);
+      final declaration = switch (member.kind) {
+        MemberCallKind.method => '$prefix[$name](...args)',
+        MemberCallKind.getter => '${prefix}get [$name]()',
+        MemberCallKind.setter => '${prefix}set [$name](value)',
+        MemberCallKind.constructor => throw StateError(
+          'Unexpected constructor',
+        ),
+      };
+      result.writeln('  $declaration {');
+      // A private field rejects forged, foreign and Proxy receivers before any
+      // options inspection or Dart call, while retaining the Dart object itself.
+      if (!member.isStatic) {
+        result.writeln('    const reference = this.#reference;');
+      }
+      if (member.kind == MemberCallKind.setter) {
+        result.writeln('    const args = [value];');
+      }
+      final arguments = _arguments(
+        result,
+        member,
+        member.context,
+        names[member],
+        indent: '    ',
+      );
+      result.writeln(
+        '    ${member.output == null ? '' : 'return '}core[${jsonEncode(member.coreExportName)}]('
+        '${[if (!member.isStatic) 'reference', if (arguments.isNotEmpty) arguments].join(', ')});\n  }',
+      );
+    }
+    result.writeln('}');
+    if (!binding.members.any(
+      (member) => member.isStatic && member.exportName == 'name',
+    )) {
+      result.writeln(
+        'Object.defineProperty($local, "name", {value: ${jsonEncode(binding.binding.exportName)}, configurable: true});',
+      );
+    }
+    result.writeln(
+      'Object.defineProperty($local, "length", {value: ${_arity(binding.constructor)}, configurable: true});',
+    );
+    for (final member in binding.members) {
+      if (member.kind != MemberCallKind.method) continue;
+      final receiver = member.isStatic ? local : '$local.prototype';
+      result.writeln(
+        'Object.defineProperty(Object.getOwnPropertyDescriptor($receiver, ${jsonEncode(member.exportName)}).value, "length", {value: ${_arity(member)}, configurable: true});',
+      );
+    }
+    result.writeln('export {$local as ${binding.binding.exportName}};');
+  }
   return result.toString();
 }
+
+String _arguments(
+  StringBuffer result,
+  CallPlan call,
+  String context,
+  String? names, {
+  String indent = '  ',
+}) {
+  final parameters = call.parameters;
+  final positionalCount = parameters.where((p) => !_named(p)).length;
+  // Capture own property descriptors once; accessors are never invoked.
+  if (names != null) {
+    result.writeln(
+      '${indent}const options = readOptions(args[$positionalCount], '
+      'args.length > $positionalCount, $names, '
+      '${jsonEncode('$context options')});',
+    );
+  }
+  for (final (i, parameter) in parameters.indexed) {
+    final key = jsonEncode(parameter.name);
+    final supplied = _named(parameter)
+        ? 'Object.hasOwn(options, $key)'
+        : 'args.length > $i';
+    result.writeln('${indent}const s$i = $supplied;');
+    result.writeln(
+      '${indent}const p$i = ${_named(parameter) ? 's$i ? options[$key].value : undefined' : 'args[$i]'};',
+    );
+    result.writeln(
+      '${indent}const d$i = useDefault(p$i, s$i, '
+      '${jsonEncode(parameter.presence.name)}, '
+      '${jsonEncode(call.inputs[i].context)});',
+    );
+  }
+  return [
+    for (final (i, p) in parameters.indexed) ...[
+      if (_optional(p)) 'd$i ? 1 : 0',
+      'p$i',
+    ],
+  ].join(', ');
+}
+
+int _arity(CallPlan call) =>
+    call.parameters.any((p) => p.kind != ParameterKind.requiredPositional)
+    ? 0
+    : call.parameters.length;
 
 bool _named(ParameterBinding p) =>
     p.kind == ParameterKind.requiredNamed ||

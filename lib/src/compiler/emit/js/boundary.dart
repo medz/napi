@@ -5,22 +5,12 @@ import 'arguments.dart';
 import 'structural.dart';
 
 String emitBoundary(ModulePlan plan) {
-  final conversions = [
-    for (final function in plan.functions) ...[
-      ...function.inputs,
-      function.output,
-    ],
-  ];
+  final conversions = plan.conversions;
   final policies = [
     for (final c in conversions)
       if (c is ScalarConversion) scalarPolicy(c) else null,
   ];
-  final outputs = <int>{};
-  var context = 0;
-  for (final function in plan.functions) {
-    context += function.inputs.length;
-    outputs.add(context++);
-  }
+  final outputs = {for (final call in plan.calls) ?call.outputContext};
   final structures = {
     for (final (index, conversion) in conversions.indexed)
       if (conversion is! ScalarConversion)
@@ -70,6 +60,6 @@ export function writeBigInt(value, context) { return checked(BigInt(value), cont
 export function throwDartError(message) { throw new Error(message); }
 ${structures.isEmpty ? '' : structuralPolicy}
 ${structures.values.map((s) => s.source).join('\n')}
-${plan.functions.any((f) => f.representation == ExportRepresentation.callableGlobal) ? argumentPolicy : ''}
+${plan.classes.isNotEmpty || plan.functions.any((f) => f.representation == ExportRepresentation.callableGlobal) ? argumentPolicy : ''}
 ''';
 }

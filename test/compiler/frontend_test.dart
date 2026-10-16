@@ -280,7 +280,7 @@ void main() {
       expect(classes['InterfaceFlag']!.isInterface, isTrue);
       expect(classes['MixinFlag']!.isMixinClass, isTrue);
       expect(() => validateDeclarations(module), returnsNormally);
-      expect(() => validate(module), throwsA(_diagnostic('NAPI_CLASS')));
+      expect(() => validate(module), throwsA(_diagnostic('NAPI_GENERIC')));
     });
 
     test('discovers annotated class aliases without inherited members', () {

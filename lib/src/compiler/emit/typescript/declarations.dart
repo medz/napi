@@ -9,8 +9,29 @@ String emitDeclarations(ModulePlan plan) => [
       'export declare const ${function.binding.exportName}: (${emitParameters(function.binding.parameters, function.inputs)}) => ${function.output.typescriptType};'
     else
       'export declare function ${function.binding.exportName}(${emitParameters(function.binding.parameters, function.inputs)}): ${function.output.typescriptType};',
+  for (final binding in plan.classes) ...[
+    'export declare class ${binding.binding.exportName} {',
+    '  constructor(${emitParameters(binding.constructor.parameters, binding.constructor.inputs)});',
+    for (final member in binding.members)
+      switch (member.kind) {
+        MemberCallKind.method =>
+          '  ${member.isStatic ? 'static ' : ''}${emitMemberName(member.exportName)}(${emitParameters(member.parameters, member.inputs)}): ${member.output?.typescriptType ?? 'void'};',
+        MemberCallKind.getter =>
+          '  ${member.isStatic ? 'static ' : ''}get ${emitMemberName(member.exportName)}(): ${member.output?.typescriptType ?? 'void'};',
+        MemberCallKind.setter =>
+          '  ${member.isStatic ? 'static ' : ''}set ${emitMemberName(member.exportName)}(${emitParameters(member.parameters, member.inputs)});',
+        MemberCallKind.constructor => throw StateError(
+          'Unexpected constructor',
+        ),
+      },
+    '}',
+  ],
   '',
 ].join('\n');
+
+/// TypeScript parses an unquoted constructor method as a class constructor.
+String emitMemberName(String name) =>
+    name == 'constructor' ? '["constructor"]' : name;
 
 String emitParameters(
   List<ParameterBinding> parameters,

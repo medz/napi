@@ -158,18 +158,24 @@ class HiddenCleanup {
     },
   );
 
-  test('class policy discovery does not enable a runtime backend', () async {
+  test('runtime gates allow concrete reference classes only', () async {
     final module = await annotated(await source(declarations));
     for (final binding in module.classes) {
       final single = BindingModule(source: module.source, classes: [binding]);
       expect(() => validateDeclarations(single), returnsNormally);
+      if (binding.declaration.name == 'Reference') {
+        expect(() => validate(single), returnsNormally);
+        continue;
+      }
       expect(
         () => validate(single),
         throwsA(
           isA<BindingDiagnostic>().having(
             (error) => error.code,
             'code',
-            'NAPI_CLASS',
+            binding.declaration.name == 'Ordinary'
+                ? 'NAPI_GENERIC'
+                : 'NAPI_CLASS',
           ),
         ),
       );

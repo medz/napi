@@ -35,9 +35,10 @@ unrelated members with colliding names are rejected.
 Constructor metadata distinguishes unnamed, named, factory, const and implicit
 constructors. A named constructor/factory retains its Dart member name unless
 renamed; an unnamed constructor has no assigned public member name. This does
-not assign constructors or factories a JavaScript runtime representation. Class
-runtime generation, constructibility and concrete factory APIs are later work. Class aliases are normalized as class
-declarations, including their mixin and synthetic constructor metadata.
+not assign all constructors or factories a JavaScript runtime representation.
+Both backends currently generate public unnamed generative constructors with
+`new`; named/factory constructors remain pending. Class aliases are normalized as
+class declarations, including their mixin and synthetic constructor metadata.
 
 ## Class policies
 
@@ -59,9 +60,9 @@ method by its original Dart name. Its existing member metadata retains the full
 signature, including generics, defaults and `Future` returns. Renaming or excluding
 that member from public exports does not change its cleanup identity.
 
-Value/resource policies remain descriptive. Native reference classes support
-the bounded synchronous slice in [native builds](native.md); Wasm class builds
-still report `NAPI_CLASS`.
+Value/resource policies remain descriptive. Both targets generate the bounded
+synchronous [reference-class slice](classes.md); unsupported class shapes fail
+before compilation.
 Value policies do not invent input construction (#122); ordinary reference
 classes do not gain disposal (#123). Resource execution, cleanup API spelling,
 operation leases and repeated/failed cleanup remain #124.
@@ -103,7 +104,7 @@ Dart `int` parameter/result of that function, including nullable ints and typede
 It does not change other scalar types; Dart `BigInt` always uses JavaScript
 `bigint`. See [scalar conversion semantics](scalars.md) and
 [optional/named arguments and defaults](arguments.md). Other types, external
-functions and classes produce source diagnostics; selected
+functions and unsupported class shapes produce source diagnostics; selected
 unsupported declarations are never dropped.
 
 `buildLibrary` connects discovery to the existing direct-Wasm build pipeline.
@@ -136,7 +137,7 @@ import { add } from './module.wasm';
 The actual `.wasm` exports, direct installed-package entry, safe-integer checks,
 strict TypeScript checks and atomic output publication remain unchanged.
 Cross-call reference conversions and complete class engines remain subsequent
-work; the native reference-class slice is documented in [native builds](native.md).
+work; the current constructor/member slice is documented in [reference classes](classes.md).
 
 ## External selections
 
@@ -172,6 +173,5 @@ defaults, documentation and semantic IR as annotations. Public reexports respect
 `show`/`hide`; missing, private, ambiguous and colliding selections are diagnosed.
 `ExternalClass` and `ExternalMember.constructor`/`method`/`getter`/`setter`/`field`
 also describe class selections and overrides. Both annotation and external
-selections use the scalar/structural Wasm backend or the synchronous native
-scalar/reference-class backend. Wasm class execution and value/resource
-runtime engines remain pending.
+selections support scalar functions and reference classes on both backends, plus
+structural functions on Wasm. Value/resource runtime engines remain pending.

@@ -30,10 +30,10 @@ See [the architecture and delivery plan](doc/architecture.md) and
 - Nested List and record conversion with strict field checks and bounded traversal
 - Safe-number `int` by default, or fixed JavaScript `bigint` with `@NAPI(bigint: true)`
 - A pinned Dart SDK adapter and linker producing actual Wasm named exports
-- Handwritten ABI fixtures proving real Dart constructors and argument-presence semantics
+- Generated reference-class constructors, methods and properties on both targets
 - Direct imports, installed package resolution, artifact inspection, and strict TypeScript tests
 - Fresh Wasm and native npm assembly with explicit assets and atomic publication
-- Native scalar/default bindings and real constructors, methods and properties
+- Shared scalar/default/class consumer contracts for Wasm and native
 - Precompiled native bridge/runtime; business builds use only the ordinary Dart SDK
 
 Wasm uses generated JavaScript dependencies; native uses an automatic ESM entry.
@@ -41,11 +41,12 @@ The package entry may select and load a backend automatically; consumers should
 not need loader setup, registration, or a call to application `main`.
 
 The annotation frontend records complete declaration metadata; build-time checks
-reject unsupported signatures before writing output. Wasm class execution,
+reject unsupported signatures before writing output. Cross-call class identity,
 complete lifecycle engines and replacement builds remain separate work in
 [#114](https://github.com/medz/napi/issues/114). See [annotation syntax and scope](doc/annotations.md) and the
 [scalar conversion contract](doc/scalars.md), [argument presence and defaults](doc/arguments.md),
-[structural values](doc/structural.md), and [npm package assembly](doc/packaging.md).
+[structural values](doc/structural.md), [reference classes](doc/classes.md), and
+[npm package assembly](doc/packaging.md).
 Annotated sources import `package:napi/napi.dart`; separate Dart VM build scripts
 use `buildLibrary` from `package:napi/build.dart`.
 
@@ -81,8 +82,9 @@ signed 64-bit input range; Dart `BigInt` always uses arbitrary-precision JavaScr
 
 The current tested toolchain is Dart **3.13.5 stable**, Node **24.19.0**, and
 TypeScript **7.0.2**. The SDK adapter deliberately rejects other Dart versions.
-Node's Wasm module warning is expected on this version. Native macOS arm64
-execution is also checked on Node **26.11.1**; see [native verification](doc/native.md).
+Node's Wasm module warning is expected on this version. Generated classes on both
+targets are also checked on Node **26.11.1**; see [class verification](doc/classes.md)
+and [native verification](doc/native.md).
 Other native targets, Bun and browser compatibility remain unverified.
 
 ```sh

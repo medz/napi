@@ -11,24 +11,25 @@ String emitDart(ModulePlan plan) {
     "import $source as target;\n$entrypointPrelude\n",
   );
   final structural = DartStructuralEmitter();
-  final hasStructural = plan.functions.any(
-    (f) => [...f.inputs, f.output].any((c) => c is! ScalarConversion),
-  );
+  final hasStructural = plan.conversions.any((c) => c is! ScalarConversion);
   if (hasStructural) result.writeln(dartStructuralPrelude);
-  var context = 0;
-  for (var index = 0; index < plan.functions.length; index++) {
-    final function = plan.functions[index];
-    final parameters = function.binding.parameters;
-    result.writeln("@pragma('wasm:export', '${function.coreExportName}')");
+  for (final (index, call) in plan.calls.indexed) {
+    final parameters = call.parameters;
+    final output = call.output;
+    final constructor =
+        call is MemberCallPlan && call.kind == MemberCallKind.constructor;
+    final instance = call is MemberCallPlan && !constructor && !call.isStatic;
+    final returnsVoid = output == null && !constructor;
+    result.writeln("@pragma('wasm:export', '${call.coreExportName}')");
     result.writeln(
-      'WasmExternRef? _export$index(${[
+      '${returnsVoid ? 'void' : 'WasmExternRef?'} _export$index(${[
+        if (instance) 'WasmExternRef reference',
         for (var i = 0; i < parameters.length; i++) ...[if (_optional(parameters[i])) 'WasmI32 d$i', 'WasmExternRef? p$i'],
       ].join(', ')}) {',
     );
-    // Validate raw externrefs outside the Dart exception boundary. In
-    // particular undefined is not erased into Dart null before validation.
+    // Raw externrefs are validated before Dart can erase undefined into null.
     for (var i = 0; i < parameters.length; i++) {
-      final conversion = function.inputs[i];
+      final conversion = call.inputs[i];
       result.writeln('  final ${conversion.dartType} a$i;');
       if (_optional(parameters[i])) {
         result.writeln('  if (d$i.toIntSigned() != 0) {');
@@ -38,7 +39,7 @@ String emitDart(ModulePlan plan) {
         result.writeln('  } else {');
       }
       result.writeln(
-        '  final v$i = _readValue(p$i, WasmI32.fromInt(${context++}));',
+        '  final v$i = _readValue(p$i, WasmI32.fromInt(${call.inputContexts[i]}));',
       );
       final value = conversion is ScalarConversion
           ? _read(conversion, 'v$i!')
@@ -49,21 +50,43 @@ String emitDart(ModulePlan plan) {
       );
       if (_optional(parameters[i])) result.writeln('  }');
     }
-    result.writeln('  ${function.output.dartType} value;\n  try {');
+    if (output != null) result.writeln('  ${output.dartType} value;');
+    result.writeln('  try {');
+    if (instance) {
+      final owner = call.owner;
+      result.writeln(
+        '    final object = reference.internalize().toObject() as target.${owner.callPath};',
+      );
+    }
+    final invocation = _invocation(call);
+    if (constructor) {
+      result.writeln('    final value = $invocation;');
+      result.writeln('    return WasmAnyRef.fromObject(value).externalize();');
+    } else if (returnsVoid) {
+      result.writeln('    $invocation;');
+    } else {
+      result.writeln('    value = $invocation;');
+    }
+    result.writeln('  } catch (error) {');
     result.writeln(
-      '    value = target.${function.binding.callPath}(${[for (var i = 0; i < parameters.length; i++) '${_named(parameters[i]) ? '${parameters[i].name}: ' : ''}a$i'].join(', ')});',
+      returnsVoid
+          ? '    _normalizeError(error);'
+          : '    return _normalizeError(error);',
     );
-    result.writeln(
-      '  } catch (error) {\n    return _normalizeError(error);\n  }',
-    );
-    if (function.output.nullable) {
+    result.writeln('  }');
+    if (output == null) {
+      result.writeln('}');
+      continue;
+    }
+    if (output.nullable) {
       result.writeln('  if (value == null) return WasmExternRef.nullRef;');
     }
-    if (function.output case final ScalarConversion scalar) {
-      result.writeln('  return ${_write(scalar, context++)};\n}');
+    final context = call.outputContext!;
+    if (output case final ScalarConversion scalar) {
+      result.writeln('  return ${_write(scalar, context)};\n}');
     } else {
-      final writer = structural.write(function.output);
-      final path = jsonEncode(function.output.context).replaceAll(r'$', r'\$');
+      final writer = structural.write(output);
+      final path = jsonEncode(output.context).replaceAll(r'$', r'\$');
       result.writeln(
         '  final JSAny? serialized;\n'
         '  try {\n'
@@ -73,12 +96,33 @@ String emitDart(ModulePlan plan) {
         '  } catch (error) {\n'
         '    return _normalizeError(error);\n'
         '  }\n'
-        '  return _writeValue(externRefForJSAny(serialized!), WasmI32.fromInt(${context++}));\n}',
+        '  return _writeValue(externRefForJSAny(serialized!), WasmI32.fromInt($context));\n}',
       );
     }
   }
   result.write(structural.source);
   return result.toString();
+}
+
+String _invocation(CallPlan call) {
+  final arguments = [
+    for (final (index, parameter) in call.parameters.indexed)
+      '${_named(parameter) ? '${parameter.name}: ' : ''}a$index',
+  ].join(', ');
+  if (call is FunctionPlan) {
+    return 'target.${call.binding.callPath}($arguments)';
+  }
+  final member = call as MemberCallPlan;
+  final receiver = member.isStatic || member.kind == MemberCallKind.constructor
+      ? 'target.${member.owner.callPath}'
+      : 'object';
+  final path = member.binding.callPath ?? member.binding.declaration.name;
+  return switch (member.kind) {
+    MemberCallKind.constructor => '$receiver($arguments)',
+    MemberCallKind.method => '$receiver.$path($arguments)',
+    MemberCallKind.getter => '$receiver.$path',
+    MemberCallKind.setter => '$receiver.$path = a0',
+  };
 }
 
 bool _optional(ParameterBinding p) =>

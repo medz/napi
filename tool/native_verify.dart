@@ -58,6 +58,7 @@ dependencies:
 ''');
   await File('test/fixtures/native_classes.dart')
       .copy('${project.path}/business.dart');
+  await File('test/fixtures/classes.dart').copy('${project.path}/classes.dart');
   await File('${project.path}/build.dart').writeAsString('''
 import 'dart:io';
 import 'package:napi/build.dart';
@@ -105,10 +106,21 @@ Future<void> main() async {
   ], cwd: consumer.path);
   await File('test/integration/native_classes.mjs')
       .copy('${consumer.path}/test.mjs');
+  await File('test/integration/class_contract.mjs')
+      .copy('${consumer.path}/class_contract.mjs');
   await File('test/typescript/native_classes.mts')
       .copy('${consumer.path}/consumer.mts');
   await run('node', ['--expose-gc', 'test.mjs'], cwd: consumer.path);
   await typescript(consumer, 'consumer.mts');
+  await File('${consumer.path}/shared_classes.mts').writeAsString(
+    (await File('test/typescript/classes.mts').readAsString())
+        .replaceAll(
+          '@napi/class-fixture/module.wasm',
+          '@napi/native-fixture/native',
+        )
+        .replaceAll('@napi/class-fixture', '@napi/native-fixture'),
+  );
+  await typescript(consumer, 'shared_classes.mts');
   await File('${consumer.path}/workers-only.mjs').writeAsString('''
 import {Worker} from 'node:worker_threads';
 for (let i = 0; i < 4; i++) {

@@ -109,7 +109,7 @@ Future<BuiltModule> buildModule({
   final callableGlobals = plan.functions
       .where((f) => f.representation == ExportRepresentation.callableGlobal)
       .toList();
-  final hasCalls = callableGlobals.isNotEmpty;
+  final hasCalls = callableGlobals.isNotEmpty || plan.classes.isNotEmpty;
   final destination = output.absolute;
   if (await FileSystemEntity.type(destination.path, followLinks: false) !=
       FileSystemEntityType.notFound) {
@@ -144,9 +144,10 @@ Future<BuiltModule> buildModule({
       await File('${artifact.path}/module.wasm').writeAsBytes(
         buildPublicWasmFacade(
           hostSpecifier: './calls.mjs',
-          exportNames: callableGlobals
-              .map((f) => f.binding.exportName)
-              .toList(),
+          exportNames: [
+            ...callableGlobals.map((f) => f.binding.exportName),
+            ...plan.classes.map((c) => c.binding.exportName),
+          ],
           nativeFunctions: {
             for (final f in plan.functions)
               if (f.representation == ExportRepresentation.nativeFunction)

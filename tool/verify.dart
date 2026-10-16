@@ -6,6 +6,7 @@ import 'scalar_fixture.dart';
 import 'argument_fixture.dart';
 import 'structural_fixture.dart';
 import 'package_assembly_fixture.dart';
+import 'class_fixture.dart';
 
 Future<void> run(String command, List<String> args, {String? cwd}) async {
   final result = await Process.run(command, args, workingDirectory: cwd);
@@ -126,6 +127,17 @@ Future<void> main() async {
   await verifyPackageAssembly(
     await Directory('${root.absolute.path}/package assembly').create(),
   );
+  final classes = await Directory('${root.absolute.path}/classes').create();
+  final sentinel = File('${classes.path}/business/keep.txt');
+  await sentinel.parent.create();
+  await sentinel.writeAsString('unrelated user file');
+  await verifyClassFixture(classes);
+  if (!await sentinel.exists() ||
+      await sentinel.readAsString() != 'unrelated user file') {
+    throw StateError(
+      'Class verification must preserve an existing business directory.',
+    );
+  }
   final kinds = await buildExportKindFixture();
   await run('node', ['test.mjs'], cwd: kinds.path);
   await typescript(kinds, 'consumer.mts');
