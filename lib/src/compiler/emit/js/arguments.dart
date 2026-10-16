@@ -48,6 +48,28 @@ String emitArgumentCalls(ModulePlan plan) {
 import * as core from './core.wasm';
 import {useDefault, readOptions} from './boundary.mjs';
 ''');
+  if (plan.classes.isNotEmpty) {
+    result.writeln(r'''const wrappers = new WeakMap();
+function intern(reference, classId, create, context) {
+  const entry = wrappers.get(reference);
+  if (entry !== undefined) {
+    if (entry.classId !== classId) throw new TypeError(context + ': conflicting public class identity');
+    const wrapper = entry.wrapper.deref();
+    if (wrapper !== undefined) return wrapper;
+  }
+  const wrapper = create();
+  wrappers.set(reference, {classId, wrapper: new WeakRef(wrapper)});
+  return wrapper;
+}
+''');
+    for (final (index, _) in plan.classes.indexed) {
+      result.writeln('let unwrap$index;');
+      result.writeln('const adopt$index = Symbol();');
+      result.writeln(
+        'const wrap$index = (reference, context) => reference === null ? null : intern(reference, $index, () => new class$index(adopt$index, reference), context);',
+      );
+    }
+  }
   final names = <CallPlan, String>{};
   for (final (index, call) in plan.calls.indexed) {
     final named = call.parameters.where(_named);
@@ -69,27 +91,42 @@ import {useDefault, readOptions} from './boundary.mjs';
       function.binding.exportName,
       names[function],
     );
-    result.writeln(
-      '  return core[${jsonEncode(function.coreExportName)}]('
-      '$arguments);',
-    );
+    final invocation =
+        'core[${jsonEncode(function.coreExportName)}]($arguments)';
+    result.writeln('  return ${_output(function.output, invocation)};');
     result.writeln(
       '};\nexport {call$index as ${function.binding.exportName}};',
+    );
+    result.writeln(
+      'Object.defineProperty(call$index, "length", {value: ${_arity(function)}, configurable: true});',
     );
   }
   for (final (index, binding) in plan.classes.indexed) {
     final local = 'class$index';
-    result.writeln('class $local {\n  #reference;\n  constructor(...args) {');
-    final arguments = _arguments(
-      result,
-      binding.constructor,
-      binding.binding.exportName,
-      names[binding.constructor],
-      indent: '    ',
-    );
     result.writeln(
-      '    this.#reference = core[${jsonEncode(binding.constructor.coreExportName)}]($arguments);\n  }',
+      'class $local {\n  #reference;\n  static {\n    unwrap$index = (value, context, nullable) => {\n      if (value === null && nullable) return null;\n      try { return value.#reference; } catch { throw new TypeError(context + ": expected a local ${binding.binding.exportName}"); }\n    };\n  }\n  constructor(...args) {\n    if (args[0] === adopt$index) { this.#reference = args[1]; return; }',
     );
+    final constructor = binding.constructor;
+    if (constructor == null) {
+      result.writeln(
+        '    throw new TypeError(${jsonEncode('${binding.binding.exportName}: no selected unnamed constructor')});',
+      );
+    } else {
+      final arguments = _arguments(
+        result,
+        constructor,
+        binding.binding.exportName,
+        names[constructor],
+        indent: '    ',
+      );
+      result.writeln(
+        '    const reference = core[${jsonEncode(constructor.coreExportName)}]($arguments);',
+      );
+      result.writeln(
+        '    return intern(reference, $index, () => { this.#reference = reference; return this; }, ${jsonEncode(binding.binding.exportName)});',
+      );
+    }
+    result.writeln('  }');
     for (final member in binding.members) {
       final prefix = member.isStatic ? 'static ' : '';
       final name = jsonEncode(member.exportName);
@@ -97,9 +134,7 @@ import {useDefault, readOptions} from './boundary.mjs';
         MemberCallKind.method => '$prefix[$name](...args)',
         MemberCallKind.getter => '${prefix}get [$name]()',
         MemberCallKind.setter => '${prefix}set [$name](value)',
-        MemberCallKind.constructor => throw StateError(
-          'Unexpected constructor',
-        ),
+        MemberCallKind.constructor => 'static [$name](...args)',
       };
       result.writeln('  $declaration {');
       // A private field rejects forged, foreign and Proxy receivers before any
@@ -117,9 +152,13 @@ import {useDefault, readOptions} from './boundary.mjs';
         names[member],
         indent: '    ',
       );
+      final invocation =
+          'core[${jsonEncode(member.coreExportName)}](${[if (!member.isStatic) 'reference', if (arguments.isNotEmpty) arguments].join(', ')})';
+      final expression = member.kind == MemberCallKind.constructor
+          ? 'wrap$index($invocation, ${jsonEncode(member.context)})'
+          : _output(member.output, invocation);
       result.writeln(
-        '    ${member.output == null ? '' : 'return '}core[${jsonEncode(member.coreExportName)}]('
-        '${[if (!member.isStatic) 'reference', if (arguments.isNotEmpty) arguments].join(', ')});\n  }',
+        '    ${member.output == null && member.kind != MemberCallKind.constructor ? '' : 'return '}$expression;\n  }',
       );
     }
     result.writeln('}');
@@ -131,10 +170,13 @@ import {useDefault, readOptions} from './boundary.mjs';
       );
     }
     result.writeln(
-      'Object.defineProperty($local, "length", {value: ${_arity(binding.constructor)}, configurable: true});',
+      'Object.defineProperty($local, "length", {value: ${binding.constructor == null ? 0 : _arity(binding.constructor!)}, configurable: true});',
     );
     for (final member in binding.members) {
-      if (member.kind != MemberCallKind.method) continue;
+      if (member.kind != MemberCallKind.method &&
+          member.kind != MemberCallKind.constructor) {
+        continue;
+      }
       final receiver = member.isStatic ? local : '$local.prototype';
       result.writeln(
         'Object.defineProperty(Object.getOwnPropertyDescriptor($receiver, ${jsonEncode(member.exportName)}).value, "length", {value: ${_arity(member)}, configurable: true});',
@@ -180,10 +222,17 @@ String _arguments(
   return [
     for (final (i, p) in parameters.indexed) ...[
       if (_optional(p)) 'd$i ? 1 : 0',
-      'p$i',
+      call.inputs[i] is ReferenceConversion
+          ? '${_optional(p) ? 'd$i ? null : ' : ''}unwrap${(call.inputs[i] as ReferenceConversion).classId}(p$i, ${jsonEncode(call.inputs[i].context)}, ${call.inputs[i].nullable})'
+          : 'p$i',
     ],
   ].join(', ');
 }
+
+String _output(ValueConversion? output, String invocation) =>
+    output is ReferenceConversion
+    ? 'wrap${output.classId}($invocation, ${jsonEncode(output.context)})'
+    : invocation;
 
 int _arity(CallPlan call) =>
     call.parameters.any((p) => p.kind != ParameterKind.requiredPositional)

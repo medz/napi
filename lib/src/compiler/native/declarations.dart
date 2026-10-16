@@ -26,7 +26,9 @@ String emitNativeDeclarations(NativeModulePlan plan) {
   for (final binding in plan.classes) {
     code.writeln('export declare class ${binding.binding.exportName} {');
     code.writeln(
-      '  constructor(${emitParameters(binding.constructor.parameters, binding.constructor.inputs)});',
+      binding.hasPublicConstructor
+          ? '  constructor(${emitParameters(binding.constructor.parameters, binding.constructor.inputs)});'
+          : '  private constructor();',
     );
     for (final call in binding.members) {
       final prefix = call.isStatic ? 'static ' : '';

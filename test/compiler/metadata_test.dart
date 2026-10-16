@@ -277,76 +277,74 @@ void main() {
     expect(() => validate(module), diagnostic('NAPI_GENERIC'));
   });
 
-  test(
-    'all class members survive descriptive validation; backend fails closed',
-    () {
-      final owner = DeclarationId(
+  test('all class members survive descriptive validation and lower without metadata loss', () {
+    final owner = DeclarationId(source, 'Box', kind: DeclarationKind.classType);
+    MemberBinding member(
+      String name,
+      MemberKind kind,
+      DeclarationKind declarationKind, {
+      MemberSelection selection = MemberSelection.implicit,
+      bool isFactory = false,
+    }) => MemberBinding(
+      declaration: DeclarationId(
         source,
-        'Box',
-        kind: DeclarationKind.classType,
-      );
-      MemberBinding member(
-        String name,
-        MemberKind kind,
-        DeclarationKind declarationKind, {
-        MemberSelection selection = MemberSelection.implicit,
-        bool isFactory = false,
-      }) => MemberBinding(
-        declaration: DeclarationId(
-          source,
-          name,
-          owner: owner,
-          kind: declarationKind,
+        name,
+        owner: owner,
+        kind: declarationKind,
+      ),
+      source: location,
+      kind: kind,
+      selection: selection,
+      isFactory: isFactory,
+      parameters: kind == MemberKind.setter
+          ? [const ParameterBinding('value', SafeIntType())]
+          : const [],
+      result: kind == MemberKind.setter
+          ? const VoidType()
+          : const SafeIntType(),
+      type: kind == MemberKind.field ? const SafeIntType() : null,
+    );
+    final binding = ClassBinding(
+      declaration: owner,
+      exportName: 'Box',
+      source: location,
+      documentation: 'A documented class.',
+      members: [
+        member('new', MemberKind.constructor, DeclarationKind.constructor),
+        member(
+          'make',
+          MemberKind.constructor,
+          DeclarationKind.constructor,
+          isFactory: true,
         ),
-        source: location,
-        kind: kind,
-        selection: selection,
-        isFactory: isFactory,
-        result: const SafeIntType(),
-        type: kind == MemberKind.field ? const SafeIntType() : null,
-      );
-      final binding = ClassBinding(
-        declaration: owner,
-        exportName: 'Box',
-        source: location,
-        documentation: 'A documented class.',
-        members: [
-          member('', MemberKind.constructor, DeclarationKind.constructor),
-          member(
-            'make',
-            MemberKind.constructor,
-            DeclarationKind.constructor,
-            isFactory: true,
-          ),
-          member('read', MemberKind.method, DeclarationKind.method),
-          member('value', MemberKind.getter, DeclarationKind.getter),
-          member('value', MemberKind.setter, DeclarationKind.setter),
-          member(
-            '_hidden',
-            MemberKind.field,
-            DeclarationKind.field,
-            selection: MemberSelection.excluded,
-          ),
-        ],
-      );
-      final module = BindingModule(source: source, classes: [binding]);
-      final validated = validateDeclarations(module);
-      expect(validated.bindings.classes.single.members, hasLength(6));
-      expect(binding.members[1].isFactory, isTrue);
-      expect(binding.members.last.selection, MemberSelection.excluded);
-      expect(() => validate(module), diagnostic('NAPI_CONSTRUCTOR'));
-      expect(
-        () => validate(
-          BindingModule(
-            source: source,
-            functions: [function()],
-            classes: [binding],
-          ),
+        member('read', MemberKind.method, DeclarationKind.method),
+        member('value', MemberKind.getter, DeclarationKind.getter),
+        member('value', MemberKind.setter, DeclarationKind.setter),
+        member(
+          '_hidden',
+          MemberKind.field,
+          DeclarationKind.field,
+          selection: MemberSelection.excluded,
         ),
-        diagnostic('NAPI_CONSTRUCTOR'),
-      );
-    },
-  );
+      ],
+    );
+    final module = BindingModule(source: source, classes: [binding]);
+    final validated = validateDeclarations(module);
+    expect(validated.bindings.classes.single.members, hasLength(6));
+    expect(binding.members[1].isFactory, isTrue);
+    expect(binding.members.last.selection, MemberSelection.excluded);
+    expect(validate(module).classes.single.members, hasLength(4));
+    expect(
+      validate(
+        BindingModule(
+          source: source,
+          functions: [function()],
+          classes: [binding],
+        ),
+      ),
+      isA<ValidatedModule>(),
+    );
+  });
 
   test('parameter kinds require representable defaults only when optional', () {
     for (final kind in ParameterKind.values.skip(1)) {

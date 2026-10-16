@@ -1,4 +1,4 @@
-// Compiler-private bridge ABI, version 1. Keep generated Dart in lockstep.
+// Compiler-private bridge ABI, version 2. Keep generated Dart in lockstep.
 #pragma once
 #include <node_api.h>
 #include <stdint.h>
@@ -11,6 +11,9 @@
 //          [ [memberKind, memberName, callback, arity], ... ], arity], ... ];
 // memberKind: method/getter/setter/staticMethod/staticGetter/staticSetter.
 // Getter/setter pairs share a descriptor but retain separate Dart closures.
+// classId is the zero-based class registration order, excluding function entries.
+// A class without a public unnamed constructor still supplies a throwing
+// callback; internal adoption bypasses it when wrapping an existing Dart value.
 // @pragma('vm:entry-point')
 // void releaseOwner(int ownerId)
 //
@@ -18,10 +21,12 @@
 // Its returned int is a napi_value pointer, or zero with a pending exception.
 // ownerId is a positive isolate-local integer. A wrapper must use slots 14/15
 // rather than raw napi_wrap/napi_unwrap so the stable C finalizer owns tokens.
-// A cross-isolate/foreign receiver returns zero and throws a TypeError.
+// A cross-isolate/foreign receiver returns zero; Dart adds a pathful TypeError.
 // On ordinary JS GC releaseOwner removes the Dart strong reference; automatic
 // business dispose is a separate lifetime policy, not promised by this ABI.
-// Foreign-isolate reentrant GC defers release until next callback or teardown.
+// GC during any Dart callback defers release until a safe outer callback edge.
+// A new wrapper always gets a new ownerId, including after a weak cache miss.
+// Cache references remain weak; no reference policy calls business cleanup.
 
 enum BridgeApiSlot {
   bridge_get_cb_info = 0,          // typeof(&napi_get_cb_info)
@@ -52,10 +57,20 @@ enum BridgeApiSlot {
   bridge_throw = 25,
   bridge_is_exception_pending = 26,
   bridge_read_options = 27,
-  bridge_api_count = 28,
+  bridge_reference_value = 28,
+  bridge_reference_create = 29,
+  bridge_api_count = 30,
 };
 typedef napi_status (*BridgeOwnerWrap)(napi_env, napi_value self, int64_t ownerId);
 typedef int64_t (*BridgeOwnerUnwrap)(napi_env, napi_value self);
 typedef napi_status (*BridgeReadOptions)(
     napi_env, napi_value input, bool supplied, const char* const* names,
     size_t count, napi_value* values, uint8_t* present, const char* context);
+// A successful lookup with *result == nullptr is a cache miss. Live results are
+// ordinary handles in the current Node callback scope, not owning napi_refs.
+typedef napi_status (*BridgeReferenceValue)(
+    napi_env, int64_t ownerId, napi_value* result);
+// Creates a genuine instance using the captured constructor, without executing
+// the Dart business constructor. The new lease is already retained by Dart.
+typedef napi_status (*BridgeReferenceCreate)(
+    napi_env, uint32_t classId, int64_t ownerId, napi_value* result);

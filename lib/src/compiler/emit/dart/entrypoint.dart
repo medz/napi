@@ -11,7 +11,9 @@ String emitDart(ModulePlan plan) {
     "import $source as target;\n$entrypointPrelude\n",
   );
   final structural = DartStructuralEmitter();
-  final hasStructural = plan.conversions.any((c) => c is! ScalarConversion);
+  final hasStructural = plan.conversions.any(
+    (c) => c is ListConversion || c is RecordConversion,
+  );
   if (hasStructural) result.writeln(dartStructuralPrelude);
   for (final (index, call) in plan.calls.indexed) {
     final parameters = call.parameters;
@@ -38,16 +40,21 @@ String emitDart(ModulePlan plan) {
         );
         result.writeln('  } else {');
       }
-      result.writeln(
-        '  final v$i = _readValue(p$i, WasmI32.fromInt(${call.inputContexts[i]}));',
-      );
-      final value = conversion is ScalarConversion
-          ? _read(conversion, 'v$i!')
-          : '${structural.read(conversion)}(v$i.isNull ? null : v$i!.toJS)';
-      result.writeln(
-        '  a$i = '
-        '${conversion.nullable && conversion is ScalarConversion ? 'v$i.isNull ? null : ' : ''}$value;',
-      );
+      if (conversion is ReferenceConversion) {
+        result.writeln(
+          '  a$i = ${conversion.nullable ? 'p$i.isNull ? null : ' : ''}p$i!.internalize().toObject() as ${conversion.dartType};',
+        );
+      } else {
+        result.writeln(
+          '  final v$i = _readValue(p$i, WasmI32.fromInt(${call.inputContexts[i]}));',
+        );
+        final value = conversion is ScalarConversion
+            ? _read(conversion, 'v$i!')
+            : '${structural.read(conversion)}(v$i.isNull ? null : v$i!.toJS)';
+        result.writeln(
+          '  a$i = ${conversion.nullable && conversion is ScalarConversion ? 'v$i.isNull ? null : ' : ''}$value;',
+        );
+      }
       if (_optional(parameters[i])) result.writeln('  }');
     }
     if (output != null) result.writeln('  ${output.dartType} value;');
@@ -82,7 +89,9 @@ String emitDart(ModulePlan plan) {
       result.writeln('  if (value == null) return WasmExternRef.nullRef;');
     }
     final context = call.outputContext!;
-    if (output case final ScalarConversion scalar) {
+    if (output is ReferenceConversion) {
+      result.writeln('  return WasmAnyRef.fromObject(value).externalize();\n}');
+    } else if (output case final ScalarConversion scalar) {
       result.writeln('  return ${_write(scalar, context)};\n}');
     } else {
       final writer = structural.write(output);
@@ -118,7 +127,10 @@ String _invocation(CallPlan call) {
       : 'object';
   final path = member.binding.callPath ?? member.binding.declaration.name;
   return switch (member.kind) {
-    MemberCallKind.constructor => '$receiver($arguments)',
+    MemberCallKind.constructor =>
+      member.binding.declaration.name == 'new'
+          ? '$receiver($arguments)'
+          : '$receiver.$path($arguments)',
     MemberCallKind.method => '$receiver.$path($arguments)',
     MemberCallKind.getter => '$receiver.$path',
     MemberCallKind.setter => '$receiver.$path = a0',

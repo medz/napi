@@ -30,7 +30,7 @@ See [the architecture and delivery plan](doc/architecture.md) and
 - Nested List and record conversion with strict field checks and bounded traversal
 - Safe-number `int` by default, or fixed JavaScript `bigint` with `@NAPI(bigint: true)`
 - A pinned Dart SDK adapter and linker producing actual Wasm named exports
-- Generated reference-class constructors, methods and properties on both targets
+- Generated reference classes, named/factory constructors and weak wrapper identity on both targets
 - Direct imports, installed package resolution, artifact inspection, and strict TypeScript tests
 - Fresh Wasm and native npm assembly with explicit assets and atomic publication
 - Shared scalar/default/class consumer contracts for Wasm and native
@@ -41,7 +41,7 @@ The package entry may select and load a backend automatically; consumers should
 not need loader setup, registration, or a call to application `main`.
 
 The annotation frontend records complete declaration metadata; build-time checks
-reject unsupported signatures before writing output. Cross-call class identity,
+reject unsupported signatures before writing output. Cross-type class identity,
 complete lifecycle engines and replacement builds remain separate work in
 [#114](https://github.com/medz/napi/issues/114). See [annotation syntax and scope](doc/annotations.md) and the
 [scalar conversion contract](doc/scalars.md), [argument presence and defaults](doc/arguments.md),

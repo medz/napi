@@ -69,9 +69,9 @@ void main() {
     );
     expect(plan.functions.last.coreExportName, 'napi:call:1');
     final counter = plan.classes.single;
-    expect(counter.constructor.coreExportName, 'napi:class:0:new');
-    expect(counter.constructor.output, isNull);
-    expect(counter.constructor.outputContext, isNull);
+    expect(counter.constructor!.coreExportName, 'napi:class:0:new');
+    expect(counter.constructor!.output, isNull);
+    expect(counter.constructor!.outputContext, isNull);
     final contexts = [
       for (final call in plan.calls) ...[
         ...call.inputContexts,
@@ -191,16 +191,6 @@ import 'package:napi/napi.dart';
       'NAPI_GENERIC',
     ),
     (
-      'reference input',
-      '@NAPI() class Bad { int read(Bad other) => 0; }',
-      'NAPI_TYPE',
-    ),
-    (
-      'reference output',
-      '@NAPI() class Bad { Bad self() => this; }',
-      'NAPI_TYPE',
-    ),
-    (
       'structural member',
       '@NAPI() class Bad { List<int> read() => [1]; }',
       'NAPI_TYPE',
@@ -209,21 +199,6 @@ import 'package:napi/napi.dart';
       'async member',
       '@NAPI() class Bad { Future<int> read() async => 1; }',
       'NAPI_TYPE',
-    ),
-    (
-      'named constructor',
-      '@NAPI() class Bad { Bad(); Bad.named(); }',
-      'NAPI_CONSTRUCTOR',
-    ),
-    (
-      'factory constructor',
-      '@NAPI() class Bad { factory Bad() => throw 0; }',
-      'NAPI_CONSTRUCTOR',
-    ),
-    (
-      'excluded constructor',
-      '@NAPI() class Bad { @NAPI(exclude: true) Bad(); }',
-      'NAPI_CONSTRUCTOR',
     ),
     (
       'value policy',

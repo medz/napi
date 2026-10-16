@@ -7,6 +7,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <mutex>
+#include <new>
 #include <map>
 #include <set>
 #include <string>
@@ -19,14 +20,28 @@ static std::once_flag initialize_once;
 static std::string initialize_error;
 
 struct Owner;
-struct Callback { Owner* owner; Dart_PersistentHandle closure; };
+struct Callback {
+  Owner* owner;
+  Dart_PersistentHandle closure;
+  int64_t class_id = -1;
+};
 struct Property {
   Callback* getter = nullptr;
   Callback* setter = nullptr;
   int64_t getter_arity = 0;
   int64_t setter_arity = 0;
 };
-struct Wrapper { Owner* owner; int64_t id; };
+struct Wrapper {
+  Owner* owner;
+  int64_t id;
+  napi_ref reference = nullptr;
+  Wrapper* next_release = nullptr;
+};
+struct Adoption {
+  uint32_t class_id;
+  int64_t id;
+  bool consumed = false;
+};
 struct Owner {
   napi_env env;
   NapiDart_Isolate* isolate;
@@ -34,8 +49,11 @@ struct Owner {
   Dart_PersistentHandle release_owner = nullptr;
   std::vector<Callback*> callbacks;
   std::vector<Property*> properties;
+  std::vector<napi_ref> constructors;
   std::set<Wrapper*> wrappers;
-  std::vector<int64_t> pending_releases;
+  std::map<int64_t, Wrapper*> references;
+  Wrapper* pending_releases = nullptr;
+  Adoption* adoption = nullptr;
 };
 static thread_local Owner* active_owner = nullptr;
 
@@ -92,27 +110,43 @@ static void release(Owner* owner, int64_t id) {
 }
 
 static void drain_releases(Owner* owner) {
-  auto pending = std::move(owner->pending_releases);
-  owner->pending_releases.clear();
-  for (auto id : pending) release(owner, id);
+  auto pending = owner->pending_releases;
+  owner->pending_releases = nullptr;
+  while (pending) {
+    auto next = pending->next_release;
+    release(owner, pending->id);
+    delete pending;
+    pending = next;
+  }
 }
 
-static void finalize(napi_env, void* data, void*) {
+static void defer_release(Owner* owner, Wrapper* wrapper) {
+  wrapper->next_release = owner->pending_releases;
+  owner->pending_releases = wrapper;
+}
+
+static void finalize(napi_env env, void* data, void*) {
   auto wrapper = static_cast<Wrapper*>(data);
+  // The wrap-returned zero-count reference belongs to this finalizer, including
+  // after Owner teardown. Deleting it on a cache miss could suppress finalizing.
+  if (wrapper->reference) napi_delete_reference(env, wrapper->reference);
   auto owner = wrapper->owner;
   if (owner && !owner->closing) {
     owner->wrappers.erase(wrapper);
-    if (active_owner && active_owner != owner) {
-      // A V8 allocation inside another Dart callback can finalize this token.
-      // Defer until this isolate is next entered instead of nesting isolates.
-      owner->pending_releases.push_back(wrapper->id);
+    owner->references.erase(wrapper->id);
+    if (active_owner) {
+      // Even same-isolate GC can happen inside Dart -> FFI -> V8. Do not invoke
+      // a Dart release closure until the outer callback reaches a safe edge.
+      defer_release(owner, wrapper);
+      return;
     } else {
       Scope scope(owner, false);
       if (scope.entered) {
         drain_releases(owner);
         release(owner, wrapper->id);
       } else {
-        owner->pending_releases.push_back(wrapper->id);
+        defer_release(owner, wrapper);
+        return;
       }
     }
   }
@@ -126,29 +160,89 @@ static napi_status bridge_wrap(napi_env env, napi_value self, int64_t id) {
     fail(env, "Invalid native owner");
     return napi_invalid_arg;
   }
-  auto wrapper = new Wrapper{owner, id};
-  auto status = napi_wrap(env, self, wrapper, finalize, nullptr, nullptr);
+  if (owner->references.count(id)) {
+    fail(env, "Native owner lease is already attached");
+    return napi_invalid_arg;
+  }
+  auto wrapper = new (std::nothrow) Wrapper{owner, id};
+  if (!wrapper) {
+    fail_error(env, "Cannot allocate native owner");
+    return napi_generic_failure;
+  }
+  // Prepare both indexes before transferring token ownership to JS. A successful
+  // napi_wrap is followed only by non-throwing commits.
+  try {
+    owner->wrappers.insert(wrapper);
+    owner->references.emplace(id, wrapper);
+  } catch (const std::bad_alloc&) {
+    owner->wrappers.erase(wrapper);
+    owner->references.erase(id);
+    delete wrapper;
+    fail_error(env, "Cannot index native owner");
+    return napi_generic_failure;
+  }
+  auto status = napi_wrap(env, self, wrapper, finalize, nullptr, &wrapper->reference);
   if (status != napi_ok) {
+    owner->wrappers.erase(wrapper);
+    owner->references.erase(id);
     delete wrapper;
     fail(env, "Cannot attach native owner");
     return status;
   }
-  owner->wrappers.insert(wrapper);
   return napi_ok;
 }
 
 // Table slot 15: int64_t bridge_unwrap(napi_env, napi_value).
-// Returns 0 with a pending TypeError when the receiver belongs elsewhere.
+// Returns 0 for an invalid/foreign receiver; Dart adds the precise call path.
 static int64_t bridge_unwrap(napi_env env, napi_value self) {
   auto owner = active_owner;
   void* data = nullptr;
   if (!owner || owner->closing || owner->env != env ||
       napi_unwrap(env, self, &data) != napi_ok ||
       owner->wrappers.count(static_cast<Wrapper*>(data)) == 0) {
-    fail(env, "Invalid native receiver");
     return 0;
   }
   return static_cast<Wrapper*>(data)->id;
+}
+
+static napi_status reference_value(napi_env env, int64_t id, napi_value* result) {
+  *result = nullptr;
+  auto owner = active_owner;
+  if (!owner || owner->closing || owner->env != env || id <= 0) {
+    fail(env, "Invalid native reference lookup");
+    return napi_invalid_arg;
+  }
+  auto found = owner->references.find(id);
+  if (found == owner->references.end()) return napi_ok;
+  // A weak reference can clear before its finalizer runs. Keep the old token
+  // until finalization; replacement wrappers use distinct lease IDs.
+  return napi_get_reference_value(env, found->second->reference, result);
+}
+
+static napi_status reference_create(napi_env env, uint32_t class_id,
+                                    int64_t id, napi_value* result) {
+  *result = nullptr;
+  auto owner = active_owner;
+  if (!owner || owner->closing || owner->env != env || id <= 0 ||
+      class_id >= owner->constructors.size() || owner->adoption) {
+    fail(env, "Invalid native reference creation");
+    return napi_invalid_arg;
+  }
+  napi_value constructor;
+  auto status = napi_get_reference_value(env, owner->constructors[class_id], &constructor);
+  if (status != napi_ok) return status;
+  Adoption adoption{class_id, id};
+  owner->adoption = &adoption;
+  struct ResetAdoption {
+    Owner* owner;
+    ~ResetAdoption() { owner->adoption = nullptr; }
+  } reset{owner};
+  status = napi_new_instance(env, constructor, 0, nullptr, result);
+  if (status == napi_ok && !adoption.consumed) {
+    fail_error(env, "Native reference constructor did not adopt its lease");
+    return napi_generic_failure;
+  }
+  return status;
 }
 
 static napi_status read_options(
@@ -246,6 +340,8 @@ static void* api_table[] = {
     reinterpret_cast<void*>(&napi_throw),
     reinterpret_cast<void*>(&napi_is_exception_pending),
     reinterpret_cast<void*>(&read_options),
+    reinterpret_cast<void*>(&reference_value),
+    reinterpret_cast<void*>(&reference_create),
 };
 static_assert(sizeof(api_table) / sizeof(*api_table) == bridge_api_count);
 
@@ -255,14 +351,16 @@ static napi_value invoke(napi_env env, napi_callback_info info, Callback* callba
   if (owner->closing) return fail(env, "Dart isolate is closed");
   if (active_owner && active_owner != owner)
     return fail(env, "Cannot enter a different Dart isolate reentrantly");
+  const bool outer = active_owner == nullptr;
   Scope scope(owner);
   if (!scope.entered) return nullptr;
-  drain_releases(owner);
+  if (outer) drain_releases(owner);
   Dart_Handle args[] = {
       Dart_NewInteger(reinterpret_cast<intptr_t>(env)),
       Dart_NewInteger(reinterpret_cast<intptr_t>(info))};
   auto result = Dart_InvokeClosure(
       Dart_HandleFromPersistent(callback->closure), 2, args);
+  if (outer) drain_releases(owner);
   if (Dart_IsError(result)) return fail_error(env, Dart_GetError(result));
   int64_t address = 0;
   auto error = Dart_IntegerToInt64(result, &address);
@@ -278,7 +376,22 @@ static napi_value dispatch(napi_env env, napi_callback_info info) {
   void* data = nullptr;
   if (napi_get_cb_info(env, info, nullptr, nullptr, nullptr, &data) != napi_ok)
     return fail_error(env, "Missing Dart callback");
-  return invoke(env, info, static_cast<Callback*>(data));
+  auto callback = static_cast<Callback*>(data);
+  if (!callback) return fail_error(env, "Missing Dart callback");
+  auto owner = callback->owner;
+  if (auto adoption = owner->adoption) {
+    napi_value self, target;
+    if (active_owner != owner || owner->env != env || owner->closing ||
+        adoption->consumed || callback->class_id != adoption->class_id ||
+        napi_get_cb_info(env, info, nullptr, nullptr, &self, nullptr) != napi_ok ||
+        napi_get_new_target(env, info, &target) != napi_ok || !target)
+      return fail(env, "Invalid internal native reference adoption");
+    adoption->consumed = true;
+    // This captured native constructor is entered synchronously by slot 29.
+    // Bypass Dart business construction while preserving V8's instance brand.
+    return bridge_wrap(env, self, adoption->id) == napi_ok ? self : nullptr;
+  }
+  return invoke(env, info, callback);
 }
 static napi_value dispatch_get(napi_env env, napi_callback_info info) {
   void* data = nullptr;
@@ -297,6 +410,14 @@ static void destroy(Owner* owner) {
   owner->closing = true;
   for (auto wrapper : owner->wrappers) wrapper->owner = nullptr;
   owner->wrappers.clear();
+  owner->references.clear();
+  while (auto pending = owner->pending_releases) {
+    owner->pending_releases = pending->next_release;
+    delete pending;
+  }
+  for (auto constructor : owner->constructors) {
+    if (constructor) napi_delete_reference(owner->env, constructor);
+  }
   {
     Scope scope(owner, false);
     if (!scope.entered) {
@@ -420,6 +541,7 @@ static bool register_bindings(Owner* owner, napi_value exports) {
       if (napi_create_function(env, name.c_str(), name.size(), dispatch,
                               callback, &value) != napi_ok) return false;
     } else if (kind == "class" && fields == 5) {
+      callback->class_id = static_cast<int64_t>(owner->constructors.size());
       if (!arity(env, Dart_ListGetAt(entry, 4), &function_arity)) return false;
       auto declarations = Dart_ListGetAt(entry, 3);
       intptr_t member_count;
@@ -507,6 +629,14 @@ static bool register_bindings(Owner* owner, napi_value exports) {
       if (napi_define_class(env, name.c_str(), name.size(), dispatch, callback,
                            properties.size(), properties.data(), &value) !=
           napi_ok) return false;
+      try {
+        owner->constructors.push_back(nullptr);
+      } catch (const std::bad_alloc&) {
+        fail_error(env, "Cannot retain native constructor");
+        return false;
+      }
+      if (napi_create_reference(env, value, 1, &owner->constructors.back()) != napi_ok)
+        return false;
       napi_value prototype = nullptr;
       for (const auto& member : members) {
         if (!member.is_static && !prototype &&

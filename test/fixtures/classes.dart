@@ -63,3 +63,85 @@ class _BadDescription {
   @override
   String toString() => throw StateError('description failed');
 }
+
+int _referenceConstructions = 0;
+RefBox? _heldReference;
+WeakReference<RefBox>? _lastReference;
+List<int> _pressure = [];
+
+@NAPI()
+int referenceConstructions() => _referenceConstructions;
+@NAPI()
+RefBox identityReference(RefBox value) => value;
+@NAPI()
+RefBox? nullableReference(RefBox? value) => value;
+@NAPI()
+RefBox? optionalReference([RefBox? value]) => value;
+@NAPI()
+RefBox? namedReference({required RefBox? value}) => value;
+@NAPI()
+int holdReference(RefBox? value) {
+  _heldReference = value;
+  return 0;
+}
+
+@NAPI()
+RefBox? heldReference() => _heldReference;
+@NAPI()
+bool referenceAlive() => _lastReference?.target != null;
+@NAPI()
+int referencePressure(int seed) {
+  _pressure = List<int>.generate(65536, (i) => i + seed);
+  return _pressure[seed & 65535];
+}
+
+@NAPI()
+class RefBox {
+  int value;
+  RefBox? peer;
+  RefBox([this.value = 0]) {
+    _referenceConstructions++;
+    _lastReference = WeakReference(this);
+  }
+  @NAPI(name: 'from')
+  RefBox.named(this.value) {
+    _referenceConstructions++;
+    _lastReference = WeakReference(this);
+  }
+  factory RefBox.shared() => _sharedReference;
+  RefBox self() => this;
+  RefBox choose(RefBox other) => other;
+  RefBox? optional([RefBox? other]) => other;
+  static RefBox echo(RefBox value) => value;
+}
+
+final _sharedReference = RefBox(42);
+
+@NAPI()
+class Once {
+  factory Once() => _once;
+  Once._();
+  Once self() => this;
+}
+
+final _once = Once._();
+
+@NAPI()
+class NamedReference {
+  NamedReference.make(this.box);
+  final RefBox box;
+}
+
+@NAPI()
+RefBase identityBase(RefBase value) => value;
+
+@NAPI()
+class RefBase {
+  RefBase();
+}
+
+@NAPI()
+class RefChild extends RefBase {
+  RefChild();
+  RefBase asBase() => this;
+}

@@ -51,12 +51,17 @@ StructuralBoundary emitStructuralBoundary(
       ListConversion(:final element) => [element],
       RecordConversion() => node.fields.values.toList(),
       ScalarConversion() => <ValueConversion>[],
+      ReferenceConversion() => throw StateError(
+        'Nested class references are not supported',
+      ),
     };
     final converters = [for (final child in children) emit(child, output)];
     code.writeln('function $name(value, path, state, depth) {');
     code.writeln('  visitStructure(state, path);');
     if (node.nullable) code.writeln('  if (value === null) return null;');
     switch (node) {
+      case ReferenceConversion():
+        throw StateError('Nested class references are not supported');
       case ScalarConversion():
         code.writeln(
           '  return ${output ? leafAdapter.write(node, 'value', 'path') : leafAdapter.read(node, 'value', 'path')};',

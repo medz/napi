@@ -70,20 +70,25 @@ exact UTF-16, booleans and IEEE-754 doubles. Boundary violations raise TypeError
 or RangeError; ordinary Dart failures become Error, including a safe fallback
 when the thrown object's string conversion fails.
 
-Reference classes support their own unnamed generative constructor, methods,
-fields, getters, setters, static members and selection/renaming. Constructor
-calls require `new`. A wrapper retains its Dart instance until JS collection;
-forged, foreign-class and foreign-isolate receivers fail before invocation.
-Readonly fields remain readonly. Normal collection drops references without
-calling a business disposal method. Explicit resource policies remain separate.
+Reference classes support unnamed generative/factory construction with `new`,
+named constructors/factories as static methods, direct class arguments/results,
+methods, fields, accessors and selection/renaming. Repeated returns reuse a live
+wrapper. Wrapper collection releases its retained-object lease; a Dart-held object
+can later acquire a fresh wrapper without another business constructor call.
+Weak identity entries and zero-count Node-API references do not root wrappers.
+Environment and exact selected class brands are checked before business calls.
+Readonly fields remain readonly and GC does not call business disposal methods.
+
+The private bridge table is ABI 2 (30 slots). Older bundles are rejected before
+copying; maintainers rebuild the bridge/runtime bundle using their existing VM
+cache. Consumer builds still require only the ordinary Dart SDK and that bundle.
 
 Unsupported shapes fail before output is created: structural values on native,
-class values passed or returned across calls, value/resource policies, generic
-specialization, factory/named constructors, Futures, callbacks,
-streams and cancellation. Their roadmap issues remain open. The same basic
-reference-class slice is generated on Wasm and checked with a shared consumer
-contract; see [reference classes](classes.md). Only own members are selected;
-JavaScript inheritance relationships are not generated.
+nested references, value/resource policies, generic specialization, non-null
+object defaults, Futures, callbacks, streams and cancellation. The same reference
+contract runs on Wasm; see [reference classes](classes.md). JavaScript inheritance
+is not generated, and one Dart object returned through different selected public
+class types is rejected. The full class/lifetime roadmap remains open.
 
 ## Runtime and verification
 

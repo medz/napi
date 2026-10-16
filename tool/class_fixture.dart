@@ -65,6 +65,8 @@ Future<void> main() async {
   await File('test/integration/classes.mjs').copy('${consumer.path}/test.mjs');
   await File('test/integration/class_contract.mjs')
       .copy('${consumer.path}/class_contract.mjs');
+  await File('test/integration/reference_contract.mjs')
+      .copy('${consumer.path}/reference_contract.mjs');
   await File('test/typescript/classes.mts')
       .copy('${consumer.path}/consumer.mts');
   await run('node', ['--expose-gc', 'test.mjs'], cwd: consumer.path);
@@ -83,6 +85,26 @@ Future<void> main() async {
     packagesPath: File('.dart_tool/package_config.json').absolute.path,
     external: const ExternalLibrary([
       ExternalFunction('liveCounters'),
+      ExternalFunction('referenceConstructions'),
+      ExternalFunction('identityBase'),
+      ExternalFunction('identityReference'),
+      ExternalFunction('nullableReference'),
+      ExternalFunction('optionalReference'),
+      ExternalFunction('namedReference'),
+      ExternalFunction('holdReference'),
+      ExternalFunction('heldReference'),
+      ExternalFunction('referenceAlive'),
+      ExternalFunction('referencePressure'),
+      ExternalClass(
+        'RefBox',
+        members: [
+          ExternalMember.constructor('named', config: NAPI(name: 'from')),
+        ],
+      ),
+      ExternalClass('Once'),
+      ExternalClass('NamedReference'),
+      ExternalClass('RefBase'),
+      ExternalClass('RefChild'),
       ExternalClass(
         'Counter',
         members: [
@@ -102,10 +124,14 @@ Future<void> main() async {
   );
   await File('test/integration/class_contract.mjs')
       .copy('${external.directory.path}/class_contract.mjs');
+  await File('test/integration/reference_contract.mjs')
+      .copy('${external.directory.path}/reference_contract.mjs');
   await File('${external.directory.path}/test.mjs').writeAsString('''
 import * as api from './module.wasm';
 import {verifyClasses} from './class_contract.mjs';
+import {verifyReferences} from './reference_contract.mjs';
 verifyClasses(api);
+verifyReferences(api);
 console.log('External unannotated Wasm classes: passed');
 ''');
   await run('node', ['--expose-gc', 'test.mjs'], cwd: external.directory.path);

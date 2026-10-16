@@ -13,7 +13,7 @@ String emitBoundary(ModulePlan plan) {
   final outputs = {for (final call in plan.calls) ?call.outputContext};
   final structures = {
     for (final (index, conversion) in conversions.indexed)
-      if (conversion is! ScalarConversion)
+      if (conversion is ListConversion || conversion is RecordConversion)
         index: emitStructuralBoundary(
           conversion,
           prefix: 'structure$index',

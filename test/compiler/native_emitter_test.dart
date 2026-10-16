@@ -168,17 +168,7 @@ import 'package:napi/napi.dart';
       "@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close') class Bad { void close() {} }",
       'NAPI_CLASS',
     ),
-    (
-      'named constructor',
-      '@NAPI() class Bad { Bad(); Bad.named(); }',
-      'NAPI_CONSTRUCTOR',
-    ),
-    (
-      'factory constructor',
-      '@NAPI() class Bad { factory Bad() => throw 0; }',
-      'NAPI_CONSTRUCTOR',
-    ),
-    ('abstract class', '@NAPI() abstract class Bad {}', 'NAPI_CLASS'),
+    ('abstract class', '@NAPI() abstract class Bad {}', 'NAPI_CONSTRUCTOR'),
     (
       'static length collision',
       '@NAPI() class Bad { static int length() => 0; }',

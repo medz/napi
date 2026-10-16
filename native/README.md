@@ -52,7 +52,7 @@ untouched. Node headers affect the reusable bridge, not individual businesses.
 The flat bundle contains `bridge.node`, the identity-qualified runtime dylib,
 `DART_LICENSE`, `DART_AUTHORS`, `NAPI_LICENSE`, and `manifest.json`.
 The manifest has `format: 1`, `sdkVersion`, `sdkRevision`, `platform: "macos"`,
-`architecture: "arm64"`, `minimumOsVersion: "14.0"`, `abi: 1`, `identity`,
+`architecture: "arm64"`, `minimumOsVersion: "14.0"`, `abi: 2`, `identity`,
 `bridge`, `runtime`, and `files` mapping the five payload names to SHA-256 hashes.
 Its `build` evidence records the cache arguments hash, combined input-object
 digest/count, and runtime/ABI source hash. It contains no local SDK paths.
@@ -78,16 +78,23 @@ operations initialize, load immutable canonical AOT snapshots, create/enter/exit
 isolates, drain microtasks, free errors and shut down one isolate. Public Dart C
 APIs provide scopes, values, invocation and persistent handles while entered.
 
-`bridge/abi.h` fixes the 28-slot compiler-private table and binding metadata.
+`bridge/abi.h` fixes the 30-slot compiler-private table and binding metadata.
 `napiBindings(address, count)` must validate that count before reading the table.
 Functions/classes retain actual JS call presence and `new` behavior. Getter and
 setter closures share one JS property descriptor but remain distinct callbacks.
 Named options use own-data descriptors; sparse positional values remain supplied
 `undefined`, and optional/default decisions stay in generated Dart.
 
+Slots 28 and 29 look up a weak wrapper by lease and adopt a new wrapper through
+its original captured constructor. Adoption bypasses business construction.
+A zero-count Node-API reference and Dart Expando cache preserve identity without
+rooting a wrapper. Each replacement wrapper receives a new lease; delayed old
+finalizers release only their own retained Dart object. The selected public class
+identity stays attached to the Dart object while it is alive.
+
 Every Node environment owns its isolates and persistent handles. Cross-owner
-receivers and different-isolate reentry are rejected; foreign-isolate GC defers
-owner release. Environment cleanup invalidates wrappers, deletes persistent
+receivers and different-isolate reentry are rejected; GC during active callbacks defers
+owner release until a safe outer boundary. Environment cleanup invalidates wrappers, deletes persistent
 handles while entered, exits, and shuts down only its own isolate. Matching
 runtime images stay resident with a retained `RTLD_NODELETE` handle because
 there is no process-global VM shutdown. This protects worker-only unload/reload.
