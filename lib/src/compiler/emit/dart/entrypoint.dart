@@ -25,7 +25,7 @@ String emitDart(ModulePlan plan) {
     }
     result.writeln('  int value;\n  try {');
     result.writeln(
-      '    value = target.${function.binding.declaration.name}(${[for (var i = 0; i < parameters.length; i++) 'a$i'].join(', ')});',
+      '    value = target.${function.binding.callPath}(${[for (var i = 0; i < parameters.length; i++) 'a$i'].join(', ')});',
     );
     result.writeln(
       '  } catch (error) {\n    return _normalizeError(error);\n  }',

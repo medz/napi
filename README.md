@@ -7,11 +7,12 @@ import { add } from './module.wasm';
 console.log(add(20, 22));
 ```
 
-This branch establishes the clean rebuild described in [#115](https://github.com/medz/napi/issues/115).
+This branch builds on the clean rebuild described in [#115](https://github.com/medz/napi/issues/115).
 It is a development foundation, not a new release or the complete binding API.
 
 ## Working foundation
 
+- Resolved `@NAPI()` discovery with renaming, class/member selection and reexports
 - Analyzer-independent declarations, validation, lowering, and Dart/JS/TypeScript emitters
 - Required positional Dart `int` functions with JavaScript safe-integer inputs and outputs
 - A pinned Dart SDK adapter and linker producing actual Wasm named exports
@@ -21,10 +22,12 @@ It is a development foundation, not a new release or the complete binding API.
 The generated JavaScript files are dependencies imported by Wasm. Consumers need
 no JavaScript entrypoint, loader setup, registration, or call to application `main`.
 
-Annotation discovery, complete scalar/optional/class bindings, and production npm
-package assembly remain separate work in [#114](https://github.com/medz/napi/issues/114).
-The `NAPI` annotation is defined, but this foundation does not yet discover it.
-The compiler's internal build API takes handwritten semantic IR.
+The annotation frontend records complete declaration metadata; build-time checks
+reject unsupported signatures before writing output. Complete scalar/optional/class
+execution and production npm package assembly remain separate work in
+[#114](https://github.com/medz/napi/issues/114). See [annotation syntax and scope](doc/annotations.md).
+Annotated sources import `package:napi/napi.dart`; separate Dart VM build scripts
+use `buildLibrary` from `package:napi/build.dart`.
 
 ## Verify
 
@@ -40,13 +43,14 @@ dart format --output=none --set-exit-if-changed lib test tool
 dart analyze --fatal-infos
 dart test
 dart run tool/verify.dart
-dart pub publish --dry-run
+dart run tool/check_package.dart
 ```
 
 `tool/verify.dart` builds fresh artifacts and executes the real Node ESM consumers,
 including an npm-packed fixture installed offline into a separate consumer.
 It checks TypeScript in NodeNext and Bundler modes. `NAPI_TSC` can select an
-already installed TypeScript executable.
+already installed TypeScript executable. Package validation permits only the
+expected warning for the exact analyzer pin; every other warning or error fails.
 
 To inspect just the generated scalar fixture:
 

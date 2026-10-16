@@ -7,9 +7,11 @@ Do not replace that API with manual initialization or a JavaScript entrypoint.
 Do not add a native addon backend, build_runner, or a plugin framework.
 
 Run format for lib/test/tool, analyze, dart test, dart run tool/verify.dart
-(including Node and TypeScript), pub dry-run, and git diff --check for changes.
-The foundation CI runs the full check suite. Handwritten IR and ABI fixtures
-exercise the backend until annotation discovery is implemented separately.
+(including Node and TypeScript), tool/check_package.dart (pub dry-run), and
+git diff --check for changes.
+The foundation CI runs the full check suite. Annotated scalar fixtures exercise
+the source-to-Wasm pipeline. Handwritten
+ABI fixtures independently prove later class and argument-presence contracts.
 Document tested compiler/runtime versions; the Dart Wasm interop is experimental.
 
 # Code review

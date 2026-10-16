@@ -1,0 +1,4 @@
+part of 'bindings.dart';
+
+@NAPI()
+int fromPart(int value) => value;
