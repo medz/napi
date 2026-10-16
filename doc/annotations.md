@@ -39,6 +39,31 @@ not assign constructors or factories a JavaScript runtime representation. Class
 runtime generation, constructibility and concrete factory APIs are later work. Class aliases are normalized as class
 declarations, including their mixin and synthetic constructor metadata.
 
+## Class policies
+
+`@NAPI()` classes default to `ClassPolicy.reference`. Explicit policies use the
+same annotation and external configuration:
+
+```dart
+@NAPI(classPolicy: ClassPolicy.value)
+class Point { Point(this.x); final int x; }
+
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+class Resource { Future<void> close() async {} }
+```
+
+`ExternalClass('Resource', config: NAPI(classPolicy: ClassPolicy.resource,
+cleanup: 'close'))` describes the same policy without modifying the dependency.
+`cleanup` is required only for resources and selects an own public instance
+method by its original Dart name. Its existing member metadata retains the full
+signature, including generics, defaults and `Future` returns. Renaming or excluding
+that member from public exports does not change its cleanup identity.
+
+Policies remain descriptive: building classes still reports `NAPI_CLASS`.
+Value policies do not invent input construction (#122); ordinary reference
+classes do not gain disposal (#123). Resource execution, cleanup API spelling,
+operation leases and repeated/failed cleanup remain #124.
+
 ## Resolution and metadata
 
 The selected entry is a file library. Ordinary imports do not select exports.
@@ -145,5 +170,5 @@ defaults, documentation and semantic IR as annotations. Public reexports respect
 `ExternalClass` and `ExternalMember.constructor`/`method`/`getter`/`setter`/`field`
 also describe class selections and overrides. They retain metadata but building
 still rejects classes with `NAPI_CLASS`. Executable external bindings currently
-use the same scalar/structural Wasm backend; native execution and explicit
-value/resource policies remain pending.
+use the same scalar/structural Wasm backend; native execution and
+value/resource runtime engines remain pending.

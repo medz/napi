@@ -12,7 +12,7 @@ import 'src/compiler/front_end/external.dart';
 
 export 'src/build/build.dart' show BuiltModule;
 export 'src/build/package.dart' show assembleWasmPackage;
-export 'src/api/annotation.dart' show NAPI;
+export 'src/api/annotation.dart' show NAPI, ClassPolicy;
 export 'src/compiler/analysis/validate.dart' show BindingDiagnostic;
 export 'src/compiler/front_end/external.dart';
 export 'src/compiler/ir/model.dart' show SourceLocation;

@@ -247,7 +247,71 @@ final class _Reader {
         'bigint is only supported on a top-level function.',
       );
     }
+    _checkClassOptions(element, config);
     _externalConfigs[element] = config;
+  }
+
+  void _checkClassOptions(a.Element element, NAPI config) {
+    if (element is! a.ClassElement) {
+      if (config.classPolicy != null || config.cleanup != null) {
+        _reject(
+          element,
+          'NAPI_PLACEMENT',
+          'classPolicy and cleanup are only valid on a class.',
+        );
+      }
+      return;
+    }
+    if (config.classPolicy == ClassPolicy.resource) {
+      if (config.cleanup == null) {
+        _reject(
+          element,
+          'NAPI_SELECTION',
+          'A resource policy requires a cleanup method name.',
+        );
+      }
+    } else if (config.cleanup != null) {
+      _reject(
+        element,
+        'NAPI_SELECTION',
+        'cleanup requires the resource class policy.',
+      );
+    }
+  }
+
+  DeclarationId? _cleanup(a.ClassElement element, NAPI config) {
+    _checkClassOptions(element, config);
+    final name = config.cleanup;
+    if (name == null) return null;
+    final matches = _classMembers(element)
+        .where((member) => member.name == name)
+        .toList();
+    if (matches.isEmpty) {
+      _reject(
+        element,
+        'NAPI_SELECTION',
+        'No declared cleanup method ${element.name}.$name.',
+      );
+    }
+    if (matches.length != 1) {
+      _reject(
+        matches.first,
+        'NAPI_AMBIGUOUS',
+        'Cleanup selection ${element.name}.$name is ambiguous.',
+      );
+    }
+    final member = matches.single;
+    if (member.isPrivate) {
+      _reject(member, 'NAPI_VISIBILITY', 'A cleanup method must be public.');
+    }
+    if (member is! a.MethodElement || member.isStatic) {
+      _reject(
+        member,
+        'NAPI_SELECTION',
+        'Cleanup must select a declared instance method.',
+      );
+    }
+    return _id(member);
   }
 
   void _selectMembers(a.ClassElement owner, ExternalClass selection) {
@@ -415,6 +479,23 @@ final class _Reader {
     final name = value.getField('name')?.toStringValue();
     final exclude = value.getField('exclude')?.toBoolValue();
     final bigint = value.getField('bigint')?.toBoolValue();
+    final policyValue = value.getField('classPolicy');
+    final policyIndex = policyValue?.getField('index')?.toIntValue();
+    final classPolicy =
+        policyIndex != null &&
+            policyIndex >= 0 &&
+            policyIndex < ClassPolicy.values.length
+        ? ClassPolicy.values[policyIndex]
+        : null;
+    final cleanup = value.getField('cleanup')?.toStringValue();
+    if ((classPolicy == null && policyValue?.isNull != true) ||
+        (cleanup == null && value.getField('cleanup')?.isNull != true)) {
+      _reject(
+        element,
+        'NAPI_ANNOTATION',
+        'Class policy configuration must have a known constant value.',
+      );
+    }
     if (exclude == null ||
         bigint == null ||
         (name == null && value.getField('name')?.isNull != true)) {
@@ -431,7 +512,13 @@ final class _Reader {
         'name and exclude cannot be combined.',
       );
     }
-    return NAPI(name: name, exclude: exclude, bigint: bigint);
+    return NAPI(
+      name: name,
+      exclude: exclude,
+      bigint: bigint,
+      classPolicy: classPolicy,
+      cleanup: cleanup,
+    );
   }
 
   FunctionBinding _function(
@@ -462,6 +549,8 @@ final class _Reader {
       declaration: _id(element),
       exportName: config.name ?? path,
       source: _source(element),
+      classPolicy: config.classPolicy ?? ClassPolicy.reference,
+      cleanup: _cleanup(element, config),
       exportSurface: entry,
       callPath: path,
       documentation: element.documentationComment ?? _documentation[element],
@@ -828,6 +917,20 @@ final class _AnnotationVisitor extends RecursiveAstVisitor<void> {
       );
     }
     final config = reader._config(element);
+    final hasClassOption =
+        node.arguments?.arguments.any(
+          (argument) =>
+              argument is NamedArgument &&
+              const {'classPolicy', 'cleanup'}.contains(argument.name.lexeme),
+        ) ??
+        false;
+    if (hasClassOption && element is! a.ClassElement) {
+      reject(
+        'NAPI_PLACEMENT',
+        'classPolicy and cleanup are only valid on a class.',
+      );
+    }
+    if (config != null) reader._checkClassOptions(element, config);
     final hasBigintOption =
         node.arguments?.arguments.any(
           (argument) =>
