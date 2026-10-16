@@ -1,6 +1,6 @@
-# Lists and records
+# Lists, Maps and records
 
-Both Dart Wasm and native Node-API backends convert nested `List<T>` and Dart records in both directions.
+Both Dart Wasm and native Node-API backends convert nested `List<T>`, `Map<K, V>` and Dart records in both directions.
 Every structural node can be nullable. Leaves use the existing strict scalar
 rules for `bool`, `String`, `int`, `double` and `BigInt`, or the selected
 reference-class contract. `@NAPI(bigint: true)` applies recursively to Dart `int`
@@ -21,6 +21,7 @@ echo([{ $1: 'item', values: [1, null] }, null]);
 | Dart shape | JavaScript / TypeScript shape |
 | --- | --- |
 | `List<T>` | `Array<T>` |
+| `Map<K, V>` | `globalThis.Map<K, V>` |
 | `(T,)` | `{ $1: T }` |
 | `(T, U)` | `{ $1: T; $2: U }` |
 | `({T label})` | `{ label: T }` |
@@ -30,22 +31,43 @@ echo([{ $1: 'item', values: [1, null] }, null]);
 
 The table describes converted leaf types, not Dart type spelling in TypeScript.
 Record fields are always required, including fields whose value can be `null`.
-Optional nullable List/record parameters can omit the argument, pass `undefined`
+Optional nullable List/Map/record parameters can omit the argument, pass `undefined`
 to select the default, or pass `null`. Only null structural defaults are currently
-supported. A non-null constant List/record default produces `NAPI_DEFAULT` before
+supported. A non-null constant List/Map/record default produces `NAPI_DEFAULT` before
 compilation or output creation.
 
 | Boundary case | Policy |
 | --- | --- |
-| Containers | Every occurrence becomes an independent container. Repeating one source List/record in separate branches does not preserve container identity. Output mutation cannot modify the Dart source container. Reference leaves preserve their live wrapper identity and mutable Dart object state. |
+| Containers | Every occurrence becomes an independent container. Repeating one source List/Map/record in separate branches does not preserve container identity. Output mutation cannot modify the Dart source container. Reference leaves preserve their live wrapper identity and mutable Dart object state. |
 | Arrays | Require `Array.isArray`, with `Array.prototype` or null prototype. Typed arrays and custom array prototypes are rejected. Read length once per container, require a numeric uint32 length, then use that snapshot for budget, key bounds and traversal. Invalid lengths fail at `.length`; this also applies to custom Dart output Lists. |
 | Record objects | Require an ordinary object with `Object.prototype` or null prototype. Arrays and custom prototypes are rejected. Output records are ordinary mutable objects. |
 | Fields and indices | Require own data properties. Sparse indices, missing record fields and accessors are rejected. Accessor getters/setters are never invoked by conversion. Non-enumerable own data properties are accepted. |
 | Extra properties | Reject unknown record keys and array properties other than `length` and canonical indices. Symbol keys are also rejected. |
 | Cycles | Reject a container already active in the current conversion path. A repeated container after its earlier branch completes is cloned again. |
 | Depth | At most 64 structural containers along a path, counting the root as the first. A 65th container fails with `RangeError` at that container's path. |
-| Work | Each parameter and result gets its own limit of 10,000 visited values, including containers, scalar leaves and nulls. Before traversing a List, reject its container path if its length exceeds the remaining budget. Other exhaustion errors identify the next value. |
-| Failure | Invalid inputs fail before the Dart business function runs. Validation throws `TypeError` or `RangeError` with paths such as `echo.value[2].values[1]`; result paths start with `echo result`. Dart exceptions from business code or custom output List getters become JavaScript `Error`. Failed conversions retain no state between calls. |
+| Work | Each parameter and result gets its own limit of 10,000 visited values, including containers, scalar leaves and nulls. Before traversing a List or Map, reject its container path if the minimum child work exceeds the remaining budget; each Map entry contributes a key and a value. Other exhaustion errors identify the next value. |
+| Failure | Invalid inputs fail before the Dart business function runs. Validation throws `TypeError` or `RangeError` with paths such as `echo.value[2].values[1]`; result paths start with `echo result`. Dart exceptions from business code or custom output List getters or Map iteration become JavaScript `Error`. Failed conversions retain no state between calls. |
+
+Maps use genuine JavaScript Map internal slots, including cross-realm Maps and
+subclasses. Map Proxies are rejected. Captured Map intrinsics ignore instance
+`size`, `entries` and iterator overrides. Entries are snapshotted into a bounded
+flat sequence before converting children, so child conversion cannot extend an
+active iterator by reentering and mutating the parent. Dart output uses its actual
+`entries` iteration order and checks that its captured uint32 length agrees with
+that sequence. Each key and value is recursively converted with paths such as
+`echo.value[1].key` and `echo.value[1].value`.
+
+Input Maps use ordinary Dart equality and hashing. Structurally equal record
+keys or reference keys with custom `==` may collide even when their original JS
+objects differ. Output uses JavaScript Map SameValueZero equality. Either
+conversion rejects a duplicate converted key with `TypeError`; it never silently
+overwrites an entry. Single `NaN` entries round-trip with their values, although
+Dart's ordinary `containsKey(double.nan)` is false. Multiple Dart NaN entries
+collide on output. Signed zero keys compare equal; JavaScript Map normalizes
+negative zero to positive zero. A source Map's custom comparator is not copied,
+and thrown Dart `hashCode` or `==` errors become JavaScript `Error`.
+`Map<String, V>` remains a Map, including special keys such as `__proto__`;
+explicit string-keyed object dictionaries are separate pending work in #120.
 
 JavaScript proxies can run their own reflection traps during inspection; the
 own-data rule prevents invoking property accessors, not arbitrary proxy code.
@@ -64,16 +86,18 @@ wrong-class and foreign-runtime leaves fail at their precise field/index path.
 Dropping the wrapper while Dart retains a container permits collection; returning
 the object later adopts a new wrapper without executing its constructor again.
 The exact-public-type and lifetime rules in [reference classes](classes.md) apply
-equally inside containers. Opaque values, shared buffers and Map/dictionary
-conversion remain unsupported.
+equally inside containers. Opaque values, shared buffers and explicit object dictionaries remain unsupported.
 
 The shared generated-consumer contract covers nested nullable values, cloning,
 strict leaves, descriptor failures, cycles, depth/work boundaries, recovery,
 TypeScript, output List getter failures, Proxy reflection order/length capture,
-UTF-16 error paths and same-module reentry with GC. Fresh native/Wasm npm
+UTF-16 error paths and same-module reentry with GC. Map consumers additionally
+cover key collisions, NaN and signed zero, overridden intrinsics, cross-realm
+branding, record/reference keys, bigint keys/values, failed-output identity
+rollback and Dart-held Map reference collection. Fresh native/Wasm npm
 consumers run it with the original native source/build directories removed.
 Tested with Dart 3.13.5, Node 24.19.0/26.11.1 and TypeScript 7.0.2. Native execution
-is qualified on macOS arm64 and requires an ABI 3 bundle. The compiler/runtime
+is qualified on macOS arm64 and requires an ABI 4 bundle. The compiler/runtime
 use private experimental SDK APIs; other native platforms remain unqualified.
 
 Non-null structural defaults, generic reference specialization and opaque/shared

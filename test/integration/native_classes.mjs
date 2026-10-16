@@ -5,6 +5,7 @@ import {verifyStructures} from './structural_contract.mjs';
 import {verifyClasses} from './class_contract.mjs';
 import {verifyReferences, verifyForeignReferences, verifyReferenceRetention} from './reference_contract.mjs';
 import {verifyStructuralReferences, verifyForeignStructuralReferences, verifyStructuralReferenceRetention} from './structural_reference_contract.mjs';
+import {verifyMaps, verifyForeignMaps, verifyMapRetention} from './map_contract.mjs';
 const {Counter, randomValue, executable, createRequire, bindings, globalThis: exportedGlobal, URL: exportedUrl} = api;
 
 function check() {
@@ -12,6 +13,7 @@ function check() {
   verifyClasses(api);
   verifyReferences(api);
   verifyStructuralReferences(api);
+  verifyMaps(api);
   verifyStructures(api);
   assert(randomValue() >= 0);
   assert.equal(executable(), process.execPath);
@@ -23,8 +25,10 @@ if (isMainThread) {
   const independent = await import(import.meta.resolve('@napi/native-fixture') + '?independent');
   verifyForeignReferences(api, independent);
   verifyForeignStructuralReferences(api, independent);
+  verifyForeignMaps(api, independent);
   await verifyReferenceRetention(api);
   await verifyStructuralReferenceRetention(api);
+  await verifyMapRetention(api);
   const foreign = new independent.Counter(9);
   assert.throws(() => Counter.prototype.increment.call(foreign), TypeError);
   assert.equal(foreign.value, 9);

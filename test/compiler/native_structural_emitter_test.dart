@@ -212,8 +212,8 @@ bigints([{wide: 42, huge: 1n}]);
 
   for (final (description, declaration, code) in [
     (
-      'Map leaves',
-      '@NAPI() List<Map<String, int>> bad(List<Map<String, int>> value) => value;',
+      'Set leaves',
+      '@NAPI() List<Set<int>> bad(List<Set<int>> value) => value;',
       'NAPI_TYPE',
     ),
     (

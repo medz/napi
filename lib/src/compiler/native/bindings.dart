@@ -193,6 +193,40 @@ typedef _DefineOwnValue = int Function(
   Pointer<Void>,
   Pointer<Void>,
 );
+typedef _SnapshotMapNative = Int32 Function(
+  Pointer<Void>,
+  Pointer<Void>,
+  Pointer<Void>,
+  Uint32,
+  Uint32,
+  Bool,
+  Pointer<Pointer<Void>>,
+  Pointer<Uint32>,
+);
+typedef _SnapshotMap = int Function(
+  Pointer<Void>,
+  Pointer<Void>,
+  Pointer<Void>,
+  int,
+  int,
+  bool,
+  Pointer<Pointer<Void>>,
+  Pointer<Uint32>,
+);
+typedef _CheckedInsertMapNative = Int32 Function(
+  Pointer<Void>,
+  Pointer<Void>,
+  Pointer<Void>,
+  Pointer<Void>,
+  Pointer<Void>,
+);
+typedef _CheckedInsertMap = int Function(
+  Pointer<Void>,
+  Pointer<Void>,
+  Pointer<Void>,
+  Pointer<Void>,
+  Pointer<Void>,
+);
 typedef _GetInt64Native = Int32 Function(
   Pointer<Void>,
   Pointer<Void>,
@@ -337,8 +371,8 @@ final class _ReferenceLease {
 final class NapiApi {
   final Pointer<Pointer<Void>> _table;
   NapiApi(int address, int tableCount) : _table = Pointer.fromAddress(address) {
-    if (address == 0 || tableCount != 35) {
-      throw StateError('Incompatible native bridge ABI (expected 35 slots).');
+    if (address == 0 || tableCount != 38) {
+      throw StateError('Incompatible native bridge ABI (expected 38 slots).');
     }
   }
   late final _CallbackInfo _callbackInfo = _table[0]
@@ -431,6 +465,15 @@ final class NapiApi {
   late final _DefineOwnValue _defineOwnValue = _table[34]
       .cast<NativeFunction<_DefineOwnValueNative>>()
       .asFunction<_DefineOwnValue>();
+  late final _SnapshotMap _snapshotMap = _table[35]
+      .cast<NativeFunction<_SnapshotMapNative>>()
+      .asFunction<_SnapshotMap>();
+  late final _Simple _createMap = _table[36]
+      .cast<NativeFunction<_SimpleNative>>()
+      .asFunction<_Simple>();
+  late final _CheckedInsertMap _checkedInsertMap = _table[37]
+      .cast<NativeFunction<_CheckedInsertMapNative>>()
+      .asFunction<_CheckedInsertMap>();
   // Only an attached JS lease retains its Dart value. The identity cache's
   // weak keys and primitive records cannot keep either heap alive by themselves.
   final _owners = <int, Object>{};
@@ -817,6 +860,60 @@ final class NapiApi {
 
   int createContainer(Pointer<Void> env, bool array, int length) =>
       _result((out) => _createContainer(env, array, length, out));
+
+  (Pointer<Void>, int) snapshotMap(
+    Pointer<Void> env,
+    Pointer<Void> input,
+    String path,
+    int remaining,
+    int depth,
+    bool cyclic,
+  ) {
+    Pointer<Pointer<Void>> pairs = nullptr;
+    Pointer<Uint32> count = nullptr;
+    try {
+      pairs = _allocate<Pointer<Void>>(1, sizeOf<Pointer<Void>>());
+      count = _allocate<Uint32>(1, sizeOf<Uint32>());
+      final context = Pointer<Void>.fromAddress(stringResult(env, path));
+      _check(
+        _snapshotMap(
+          env,
+          input,
+          context,
+          remaining,
+          depth,
+          cyclic,
+          pairs,
+          count,
+        ),
+      );
+      return (pairs.value, count.value);
+    } finally {
+      _free(count.cast());
+      _free(pairs.cast());
+    }
+  }
+
+  int createMap(Pointer<Void> env) => _result((out) => _createMap(env, out));
+
+  void checkedInsertMap(
+    Pointer<Void> env,
+    int map,
+    int key,
+    int value,
+    String keyPath,
+  ) {
+    final context = Pointer<Void>.fromAddress(stringResult(env, keyPath));
+    _check(
+      _checkedInsertMap(
+        env,
+        Pointer<Void>.fromAddress(map),
+        Pointer<Void>.fromAddress(key),
+        Pointer<Void>.fromAddress(value),
+        context,
+      ),
+    );
+  }
 
   void defineOwnValue(Pointer<Void> env, int container, String key, int value) {
     final name = Pointer<Void>.fromAddress(stringResult(env, key));

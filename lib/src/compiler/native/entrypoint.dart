@@ -5,6 +5,7 @@ import '../ir/model.dart';
 import '../lowering/plan.dart'
     show
         ListConversion,
+        MapConversion,
         RecordConversion,
         ReferenceConversion,
         ScalarConversion,
@@ -17,10 +18,12 @@ String _quote(String value) => jsonEncode(value).replaceAll(r'$', r'\$');
 /// Generate business-specific Dart only. The Node-API bridge stays generic.
 String emitNativeDart(NativeModulePlan plan) {
   final hasStructures = plan.calls.any(
-    (call) => [
-      ...call.inputs,
-      if (call.output != null) call.output!,
-    ].any((value) => value is ListConversion || value is RecordConversion),
+    (call) => [...call.inputs, if (call.output != null) call.output!].any(
+      (value) =>
+          value is ListConversion ||
+          value is RecordConversion ||
+          value is MapConversion,
+    ),
   );
   final structures = NativeStructuralEmitter();
   final code = StringBuffer();
@@ -110,7 +113,9 @@ void main() {}
       final option = namedIndex;
       if (isNamed) namedIndex++;
       final structural =
-          conversion is ListConversion || conversion is RecordConversion;
+          conversion is ListConversion ||
+          conversion is RecordConversion ||
+          conversion is MapConversion;
       const undefined =
           'Pointer<Void>.fromAddress(_api.undefinedResult(call.env))';
       final raw = structural && rawStructuralArguments
@@ -149,7 +154,8 @@ void main() {}
           '    a$index = ${conversion.nullable ? '_api.isNull(call.env, raw$index) ? null : ' : ''}$converted;',
         );
       } else if (conversion is ListConversion ||
-          conversion is RecordConversion) {
+          conversion is RecordConversion ||
+          conversion is MapConversion) {
         final read = structures.read(conversion);
         code.writeln(
           '    a$index = $read(call.env, raw$index, _NativeReadState(), $path, 0);',
@@ -192,7 +198,8 @@ void main() {}
       code.writeln('    final value = $invocation;');
       if (output.nullable &&
           output is! ListConversion &&
-          output is! RecordConversion) {
+          output is! RecordConversion &&
+          output is! MapConversion) {
         code.writeln(
           '    if (value == null) return _api.nullResult(call.env);',
         );
@@ -208,7 +215,9 @@ void main() {}
         code.writeln(
           '    return _api.${nativeScalarWriter(output)}(call.env, value$context);',
         );
-      } else if (output is ListConversion || output is RecordConversion) {
+      } else if (output is ListConversion ||
+          output is RecordConversion ||
+          output is MapConversion) {
         final write = structures.write(output);
         code.writeln(
           '    final state = _NativeWriteState();\n'

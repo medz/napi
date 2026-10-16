@@ -45,7 +45,7 @@ final class _IdentityAdapter implements StructuralLeafAdapter {
 }
 
 void main() {
-  test('unsupported structural leaves and Map remain diagnosed', () {
+  test('unsupported structural leaves remain diagnosed', () {
     for (final type in [
       const DynamicType(),
       DeclaredType(DeclarationId(_source, 'Opaque'), ValueSemantics.opaque),
@@ -54,15 +54,6 @@ void main() {
         ValueSemantics.reference,
       ),
       DeclaredType(DeclarationId(_source, 'Shared'), ValueSemantics.shared),
-      DeclaredType(
-        DeclarationId(
-          Uri.parse('dart:core'),
-          'Map',
-          kind: DeclarationKind.classType,
-        ),
-        ValueSemantics.structural,
-        typeArguments: [const SafeIntType(), const SafeIntType()],
-      ),
     ]) {
       expect(
         () => validate(_module(_list(type))),
@@ -108,7 +99,7 @@ void main() {
               .having(
                 (e) => e.message,
                 'message',
-                contains('Non-null List and record defaults'),
+                contains('Non-null structural defaults'),
               ),
         ),
       );

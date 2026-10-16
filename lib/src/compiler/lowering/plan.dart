@@ -107,6 +107,36 @@ final class ListConversion extends ValueConversion {
       'Array<${element.typescriptType}>${nullable ? ' | null' : ''}';
 }
 
+final class MapConversion extends ValueConversion {
+  final ValueConversion key;
+  final ValueConversion value;
+  MapConversion(
+    DeclaredType super.type,
+    super.context, {
+    required bool bigint,
+    List<ClassBinding> classes = const [],
+  }) : key = conversionFor(
+         type.typeArguments[0],
+         context,
+         bigint: bigint,
+         classes: classes,
+       ),
+       value = conversionFor(
+         type.typeArguments[1],
+         context,
+         bigint: bigint,
+         classes: classes,
+       );
+  @override
+  String get dartType =>
+      'Map<${key.dartType}, ${value.dartType}>${nullable ? '?' : ''}';
+  @override
+  String get jsType => 'object';
+  @override
+  String get typescriptType =>
+      'globalThis.Map<${key.typescriptType}, ${value.typescriptType}>${nullable ? ' | null' : ''}';
+}
+
 final class RecordConversion extends ValueConversion {
   final List<ValueConversion> positional;
   final Map<String, ValueConversion> named;
@@ -188,6 +218,18 @@ ValueConversion conversionFor(
             kind: DeclarationKind.classType,
           ) =>
     ListConversion(type, context, bigint: bigint, classes: classes),
+  DeclaredType(
+    declaration: final declaration,
+    semantics: ValueSemantics.structural,
+    typeArguments: [_, _],
+  )
+      when declaration ==
+          DeclarationId(
+            Uri.parse('dart:core'),
+            'Map',
+            kind: DeclarationKind.classType,
+          ) =>
+    MapConversion(type, context, bigint: bigint, classes: classes),
   _ => ScalarConversion(type, context, bigint: bigint),
 };
 

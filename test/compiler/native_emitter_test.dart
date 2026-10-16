@@ -151,8 +151,8 @@ import 'package:napi/napi.dart';
 
   for (final (label, declaration, code) in [
     (
-      'Map leaf in a structural class member',
-      '@NAPI() class Bad { List<Map<String, int>> bad(List<Map<String, int>> value) => value; }',
+      'Set leaf in a structural class member',
+      '@NAPI() class Bad { List<Set<int>> bad(List<Set<int>> value) => value; }',
       'NAPI_TYPE',
     ),
     ('generic function', '@NAPI() T bad<T>(T value) => value;', 'NAPI_GENERIC'),

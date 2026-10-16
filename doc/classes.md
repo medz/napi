@@ -22,7 +22,7 @@ counter.increment(2); // 42
 Constructors, methods and property access execute in Dart. The generated Wasm
 facade exports each class as an immutable externref global imported from its
 private JavaScript dependency. Required top-level scalar functions retain their direct
-Wasm function exports, including required List/record arguments containing class
+Wasm function exports, including required List/Map/record arguments containing class
 references; direct reference-valued calls use callable globals. Native packages expose the same class shape through their
 automatic ESM entry and Node-API bridge.
 
@@ -35,7 +35,7 @@ JS wrapper. Named constructors and factories become static methods, for example
 constructor exposes a private TypeScript constructor and rejects public `new`.
 Abstract classes can expose factory constructors backed by a concrete Dart object.
 
-Parameters/results use strict scalar, selected reference or nested List/record
+Parameters/results use strict scalar, selected reference or nested List/Map/record
 types, including nullable nodes. Containers are cloned while their reference
 leaves preserve live wrapper identity. This also applies to constructors, methods,
 fields and accessors. Optional reference/structural parameters may default to null; omission

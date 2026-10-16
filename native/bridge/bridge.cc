@@ -43,6 +43,8 @@ struct Adoption {
   int64_t id;
   bool consumed = false;
 };
+enum MapIntrinsic { map_constructor, map_size, map_entries, map_next,
+                    map_has, map_set, map_intrinsic_count };
 struct Owner {
   napi_env env;
   NapiDart_Isolate* isolate;
@@ -55,6 +57,7 @@ struct Owner {
   std::map<int64_t, Wrapper*> references;
   Wrapper* pending_releases = nullptr;
   Adoption* adoption = nullptr;
+  napi_ref maps[map_intrinsic_count] = {};
 };
 static thread_local Owner* active_owner = nullptr;
 
@@ -271,6 +274,69 @@ static napi_status js_prototype(napi_env env, napi_value input, napi_value* resu
   return js_method(env, "Object", "getPrototypeOf", 1, &input, result);
 }
 
+// Capture the realm's Map operations once. Instance overrides and foreign Map
+// prototypes never participate in conversion. These builtin references share
+// the Owner's existing environment cleanup; they retain no business objects.
+static napi_status capture_maps(Owner* owner) {
+  const auto env = owner->env;
+  napi_value global, prototype, descriptor, empty, iterator;
+  napi_value values[map_intrinsic_count];
+  auto status = napi_get_global(env, &global);
+  if (status != napi_ok) return status;
+  status = napi_get_named_property(env, global, "Map", &values[map_constructor]);
+  if (status != napi_ok) return status;
+  status = napi_get_named_property(env, values[map_constructor], "prototype", &prototype);
+  if (status != napi_ok) return status;
+  napi_value size_key;
+  status = napi_create_string_utf8(env, "size", NAPI_AUTO_LENGTH, &size_key);
+  if (status != napi_ok) return status;
+  napi_value descriptor_args[] = {prototype, size_key};
+  status = js_method(env, "Object", "getOwnPropertyDescriptor", 2, descriptor_args, &descriptor);
+  if (status != napi_ok) return status;
+  status = napi_get_named_property(env, descriptor, "get", &values[map_size]);
+  if (status != napi_ok) return status;
+  status = napi_get_named_property(env, prototype, "entries", &values[map_entries]);
+  if (status != napi_ok) return status;
+  status = napi_get_named_property(env, prototype, "has", &values[map_has]);
+  if (status != napi_ok) return status;
+  status = napi_get_named_property(env, prototype, "set", &values[map_set]);
+  if (status != napi_ok) return status;
+  status = napi_new_instance(env, values[map_constructor], 0, nullptr, &empty);
+  if (status != napi_ok) return status;
+  status = napi_call_function(env, empty, values[map_entries], 0, nullptr, &iterator);
+  if (status != napi_ok) return status;
+  status = napi_get_named_property(env, iterator, "next", &values[map_next]);
+  if (status != napi_ok) return status;
+  for (size_t i = 0; i < map_intrinsic_count; ++i) {
+    napi_valuetype type;
+    status = napi_typeof(env, values[i], &type);
+    if (status != napi_ok) return status;
+    if (type != napi_function) {
+      fail_error(env, "Cannot capture Map intrinsics");
+      return napi_invalid_arg;
+    }
+    status = napi_create_reference(env, values[i], 1, &owner->maps[i]);
+    if (status != napi_ok) return status;
+  }
+  return napi_ok;
+}
+
+static napi_status map_function(napi_env env, MapIntrinsic intrinsic, napi_value* result) {
+  if (!active_owner || active_owner->env != env || active_owner->closing) {
+    fail_error(env, "Map operation requires its active Dart isolate");
+    return napi_invalid_arg;
+  }
+  return napi_get_reference_value(env, active_owner->maps[intrinsic], result);
+}
+
+static napi_status map_call(napi_env env, MapIntrinsic intrinsic,
+                            napi_value receiver, size_t count,
+                            const napi_value* args, napi_value* result) {
+  napi_value function;
+  const auto status = map_function(env, intrinsic, &function);
+  return status == napi_ok ? napi_call_function(env, receiver, function, count, args, result) : status;
+}
+
 static napi_status utf16(napi_env env, napi_value value, std::u16string* result) {
   size_t length;
   auto status = napi_get_value_string_utf16(env, value, nullptr, 0, &length);
@@ -480,6 +546,106 @@ static napi_status define_own_value(napi_env env, napi_value container,
   return napi_define_properties(env, container, 1, &property);
 }
 
+static napi_status snapshot_map(napi_env env, napi_value input, napi_value path_value,
+                                uint32_t remaining, uint32_t depth, bool cyclic,
+                                napi_value* pairs, uint32_t* count) {
+  try {
+    std::u16string path;
+    auto status = utf16(env, path_value, &path);
+    if (status != napi_ok) return status;
+    napi_valuetype type;
+    status = napi_typeof(env, input, &type);
+    if (status != napi_ok) return status;
+    if (type != napi_object) return structure_error(env, path, u"expected a Map");
+    napi_value size_value;
+    status = map_call(env, map_size, input, 0, nullptr, &size_value);
+    if (status == napi_pending_exception) {
+      // The captured builtin size getter checks [[MapData]] without executing
+      // input properties or Proxy traps. Replace its brand error with a path.
+      napi_value exception;
+      status = napi_get_and_clear_last_exception(env, &exception);
+      return status == napi_ok ? structure_error(env, path, u"expected a Map") : status;
+    }
+    if (status != napi_ok) return status;
+    if (depth >= 64) return structure_error(env, path, u"structural depth limit (64) exceeded", true);
+    if (cyclic) return structure_error(env, path, u"cyclic structural value");
+    double size;
+    status = napi_get_value_double(env, size_value, &size);
+    if (status != napi_ok) return status;
+    if (!std::isfinite(size) || size < 0 || size != std::floor(size))
+      return structure_error(env, path + u".size", u"expected a Map size");
+    if (size > remaining / 2)
+      return structure_error(env, path, u"structural work limit (10000) exceeded", true);
+    const auto length = static_cast<uint32_t>(size);
+    napi_value result, iterator;
+    status = napi_create_array_with_length(env, length * 2, &result);
+    if (status != napi_ok) return status;
+    status = map_call(env, map_entries, input, 0, nullptr, &iterator);
+    if (status != napi_ok) return status;
+    for (uint32_t i = 0; i <= length; ++i) {
+      napi_value step, done_value;
+      bool done;
+      status = map_call(env, map_next, iterator, 0, nullptr, &step);
+      if (status != napi_ok) return status;
+      status = napi_get_named_property(env, step, "done", &done_value);
+      if (status != napi_ok) return status;
+      status = napi_get_value_bool(env, done_value, &done);
+      if (status != napi_ok) return status;
+      if (done != (i == length))
+        return structure_error(env, path, u"Map length changed during iteration");
+      if (done) break;
+      napi_value pair;
+      status = napi_get_named_property(env, step, "value", &pair);
+      if (status != napi_ok) return status;
+      for (uint32_t side = 0; side < 2; ++side) {
+        napi_value value, key;
+        status = napi_get_element(env, pair, side, &value);
+        if (status != napi_ok) return status;
+        char index[32];
+        std::snprintf(index, sizeof(index), "%u", i * 2 + side);
+        status = napi_create_string_utf8(env, index, NAPI_AUTO_LENGTH, &key);
+        if (status != napi_ok) return status;
+        status = define_own_value(env, result, key, value);
+        if (status != napi_ok) return status;
+      }
+    }
+    *pairs = result;
+    *count = length;
+    return napi_ok;
+  } catch (const std::bad_alloc&) {
+    fail_error(env, "Cannot snapshot Map entries");
+    return napi_generic_failure;
+  }
+}
+
+static napi_status create_map(napi_env env, napi_value* result) {
+  napi_value constructor;
+  const auto status = map_function(env, map_constructor, &constructor);
+  return status == napi_ok ? napi_new_instance(env, constructor, 0, nullptr, result) : status;
+}
+
+static napi_status checked_insert_map(napi_env env, napi_value map, napi_value key,
+                                      napi_value value, napi_value path_value) {
+  napi_value has_value, ignored;
+  auto status = map_call(env, map_has, map, 1, &key, &has_value);
+  if (status != napi_ok) return status;
+  bool has;
+  status = napi_get_value_bool(env, has_value, &has);
+  if (status != napi_ok) return status;
+  if (has) {
+    try {
+      std::u16string path;
+      status = utf16(env, path_value, &path);
+      return status == napi_ok ? structure_error(env, path, u"duplicate converted Map key") : status;
+    } catch (const std::bad_alloc&) {
+      fail_error(env, "Cannot report Map key collision");
+      return napi_generic_failure;
+    }
+  }
+  napi_value args[] = {key, value};
+  return map_call(env, map_set, map, 2, args, &ignored);
+}
+
 static napi_status read_options(
     napi_env env, napi_value input, bool supplied, const char* const* names,
     size_t count, napi_value* values, uint8_t* present, const char* context) {
@@ -582,6 +748,9 @@ static void* api_table[] = {
     reinterpret_cast<void*>(&napi_strict_equals),
     reinterpret_cast<void*>(&create_container),
     reinterpret_cast<void*>(&define_own_value),
+    reinterpret_cast<void*>(&snapshot_map),
+    reinterpret_cast<void*>(&create_map),
+    reinterpret_cast<void*>(&checked_insert_map),
 };
 static_assert(sizeof(api_table) / sizeof(*api_table) == bridge_api_count);
 
@@ -657,6 +826,9 @@ static void destroy(Owner* owner) {
   }
   for (auto constructor : owner->constructors) {
     if (constructor) napi_delete_reference(owner->env, constructor);
+  }
+  for (auto function : owner->maps) {
+    if (function) napi_delete_reference(owner->env, function);
   }
   {
     Scope scope(owner, false);
@@ -983,7 +1155,8 @@ static napi_value load(napi_env env, napi_callback_info info) {
   auto owner = new Owner{env, isolate};
   napi_value exports;
   auto status = napi_create_object(env, &exports);
-  if (status != napi_ok || !register_bindings(owner, exports)) {
+  if (status != napi_ok || capture_maps(owner) != napi_ok ||
+      !register_bindings(owner, exports)) {
     destroy(owner);
     return fail(env, "Cannot register Dart bindings");
   }

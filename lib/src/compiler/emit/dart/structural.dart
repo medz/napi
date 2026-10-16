@@ -1,7 +1,7 @@
 import '../../lowering/plan.dart';
 
 /// The JavaScript boundary validates and snapshots inputs before these readers
-/// run. Records cross this private ABI as arrays in declaration field order.
+/// run. Records use declaration field order; Maps use flat key/value arrays.
 final class DartStructuralEmitter {
   final _code = StringBuffer();
   var _next = 0;
@@ -14,6 +14,7 @@ final class DartStructuralEmitter {
     final name = '_${output ? 'write' : 'read'}Structure${_next++}';
     final children = switch (conversion) {
       ListConversion(:final element) => [element],
+      MapConversion(:final key, :final value) => [key, value],
       RecordConversion() => conversion.fields.values.toList(),
       ScalarConversion() || ReferenceConversion() => <ValueConversion>[],
     };
@@ -22,7 +23,7 @@ final class DartStructuralEmitter {
     _code.writeln(
       output
           ? 'JSAny? $name($type value, _StructureState state, String path, int depth) {'
-          : '$type $name(JSAny? value) {',
+          : '$type $name(JSAny? value, String path) {',
     );
     if (output) _code.writeln('  state.visit(path);');
     if (conversion.nullable) _code.writeln('  if (value == null) return null;');
@@ -50,9 +51,45 @@ final class DartStructuralEmitter {
     ].toJS;
   } finally { state.leave(value); }''');
         } else {
-          _code.writeln(
-            '  return <${element.dartType}>[for (final item in (value as JSArray<JSAny?>).toDart) ${functions.single}(item)];',
-          );
+          _code.writeln('''  final items = (value as JSArray<JSAny?>).toDart;
+  return <${element.dartType}>[
+    for (var i = 0; i < items.length; i++)
+      ${functions.single}(items[i], '\$path[\$i]'),
+  ];''');
+        }
+      case MapConversion(:final key, :final value):
+        if (output) {
+          _code.writeln('''  state.enter(value, path, depth);
+  try {
+    final length = value.length;
+    if (length < 0 || length > 0xffffffff) _structureError('\$path.length', 'expected a Map length', false);
+    if (length > (10000 - state.work) ~/ 2) _structureError(path, 'structural work limit (10000) exceeded', true);
+    final entries = <(${key.dartType}, ${value.dartType})>[];
+    final iterator = value.entries.iterator;
+    for (var i = 0; i < length; i++) {
+      if (!iterator.moveNext()) _structureError(path, 'Map length changed during iteration', false);
+      final entry = iterator.current;
+      entries.add((entry.key, entry.value));
+    }
+    if (iterator.moveNext()) _structureError(path, 'Map length changed during iteration', false);
+    return <JSAny?>[
+      for (var i = 0; i < entries.length; i++) ...[
+        ${functions[0]}(entries[i].\$1, state, '\$path[\$i].key', depth + 1),
+        ${functions[1]}(entries[i].\$2, state, '\$path[\$i].value', depth + 1),
+      ],
+    ].toJS;
+  } finally { state.leave(value); }''');
+        } else {
+          _code.writeln('''  final entries = (value as JSArray<JSAny?>).toDart;
+  final result = <${key.dartType}, ${value.dartType}>{};
+  for (var i = 0; i < entries.length ~/ 2; i++) {
+    final keyPath = '\$path[\$i].key';
+    final key = ${functions[0]}(entries[2 * i], keyPath);
+    final child = ${functions[1]}(entries[2 * i + 1], '\$path[\$i].value');
+    if (result.containsKey(key)) _structureError(keyPath, 'duplicate converted Map key', false);
+    result[key] = child;
+  }
+  return result;''');
         }
       case RecordConversion():
         if (output) {
@@ -69,11 +106,14 @@ final class DartStructuralEmitter {
           _code.writeln('  final fields = (value as JSArray<JSAny?>).toDart;');
           final entries = <String>[];
           for (var i = 0; i < conversion.positional.length; i++) {
-            entries.add('${functions[i]}(fields[$i])');
+            final pathField = '.\$${i + 1}'.replaceAll(r'$', r'\$');
+            entries.add("${functions[i]}(fields[$i], '\$path$pathField')");
           }
           for (final (i, field) in conversion.named.keys.indexed) {
             final index = i + conversion.positional.length;
-            entries.add('$field: ${functions[index]}(fields[$index])');
+            entries.add(
+              "$field: ${functions[index]}(fields[$index], '\$path.$field')",
+            );
           }
           final trailing = entries.length == 1 && conversion.named.isEmpty
               ? ','
