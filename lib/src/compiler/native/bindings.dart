@@ -213,6 +213,8 @@ typedef _SnapshotMap = int Function(
   Pointer<Pointer<Void>>,
   Pointer<Uint32>,
 );
+typedef _DictionaryKeysNative = _SnapshotMapNative;
+typedef _DictionaryKeys = _SnapshotMap;
 typedef _CheckedInsertMapNative = Int32 Function(
   Pointer<Void>,
   Pointer<Void>,
@@ -371,8 +373,8 @@ final class _ReferenceLease {
 final class NapiApi {
   final Pointer<Pointer<Void>> _table;
   NapiApi(int address, int tableCount) : _table = Pointer.fromAddress(address) {
-    if (address == 0 || tableCount != 38) {
-      throw StateError('Incompatible native bridge ABI (expected 38 slots).');
+    if (address == 0 || tableCount != 40) {
+      throw StateError('Incompatible native bridge ABI (expected 40 slots).');
     }
   }
   late final _CallbackInfo _callbackInfo = _table[0]
@@ -474,6 +476,12 @@ final class NapiApi {
   late final _CheckedInsertMap _checkedInsertMap = _table[37]
       .cast<NativeFunction<_CheckedInsertMapNative>>()
       .asFunction<_CheckedInsertMap>();
+  late final _DictionaryKeys _dictionaryKeys = _table[38]
+      .cast<NativeFunction<_DictionaryKeysNative>>()
+      .asFunction<_DictionaryKeys>();
+  late final _Simple _createDictionary = _table[39]
+      .cast<NativeFunction<_SimpleNative>>()
+      .asFunction<_Simple>();
   // Only an attached JS lease retains its Dart value. The identity cache's
   // weak keys and primitive records cannot keep either heap alive by themselves.
   final _owners = <int, Object>{};
@@ -895,6 +903,42 @@ final class NapiApi {
   }
 
   int createMap(Pointer<Void> env) => _result((out) => _createMap(env, out));
+
+  (Pointer<Void>, int) dictionaryKeys(
+    Pointer<Void> env,
+    Pointer<Void> input,
+    String path,
+    int remaining,
+    int depth,
+    bool cyclic,
+  ) {
+    Pointer<Pointer<Void>> keys = nullptr;
+    Pointer<Uint32> count = nullptr;
+    try {
+      keys = _allocate<Pointer<Void>>(1, sizeOf<Pointer<Void>>());
+      count = _allocate<Uint32>(1, sizeOf<Uint32>());
+      final context = Pointer<Void>.fromAddress(stringResult(env, path));
+      _check(
+        _dictionaryKeys(
+          env,
+          input,
+          context,
+          remaining,
+          depth,
+          cyclic,
+          keys,
+          count,
+        ),
+      );
+      return (keys.value, count.value);
+    } finally {
+      _free(count.cast());
+      _free(keys.cast());
+    }
+  }
+
+  int createDictionary(Pointer<Void> env) =>
+      _result((out) => _createDictionary(env, out));
 
   void checkedInsertMap(
     Pointer<Void> env,

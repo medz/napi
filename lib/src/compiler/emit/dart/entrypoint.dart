@@ -8,11 +8,17 @@ import 'structural.dart';
 String emitDart(ModulePlan plan) {
   final source = jsonEncode(plan.source.toString()).replaceAll(r'$', r'\$');
   final result = StringBuffer(
-    "import $source as target;\n$entrypointPrelude\n",
+    "import $source as target;\n"
+    "${plan.conversions.any(containsDictionary) ? "import 'package:napi/napi.dart' as napi;\nimport 'dart:convert' show jsonEncode;\n" : ''}"
+    '$entrypointPrelude\n',
   );
   final structural = DartStructuralEmitter();
   final hasStructural = plan.conversions.any(
-    (c) => c is ListConversion || c is RecordConversion || c is MapConversion,
+    (c) =>
+        c is ListConversion ||
+        c is RecordConversion ||
+        c is MapConversion ||
+        c is DictionaryConversion,
   );
   if (hasStructural) result.writeln(dartStructuralPrelude);
   for (final (index, call) in plan.calls.indexed) {

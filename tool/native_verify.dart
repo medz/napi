@@ -58,6 +58,8 @@ dependencies:
 ''');
   await File('test/fixtures/native_classes.dart')
       .copy('${project.path}/business.dart');
+  await File('test/fixtures/dictionaries.dart')
+      .copy('${project.path}/dictionaries.dart');
   await File('test/fixtures/maps.dart').copy('${project.path}/maps.dart');
   await File('test/fixtures/classes.dart').copy('${project.path}/classes.dart');
   await File('test/fixtures/named_list.dart')
@@ -121,6 +123,8 @@ Future<void> main() async {
       .copy('${consumer.path}/structural_reference_contract.mjs');
   await File('test/integration/map_contract.mjs')
       .copy('${consumer.path}/map_contract.mjs');
+  await File('test/integration/dictionary_contract.mjs')
+      .copy('${consumer.path}/dictionary_contract.mjs');
   await File('test/typescript/native_classes.mts')
       .copy('${consumer.path}/consumer.mts');
   await run('node', ['--expose-gc', 'test.mjs'], cwd: consumer.path);
@@ -149,6 +153,15 @@ Future<void> main() async {
         .replaceAll('@napi/class-fixture', '@napi/native-fixture'),
   );
   await typescript(consumer, 'maps.mts');
+  await File('${consumer.path}/dictionaries.mts').writeAsString(
+    (await File('test/typescript/dictionaries.mts').readAsString())
+        .replaceAll(
+          '@napi/class-fixture/module.wasm',
+          '@napi/native-fixture/native',
+        )
+        .replaceAll('@napi/class-fixture', '@napi/native-fixture'),
+  );
+  await typescript(consumer, 'dictionaries.mts');
   await File('${consumer.path}/workers-only.mjs').writeAsString('''
 import {Worker} from 'node:worker_threads';
 for (let i = 0; i < 4; i++) {

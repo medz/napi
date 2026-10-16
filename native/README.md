@@ -52,7 +52,7 @@ untouched. Node headers affect the reusable bridge, not individual businesses.
 The flat bundle contains `bridge.node`, the identity-qualified runtime dylib,
 `DART_LICENSE`, `DART_AUTHORS`, `NAPI_LICENSE`, and `manifest.json`.
 The manifest has `format: 1`, `sdkVersion`, `sdkRevision`, `platform: "macos"`,
-`architecture: "arm64"`, `minimumOsVersion: "14.0"`, `abi: 4`, `identity`,
+`architecture: "arm64"`, `minimumOsVersion: "14.0"`, `abi: 5`, `identity`,
 `bridge`, `runtime`, and `files` mapping the five payload names to SHA-256 hashes.
 Its `build` evidence records the cache arguments hash, combined input-object
 digest/count, and runtime/ABI source hash. It contains no local SDK paths.
@@ -78,7 +78,7 @@ operations initialize, load immutable canonical AOT snapshots, create/enter/exit
 isolates, drain microtasks, free errors and shut down one isolate. Public Dart C
 APIs provide scopes, values, invocation and persistent handles while entered.
 
-`bridge/abi.h` fixes the 38-slot compiler-private table and binding metadata.
+`bridge/abi.h` fixes the 40-slot compiler-private table and binding metadata.
 `napiBindings(address, count)` must validate that count before reading the table.
 Functions/classes retain actual JS call presence and `new` behavior. Getter and
 setter closures share one JS property descriptor but remain distinct callbacks.
@@ -105,6 +105,12 @@ child conversion; both keys and values count toward the structural work limit.
 Each isolate owner captures six Map intrinsics and releases those references
 through its existing cleanup. Map entries use callback-scoped handles, without
 a persistent container registry.
+
+Slots 38 and 39 validate and snapshot Dictionary string keys and create a
+null-prototype output object. Dictionary keys are field metadata; only the root
+and recursively converted values count toward the work budget. Descriptor reads
+remain in slot 31 and safe own-property writes remain in slot 34. One additional
+captured Object.create reference follows the existing owner cleanup.
 
 Every Node environment owns its isolates and persistent handles. Cross-owner
 receivers and different-isolate reentry are rejected; GC during active callbacks defers

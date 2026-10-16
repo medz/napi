@@ -17,7 +17,9 @@ dependencies:
   napi:
     path: ${jsonEncode(Directory.current.path)}
 ''');
-  await File('test/fixtures/maps.dart').copy('${project.path}/business.dart');
+  await File('test/fixtures/dictionaries.dart')
+      .copy('${project.path}/business.dart');
+  await File('test/fixtures/maps.dart').copy('${project.path}/maps.dart');
   await File('test/fixtures/classes.dart').copy('${project.path}/classes.dart');
   await File('${project.path}/build.dart').writeAsString('''
 import 'dart:io';
@@ -71,12 +73,17 @@ Future<void> main() async {
       .copy('${consumer.path}/structural_reference_contract.mjs');
   await File('test/integration/map_contract.mjs')
       .copy('${consumer.path}/map_contract.mjs');
+  await File('test/integration/dictionary_contract.mjs')
+      .copy('${consumer.path}/dictionary_contract.mjs');
+  await File('test/typescript/dictionaries.mts')
+      .copy('${consumer.path}/dictionaries.mts');
   await File('test/typescript/maps.mts').copy('${consumer.path}/maps.mts');
   await File('test/typescript/classes.mts')
       .copy('${consumer.path}/consumer.mts');
   await run('node', ['--expose-gc', 'test.mjs'], cwd: consumer.path);
   await typescript(consumer, 'consumer.mts');
   await typescript(consumer, 'maps.mts');
+  await typescript(consumer, 'dictionaries.mts');
 
   // External metadata must work without source annotations.
   final plain = await File('test/fixtures/classes.dart').readAsString();

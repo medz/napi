@@ -4,12 +4,14 @@ import '../emit/dart/entrypoint.dart' show renderDartDefault;
 import '../ir/model.dart';
 import '../lowering/plan.dart'
     show
+        DictionaryConversion,
         ListConversion,
         MapConversion,
         RecordConversion,
         ReferenceConversion,
         ScalarConversion,
-        ScalarKind;
+        ScalarKind,
+        containsDictionary;
 import 'plan.dart';
 import 'structural.dart';
 
@@ -22,11 +24,22 @@ String emitNativeDart(NativeModulePlan plan) {
       (value) =>
           value is ListConversion ||
           value is RecordConversion ||
-          value is MapConversion,
+          value is MapConversion ||
+          value is DictionaryConversion,
     ),
+  );
+  final hasDictionary = plan.calls.any(
+    (call) => [
+      ...call.inputs,
+      if (call.output != null) call.output!,
+    ].any(containsDictionary),
   );
   final structures = NativeStructuralEmitter();
   final code = StringBuffer();
+  if (hasDictionary) {
+    code.writeln("import 'dart:convert' show jsonEncode;");
+    code.writeln("import 'package:napi/napi.dart' as napi;");
+  }
   if (hasStructures) code.writeln("import 'dart:ffi';");
   code.write('''
 import 'package:napi/src/compiler/native/bindings.dart';
@@ -115,7 +128,8 @@ void main() {}
       final structural =
           conversion is ListConversion ||
           conversion is RecordConversion ||
-          conversion is MapConversion;
+          conversion is MapConversion ||
+          conversion is DictionaryConversion;
       const undefined =
           'Pointer<Void>.fromAddress(_api.undefinedResult(call.env))';
       final raw = structural && rawStructuralArguments
@@ -155,7 +169,8 @@ void main() {}
         );
       } else if (conversion is ListConversion ||
           conversion is RecordConversion ||
-          conversion is MapConversion) {
+          conversion is MapConversion ||
+          conversion is DictionaryConversion) {
         final read = structures.read(conversion);
         code.writeln(
           '    a$index = $read(call.env, raw$index, _NativeReadState(), $path, 0);',
@@ -199,7 +214,8 @@ void main() {}
       if (output.nullable &&
           output is! ListConversion &&
           output is! RecordConversion &&
-          output is! MapConversion) {
+          output is! MapConversion &&
+          output is! DictionaryConversion) {
         code.writeln(
           '    if (value == null) return _api.nullResult(call.env);',
         );
@@ -217,7 +233,8 @@ void main() {}
         );
       } else if (output is ListConversion ||
           output is RecordConversion ||
-          output is MapConversion) {
+          output is MapConversion ||
+          output is DictionaryConversion) {
         final write = structures.write(output);
         code.writeln(
           '    final state = _NativeWriteState();\n'

@@ -79,11 +79,11 @@ Weak identity entries and zero-count Node-API references do not root wrappers.
 Environment and exact selected class brands are checked before business calls.
 Readonly fields remain readonly and GC does not call business disposal methods.
 
-The private bridge table is ABI 4 (38 slots). Older bundles are rejected before
+The private bridge table is ABI 5 (40 slots). Older bundles are rejected before
 copying; maintainers rebuild the bridge/runtime bundle using their existing VM
 cache. Consumer builds still require only the ordinary Dart SDK and that bundle.
 
-List/Map/record functions and class members share Wasm's [structural conversion](structural.md)
+List/Map/Dictionary/record functions and class members share Wasm's [structural conversion](structural.md)
 contract, including nullable containers, cloned outputs, own-data fields, bounded
 traversal and precise UTF-16 paths. Reflection uses JavaScript Array/prototype
 semantics for Proxy inputs; lengths are captured once and descriptors are read
@@ -92,7 +92,9 @@ does not create a persistent container registry. Reference leaves reuse the same
 class brands, weak identity cache and retained-object leases as direct calls.
 Map input snapshots entries before recursive conversion; both directions reject
 converted-key collisions. Each module captures six Map intrinsics and releases
-their references with its existing isolate owner.
+their references with its existing isolate owner. Dictionary input uses own
+string data properties and output has a null prototype; one captured
+Object.create reference uses the same cleanup.
 
 Unsupported shapes fail before output is created: value/resource policies,
 generic specialization, non-null

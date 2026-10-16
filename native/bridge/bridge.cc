@@ -58,6 +58,7 @@ struct Owner {
   Wrapper* pending_releases = nullptr;
   Adoption* adoption = nullptr;
   napi_ref maps[map_intrinsic_count] = {};
+  napi_ref dictionary_create = nullptr;
 };
 static thread_local Owner* active_owner = nullptr;
 
@@ -319,6 +320,24 @@ static napi_status capture_maps(Owner* owner) {
     if (status != napi_ok) return status;
   }
   return napi_ok;
+}
+
+static napi_status capture_dictionary(Owner* owner) {
+  napi_value global, object, create;
+  auto status = napi_get_global(owner->env, &global);
+  if (status != napi_ok) return status;
+  status = napi_get_named_property(owner->env, global, "Object", &object);
+  if (status != napi_ok) return status;
+  status = napi_get_named_property(owner->env, object, "create", &create);
+  if (status != napi_ok) return status;
+  napi_valuetype type;
+  status = napi_typeof(owner->env, create, &type);
+  if (status != napi_ok) return status;
+  if (type != napi_function) {
+    fail_error(owner->env, "Cannot capture Dictionary constructor");
+    return napi_invalid_arg;
+  }
+  return napi_create_reference(owner->env, create, 1, &owner->dictionary_create);
 }
 
 static napi_status map_function(napi_env env, MapIntrinsic intrinsic, napi_value* result) {
@@ -646,6 +665,71 @@ static napi_status checked_insert_map(napi_env env, napi_value map, napi_value k
   return map_call(env, map_set, map, 2, args, &ignored);
 }
 
+static napi_status dictionary_keys(napi_env env, napi_value input,
+                                   napi_value path_value, uint32_t remaining,
+                                   uint32_t depth, bool cyclic,
+                                   napi_value* keys, uint32_t* count) {
+  try {
+    std::u16string path;
+    auto status = utf16(env, path_value, &path);
+    if (status != napi_ok) return status;
+    napi_valuetype type;
+    status = napi_typeof(env, input, &type);
+    if (status != napi_ok) return status;
+    if (type != napi_object)
+      return structure_error(env, path, u"expected a Dictionary object");
+    bool array;
+    status = js_is_array(env, input, &array);
+    if (status != napi_ok) return status;
+    if (array) return structure_error(env, path, u"expected a Dictionary object");
+    bool plain;
+    status = plain_shape(env, input, false, &plain);
+    if (status != napi_ok) return status;
+    if (!plain) return structure_error(env, path, u"expected a plain Dictionary object");
+    if (depth >= 64)
+      return structure_error(env, path, u"structural depth limit (64) exceeded", true);
+    if (cyclic) return structure_error(env, path, u"cyclic structural value");
+    napi_value result;
+    status = napi_get_all_property_names(env, input, napi_key_own_only,
+        napi_key_all_properties, napi_key_numbers_to_strings, &result);
+    if (status != napi_ok) return status;
+    uint32_t length;
+    status = napi_get_array_length(env, result, &length);
+    if (status != napi_ok) return status;
+    for (uint32_t i = 0; i < length; ++i) {
+      napi_value key;
+      status = napi_get_element(env, result, i, &key);
+      if (status != napi_ok) return status;
+      status = napi_typeof(env, key, &type);
+      if (status != napi_ok) return status;
+      if (type != napi_string)
+        return structure_error(env, path, u"expected string Dictionary keys");
+    }
+    if (length > remaining)
+      return structure_error(env, path, u"structural work limit (10000) exceeded", true);
+    *keys = result;
+    *count = length;
+    return napi_ok;
+  } catch (const std::bad_alloc&) {
+    fail_error(env, "Cannot inspect Dictionary keys");
+    return napi_generic_failure;
+  }
+}
+
+static napi_status create_dictionary(napi_env env, napi_value* result) {
+  if (!active_owner || active_owner->env != env || active_owner->closing) {
+    fail_error(env, "Dictionary operation requires its active Dart isolate");
+    return napi_invalid_arg;
+  }
+  napi_value create, global, null_value;
+  auto status = napi_get_reference_value(env, active_owner->dictionary_create, &create);
+  if (status != napi_ok) return status;
+  status = napi_get_global(env, &global);
+  if (status != napi_ok) return status;
+  status = napi_get_null(env, &null_value);
+  return status == napi_ok ? napi_call_function(env, global, create, 1, &null_value, result) : status;
+}
+
 static napi_status read_options(
     napi_env env, napi_value input, bool supplied, const char* const* names,
     size_t count, napi_value* values, uint8_t* present, const char* context) {
@@ -751,6 +835,8 @@ static void* api_table[] = {
     reinterpret_cast<void*>(&snapshot_map),
     reinterpret_cast<void*>(&create_map),
     reinterpret_cast<void*>(&checked_insert_map),
+    reinterpret_cast<void*>(&dictionary_keys),
+    reinterpret_cast<void*>(&create_dictionary),
 };
 static_assert(sizeof(api_table) / sizeof(*api_table) == bridge_api_count);
 
@@ -830,6 +916,8 @@ static void destroy(Owner* owner) {
   for (auto function : owner->maps) {
     if (function) napi_delete_reference(owner->env, function);
   }
+  if (owner->dictionary_create)
+    napi_delete_reference(owner->env, owner->dictionary_create);
   {
     Scope scope(owner, false);
     if (!scope.entered) {
@@ -1156,6 +1244,7 @@ static napi_value load(napi_env env, napi_callback_info info) {
   napi_value exports;
   auto status = napi_create_object(env, &exports);
   if (status != napi_ok || capture_maps(owner) != napi_ok ||
+      capture_dictionary(owner) != napi_ok ||
       !register_bindings(owner, exports)) {
     destroy(owner);
     return fail(env, "Cannot register Dart bindings");

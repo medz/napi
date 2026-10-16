@@ -9,11 +9,13 @@ import {verifyClasses} from './class_contract.mjs';
 import {verifyReferences, verifyForeignReferences, verifyReferenceRetention} from './reference_contract.mjs';
 import {verifyStructuralReferences, verifyForeignStructuralReferences, verifyStructuralReferenceRetention} from './structural_reference_contract.mjs';
 import {verifyMaps, verifyForeignMaps, verifyMapRetention} from './map_contract.mjs';
+import {verifyDictionaries, verifyForeignDictionaries, verifyDictionaryRetention} from './dictionary_contract.mjs';
 
 verifyClasses(api);
 verifyReferences(api);
 verifyStructuralReferences(api);
 verifyMaps(api);
+verifyDictionaries(api);
 if (isMainThread) {
   const again = await import('@napi/class-fixture/module.wasm');
   assert.equal(api.Counter, again.Counter);
@@ -29,6 +31,7 @@ if (isMainThread) {
     verifyForeignReferences(api, independent);
     verifyForeignStructuralReferences(api, independent);
     verifyForeignMaps(api, independent);
+    verifyForeignDictionaries(api, independent);
     const foreign = new independent.Counter(9);
     assert.throws(() => api.Counter.prototype.increment.call(foreign), TypeError);
     const original = new api.Counter(4);
@@ -42,6 +45,7 @@ if (isMainThread) {
   await verifyReferenceRetention(api);
   await verifyStructuralReferenceRetention(api);
   await verifyMapRetention(api);
+  await verifyDictionaryRetention(api);
   for (let round = 0; round < 2; round++) {
     await Promise.all(Array.from({length: 3}, async (_, i) => {
       const hold = i === 2;
@@ -60,6 +64,7 @@ if (isMainThread) {
     verifyReferences(api);
     verifyStructuralReferences(api);
     verifyMaps(api);
+    verifyDictionaries(api);
   }
   console.log('Generated Wasm classes, independent graph brands, retention and Workers: passed');
 } else if (workerData?.hold) {

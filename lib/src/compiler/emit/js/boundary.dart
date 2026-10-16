@@ -15,7 +15,8 @@ String emitBoundary(ModulePlan plan) {
     for (final (index, conversion) in conversions.indexed)
       if (conversion is ListConversion ||
           conversion is RecordConversion ||
-          conversion is MapConversion)
+          conversion is MapConversion ||
+          conversion is DictionaryConversion)
         index: emitStructuralBoundary(
           conversion,
           prefix: 'structure$index',
@@ -63,6 +64,7 @@ export function writeBigInt(value, context) { return checked(BigInt(value), cont
 export function throwDartError(message) { throw new Error(message); }
 ${structures.isEmpty ? '' : structuralPolicy}
 ${conversions.any(_containsMap) ? mapStructuralPolicy : ''}
+${conversions.any(containsDictionary) ? dictionaryStructuralPolicy : ''}
 ${structures.values.map((s) => s.source).join('\n')}
 ${plan.classes.isNotEmpty || plan.functions.any((f) => f.representation == ExportRepresentation.callableGlobal) ? argumentPolicy : ''}
 ''';
@@ -71,6 +73,7 @@ ${plan.classes.isNotEmpty || plan.functions.any((f) => f.representation == Expor
 bool _containsMap(ValueConversion value) => switch (value) {
   MapConversion() => true,
   ListConversion(:final element) => _containsMap(element),
+  DictionaryConversion(:final value) => _containsMap(value),
   RecordConversion() => value.fields.values.any(_containsMap),
   ScalarConversion() || ReferenceConversion() => false,
 };

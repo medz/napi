@@ -728,7 +728,10 @@ final class _Reader {
     }
     if (type is a.InterfaceType) {
       final semantics =
-          type.isDartCoreList || type.isDartCoreMap || type.isDartCoreSet
+          type.isDartCoreList ||
+              type.isDartCoreMap ||
+              type.isDartCoreSet ||
+              _id(type.element) == dictionaryDeclaration
           ? ValueSemantics.structural
           : type.isDartCoreBool ||
                 type.isDartCoreDouble ||
