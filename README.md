@@ -1,7 +1,7 @@
 # napi
 
 A Dart binding compiler targeting native Node-API `.node` addons and WebAssembly.
-The current development implementation supports direct Node ESM Wasm imports:
+The default target supports direct Node ESM Wasm imports:
 
 ```js
 import { add } from './module.wasm';
@@ -15,7 +15,8 @@ The product follows napi-rs's model: one Dart export declaration, generated
 bindings and TypeScript types, and npm packages for native and Wasm targets.
 Necessary JavaScript loaders and runtime helpers are allowed. Both targets must
 preserve the same supported calls, including `new Counter()` and argument
-presence. Native output is a development goal, not an implemented backend.
+presence. The experimental native target generates scalar and reference-class AOT bindings
+for macOS arm64; see [native builds](doc/native.md) for its explicit runtime-bundle requirement.
 See [the architecture and delivery plan](doc/architecture.md) and
 [#144](https://github.com/medz/napi/issues/144) for its validation gates.
 
@@ -31,15 +32,17 @@ See [the architecture and delivery plan](doc/architecture.md) and
 - A pinned Dart SDK adapter and linker producing actual Wasm named exports
 - Handwritten ABI fixtures proving real Dart constructors and argument-presence semantics
 - Direct imports, installed package resolution, artifact inspection, and strict TypeScript tests
-- Fresh Wasm npm package assembly with explicit assets and atomic publication
+- Fresh Wasm and native npm assembly with explicit assets and atomic publication
+- Native scalar/default bindings and real constructors, methods and properties
+- Precompiled native bridge/runtime; business builds use only the ordinary Dart SDK
 
-The current generated JavaScript files are dependencies imported by Wasm.
+Wasm uses generated JavaScript dependencies; native uses an automatic ESM entry.
 The package entry may select and load a backend automatically; consumers should
 not need loader setup, registration, or a call to application `main`.
 
 The annotation frontend records complete declaration metadata; build-time checks
-reject unsupported signatures before writing output. Class
-execution, native package assembly and replacement builds remain separate work in
+reject unsupported signatures before writing output. Wasm class execution,
+complete lifecycle engines and replacement builds remain separate work in
 [#114](https://github.com/medz/napi/issues/114). See [annotation syntax and scope](doc/annotations.md) and the
 [scalar conversion contract](doc/scalars.md), [argument presence and defaults](doc/arguments.md),
 [structural values](doc/structural.md), and [npm package assembly](doc/packaging.md).
@@ -78,8 +81,9 @@ signed 64-bit input range; Dart `BigInt` always uses arbitrary-precision JavaScr
 
 The current tested toolchain is Dart **3.13.5 stable**, Node **24.19.0**, and
 TypeScript **7.0.2**. The SDK adapter deliberately rejects other Dart versions.
-Node's Wasm module warning is expected on this version. Native `.node` execution,
-Bun and browser compatibility have not yet been verified by this implementation.
+Node's Wasm module warning is expected on this version. Native macOS arm64
+execution is also checked on Node **26.11.1**; see [native verification](doc/native.md).
+Other native targets, Bun and browser compatibility remain unverified.
 
 ```sh
 dart pub get

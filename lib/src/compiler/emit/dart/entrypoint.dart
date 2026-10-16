@@ -32,7 +32,9 @@ String emitDart(ModulePlan plan) {
       result.writeln('  final ${conversion.dartType} a$i;');
       if (_optional(parameters[i])) {
         result.writeln('  if (d$i.toIntSigned() != 0) {');
-        result.writeln('    a$i = ${_default(parameters[i], conversion)};');
+        result.writeln(
+          '    a$i = ${renderDartDefault(parameters[i], conversion)};',
+        );
         result.writeln('  } else {');
       }
       result.writeln(
@@ -87,7 +89,7 @@ bool _named(ParameterBinding p) =>
     p.kind == ParameterKind.requiredNamed ||
     p.kind == ParameterKind.optionalNamed;
 
-String _default(ParameterBinding p, ValueConversion conversion) {
+String renderDartDefault(ParameterBinding p, ValueConversion conversion) {
   final value = p.defaultValue?.value;
   if (value == null) return 'null';
   if (value is String) return jsonEncode(value).replaceAll(r'$', r'\$');

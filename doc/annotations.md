@@ -59,7 +59,9 @@ method by its original Dart name. Its existing member metadata retains the full
 signature, including generics, defaults and `Future` returns. Renaming or excluding
 that member from public exports does not change its cleanup identity.
 
-Policies remain descriptive: building classes still reports `NAPI_CLASS`.
+Value/resource policies remain descriptive. Native reference classes support
+the bounded synchronous slice in [native builds](native.md); Wasm class builds
+still report `NAPI_CLASS`.
 Value policies do not invent input construction (#122); ordinary reference
 classes do not gain disposal (#123). Resource execution, cleanup API spelling,
 operation leases and repeated/failed cleanup remain #124.
@@ -133,7 +135,8 @@ import { add } from './module.wasm';
 
 The actual `.wasm` exports, direct installed-package entry, safe-integer checks,
 strict TypeScript checks and atomic output publication remain unchanged.
-Reference conversions and class runtime engines belong to subsequent work.
+Cross-call reference conversions and complete class engines remain subsequent
+work; the native reference-class slice is documented in [native builds](native.md).
 
 ## External selections
 
@@ -168,7 +171,7 @@ External selections use the same `NAPI` configuration, resolved signatures,
 defaults, documentation and semantic IR as annotations. Public reexports respect
 `show`/`hide`; missing, private, ambiguous and colliding selections are diagnosed.
 `ExternalClass` and `ExternalMember.constructor`/`method`/`getter`/`setter`/`field`
-also describe class selections and overrides. They retain metadata but building
-still rejects classes with `NAPI_CLASS`. Executable external bindings currently
-use the same scalar/structural Wasm backend; native execution and
-value/resource runtime engines remain pending.
+also describe class selections and overrides. Both annotation and external
+selections use the scalar/structural Wasm backend or the synchronous native
+scalar/reference-class backend. Wasm class execution and value/resource
+runtime engines remain pending.

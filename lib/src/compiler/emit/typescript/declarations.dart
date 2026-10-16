@@ -6,14 +6,16 @@ String emitDeclarations(ModulePlan plan) => [
   '// Use allowArbitraryExtensions for relative .wasm imports.',
   for (final function in plan.functions)
     if (function.representation == ExportRepresentation.callableGlobal)
-      'export declare const ${function.binding.exportName}: (${_parameters(function)}) => ${function.output.typescriptType};'
+      'export declare const ${function.binding.exportName}: (${emitParameters(function.binding.parameters, function.inputs)}) => ${function.output.typescriptType};'
     else
-      'export declare function ${function.binding.exportName}(${_parameters(function)}): ${function.output.typescriptType};',
+      'export declare function ${function.binding.exportName}(${emitParameters(function.binding.parameters, function.inputs)}): ${function.output.typescriptType};',
   '',
 ].join('\n');
 
-String _parameters(FunctionPlan function) {
-  final parameters = function.binding.parameters;
+String emitParameters(
+  List<ParameterBinding> parameters,
+  List<ValueConversion> inputs,
+) {
   final positional = parameters.indexed.where(
     (entry) =>
         entry.$2.kind == ParameterKind.requiredPositional ||
@@ -38,9 +40,7 @@ String _parameters(FunctionPlan function) {
       } while (!used.add(name));
     }
     final optional = parameter.kind == ParameterKind.optionalPositional;
-    result.add(
-      '$name${optional ? '?' : ''}: ${function.inputs[index].typescriptType}',
-    );
+    result.add('$name${optional ? '?' : ''}: ${inputs[index].typescriptType}');
   }
   if (named.isNotEmpty) {
     var name = 'options';
@@ -53,7 +53,7 @@ String _parameters(FunctionPlan function) {
     );
     final properties = [
       for (final (index, parameter) in named)
-        '${parameter.name}${parameter.kind == ParameterKind.optionalNamed ? '?' : ''}: ${function.inputs[index].typescriptType}${parameter.kind == ParameterKind.optionalNamed ? ' | undefined' : ''}',
+        '${parameter.name}${parameter.kind == ParameterKind.optionalNamed ? '?' : ''}: ${inputs[index].typescriptType}${parameter.kind == ParameterKind.optionalNamed ? ' | undefined' : ''}',
     ].join('; ');
     result.add('$name${required ? '' : '?'}: { $properties }');
   }

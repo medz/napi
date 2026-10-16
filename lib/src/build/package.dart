@@ -5,6 +5,7 @@ import 'package:path/path.dart' as path;
 
 import 'build.dart';
 import 'publish.dart';
+import 'native_bundle.dart';
 
 const _requiredFiles = [
   'module.wasm',
@@ -53,6 +54,41 @@ Future<Directory> assembleWasmPackage({
   required Map<String, Object?> metadata,
   Map<String, File> assets = const {},
 }) async {
+  if (module.target != BuildTarget.wasm) {
+    throw ArgumentError('assembleWasmPackage requires a Wasm module.');
+  }
+  return _assemblePackage(
+    module: module,
+    output: output,
+    metadata: metadata,
+    assets: assets,
+  );
+}
+
+/// Assemble one native target without backend fallback or install scripts.
+Future<Directory> assembleNativePackage({
+  required BuiltModule module,
+  required Directory output,
+  required Map<String, Object?> metadata,
+  Map<String, File> assets = const {},
+}) async {
+  if (module.target != BuildTarget.native) {
+    throw ArgumentError('assembleNativePackage requires a native module.');
+  }
+  return _assemblePackage(
+    module: module,
+    output: output,
+    metadata: metadata,
+    assets: assets,
+  );
+}
+
+Future<Directory> _assemblePackage({
+  required BuiltModule module,
+  required Directory output,
+  required Map<String, Object?> metadata,
+  required Map<String, File> assets,
+}) async {
   final package = await _packageMetadata(metadata);
   final source = module.directory.absolute;
   final target = output.absolute;
@@ -72,11 +108,24 @@ Future<Directory> assembleWasmPackage({
   }
 
   final files = <String, File>{};
-  for (final name in _requiredFiles) {
+  final native = module.target == BuildTarget.native;
+  final bundle = native
+      ? await NativeRuntimeBundle.read(source, built: true)
+      : null;
+  final requiredFiles = bundle == null
+      ? _requiredFiles
+      : [
+          'module.mjs',
+          'module.d.mts',
+          'module.aot',
+          'runtime.json',
+          ...bundle.hashes.keys,
+        ];
+  for (final name in requiredFiles) {
     files[name] = await _regularFile(File('${source.path}/$name'));
   }
   final callFiles = <String, File>{};
-  for (final name in _callFiles) {
+  for (final name in native ? <String>[] : _callFiles) {
     final file = File('${source.path}/$name');
     if (await FileSystemEntity.type(file.path, followLinks: false) !=
         FileSystemEntityType.notFound) {
@@ -100,10 +149,27 @@ Future<Directory> assembleWasmPackage({
     'type': 'module',
     'files': files.keys.toList(),
     'exports': {
-      for (final key in ['.', './module.wasm'])
-        key: {'types': './module.d.wasm.ts', 'import': './module.wasm'},
+      for (final key in ['.', native ? './native' : './module.wasm'])
+        key: {
+          'types': native ? './module.d.mts' : './module.d.wasm.ts',
+          'import': native ? './module.mjs' : './module.wasm',
+        },
     },
   });
+  if (native) {
+    for (final entry in {
+      'os': ['darwin'],
+      'cpu': ['arm64'],
+    }.entries) {
+      if (package.containsKey(entry.key) &&
+          jsonEncode(package[entry.key]) != jsonEncode(entry.value)) {
+        throw ArgumentError(
+          'Native package metadata ${entry.key} must match ${entry.value}.',
+        );
+      }
+      package[entry.key] = entry.value;
+    }
+  }
   final manifest = const JsonEncoder.withIndent('  ').convert(package);
   await target.parent.create(recursive: true);
   final staging = await target.parent.createTemp('.napi-package-');
@@ -112,6 +178,7 @@ Future<Directory> assembleWasmPackage({
     for (final entry in files.entries) {
       await entry.value.copy('${staging.path}/${entry.key}');
     }
+    if (native) await NativeRuntimeBundle.read(staging, built: true);
     await File('${staging.path}/package.json').writeAsString('$manifest\n');
     publishDirectory(staging, target);
     published = true;
