@@ -22,13 +22,16 @@ See [the architecture and delivery plan](doc/architecture.md) and
 ## Working foundation
 
 - Resolved `@NAPI()` discovery with renaming, class/member selection and reexports
+- External selections for unmodified third-party libraries, sharing annotation metadata
 - Analyzer-independent declarations, validation, lowering, and Dart/JS/TypeScript emitters
 - Required positional scalar functions: `bool`, `String`, `double`, `int`, `BigInt`, and nullable forms
 - Optional positional and named scalar arguments with resolved Dart defaults and exact presence capture
+- Nested List and record conversion with strict field checks and bounded traversal
 - Safe-number `int` by default, or fixed JavaScript `bigint` with `@NAPI(bigint: true)`
 - A pinned Dart SDK adapter and linker producing actual Wasm named exports
 - Handwritten ABI fixtures proving real Dart constructors and argument-presence semantics
 - Direct imports, installed package resolution, artifact inspection, and strict TypeScript tests
+- Fresh Wasm npm package assembly with explicit assets and atomic publication
 
 The current generated JavaScript files are dependencies imported by Wasm.
 The package entry may select and load a backend automatically; consumers should
@@ -36,9 +39,10 @@ not need loader setup, registration, or a call to application `main`.
 
 The annotation frontend records complete declaration metadata; build-time checks
 reject unsupported signatures before writing output. Class
-execution and production npm package assembly remain separate work in
+execution, native package assembly and replacement builds remain separate work in
 [#114](https://github.com/medz/napi/issues/114). See [annotation syntax and scope](doc/annotations.md) and the
-[scalar conversion contract](doc/scalars.md), plus [argument presence and defaults](doc/arguments.md).
+[scalar conversion contract](doc/scalars.md), [argument presence and defaults](doc/arguments.md),
+[structural values](doc/structural.md), and [npm package assembly](doc/packaging.md).
 Annotated sources import `package:napi/napi.dart`; separate Dart VM build scripts
 use `buildLibrary` from `package:napi/build.dart`.
 

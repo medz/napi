@@ -4,6 +4,8 @@ import 'dart:io';
 import 'export_kind_fixture.dart';
 import 'scalar_fixture.dart';
 import 'argument_fixture.dart';
+import 'structural_fixture.dart';
+import 'package_assembly_fixture.dart';
 
 Future<void> run(String command, List<String> args, {String? cwd}) async {
   final result = await Process.run(command, args, workingDirectory: cwd);
@@ -111,6 +113,18 @@ Future<void> main() async {
     arguments,
     root.absolute,
     fixture: 'arguments_package',
+  );
+  final structural = Directory('${root.absolute.path}/structural');
+  await buildStructuralFixture(structural);
+  await run('node', ['test.mjs'], cwd: structural.path);
+  await typescript(structural, 'consumer.mts');
+  await installedConsumer(
+    structural,
+    root.absolute,
+    fixture: 'structural_package',
+  );
+  await verifyPackageAssembly(
+    await Directory('${root.absolute.path}/package assembly').create(),
   );
   final kinds = await buildExportKindFixture();
   await run('node', ['test.mjs'], cwd: kinds.path);

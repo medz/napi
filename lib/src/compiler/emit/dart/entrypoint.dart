@@ -3,12 +3,18 @@ import 'dart:convert';
 import '../../lowering/plan.dart';
 import '../../ir/model.dart';
 import '../../sdk_adapter/entrypoint.dart';
+import 'structural.dart';
 
 String emitDart(ModulePlan plan) {
   final source = jsonEncode(plan.source.toString()).replaceAll(r'$', r'\$');
   final result = StringBuffer(
     "import $source as target;\n$entrypointPrelude\n",
   );
+  final structural = DartStructuralEmitter();
+  final hasStructural = plan.functions.any(
+    (f) => [...f.inputs, f.output].any((c) => c is! ScalarConversion),
+  );
+  if (hasStructural) result.writeln(dartStructuralPrelude);
   var context = 0;
   for (var index = 0; index < plan.functions.length; index++) {
     final function = plan.functions[index];
@@ -32,10 +38,12 @@ String emitDart(ModulePlan plan) {
       result.writeln(
         '  final v$i = _readValue(p$i, WasmI32.fromInt(${context++}));',
       );
-      final value = _read(conversion, 'v$i!');
+      final value = conversion is ScalarConversion
+          ? _read(conversion, 'v$i!')
+          : '${structural.read(conversion)}(v$i.isNull ? null : v$i!.toJS)';
       result.writeln(
         '  a$i = '
-        '${conversion.nullable ? 'v$i.isNull ? null : ' : ''}$value;',
+        '${conversion.nullable && conversion is ScalarConversion ? 'v$i.isNull ? null : ' : ''}$value;',
       );
       if (_optional(parameters[i])) result.writeln('  }');
     }
@@ -49,8 +57,25 @@ String emitDart(ModulePlan plan) {
     if (function.output.nullable) {
       result.writeln('  if (value == null) return WasmExternRef.nullRef;');
     }
-    result.writeln('  return ${_write(function.output, context++)};\n}');
+    if (function.output case final ScalarConversion scalar) {
+      result.writeln('  return ${_write(scalar, context++)};\n}');
+    } else {
+      final writer = structural.write(function.output);
+      final path = jsonEncode(function.output.context).replaceAll(r'$', r'\$');
+      result.writeln(
+        '  final JSAny? serialized;\n'
+        '  try {\n'
+        '    serialized = $writer(value, _StructureState(), $path, 0);\n'
+        '  } on _StructureViolation catch (error) {\n'
+        '    return _reportStructureError(error);\n'
+        '  } catch (error) {\n'
+        '    return _normalizeError(error);\n'
+        '  }\n'
+        '  return _writeValue(externRefForJSAny(serialized!), WasmI32.fromInt(${context++}));\n}',
+      );
+    }
   }
+  result.write(structural.source);
   return result.toString();
 }
 
@@ -62,7 +87,7 @@ bool _named(ParameterBinding p) =>
     p.kind == ParameterKind.requiredNamed ||
     p.kind == ParameterKind.optionalNamed;
 
-String _default(ParameterBinding p, ScalarConversion conversion) {
+String _default(ParameterBinding p, ValueConversion conversion) {
   final value = p.defaultValue?.value;
   if (value == null) return 'null';
   if (value is String) return jsonEncode(value).replaceAll(r'$', r'\$');
@@ -72,7 +97,9 @@ String _default(ParameterBinding p, ScalarConversion conversion) {
       return value.isNegative ? 'double.negativeInfinity' : 'double.infinity';
     }
   }
-  if (value is int && conversion.kind == ScalarKind.doubleValue) {
+  if (value is int &&
+      conversion is ScalarConversion &&
+      conversion.kind == ScalarKind.doubleValue) {
     return value.toDouble().toString();
   }
   return value.toString();

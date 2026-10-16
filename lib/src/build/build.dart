@@ -6,6 +6,7 @@ import '../compiler/emit/js/boundary.dart';
 import '../compiler/emit/js/arguments.dart';
 import '../compiler/emit/typescript/declarations.dart';
 import '../compiler/front_end/frontend.dart';
+import '../compiler/front_end/external.dart';
 import '../compiler/ir/model.dart';
 import '../compiler/linker/dart_module_linker.dart';
 import '../compiler/lowering/plan.dart';
@@ -19,22 +20,38 @@ final class BuiltModule {
   File get wasm => File('${directory.path}/module.wasm');
 }
 
-/// Discover annotated declarations and build their supported direct-Wasm API.
+/// Discover selected declarations and build their supported direct-Wasm API.
 ///
 /// Unsupported selected declarations fail before output or staging is created.
 Future<BuiltModule> buildLibrary({
   required Uri library,
   required Directory output,
   String? packagesPath,
-  AnnotationFrontend? frontend,
+  ExternalLibrary? external,
+  BindingFrontend? frontend,
   DartSdkAdapter? sdk,
-}) async => buildModule(
-  bindings: await (frontend ?? AnnotationFrontend(packagesPath: packagesPath))
-      .read(library),
-  output: output,
-  sdk: sdk,
-  packagesPath: packagesPath,
-);
+}) async {
+  if (external != null && frontend != null) {
+    throw ArgumentError('Provide external selections or a frontend, not both.');
+  }
+  final defaultPackages = File('.dart_tool/package_config.json').absolute;
+  final effectivePackages =
+      packagesPath ??
+      (external != null && defaultPackages.existsSync()
+          ? defaultPackages.path
+          : null);
+  final selectedFrontend =
+      frontend ??
+      (external == null
+          ? AnnotationFrontend(packagesPath: effectivePackages)
+          : ExternalFrontend(external, packagesPath: effectivePackages));
+  return buildModule(
+    bindings: await selectedFrontend.read(library),
+    output: output,
+    sdk: sdk,
+    packagesPath: effectivePackages,
+  );
+}
 
 /// Build fresh artifacts from semantic IR.
 ///

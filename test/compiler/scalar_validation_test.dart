@@ -90,7 +90,7 @@ void main() {
         _declared('BigInt', owner: DeclarationId(_core, 'Owner')),
         _declared('String', arguments: [const SafeIntType()]),
         _declared('String', semantics: ValueSemantics.reference),
-        RecordTypeBinding(positional: [const SafeIntType()]),
+        RecordTypeBinding(positional: [const DynamicType()]),
         FunctionTypeBinding(result: const SafeIntType(), parameters: const []),
       ];
       for (final type in unsupported) {

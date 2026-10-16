@@ -67,9 +67,10 @@ platform.
 
 `AnnotationFrontend.read` normalizes declarations and validates selections even
 when no runtime engine exists for their signatures. Building separately checks
-backend capabilities before creating output: currently only nongeneric top-level
-functions with positional/named scalar parameters and scalar results are
-supported: `bool`, `String`, `double`, `int`, `BigInt`, and their nullable forms.
+backend capabilities before creating output: nongeneric top-level functions
+support positional/named parameters and results using `bool`, `String`, `double`,
+`int`, `BigInt`, and their nullable forms, plus recursively nested `List` and
+record values with supported leaves.
 `@NAPI(bigint: true)` selects fixed JavaScript `bigint` representation for every
 Dart `int` parameter/result of that function, including nullable ints and typedefs.
 It does not change other scalar types; Dart `BigInt` always uses JavaScript
@@ -107,5 +108,42 @@ import { add } from './module.wasm';
 
 The actual `.wasm` exports, direct installed-package entry, safe-integer checks,
 strict TypeScript checks and atomic output publication remain unchanged.
-Structural/reference conversions, external bindings
-and class runtime engines belong to subsequent work.
+Reference conversions and class runtime engines belong to subsequent work.
+
+## External selections
+
+Select declarations from an installed dependency in the build script. Its source
+stays unchanged: no annotations, wrapper signatures or copied defaults are needed.
+For example, with `collection` in the consumer's dependencies:
+
+```dart
+import 'dart:io';
+import 'package:napi/build.dart';
+
+Future<void> main() async {
+  await buildLibrary(
+    library: Uri.parse('package:collection/collection.dart'),
+    output: Directory('output'),
+    packagesPath: File('.dart_tool/package_config.json').absolute.path,
+    external: const ExternalLibrary([
+      ExternalFunction('compareNatural', config: NAPI(name: 'compareNames')),
+    ]),
+  );
+}
+```
+
+Run `dart run build.dart`, then import the generated API normally:
+
+```js
+import { compareNames } from './output/module.wasm';
+console.log(compareNames('item2', 'item10') < 0); // true
+```
+
+External selections use the same `NAPI` configuration, resolved signatures,
+defaults, documentation and semantic IR as annotations. Public reexports respect
+`show`/`hide`; missing, private, ambiguous and colliding selections are diagnosed.
+`ExternalClass` and `ExternalMember.constructor`/`method`/`getter`/`setter`/`field`
+also describe class selections and overrides. They retain metadata but building
+still rejects classes with `NAPI_CLASS`. Executable external bindings currently
+use the same scalar/structural Wasm backend; native execution and explicit
+value/resource policies remain pending.

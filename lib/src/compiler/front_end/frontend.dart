@@ -9,11 +9,13 @@ import 'package:analyzer/dart/element/type.dart' as a;
 import 'package:analyzer/diagnostic/diagnostic.dart';
 import 'package:path/path.dart' as p;
 
+import '../../api/annotation.dart';
 import '../analysis/validate.dart';
 import '../ir/model.dart';
+import 'external.dart';
 import 'wasm_analysis.dart';
 
-/// Source annotations and future external bindings meet at this boundary.
+/// Source annotations and external bindings meet at this boundary.
 abstract interface class BindingFrontend {
   Future<BindingModule> read(Uri library);
 }
@@ -70,20 +72,212 @@ final class AnnotationFrontend implements BindingFrontend {
   }
 }
 
-final class _Configuration {
-  final String? name;
-  final bool exclude;
-  final bool bigint;
-  const _Configuration(this.name, this.exclude, this.bigint);
+/// Resolve external selections through the same semantic reader as annotations.
+///
+/// The target may be a file or package URI. Package URIs use [packagesPath], or
+/// the current package's `.dart_tool/package_config.json` when omitted.
+final class ExternalFrontend implements BindingFrontend {
+  final ExternalLibrary selections;
+  final String? sdkPath;
+  final String? packagesPath;
+  const ExternalFrontend(this.selections, {this.sdkPath, this.packagesPath});
+
+  @override
+  Future<BindingModule> read(Uri library) async {
+    final packages = packagesPath == null
+        ? File('.dart_tool/package_config.json').absolute.path
+        : File(packagesPath!).absolute.path;
+    if ((library.scheme != 'file' && library.scheme != 'package') ||
+        (library.scheme == 'file' && !File.fromUri(library).existsSync()) ||
+        (library.scheme == 'package' && !File(packages).existsSync())) {
+      throw const BindingDiagnostic(
+        'NAPI_INPUT',
+        'Provide an existing file library or a package URI with package configuration.',
+      );
+    }
+    final anchor = p.normalize(
+      library.scheme == 'file' ? File.fromUri(library).absolute.path : packages,
+    );
+    final contexts = createWasmAnalysisContext(
+      path: anchor,
+      sdkPath: sdkPath,
+      packageConfigFile: File(packages).existsSync() ? packages : null,
+    );
+    try {
+      final session = contexts.contextFor(anchor).currentSession;
+      final path = session.uriConverter.uriToPath(library);
+      if (path == null || !File(path).existsSync()) {
+        throw BindingDiagnostic(
+          'NAPI_INPUT',
+          'Cannot resolve library $library.',
+        );
+      }
+      final result = await session.getResolvedLibrary(path);
+      if (result is! ResolvedLibraryResult) {
+        throw const BindingDiagnostic(
+          'NAPI_INPUT',
+          'Input must be a Dart library.',
+        );
+      }
+      return await _Reader(
+        File(path).absolute.uri,
+        null,
+      ).readExternal(result, selections);
+    } finally {
+      await contexts.dispose();
+    }
+  }
 }
 
 final class _Reader {
   final Uri entry;
-  final a.ClassElement annotationClass;
+  final a.ClassElement? annotationClass;
+  final _externalConfigs = <a.Element, NAPI>{};
   final _libraries = <a.LibraryElement, ResolvedLibraryResult>{};
   final _documentation = <a.Element, String>{};
   final _typeParameterIds = <a.TypeParameterElement, DeclarationId>{};
   _Reader(this.entry, this.annotationClass);
+
+  Future<BindingModule> readExternal(
+    ResolvedLibraryResult root,
+    ExternalLibrary selections,
+  ) async {
+    final selected = <(ExternalDeclaration, a.Element)>[];
+    for (final selection in selections.declarations) {
+      final name = selection.name;
+      final element = root.element.exportNamespace.definedNames2[name];
+      final fallback = selection.source ?? _source(root.element);
+      if (name.startsWith('_')) {
+        final private =
+            root.element.getTopLevelFunction(name) ??
+            root.element.getClass(name);
+        throw BindingDiagnostic(
+          'NAPI_VISIBILITY',
+          'External selection $name must be public.',
+          private == null ? fallback : _source(private),
+        );
+      }
+      if (element == null) {
+        throw BindingDiagnostic(
+          'NAPI_SELECTION',
+          'No public export named $name in ${root.element.uri}.',
+          fallback,
+        );
+      }
+      if (element is a.MultiplyDefinedElement) {
+        final source = element.conflictingElements.isEmpty
+            ? fallback
+            : _source(element.conflictingElements.first);
+        throw BindingDiagnostic(
+          'NAPI_AMBIGUOUS',
+          'External selection $name is ambiguous between '
+              '${element.conflictingElements.map((e) => e.library!.uri).join(', ')}.',
+          selection.source ?? source,
+        );
+      }
+      if ((selection is ExternalFunction &&
+              element is! a.TopLevelFunctionElement) ||
+          (selection is ExternalClass && element is! a.ClassElement)) {
+        _reject(
+          element,
+          'NAPI_SELECTION',
+          'External selection $name has the wrong declaration kind.',
+        );
+      }
+      _setExternalConfig(element, selection.config, member: false);
+      if (selection is ExternalClass && element is a.ClassElement) {
+        _selectMembers(element, selection);
+      }
+      selected.add((selection, element));
+    }
+    await _load(root.element, result: root);
+    selected.sort((x, y) => _compareDeclarations(x.$2, y.$2));
+    final functions = <FunctionBinding>[];
+    final classes = <ClassBinding>[];
+    for (final (selection, element) in selected) {
+      await _load(element.library!);
+      if (element is a.TopLevelFunctionElement) {
+        functions.add(_function(element, selection.name, selection.config));
+      } else if (element is a.ClassElement) {
+        classes.add(_class(element, selection.name, selection.config));
+      }
+    }
+    final module = BindingModule(
+      source: entry,
+      functions: functions,
+      classes: classes,
+    );
+    validateDeclarations(module);
+    return module;
+  }
+
+  void _setExternalConfig(
+    a.Element element,
+    NAPI config, {
+    required bool member,
+  }) {
+    if (_externalConfigs.containsKey(element)) {
+      _reject(
+        element,
+        'NAPI_DUPLICATE',
+        'Duplicate external selection ${element.name}.',
+      );
+    }
+    if (config.exclude && !member) {
+      _reject(
+        element,
+        'NAPI_PLACEMENT',
+        'exclude is only valid on a class member.',
+      );
+    }
+    if (config.exclude && config.name != null) {
+      _reject(
+        element,
+        'NAPI_SELECTION',
+        'name and exclude cannot be combined.',
+      );
+    }
+    if (config.bigint && (member || element is! a.TopLevelFunctionElement)) {
+      _reject(
+        element,
+        'NAPI_PLACEMENT',
+        'bigint is only supported on a top-level function.',
+      );
+    }
+    _externalConfigs[element] = config;
+  }
+
+  void _selectMembers(a.ClassElement owner, ExternalClass selection) {
+    final members = _classMembers(owner);
+    for (final member in selection.members) {
+      final matches = members
+          .where((e) => e.name == member.name && _memberKind(e) == member.kind)
+          .toList();
+      if (matches.isEmpty) {
+        throw BindingDiagnostic(
+          'NAPI_SELECTION',
+          'No declared ${member.kind.name} ${owner.name}.${member.name}.',
+          member.source ?? _source(owner),
+        );
+      }
+      if (matches.length != 1) {
+        _reject(
+          matches.first,
+          'NAPI_AMBIGUOUS',
+          'External member selection ${owner.name}.${member.name} is ambiguous.',
+        );
+      }
+      final element = matches.single;
+      if (element.isPrivate) {
+        _reject(
+          element,
+          'NAPI_VISIBILITY',
+          'An external member selection must be public.',
+        );
+      }
+      _setExternalConfig(element, member.config, member: true);
+    }
+  }
 
   Future<BindingModule> read(ResolvedLibraryResult root) async {
     await _load(root.element, result: root);
@@ -91,16 +285,7 @@ final class _Reader {
         .where((e) => e.value is! a.MultiplyDefinedElement)
         .toList();
     // Source order is deterministic within an origin; reexports use origin URI.
-    candidates.sort((x, y) {
-      final uri = x.value.library!.uri.toString().compareTo(
-        y.value.library!.uri.toString(),
-      );
-      return uri != 0
-          ? uri
-          : x.value.firstFragment.offset.compareTo(
-              y.value.firstFragment.offset,
-            );
-    });
+    candidates.sort((x, y) => _compareDeclarations(x.value, y.value));
     final functions = <FunctionBinding>[];
     final classes = <ClassBinding>[];
     final seen = <a.Element>{};
@@ -138,6 +323,13 @@ final class _Reader {
     return module;
   }
 
+  int _compareDeclarations(a.Element x, a.Element y) {
+    final uri = x.library!.uri.toString().compareTo(y.library!.uri.toString());
+    return uri != 0
+        ? uri
+        : x.firstFragment.offset.compareTo(y.firstFragment.offset);
+  }
+
   Future<void> _load(
     a.LibraryElement library, {
     ResolvedLibraryResult? result,
@@ -154,7 +346,11 @@ final class _Reader {
         if (diagnostic.severity == Severity.error) {
           final location = unit.lineInfo.getLocation(diagnostic.offset);
           throw BindingDiagnostic(
-            'NAPI_DART',
+            annotationClass == null &&
+                    diagnostic.diagnosticCode.lowerCaseName ==
+                        'ambiguous_export'
+                ? 'NAPI_AMBIGUOUS'
+                : 'NAPI_DART',
             diagnostic.message,
             SourceLocation(
               File(unit.path).uri,
@@ -175,12 +371,14 @@ final class _Reader {
       element.enclosingElement == annotationClass;
 
   bool _isAnnotationValue(a.Element? element) =>
-      _isAnnotation(element) ||
-      (element is a.GetterElement &&
-          element.variable.computeConstantValue()?.type?.element ==
-              annotationClass);
+      annotationClass != null &&
+      (_isAnnotation(element) ||
+          (element is a.GetterElement &&
+              element.variable.computeConstantValue()?.type?.element ==
+                  annotationClass));
 
-  _Configuration? _config(a.Element element) {
+  NAPI? _config(a.Element element) {
+    if (annotationClass == null) return _externalConfigs[element];
     final matches = element.metadata.annotations
         .where(
           (m) =>
@@ -230,13 +428,13 @@ final class _Reader {
         'name and exclude cannot be combined.',
       );
     }
-    return _Configuration(name, exclude, bigint);
+    return NAPI(name: name, exclude: exclude, bigint: bigint);
   }
 
   FunctionBinding _function(
     a.TopLevelFunctionElement element,
     String path,
-    _Configuration config,
+    NAPI config,
   ) => FunctionBinding(
     declaration: _id(element),
     exportName: config.name ?? path,
@@ -255,18 +453,8 @@ final class _Reader {
     bigint: config.bigint,
   );
 
-  ClassBinding _class(
-    a.ClassElement element,
-    String path,
-    _Configuration config,
-  ) {
-    final members = <a.Element>[
-      ...element.constructors,
-      ...element.fields.where((e) => !e.isOriginGetterSetter),
-      ...element.methods,
-      ...element.getters.where((e) => !e.isOriginVariable),
-      ...element.setters.where((e) => !e.isOriginVariable),
-    ]..sort((x, y) => x.firstFragment.offset.compareTo(y.firstFragment.offset));
+  ClassBinding _class(a.ClassElement element, String path, NAPI config) {
+    final members = _classMembers(element);
     return ClassBinding(
       declaration: _id(element),
       exportName: config.name ?? path,
@@ -294,15 +482,25 @@ final class _Reader {
     );
   }
 
+  List<a.Element> _classMembers(a.ClassElement element) => <a.Element>[
+    ...element.constructors,
+    ...element.fields.where((e) => !e.isOriginGetterSetter),
+    ...element.methods,
+    ...element.getters.where((e) => !e.isOriginVariable),
+    ...element.setters.where((e) => !e.isOriginVariable),
+  ]..sort((x, y) => x.firstFragment.offset.compareTo(y.firstFragment.offset));
+
+  MemberKind _memberKind(a.Element element) => switch (element) {
+    a.ConstructorElement() => MemberKind.constructor,
+    a.MethodElement() => MemberKind.method,
+    a.GetterElement() => MemberKind.getter,
+    a.SetterElement() => MemberKind.setter,
+    _ => MemberKind.field,
+  };
+
   MemberBinding _member(a.Element element) {
     final config = _config(element);
-    final kind = switch (element) {
-      a.ConstructorElement() => MemberKind.constructor,
-      a.MethodElement() => MemberKind.method,
-      a.GetterElement() => MemberKind.getter,
-      a.SetterElement() => MemberKind.setter,
-      _ => MemberKind.field,
-    };
+    final kind = _memberKind(element);
     final executable = element is a.ExecutableElement ? element : null;
     final field = element is a.FieldElement ? element : null;
     final constructor = element is a.ConstructorElement ? element : null;

@@ -331,7 +331,7 @@ void _checkType(BindingType type, SourceLocation source) {
   }
 }
 
-/// Check the scalar backend, after declaration checks.
+/// Check the scalar and structural backend, after declaration checks.
 ///
 /// Unsupported metadata is rejected explicitly; it is never erased to make a
 /// declaration fit the backend or silently omitted from the lowered module.
@@ -433,7 +433,7 @@ ValidatedModule validate(BindingModule module) {
           }
           named = true;
       }
-      if (!_isBackendScalar(parameter.type)) {
+      if (!_isBackendValue(parameter.type)) {
         reject(
           'NAPI_TYPE',
           'No conversion engine for this '
@@ -445,8 +445,11 @@ ValidatedModule validate(BindingModule module) {
       }
       if (optional) _checkDefault(parameter, function.source);
     }
-    if (!_isBackendScalar(function.result)) {
-      reject('NAPI_TYPE', 'The current backend only generates scalar results.');
+    if (!_isBackendValue(function.result)) {
+      reject(
+        'NAPI_TYPE',
+        'No scalar or structural conversion engine for this result.',
+      );
     }
   }
   return ValidatedModule._(declarations.bindings);
@@ -455,13 +458,25 @@ ValidatedModule validate(BindingModule module) {
 void _checkDefault(ParameterBinding parameter, SourceLocation source) {
   final value = parameter.defaultValue?.value;
   final type = parameter.type;
+  if (!_isBackendScalar(type) &&
+      ((parameter.hasDefault && parameter.defaultValue == null) ||
+          value != null)) {
+    throw BindingDiagnostic(
+      'NAPI_DEFAULT',
+      'Non-null List and record defaults are not supported; '
+          'a nullable structural parameter may use a null default.',
+      parameter.source ?? source,
+    );
+  }
   final valid = parameter.hasDefault && parameter.defaultValue == null
       ? false
       : value == null
       ? type.nullability == TypeNullability.nullable
       : type is SafeIntType
       ? value is int
-      : switch ((type as DeclaredType).declaration.name) {
+      : type is! DeclaredType
+      ? false
+      : switch (type.declaration.name) {
           'bool' => value is bool,
           'String' => value is String,
           'double' => value is double || value is int,
@@ -493,4 +508,21 @@ bool _isBackendScalar(BindingType type) {
         'double',
         'BigInt',
       }.contains(type.declaration.name);
+}
+
+bool _isBackendValue(BindingType type) {
+  if (_isBackendScalar(type)) return true;
+  if (type.nullability == TypeNullability.legacy) return false;
+  if (type is RecordTypeBinding) {
+    return type.positional.every(_isBackendValue) &&
+        type.named.values.every(_isBackendValue);
+  }
+  return type is DeclaredType &&
+      type.semantics == ValueSemantics.structural &&
+      type.declaration.library == Uri.parse('dart:core') &&
+      type.declaration.kind == DeclarationKind.classType &&
+      type.declaration.owner == null &&
+      type.declaration.name == 'List' &&
+      type.typeArguments.length == 1 &&
+      _isBackendValue(type.typeArguments.single);
 }
