@@ -10,12 +10,14 @@ import {verifyReferences, verifyForeignReferences, verifyReferenceRetention} fro
 import {verifyStructuralReferences, verifyForeignStructuralReferences, verifyStructuralReferenceRetention} from './structural_reference_contract.mjs';
 import {verifyMaps, verifyForeignMaps, verifyMapRetention} from './map_contract.mjs';
 import {verifyDictionaries, verifyForeignDictionaries, verifyDictionaryRetention} from './dictionary_contract.mjs';
+import {verifyValueClasses, verifyForeignValueClasses} from './value_class_contract.mjs';
 
 verifyClasses(api);
 verifyReferences(api);
 verifyStructuralReferences(api);
 verifyMaps(api);
 verifyDictionaries(api);
+verifyValueClasses(api);
 if (isMainThread) {
   const again = await import('@napi/class-fixture/module.wasm');
   assert.equal(api.Counter, again.Counter);
@@ -32,6 +34,7 @@ if (isMainThread) {
     verifyForeignStructuralReferences(api, independent);
     verifyForeignMaps(api, independent);
     verifyForeignDictionaries(api, independent);
+    verifyForeignValueClasses(api, independent);
     const foreign = new independent.Counter(9);
     assert.throws(() => api.Counter.prototype.increment.call(foreign), TypeError);
     const original = new api.Counter(4);
@@ -65,6 +68,7 @@ if (isMainThread) {
     verifyStructuralReferences(api);
     verifyMaps(api);
     verifyDictionaries(api);
+    verifyValueClasses(api);
   }
   console.log('Generated Wasm classes, independent graph brands, retention and Workers: passed');
 } else if (workerData?.hold) {

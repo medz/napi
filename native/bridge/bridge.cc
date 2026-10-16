@@ -522,8 +522,10 @@ static napi_status inspect_shape(
   }
 }
 
-static napi_status read_own_value(napi_env env, napi_value input, napi_value key,
-                                  napi_value path_value, napi_value* result) {
+static napi_status read_own_value_impl(napi_env env, napi_value input, napi_value key,
+                                       napi_value path_value, napi_value* result,
+                                       bool optional) {
+  *result = nullptr;
   try {
     napi_value args[] = {input, key};
     napi_value descriptor;
@@ -532,6 +534,7 @@ static napi_status read_own_value(napi_env env, napi_value input, napi_value key
     napi_valuetype type;
     status = napi_typeof(env, descriptor, &type);
     if (status != napi_ok) return status;
+    if (optional && type == napi_undefined) return napi_ok;
     bool data = false;
     if (type == napi_object) {
       napi_value value_key;
@@ -550,6 +553,17 @@ static napi_status read_own_value(napi_env env, napi_value input, napi_value key
     fail_error(env, "Cannot read structural value");
     return napi_generic_failure;
   }
+}
+
+static napi_status read_own_value(napi_env env, napi_value input, napi_value key,
+                                  napi_value path_value, napi_value* result) {
+  return read_own_value_impl(env, input, key, path_value, result, false);
+}
+
+static napi_status read_optional_own_value(napi_env env, napi_value input,
+                                           napi_value key, napi_value path_value,
+                                           napi_value* result) {
+  return read_own_value_impl(env, input, key, path_value, result, true);
 }
 
 static napi_status create_container(napi_env env, bool array, uint32_t length,
@@ -837,6 +851,7 @@ static void* api_table[] = {
     reinterpret_cast<void*>(&checked_insert_map),
     reinterpret_cast<void*>(&dictionary_keys),
     reinterpret_cast<void*>(&create_dictionary),
+    reinterpret_cast<void*>(&read_optional_own_value),
 };
 static_assert(sizeof(api_table) / sizeof(*api_table) == bridge_api_count);
 

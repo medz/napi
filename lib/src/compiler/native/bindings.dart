@@ -373,8 +373,8 @@ final class _ReferenceLease {
 final class NapiApi {
   final Pointer<Pointer<Void>> _table;
   NapiApi(int address, int tableCount) : _table = Pointer.fromAddress(address) {
-    if (address == 0 || tableCount != 40) {
-      throw StateError('Incompatible native bridge ABI (expected 40 slots).');
+    if (address == 0 || tableCount != 41) {
+      throw StateError('Incompatible native bridge ABI (expected 41 slots).');
     }
   }
   late final _CallbackInfo _callbackInfo = _table[0]
@@ -482,6 +482,9 @@ final class NapiApi {
   late final _Simple _createDictionary = _table[39]
       .cast<NativeFunction<_SimpleNative>>()
       .asFunction<_Simple>();
+  late final _ReadOwnValue _readOptionalOwnValue = _table[40]
+      .cast<NativeFunction<_ReadOwnValueNative>>()
+      .asFunction<_ReadOwnValue>();
   // Only an attached JS lease retains its Dart value. The identity cache's
   // weak keys and primitive records cannot keep either heap alive by themselves.
   final _owners = <int, Object>{};
@@ -851,6 +854,24 @@ final class NapiApi {
       _result((out) => _readOwnValue(env, input, name, context, out)),
     );
   }
+
+  // A missing descriptor is the only nullptr result. JS undefined is a real
+  // value and remains distinct until the optional parameter policy is applied.
+  Pointer<Void> readOptionalOwnValue(
+    Pointer<Void> env,
+    Pointer<Void> input,
+    String key,
+    String path,
+  ) {
+    final name = Pointer<Void>.fromAddress(stringResult(env, key));
+    final context = Pointer<Void>.fromAddress(stringResult(env, path));
+    return Pointer<Void>.fromAddress(
+      _result((out) => _readOptionalOwnValue(env, input, name, context, out)),
+    );
+  }
+
+  bool isUndefined(Pointer<Void> env, Pointer<Void> value) =>
+      typeOf(env, value) == 0;
 
   bool strictEquals(
     Pointer<Void> env,

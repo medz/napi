@@ -1,12 +1,23 @@
 import '../emit/typescript/declarations.dart'
     show emitMemberName, emitParameters;
 import '../ir/model.dart';
+import '../emit/typescript/values.dart';
 import 'plan.dart';
 
 /// The same parameter/default/nullability shape used by the Wasm declarations.
 String emitNativeDeclarations(NativeModulePlan plan) {
   final code = StringBuffer(
     '// Generated declarations for the native module.\n',
+  );
+  code.writeln(
+    emitValueDeclarations(
+      plan.bindings.classes,
+      plan.valueSchemas,
+      [
+        for (final call in plan.calls) ...[...call.inputs, ?call.output],
+      ],
+      reservedNames: {for (final f in plan.functions) f.exportName},
+    ),
   );
   for (final function in plan.functions) {
     final parameters = emitParameters(function.parameters, function.inputs);

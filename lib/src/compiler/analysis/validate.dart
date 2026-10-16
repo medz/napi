@@ -30,8 +30,13 @@ final class ValidatedDeclarations {
 final class ValidatedModule {
   final BindingModule bindings;
   final List<ReferenceClassShape> classes;
-  ValidatedModule._(this.bindings, Iterable<ReferenceClassShape> classes)
-    : classes = List.unmodifiable(classes);
+  final List<ValueClassSchema> valueSchemas;
+  ValidatedModule._(
+    this.bindings,
+    Iterable<ReferenceClassShape> classes,
+    Iterable<ValueClassSchema> values,
+  ) : classes = List.unmodifiable(classes),
+      valueSchemas = List.unmodifiable(values);
 }
 
 enum ReferenceMemberKind { constructor, method, getter, setter }
@@ -62,6 +67,197 @@ final class ReferenceClassShape {
     this.constructor,
     Iterable<ReferenceMemberShape> members,
   ) : members = List.unmodifiable(members);
+}
+
+/// A finite declaration node; recursive field types refer back by identity.
+final class ValueFieldSchema {
+  final MemberBinding binding;
+  final String name;
+  final BindingType type;
+  const ValueFieldSchema(this.binding, this.name, this.type);
+}
+
+final class ValueInputFieldSchema {
+  final ParameterBinding parameter;
+  final ValueFieldSchema field;
+  const ValueInputFieldSchema(this.parameter, this.field);
+}
+
+final class ValueClassSchema {
+  final ClassBinding binding;
+  final MemberBinding? constructor;
+  final List<ValueFieldSchema> outputFields;
+  final List<ValueInputFieldSchema> inputFields;
+  ValueClassSchema(
+    this.binding,
+    this.constructor,
+    Iterable<ValueFieldSchema> output,
+    Iterable<ValueInputFieldSchema> input,
+  ) : outputFields = List.unmodifiable(output),
+      inputFields = List.unmodifiable(input);
+}
+
+List<ValueClassSchema> validateValueClasses(BindingModule module) {
+  final result = <ValueClassSchema>[];
+  for (final binding in module.classes.where(
+    (c) => c.classPolicy == ClassPolicy.value,
+  )) {
+    Never reject(String message, [SourceLocation? source]) =>
+        throw BindingDiagnostic(
+          'NAPI_VALUE',
+          message,
+          source ?? binding.source,
+        );
+    _referenceName(binding.exportName, binding.source, topLevel: true);
+    _referencePath(binding.callPath, binding.source);
+    if (binding.exportSurface != module.source) {
+      reject('The value class must be exposed by the entry library.');
+    }
+    if (binding.typeParameters.isNotEmpty) {
+      throw BindingDiagnostic(
+        'NAPI_GENERIC',
+        'Generic value classes are not implemented.',
+        binding.source,
+      );
+    }
+    final fields = <ValueFieldSchema>[];
+    for (final member in binding.members) {
+      if (member.selection == MemberSelection.excluded) continue;
+      if (member.kind == MemberKind.constructor) continue;
+      final readable =
+          !member.isStatic &&
+          (member.kind == MemberKind.field || member.kind == MemberKind.getter);
+      if (!readable) {
+        if (member.selection == MemberSelection.explicit) {
+          reject(
+            'Only own instance fields and getters form value data; exclude this configured member.',
+            member.source,
+          );
+        }
+        continue;
+      }
+      if (member.isAsync ||
+          member.isGenerator ||
+          member.isExternal ||
+          member.typeParameters.isNotEmpty) {
+        reject(
+          'A value member must be synchronous, concrete Dart data.',
+          member.source,
+        );
+      }
+      final type = member.kind == MemberKind.field
+          ? member.type
+          : member.result;
+      if (type == null || type is VoidType || member.parameters.isNotEmpty) {
+        reject(
+          'A readable value member requires a value type and no parameters.',
+          member.source,
+        );
+      }
+      _referenceName(
+        member.exportName ?? member.declaration.name,
+        member.source,
+      );
+      _referencePath(member.callPath ?? member.declaration.name, member.source);
+      validateValueType(type, member.source, referenceClasses: module.classes);
+      fields.add(
+        ValueFieldSchema(
+          member,
+          member.exportName ?? member.declaration.name,
+          type,
+        ),
+      );
+    }
+    MemberBinding? constructor;
+    final inputs = <ValueInputFieldSchema>[];
+    final id = binding.valueConstructor;
+    if (id != null) {
+      final matches = binding.members
+          .where((m) => m.declaration == id)
+          .toList();
+      if (matches.length != 1 ||
+          id.owner != binding.declaration ||
+          id.library != binding.declaration.library ||
+          id.kind != DeclarationKind.constructor) {
+        reject('valueConstructor must select one own constructor.');
+      }
+      constructor = matches.single;
+      if (constructor.kind != MemberKind.constructor ||
+          constructor.declaration.name.startsWith('_') ||
+          constructor.selection == MemberSelection.excluded) {
+        reject(
+          'A value constructor must be public and selected.',
+          constructor.source,
+        );
+      }
+      if (binding.isAbstract && !constructor.isFactory) {
+        reject(
+          'An abstract value class requires a factory constructor.',
+          constructor.source,
+        );
+      }
+      if (constructor.isExternal || constructor.typeParameters.isNotEmpty) {
+        reject(
+          'A value constructor must be concrete and non-generic.',
+          constructor.source,
+        );
+      }
+      validateCallParameters(
+        constructor.parameters,
+        constructor.source,
+        referenceClasses: module.classes,
+      );
+      final parameters = constructor.parameters.map((p) => p.name).toSet();
+      if (parameters.length != constructor.parameters.length) {
+        reject(
+          'Value constructor parameters must have distinct Dart names.',
+          constructor.source,
+        );
+      }
+      for (final entry in binding.valueFields.entries) {
+        if (!parameters.contains(entry.key)) {
+          reject(
+            'Unknown valueFields parameter ${entry.key}.',
+            constructor.source,
+          );
+        }
+        if (!fields.any((f) => f.binding.declaration == entry.value)) {
+          reject(
+            'valueFields must select a public own readable field or getter.',
+          );
+        }
+      }
+      final names = <String>{};
+      for (final parameter in constructor.parameters) {
+        final override = binding.valueFields[parameter.name];
+        final matches = fields
+            .where(
+              (f) => override == null
+                  ? f.binding.declaration.name == parameter.name
+                  : f.binding.declaration == override,
+            )
+            .toList();
+        if (matches.length != 1) {
+          reject(
+            'No unique selected field/getter for constructor parameter ${parameter.name}; configure valueFields.',
+            parameter.source,
+          );
+        }
+        final field = matches.single;
+        if (!names.add(field.name)) {
+          reject(
+            'Duplicate value input property ${field.name}.',
+            parameter.source,
+          );
+        }
+        inputs.add(ValueInputFieldSchema(parameter, field));
+      }
+    } else if (binding.valueFields.isNotEmpty) {
+      reject('valueFields requires valueConstructor.');
+    }
+    result.add(ValueClassSchema(binding, constructor, fields, inputs));
+  }
+  return List.unmodifiable(result);
 }
 
 final _identifier = RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$');
@@ -208,6 +404,14 @@ ValidatedDeclarations validateDeclarations(BindingModule module) {
 }
 
 void _checkClassPolicy(ClassBinding binding) {
+  if (binding.classPolicy != ClassPolicy.value &&
+      (binding.valueConstructor != null || binding.valueFields.isNotEmpty)) {
+    throw BindingDiagnostic(
+      'NAPI_SELECTION',
+      'Value construction options require the value class policy.',
+      binding.source,
+    );
+  }
   final cleanup = binding.cleanup;
   if (binding.classPolicy != ClassPolicy.resource) {
     if (cleanup != null) {
@@ -428,6 +632,7 @@ void _checkType(BindingType type, SourceLocation source) {
 /// declaration fit the backend or silently omitted from the lowered module.
 ValidatedModule validate(BindingModule module) {
   final declarations = validateDeclarations(module);
+  final values = validateValueClasses(module);
   final classes = validateReferenceClasses(module);
   for (final function in module.functions) {
     void reject(String code, String message) =>
@@ -483,13 +688,15 @@ ValidatedModule validate(BindingModule module) {
       referenceClasses: module.classes,
     );
   }
-  return ValidatedModule._(declarations.bindings, classes);
+  return ValidatedModule._(declarations.bindings, classes, values);
 }
 
 /// The shared synchronous reference-class slice, without target ABI choices.
 List<ReferenceClassShape> validateReferenceClasses(BindingModule module) {
   final result = <ReferenceClassShape>[];
-  for (final binding in module.classes) {
+  for (final binding in module.classes.where(
+    (c) => c.classPolicy != ClassPolicy.value,
+  )) {
     Never reject(String code, String message, [SourceLocation? source]) =>
         throw BindingDiagnostic(code, message, source ?? binding.source);
     _referenceName(binding.exportName, binding.source, topLevel: true);
@@ -734,8 +941,16 @@ void validateValueType(
   BindingType type,
   SourceLocation source, {
   List<ClassBinding> referenceClasses = const [],
+  ValueDirection direction = ValueDirection.output,
 }) {
-  if (!_isBackendValue(type, referenceClasses)) {
+  _checkValueDirection(
+    type,
+    source,
+    referenceClasses,
+    direction,
+    <DeclarationId>{},
+  );
+  if (!_isBackendValue(type, referenceClasses, direction)) {
     throw BindingDiagnostic(
       'NAPI_TYPE',
       'No scalar, structural or selected class reference conversion for this type.',
@@ -820,15 +1035,16 @@ void validateCallParameters(
         }
         named = true;
     }
-    if (!(scalarOnly
-            ? _isBackendScalar(parameter.type)
-            : _isBackendValue(parameter.type, referenceClasses)) &&
-        !isReferenceType(parameter.type, referenceClasses)) {
-      reject(
-        'NAPI_TYPE',
-        'No conversion engine for this '
-            '${parameter.type.semantics.name} type and nullability.',
+    if (!scalarOnly) {
+      validateValueType(
+        parameter.type,
+        parameter.source ?? source,
+        referenceClasses: referenceClasses,
+        direction: ValueDirection.input,
       );
+    } else if (!_isBackendScalar(parameter.type) &&
+        !isReferenceType(parameter.type, referenceClasses)) {
+      reject('NAPI_TYPE', 'No scalar conversion for this type.');
     }
     if (!optional && parameter.hasDefault) {
       reject('NAPI_DEFAULT', 'Required parameters cannot have defaults.');
@@ -897,22 +1113,104 @@ bool _isBackendScalar(BindingType type) {
       }.contains(type.declaration.name);
 }
 
+bool isValueClassType(BindingType type, List<ClassBinding> classes) =>
+    type is DeclaredType &&
+    type.nullability != TypeNullability.legacy &&
+    type.semantics == ValueSemantics.reference &&
+    type.typeArguments.isEmpty &&
+    classes.any(
+      (c) =>
+          c.classPolicy == ClassPolicy.value &&
+          c.declaration == type.declaration &&
+          c.typeParameters.isEmpty,
+    );
+
+Iterable<BindingType> _valueChildren(
+  ClassBinding binding,
+  ValueDirection direction,
+) {
+  if (direction == ValueDirection.input) {
+    final constructor = binding.members
+        .where((m) => m.declaration == binding.valueConstructor)
+        .firstOrNull;
+    return constructor?.parameters.map((p) => p.type) ?? const [];
+  }
+  return binding.members
+      .where(
+        (m) =>
+            m.selection != MemberSelection.excluded &&
+            !m.isStatic &&
+            (m.kind == MemberKind.field || m.kind == MemberKind.getter),
+      )
+      .map(
+        (m) =>
+            (m.kind == MemberKind.field ? m.type : m.result) ??
+            const DynamicType(),
+      );
+}
+
+void _checkValueDirection(
+  BindingType type,
+  SourceLocation source,
+  List<ClassBinding> classes,
+  ValueDirection direction,
+  Set<DeclarationId> visited,
+) {
+  if (isValueClassType(type, classes)) {
+    final binding = classes.firstWhere(
+      (c) => c.declaration == (type as DeclaredType).declaration,
+    );
+    if (direction == ValueDirection.input && binding.valueConstructor == null) {
+      throw BindingDiagnostic(
+        'NAPI_VALUE_INPUT',
+        '${binding.exportName} is output-only; configure valueConstructor for input.',
+        source,
+      );
+    }
+    if (!visited.add(binding.declaration)) return;
+    for (final child in _valueChildren(binding, direction)) {
+      _checkValueDirection(child, source, classes, direction, visited);
+    }
+  } else if (type is DeclaredType) {
+    for (final child in type.typeArguments) {
+      _checkValueDirection(child, source, classes, direction, visited);
+    }
+  } else if (type is RecordTypeBinding) {
+    for (final child in [...type.positional, ...type.named.values]) {
+      _checkValueDirection(child, source, classes, direction, visited);
+    }
+  }
+}
+
 bool _isBackendValue(
   BindingType type, [
   List<ClassBinding> classes = const [],
+  ValueDirection direction = ValueDirection.output,
+  Set<DeclarationId>? seen,
 ]) {
   if (_isBackendScalar(type) || isReferenceType(type, classes)) return true;
   if (type.nullability == TypeNullability.legacy) return false;
+  final visited = seen ?? <DeclarationId>{};
+  bool child(BindingType value) =>
+      _isBackendValue(value, classes, direction, visited);
+  if (isValueClassType(type, classes)) {
+    final binding = classes.firstWhere(
+      (c) => c.declaration == (type as DeclaredType).declaration,
+    );
+    if (direction == ValueDirection.input && binding.valueConstructor == null) {
+      return false;
+    }
+    if (!visited.add(binding.declaration)) return true;
+    return _valueChildren(binding, direction).every(child);
+  }
   if (type is RecordTypeBinding) {
-    return type.positional.every((field) => _isBackendValue(field, classes)) &&
-        type.named.values.every((field) => _isBackendValue(field, classes));
+    return type.positional.every(child) && type.named.values.every(child);
   }
   if (type is! DeclaredType || type.semantics != ValueSemantics.structural) {
     return false;
   }
   if (type.declaration == dictionaryDeclaration) {
-    return type.typeArguments.length == 1 &&
-        _isBackendValue(type.typeArguments.single, classes);
+    return type.typeArguments.length == 1 && child(type.typeArguments.single);
   }
   final name = type.declaration.name;
   return (name == 'List' || name == 'Map') &&
@@ -923,5 +1221,5 @@ bool _isBackendValue(
             kind: DeclarationKind.classType,
           ) &&
       type.typeArguments.length == (name == 'List' ? 1 : 2) &&
-      type.typeArguments.every((child) => _isBackendValue(child, classes));
+      type.typeArguments.every(child);
 }

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:napi/build.dart';
 
 import 'verify.dart' show run, typescript;
+import 'value_fixture.dart';
 
 Future<void> verifyClassFixture(Directory root) async {
   final canonical = await Directory(root.resolveSymbolicLinksSync())
@@ -17,8 +18,10 @@ dependencies:
   napi:
     path: ${jsonEncode(Directory.current.path)}
 ''');
-  await File('test/fixtures/dictionaries.dart')
+  await File('test/fixtures/value_classes.dart')
       .copy('${project.path}/business.dart');
+  await File('test/fixtures/dictionaries.dart')
+      .copy('${project.path}/dictionaries.dart');
   await File('test/fixtures/maps.dart').copy('${project.path}/maps.dart');
   await File('test/fixtures/classes.dart').copy('${project.path}/classes.dart');
   await File('${project.path}/build.dart').writeAsString('''
@@ -75,6 +78,10 @@ Future<void> main() async {
       .copy('${consumer.path}/map_contract.mjs');
   await File('test/integration/dictionary_contract.mjs')
       .copy('${consumer.path}/dictionary_contract.mjs');
+  await File('test/integration/value_class_contract.mjs')
+      .copy('${consumer.path}/value_class_contract.mjs');
+  await File('test/typescript/value_classes.mts')
+      .copy('${consumer.path}/value_classes.mts');
   await File('test/typescript/dictionaries.mts')
       .copy('${consumer.path}/dictionaries.mts');
   await File('test/typescript/maps.mts').copy('${consumer.path}/maps.mts');
@@ -84,6 +91,7 @@ Future<void> main() async {
   await typescript(consumer, 'consumer.mts');
   await typescript(consumer, 'maps.mts');
   await typescript(consumer, 'dictionaries.mts');
+  await typescript(consumer, 'value_classes.mts');
 
   // External metadata must work without source annotations.
   final plain = await File('test/fixtures/classes.dart').readAsString();
@@ -184,6 +192,7 @@ assert.equal(new Other(42).value, 42);
 console.log('Class-only Wasm module with renamed export: passed');
 ''');
   await run('node', ['test.mjs'], cwd: only.directory.path);
+  await verifyValueOnlyFixture(root);
   stdout.writeln('Generated Wasm classes and fresh package: passed');
 }
 

@@ -18,7 +18,8 @@ String emitDart(ModulePlan plan) {
         c is ListConversion ||
         c is RecordConversion ||
         c is MapConversion ||
-        c is DictionaryConversion,
+        c is DictionaryConversion ||
+        c is ValueClassConversion,
   );
   if (hasStructural) result.writeln(dartStructuralPrelude);
   for (final (index, call) in plan.calls.indexed) {

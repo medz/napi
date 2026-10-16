@@ -35,7 +35,7 @@ JS wrapper. Named constructors and factories become static methods, for example
 constructor exposes a private TypeScript constructor and rejects public `new`.
 Abstract classes can expose factory constructors backed by a concrete Dart object.
 
-Parameters/results use strict scalar, selected reference or nested List/Map/Dictionary/record
+Parameters/results use strict scalar, selected reference, [value-class](values.md) or nested List/Map/Dictionary/record
 types, including nullable nodes. Containers are cloned while their reference
 leaves preserve live wrapper identity. This also applies to constructors, methods,
 fields and accessors. Optional reference/structural parameters may default to null; omission
@@ -47,7 +47,13 @@ output validation happens after business code and does not undo Dart mutations.
 Extracted instance methods need their original receiver: `method.call(counter)`
 works; calling a detached method without a receiver fails. Forged prototypes,
 other classes, Proxy wrappers and independently loaded module instances fail
-before invoking Dart. Method/accessor functions are nonconstructible. Ordinary
+before invoking Dart. Method/accessor functions are nonconstructible: they have
+no own `prototype` and cannot serve as `Reflect.construct`'s `newTarget`, even
+after `bind`. Named constructors exposed as static methods follow this rule;
+the class constructor itself remains constructible. Native loaders install
+concise JavaScript forwarders around the generated callbacks to provide this
+shape, preserving receivers, argument counts and property attributes. Accessor
+function names use the standard `get name` / `set name` spelling. Ordinary
 JavaScript `.length` reflects the generated parameter mapping: required
 positional count, or zero for an optional/named callable; setters have length one.
 
@@ -68,7 +74,7 @@ subpaths, share constructors. A copied complete Wasm graph has independent class
 brands and Dart state; a query suffix on only the facade is not an independent
 graph because its dependencies may still be shared.
 
-Generic specialization, value/resource policies
+Generic specialization, resource policies
 and async APIs remain unsupported and produce build diagnostics. Non-null Dart
 object defaults are also rejected. JavaScript inheritance relationships are not
 generated: only a selected class's own public members are exposed, and a wrapper

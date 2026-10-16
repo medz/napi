@@ -30,11 +30,21 @@ class NAPI {
   /// remain backend work. This does not add disposal to ordinary classes.
   final String? cleanup;
 
+  /// Public Dart constructor name (`new` for unnamed) for value inputs.
+  /// Omission makes a value class output-only.
+  final String? valueConstructor;
+
+  /// Constructor parameter to own field/getter overrides, using Dart names.
+  /// Unlisted parameters match the same Dart member name exactly.
+  final Map<String, String>? valueFields;
+
   const NAPI({
     this.name,
     this.exclude = false,
     this.bigint = false,
     this.classPolicy,
     this.cleanup,
+    this.valueConstructor,
+    this.valueFields,
   });
 }

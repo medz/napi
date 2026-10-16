@@ -7,6 +7,7 @@ import {verifyReferences, verifyForeignReferences, verifyReferenceRetention} fro
 import {verifyStructuralReferences, verifyForeignStructuralReferences, verifyStructuralReferenceRetention} from './structural_reference_contract.mjs';
 import {verifyMaps, verifyForeignMaps, verifyMapRetention} from './map_contract.mjs';
 import {verifyDictionaries, verifyForeignDictionaries, verifyDictionaryRetention} from './dictionary_contract.mjs';
+import {verifyValueClasses, verifyForeignValueClasses} from './value_class_contract.mjs';
 const {Counter, randomValue, executable, createRequire, bindings, globalThis: exportedGlobal, URL: exportedUrl} = api;
 
 function check() {
@@ -16,6 +17,7 @@ function check() {
   verifyStructuralReferences(api);
   verifyMaps(api);
   verifyDictionaries(api);
+  verifyValueClasses(api);
   verifyStructures(api);
   assert(randomValue() >= 0);
   assert.equal(executable(), process.execPath);
@@ -29,6 +31,7 @@ if (isMainThread) {
   verifyForeignStructuralReferences(api, independent);
   verifyForeignMaps(api, independent);
   verifyForeignDictionaries(api, independent);
+  verifyForeignValueClasses(api, independent);
   await verifyReferenceRetention(api);
   await verifyStructuralReferenceRetention(api);
   await verifyMapRetention(api);

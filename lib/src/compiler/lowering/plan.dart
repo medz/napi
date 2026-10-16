@@ -1,3 +1,5 @@
+export '../ir/model.dart' show ValueDirection;
+import '../../api/annotation.dart' show ClassPolicy;
 import '../analysis/validate.dart';
 import '../ir/model.dart';
 
@@ -87,6 +89,7 @@ final class ReferenceConversion extends ValueConversion {
 
 final class ListConversion extends ValueConversion {
   final ValueConversion element;
+  ListConversion._(super.type, super.context, this.element);
   ListConversion(
     DeclaredType super.type,
     super.context, {
@@ -110,6 +113,7 @@ final class ListConversion extends ValueConversion {
 final class MapConversion extends ValueConversion {
   final ValueConversion key;
   final ValueConversion value;
+  MapConversion._(super.type, super.context, this.key, this.value);
   MapConversion(
     DeclaredType super.type,
     super.context, {
@@ -137,8 +141,73 @@ final class MapConversion extends ValueConversion {
       'globalThis.Map<${key.typescriptType}, ${value.typescriptType}>${nullable ? ' | null' : ''}';
 }
 
+final class ValueClassField {
+  final MemberBinding binding;
+  final String name;
+  final ParameterBinding? parameter;
+  final ValueConversion conversion;
+  const ValueClassField(
+    this.binding,
+    this.name,
+    this.conversion, {
+    this.parameter,
+  });
+  bool get optional => parameter?.presence == ParameterPresence.optional;
+}
+
+final class ValueClassConversion extends ValueConversion {
+  final ValueClassSchema schema;
+  final ValueDirection direction;
+  final bool bigint;
+  late final List<ValueClassField> fields;
+  String typescriptName;
+  ValueClassConversion._(
+    DeclaredType super.type,
+    super.context,
+    this.schema,
+    this.direction,
+    this.bigint,
+    this.typescriptName,
+  );
+  ClassBinding get classBinding => schema.binding;
+  MemberBinding? get constructor => schema.constructor;
+  @override
+  String get dartType =>
+      'target.${classBinding.callPath}${nullable ? '?' : ''}';
+  @override
+  String get jsType => 'object';
+  @override
+  String get typescriptType => '$typescriptName${nullable ? ' | null' : ''}';
+}
+
+Iterable<ValueConversion> conversionGraph(
+  Iterable<ValueConversion> roots,
+) sync* {
+  final pending = roots.toList();
+  final seen = <ValueConversion>{};
+  while (pending.isNotEmpty) {
+    final node = pending.removeLast();
+    if (!seen.add(node)) continue;
+    yield node;
+    pending.addAll(switch (node) {
+      ListConversion(:final element) => [element],
+      MapConversion(:final key, :final value) => [key, value],
+      DictionaryConversion(:final value) => [value],
+      RecordConversion() => node.fields.values.toList(),
+      ValueClassConversion() => [
+        for (final field in node.fields) field.conversion,
+      ],
+      ScalarConversion() || ReferenceConversion() => <ValueConversion>[],
+    });
+  }
+}
+
+bool containsValueClass(ValueConversion value) =>
+    conversionGraph([value]).any((c) => c is ValueClassConversion);
+
 final class DictionaryConversion extends ValueConversion {
   final ValueConversion value;
+  DictionaryConversion._(super.type, super.context, this.value);
   DictionaryConversion(
     DeclaredType super.type,
     super.context, {
@@ -160,18 +229,19 @@ final class DictionaryConversion extends ValueConversion {
       '{ [key: string]: ${value.typescriptType} }${nullable ? ' | null' : ''}';
 }
 
-bool containsDictionary(ValueConversion value) => switch (value) {
-  DictionaryConversion() => true,
-  ListConversion(:final element) => containsDictionary(element),
-  MapConversion(:final key, :final value) =>
-    containsDictionary(key) || containsDictionary(value),
-  RecordConversion() => value.fields.values.any(containsDictionary),
-  ScalarConversion() || ReferenceConversion() => false,
-};
+bool containsDictionary(ValueConversion value) =>
+    conversionGraph([value]).any((c) => c is DictionaryConversion);
 
 final class RecordConversion extends ValueConversion {
   final List<ValueConversion> positional;
   final Map<String, ValueConversion> named;
+  RecordConversion._(
+    super.type,
+    super.context,
+    Iterable<ValueConversion> positional,
+    Map<String, ValueConversion> named,
+  ) : positional = List.unmodifiable(positional),
+      named = Map.unmodifiable(named);
   RecordConversion(
     RecordTypeBinding super.type,
     super.context, {
@@ -221,56 +291,122 @@ ValueConversion conversionFor(
   String context, {
   required bool bigint,
   List<ClassBinding> classes = const [],
-}) => switch (type) {
-  RecordTypeBinding() => RecordConversion(
-    type,
-    context,
-    bigint: bigint,
-    classes: classes,
-  ),
-  DeclaredType() when isReferenceType(type, classes) => ReferenceConversion(
-    type,
-    context,
-    classBinding: classes.firstWhere(
-      (binding) => binding.declaration == type.declaration,
-    ),
-    classId: classes.indexWhere(
-      (binding) => binding.declaration == type.declaration,
-    ),
-  ),
-  DeclaredType(
-    declaration: final declaration,
-    semantics: ValueSemantics.structural,
-    typeArguments: [_],
-  )
-      when declaration == dictionaryDeclaration =>
-    DictionaryConversion(type, context, bigint: bigint, classes: classes),
-  DeclaredType(
-    declaration: final declaration,
-    semantics: ValueSemantics.structural,
-    typeArguments: [_],
-  )
-      when declaration ==
+  List<ValueClassSchema> valueSchemas = const [],
+  ValueDirection direction = ValueDirection.output,
+}) => _ConversionBuilder(
+  classes,
+  valueSchemas,
+  bigint,
+  direction,
+).convert(type, context);
+
+final class _ConversionBuilder {
+  final List<ClassBinding> classes;
+  final List<ValueClassSchema> values;
+  final bool bigint;
+  final ValueDirection direction;
+  final _nodes = <(DeclarationId, TypeNullability), ValueClassConversion>{};
+  _ConversionBuilder(this.classes, this.values, this.bigint, this.direction);
+  ValueConversion convert(BindingType type, String context) {
+    ValueConversion child(BindingType value) => convert(value, context);
+    if (type is RecordTypeBinding) {
+      return RecordConversion._(
+        type,
+        context,
+        type.positional.map(child),
+        type.named.map((key, value) => MapEntry(key, child(value))),
+      );
+    }
+    if (isReferenceType(type, classes)) {
+      final references = classes
+          .where((c) => c.classPolicy == ClassPolicy.reference)
+          .toList();
+      final index = references.indexWhere(
+        (c) => c.declaration == (type as DeclaredType).declaration,
+      );
+      return ReferenceConversion(
+        type as DeclaredType,
+        context,
+        classBinding: references[index],
+        classId: index,
+      );
+    }
+    if (isValueClassType(type, classes)) {
+      final declared = type as DeclaredType;
+      final key = (declared.declaration, declared.nullability);
+      if (_nodes[key] case final existing?) return existing;
+      final index = values.indexWhere(
+        (s) => s.binding.declaration == declared.declaration,
+      );
+      if (index < 0) throw StateError('A validated value schema is required.');
+      final schema = values[index];
+      if (direction == ValueDirection.input && schema.constructor == null) {
+        throw StateError('Output-only value used as input.');
+      }
+      final node = ValueClassConversion._(
+        declared,
+        context,
+        schema,
+        direction,
+        bigint,
+        '\$value${index}_${direction.name}_${bigint ? 1 : 0}',
+      );
+      _nodes[key] = node;
+      node.fields = List.unmodifiable(
+        direction == ValueDirection.input
+            ? [
+                for (final f in schema.inputFields)
+                  ValueClassField(
+                    f.field.binding,
+                    f.field.name,
+                    child(f.parameter.type),
+                    parameter: f.parameter,
+                  ),
+              ]
+            : [
+                for (final f in schema.outputFields)
+                  ValueClassField(f.binding, f.name, child(f.type)),
+              ],
+      );
+      return node;
+    }
+    if (type is DeclaredType && type.semantics == ValueSemantics.structural) {
+      if (type.declaration == dictionaryDeclaration) {
+        return DictionaryConversion._(
+          type,
+          context,
+          child(type.typeArguments.single),
+        );
+      }
+      if (type.declaration ==
           DeclarationId(
             Uri.parse('dart:core'),
             'List',
             kind: DeclarationKind.classType,
-          ) =>
-    ListConversion(type, context, bigint: bigint, classes: classes),
-  DeclaredType(
-    declaration: final declaration,
-    semantics: ValueSemantics.structural,
-    typeArguments: [_, _],
-  )
-      when declaration ==
+          )) {
+        return ListConversion._(
+          type,
+          context,
+          child(type.typeArguments.single),
+        );
+      }
+      if (type.declaration ==
           DeclarationId(
             Uri.parse('dart:core'),
             'Map',
             kind: DeclarationKind.classType,
-          ) =>
-    MapConversion(type, context, bigint: bigint, classes: classes),
-  _ => ScalarConversion(type, context, bigint: bigint),
-};
+          )) {
+        return MapConversion._(
+          type,
+          context,
+          child(type.typeArguments[0]),
+          child(type.typeArguments[1]),
+        );
+      }
+    }
+    return ScalarConversion(type, context, bigint: bigint);
+  }
+}
 
 /// Ordered private Wasm calls share conversion indices, not declaration kinds.
 abstract interface class CallPlan {
@@ -303,6 +439,7 @@ final class FunctionPlan implements CallPlan {
     int index,
     int firstContext,
     List<ClassBinding> classes,
+    List<ValueClassSchema> valueSchemas,
   ) : representation =
           (binding.parameters.any(
                 (p) =>
@@ -328,6 +465,8 @@ final class FunctionPlan implements CallPlan {
             '${binding.exportName}.${p.name}',
             bigint: binding.bigint,
             classes: classes,
+            valueSchemas: valueSchemas,
+            direction: ValueDirection.input,
           ),
       ]),
       output = conversionFor(
@@ -335,6 +474,7 @@ final class FunctionPlan implements CallPlan {
         '${binding.exportName} result',
         bigint: binding.bigint,
         classes: classes,
+        valueSchemas: valueSchemas,
       ),
       inputContexts = List.unmodifiable([
         for (var i = 0; i < binding.parameters.length; i++) firstContext + i,
@@ -369,6 +509,7 @@ final class MemberCallPlan implements CallPlan {
     this.coreExportName,
     int firstContext,
     List<ClassBinding> classes,
+    List<ValueClassSchema> valueSchemas,
   ) : binding = member.binding,
       kind = member.kind,
       parameters = member.parameters,
@@ -380,6 +521,8 @@ final class MemberCallPlan implements CallPlan {
             '${_memberContext(owner, member)}.${parameter.name}',
             bigint: false,
             classes: classes,
+            valueSchemas: valueSchemas,
+            direction: ValueDirection.input,
           ),
       ]),
       output = member.result == null
@@ -389,6 +532,7 @@ final class MemberCallPlan implements CallPlan {
               '${_memberContext(owner, member)} result',
               bigint: false,
               classes: classes,
+              valueSchemas: valueSchemas,
             ),
       inputContexts = List.unmodifiable([
         for (var i = 0; i < member.parameters.length; i++) firstContext + i,
@@ -419,16 +563,22 @@ final class ModulePlan {
   final List<ClassPlan> classes;
   final List<CallPlan> calls;
   final List<ValueConversion> conversions;
+  final List<ClassBinding> allClasses;
+  final List<ValueClassSchema> valueSchemas;
   ModulePlan._(
     this.source,
     Iterable<FunctionPlan> functions,
     Iterable<ClassPlan> classes,
     Iterable<CallPlan> calls,
     Iterable<ValueConversion> conversions,
+    Iterable<ClassBinding> allClasses,
+    Iterable<ValueClassSchema> valueSchemas,
   ) : functions = List.unmodifiable(functions),
       classes = List.unmodifiable(classes),
       calls = List.unmodifiable(calls),
-      conversions = List.unmodifiable(conversions);
+      conversions = List.unmodifiable(conversions),
+      allClasses = List.unmodifiable(allClasses),
+      valueSchemas = List.unmodifiable(valueSchemas);
 }
 
 /// Descriptive validation alone cannot produce an executable plan. The
@@ -451,6 +601,7 @@ ModulePlan lower(ValidatedModule module) {
       index,
       conversions.length,
       module.bindings.classes,
+      module.valueSchemas,
     );
     functions.add(function);
     add(function);
@@ -464,6 +615,7 @@ ModulePlan lower(ValidatedModule module) {
         name,
         conversions.length,
         module.bindings.classes,
+        module.valueSchemas,
       );
       add(result);
       return result;
@@ -484,5 +636,7 @@ ModulePlan lower(ValidatedModule module) {
     classes,
     calls,
     conversions,
+    module.bindings.classes,
+    module.valueSchemas,
   );
 }

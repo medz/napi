@@ -36,8 +36,8 @@ Constructor metadata distinguishes unnamed, named, factory, const and implicit
 constructors. A named constructor/factory retains its Dart member name unless
 renamed; an unnamed constructor has no assigned public member name. This does
 not assign all constructors or factories a JavaScript runtime representation.
-Both backends currently generate public unnamed generative constructors with
-`new`; named/factory constructors remain pending. Class aliases are normalized as
+Both backends generate selected unnamed generative/factory reference constructors
+with `new`; named constructors/factories become static methods. Class aliases are normalized as
 class declarations, including their mixin and synthetic constructor metadata.
 
 ## Class policies
@@ -46,7 +46,7 @@ class declarations, including their mixin and synthetic constructor metadata.
 same annotation and external configuration:
 
 ```dart
-@NAPI(classPolicy: ClassPolicy.value)
+@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
 class Point { Point(this.x); final int x; }
 
 @NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
@@ -60,12 +60,14 @@ method by its original Dart name. Its existing member metadata retains the full
 signature, including generics, defaults and `Future` returns. Renaming or excluding
 that member from public exports does not change its cleanup identity.
 
-Value/resource policies remain descriptive. Both targets generate the bounded
-synchronous [reference-class slice](classes.md); unsupported class shapes fail
-before compilation.
-Value policies do not invent input construction (#122); ordinary reference
-classes do not gain disposal (#123). Resource execution, cleanup API spelling,
-operation leases and repeated/failed cleanup remain #124.
+Both targets generate synchronous [reference classes](classes.md) and
+[structural value classes](values.md). Value inputs require an explicit
+`valueConstructor` (`new` or the original named constructor); parameters match
+own readable members by Dart name, with `valueFields` for different names.
+Without a selected constructor, a value class is output-only. Runtime generation
+validates these mappings before compilation. Ordinary reference classes do not
+gain disposal. Resource execution, cleanup API spelling, operation leases and
+repeated/failed cleanup remain #124.
 
 ## Resolution and metadata
 
@@ -136,8 +138,9 @@ import { add } from './module.wasm';
 
 The actual `.wasm` exports, direct installed-package entry, safe-integer checks,
 strict TypeScript checks and atomic output publication remain unchanged.
-Cross-call reference conversions and complete class engines remain subsequent
-work; the current constructor/member slice is documented in [reference classes](classes.md).
+Complete class/lifetime engines remain subsequent work; the current
+constructor/member and reference conversion contract is documented in
+[reference classes](classes.md).
 
 ## External selections
 
@@ -173,5 +176,6 @@ defaults, documentation and semantic IR as annotations. Public reexports respect
 `show`/`hide`; missing, private, ambiguous and colliding selections are diagnosed.
 `ExternalClass` and `ExternalMember.constructor`/`method`/`getter`/`setter`/`field`
 also describe class selections and overrides. Both annotation and external
-selections support scalar functions and reference classes on both backends, plus
-structural functions on Wasm. Value/resource runtime engines remain pending.
+selections support scalar and structural functions, reference classes and value
+classes on both backends. Value construction uses the explicit mapping described
+above; resource runtime execution remains pending.

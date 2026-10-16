@@ -4,7 +4,8 @@ Both Dart Wasm and native Node-API backends convert nested `List<T>`, `Map<K, V>
 explicit `Dictionary<V>` and Dart records in both directions.
 Every structural node can be nullable. Leaves use the existing strict scalar
 rules for `bool`, `String`, `int`, `double` and `BigInt`, or the selected
-reference-class contract. `@NAPI(bigint: true)` applies recursively to Dart `int`
+reference-class contract. [Value classes](values.md) compose as nested structural
+shapes with explicit input construction. `@NAPI(bigint: true)` applies recursively to Dart `int`
 leaves. Functions, constructors, methods, fields and accessors share this model.
 
 ```dart
@@ -137,12 +138,14 @@ null-prototype special keys, own-data descriptors, key ordering and JSON paths,
 mixed Map/Dictionary signatures, class members, alias recognition and GC. Fresh native/Wasm npm
 consumers run it with the original native source/build directories removed.
 Tested with Dart 3.13.5, Node 24.19.0/26.11.1 and TypeScript 7.0.2. Native execution
-is qualified on macOS arm64 and requires an ABI 5 bundle. The compiler/runtime
+is qualified on macOS arm64 and requires an ABI 6 bundle. The compiler/runtime
 use private experimental SDK APIs; other native platforms remain unqualified.
 
 Non-null structural defaults, generic reference specialization and opaque/shared
-leaves remain separate work. Failed input conversion does not invoke a method,
-constructor or setter. Failed output conversion does not undo business mutations;
+leaves remain separate work. Failed input conversion does not invoke the exported business method, reference
+constructor or setter. Explicit [value-class constructors](values.md) execute
+during input materialization after raw validation; domain failures may retain
+earlier constructor side effects. Failed output conversion does not undo business mutations;
 any temporary wrappers created before failure follow normal garbage collection.
 An unsuccessful output conversion discards new public-type identity claims for
 objects it did not return. It preserves identities established by earlier

@@ -351,6 +351,8 @@ final class MemberBinding {
        typeParameters = List.unmodifiable(typeParameters);
 }
 
+enum ValueDirection { input, output }
+
 final class ClassBinding {
   final DeclarationId declaration;
 
@@ -360,6 +362,8 @@ final class ClassBinding {
   /// Refers to the existing member containing the complete cleanup signature.
   /// A JavaScript rename or exclusion does not change this Dart identity.
   final DeclarationId? cleanup;
+  final DeclarationId? valueConstructor;
+  final Map<String, DeclarationId> valueFields;
   final String exportName;
   final SourceLocation source;
   final String? documentation;
@@ -382,6 +386,8 @@ final class ClassBinding {
     required this.source,
     this.classPolicy = ClassPolicy.reference,
     this.cleanup,
+    this.valueConstructor,
+    Map<String, DeclarationId> valueFields = const {},
     Iterable<MemberBinding> members = const [],
     Iterable<TypeParameterBinding> typeParameters = const [],
     this.documentation,
@@ -396,7 +402,8 @@ final class ClassBinding {
     this.supertype,
     Iterable<BindingType> interfaces = const [],
     Iterable<BindingType> mixins = const [],
-  }) : members = List.unmodifiable(members),
+  }) : valueFields = Map.unmodifiable(valueFields),
+       members = List.unmodifiable(members),
        typeParameters = List.unmodifiable(typeParameters),
        callPath = callPath ?? declaration.name,
        exportSurface = exportSurface ?? declaration.library,

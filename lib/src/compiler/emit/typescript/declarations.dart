@@ -1,7 +1,15 @@
 import '../../ir/model.dart';
 import '../../lowering/plan.dart';
+import 'values.dart';
 
 String emitDeclarations(ModulePlan plan) => [
+  if (plan.valueSchemas.isNotEmpty)
+    emitValueDeclarations(
+      plan.allClasses,
+      plan.valueSchemas,
+      plan.conversions,
+      reservedNames: {for (final f in plan.functions) f.binding.exportName},
+    ),
   '// Generated declarations for the actual Wasm module.',
   '// Use allowArbitraryExtensions for relative .wasm imports.',
   for (final function in plan.functions)

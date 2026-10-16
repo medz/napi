@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:napi/build.dart';
 
 import 'verify.dart' show run, typescript;
+import 'value_fixture.dart';
 
 /// Run explicitly with a maintainer-built runtime bundle. No native compiler,
 /// SDK-source checkout, network access or package publication is used here.
@@ -58,6 +59,8 @@ dependencies:
 ''');
   await File('test/fixtures/native_classes.dart')
       .copy('${project.path}/business.dart');
+  await File('test/fixtures/value_classes.dart')
+      .copy('${project.path}/value_classes.dart');
   await File('test/fixtures/dictionaries.dart')
       .copy('${project.path}/dictionaries.dart');
   await File('test/fixtures/maps.dart').copy('${project.path}/maps.dart');
@@ -125,6 +128,8 @@ Future<void> main() async {
       .copy('${consumer.path}/map_contract.mjs');
   await File('test/integration/dictionary_contract.mjs')
       .copy('${consumer.path}/dictionary_contract.mjs');
+  await File('test/integration/value_class_contract.mjs')
+      .copy('${consumer.path}/value_class_contract.mjs');
   await File('test/typescript/native_classes.mts')
       .copy('${consumer.path}/consumer.mts');
   await run('node', ['--expose-gc', 'test.mjs'], cwd: consumer.path);
@@ -162,6 +167,15 @@ Future<void> main() async {
         .replaceAll('@napi/class-fixture', '@napi/native-fixture'),
   );
   await typescript(consumer, 'dictionaries.mts');
+  await File('${consumer.path}/value_classes.mts').writeAsString(
+    (await File('test/typescript/value_classes.mts').readAsString())
+        .replaceAll(
+          '@napi/class-fixture/module.wasm',
+          '@napi/native-fixture/native',
+        )
+        .replaceAll('@napi/class-fixture', '@napi/native-fixture'),
+  );
+  await typescript(consumer, 'value_classes.mts');
   await File('${consumer.path}/workers-only.mjs').writeAsString('''
 import {Worker} from 'node:worker_threads';
 for (let i = 0; i < 4; i++) {
@@ -174,6 +188,7 @@ for (let i = 0; i < 4; i++) {
 console.log('Native Worker-only unload and reload: passed');
 ''');
   await run('node', ['workers-only.mjs'], cwd: consumer.path);
+  await verifyValueOnlyFixture(root, nativeRuntime: bundle);
   await root.delete(recursive: true);
   stdout.writeln(
     'Generated native bindings, fresh npm install and TypeScript: passed',

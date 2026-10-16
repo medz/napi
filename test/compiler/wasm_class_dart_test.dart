@@ -196,9 +196,9 @@ import 'package:napi/napi.dart';
       'NAPI_TYPE',
     ),
     (
-      'value policy',
-      '@NAPI(classPolicy: ClassPolicy.value) class Bad {}',
-      'NAPI_CLASS',
+      'value constructor missing a mapped field',
+      "@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new') class Bad { Bad(int absent); }",
+      'NAPI_VALUE',
     ),
     (
       'resource policy',

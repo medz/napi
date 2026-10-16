@@ -15,7 +15,7 @@ The product follows napi-rs's model: one Dart export declaration, generated
 bindings and TypeScript types, and npm packages for native and Wasm targets.
 Necessary JavaScript loaders and runtime helpers are allowed. Both targets must
 preserve the same supported calls, including `new Counter()` and argument
-presence. The experimental native target generates scalar, structural and reference-class AOT bindings
+presence. The experimental native target generates scalar, structural, value-class and reference-class AOT bindings
 for macOS arm64; see [native builds](doc/native.md) for its explicit runtime-bundle requirement.
 See [the architecture and delivery plan](doc/architecture.md) and
 [#144](https://github.com/medz/napi/issues/144) for its validation gates.
@@ -31,6 +31,7 @@ See [the architecture and delivery plan](doc/architecture.md) and
 - Safe-number `int` by default, or fixed JavaScript `bigint` with `@NAPI(bigint: true)`
 - A pinned Dart SDK adapter and linker producing actual Wasm named exports
 - Generated reference classes, named/factory constructors and weak wrapper identity on both targets
+- Structural value classes with explicit constructors, recursive fields and direction-specific TypeScript
 - Direct imports, installed package resolution, artifact inspection, and strict TypeScript tests
 - Fresh Wasm and native npm assembly with explicit assets and atomic publication
 - Shared scalar/default/class consumer contracts for Wasm and native
@@ -46,7 +47,8 @@ remains work in [#123](https://github.com/medz/napi/issues/123); complete lifecy
 engines and replacement builds remain separate work in
 [#114](https://github.com/medz/napi/issues/114). See [annotation syntax and scope](doc/annotations.md) and the
 [scalar conversion contract](doc/scalars.md), [argument presence and defaults](doc/arguments.md),
-[structural values](doc/structural.md), [reference classes](doc/classes.md), and
+[structural values](doc/structural.md), [value classes](doc/values.md),
+[reference classes](doc/classes.md), and
 [npm package assembly](doc/packaging.md).
 Annotated sources import `package:napi/napi.dart`; separate Dart VM build scripts
 use `buildLibrary` from `package:napi/build.dart`.

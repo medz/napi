@@ -79,7 +79,7 @@ Weak identity entries and zero-count Node-API references do not root wrappers.
 Environment and exact selected class brands are checked before business calls.
 Readonly fields remain readonly and GC does not call business disposal methods.
 
-The private bridge table is ABI 5 (40 slots). Older bundles are rejected before
+The private bridge table is ABI 6 (41 slots). Older bundles are rejected before
 copying; maintainers rebuild the bridge/runtime bundle using their existing VM
 cache. Consumer builds still require only the ordinary Dart SDK and that bundle.
 
@@ -96,7 +96,14 @@ their references with its existing isolate owner. Dictionary input uses own
 string data properties and output has a null prototype; one captured
 Object.create reference uses the same cleanup.
 
-Unsupported shapes fail before output is created: value/resource policies,
+[Value classes](values.md) use explicit constructor mappings, recursive structural
+data and separate input/output types. Inputs containing values validate a complete
+parameter snapshot before Dart constructor materialization. Outputs containing
+values snapshot the complete Dart tree before host-side scalar, reference and
+Map-key checks. These paths use temporary snapshot storage; output getters are
+read once per occurrence before converting children.
+
+Unsupported shapes fail before output is created: resource policies,
 generic specialization, non-null
 object defaults, Futures, callbacks, streams and cancellation. The same reference
 contract runs on Wasm; see [reference classes](classes.md). JavaScript inheritance

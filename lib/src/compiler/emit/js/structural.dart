@@ -49,13 +49,20 @@ StructuralBoundary emitStructuralBoundary(
 }) {
   final code = StringBuffer();
   var next = 0;
+  final memo = <(ValueConversion, bool), String>{};
   String emit(ValueConversion node, bool output) {
+    final key = (node, output);
+    if (memo[key] case final name?) return name;
     final name = '${prefix}_${output ? 'write' : 'read'}${next++}';
+    memo[key] = name;
     final children = switch (node) {
       ListConversion(:final element) => [element],
       MapConversion(:final key, :final value) => [key, value],
       DictionaryConversion(:final value) => [value],
       RecordConversion() => node.fields.values.toList(),
+      ValueClassConversion() => [
+        for (final field in node.fields) field.conversion,
+      ],
       ScalarConversion() || ReferenceConversion() => <ValueConversion>[],
     };
     final converters = [for (final child in children) emit(child, output)];
@@ -152,6 +159,69 @@ StructuralBoundary emitStructuralBoundary(
         );
         code.writeln(
           '    }\n    return result;\n  } finally { state.active.delete(value); }',
+        );
+      case ValueClassConversion():
+        final fields = node.fields.map((f) => f.name).toList();
+        if (output) {
+          code.writeln(
+            '  if (!Array.isArray(value)) throw new TypeError(path + ": invalid private record ABI");',
+          );
+        } else {
+          code.writeln('''  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError(path + ': expected a record object');
+  }
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== null && prototype !== Object.prototype) {
+    throw new TypeError(path + ': expected a plain record object');
+  }''');
+        }
+        code.writeln('  enterStructure(value, path, state, depth);\n  try {');
+        if (!output) {
+          code.writeln(
+            '    checkRecordProperties(value, ${jsonEncode(fields)}, path, state);',
+          );
+        }
+        code.writeln(
+          output ? '    const result = {};' : '    const result = [];',
+        );
+        for (final (index, field) in node.fields.indexed) {
+          code.writeln(
+            '''    {
+      const childPath = path + ${jsonEncode('.${field.name}')};
+      const property = Object.getOwnPropertyDescriptor(value, ${jsonEncode(output ? '$index' : field.name)});''',
+          );
+          if (!output && field.optional) {
+            code.writeln(
+              '''      if (property && !Object.hasOwn(property, 'value')) {
+        throw new TypeError(childPath + ': expected an own data property');
+      }
+      const defaulted = !property || property.value === undefined;
+      let child;
+      if (defaulted) { visitStructure(state, childPath); child = null; }
+      else { child = ${converters[index]}(property.value, childPath, state, depth + 1); }
+      Object.defineProperty(result, ${jsonEncode('${2 * index}')}, {value: defaulted, enumerable: true, writable: true, configurable: true});
+      Object.defineProperty(result, ${jsonEncode('${2 * index + 1}')}, {value: child, enumerable: true, writable: true, configurable: true});''',
+            );
+          } else {
+            code.writeln(
+              '''      if (!property || !Object.hasOwn(property, 'value')) {
+        throw new TypeError(childPath + ': expected an own data property');
+      }
+      const child = ${converters[index]}(property.value, childPath, state, depth + 1);''',
+            );
+            if (!output) {
+              code.writeln(
+                '      Object.defineProperty(result, ${jsonEncode('${2 * index}')}, {value: false, enumerable: true, writable: true, configurable: true});',
+              );
+            }
+            code.writeln(
+              '      Object.defineProperty(result, ${jsonEncode(output ? field.name : '${2 * index + 1}')}, {value: child, enumerable: true, writable: true, configurable: true});',
+            );
+          }
+          code.writeln('    }');
+        }
+        code.writeln(
+          '    return result;\n  } finally { state.active.delete(value); }',
         );
       case RecordConversion():
         final fields = node.fields.keys.toList();

@@ -1,0 +1,56 @@
+import 'dart:convert';
+
+import '../../analysis/validate.dart';
+import '../../ir/model.dart';
+import '../../lowering/plan.dart';
+
+/// Allocate every recursive alias before expanding any body. Names are private;
+/// the selected public name denotes only the ordinary output representation.
+String emitValueDeclarations(
+  List<ClassBinding> classes,
+  List<ValueClassSchema> schemas,
+  Iterable<ValueConversion> conversions, {
+  Set<String> reservedNames = const {},
+}) {
+  if (schemas.isEmpty) return '';
+  final defaults = [
+    for (final schema in schemas)
+      conversionFor(
+        DeclaredType(schema.binding.declaration, ValueSemantics.reference),
+        schema.binding.exportName,
+        bigint: false,
+        classes: classes,
+        valueSchemas: schemas,
+      ) as ValueClassConversion,
+  ];
+  final nodes = conversionGraph([...conversions, ...defaults])
+      .whereType<ValueClassConversion>()
+      .toList();
+  final representatives =
+      <(DeclarationId, ValueDirection, bool), ValueClassConversion>{};
+  final aliases = <(DeclarationId, ValueDirection, bool), String>{};
+  final used = {...reservedNames, for (final c in classes) c.exportName};
+  var next = 0;
+  for (final node in nodes) {
+    final key = (node.classBinding.declaration, node.direction, node.bigint);
+    if (!aliases.containsKey(key)) {
+      String name;
+      do {
+        name = '\$value${next++}';
+      } while (!used.add(name));
+      aliases[key] = name;
+      representatives[key] = node;
+    }
+    node.typescriptName = aliases[key]!;
+  }
+  return [
+    for (final entry in representatives.entries)
+      'type ${aliases[entry.key]} = ${_body(entry.value)};',
+    for (final node in defaults)
+      'export type ${node.classBinding.exportName} = ${node.typescriptName};',
+  ].join('\n');
+}
+
+String _body(ValueClassConversion node) => node.fields.isEmpty
+    ? '{ [key: string]: never }'
+    : '{ ${[for (final field in node.fields) '${jsonEncode(field.name)}${field.optional ? '?' : ''}: ${field.conversion.typescriptType}${field.optional ? ' | undefined' : ''}'].join('; ')} }';

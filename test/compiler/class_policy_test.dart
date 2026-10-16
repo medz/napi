@@ -158,12 +158,12 @@ class HiddenCleanup {
     },
   );
 
-  test('runtime gates allow concrete reference classes only', () async {
+  test('runtime gates allow reference and structural value classes', () async {
     final module = await annotated(await source(declarations));
     for (final binding in module.classes) {
       final single = BindingModule(source: module.source, classes: [binding]);
       expect(() => validateDeclarations(single), returnsNormally);
-      if (binding.declaration.name == 'Reference') {
+      if (const {'Reference', 'Value'}.contains(binding.declaration.name)) {
         expect(() => validate(single), returnsNormally);
         continue;
       }
