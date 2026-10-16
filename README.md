@@ -10,6 +10,13 @@ console.log(add(20, 22));
 This branch builds on the clean rebuild described in [#115](https://github.com/medz/napi/issues/115).
 It is a development foundation, not a new release or the complete binding API.
 
+The target artifact is now **one `module.wasm` with no distributed JavaScript**.
+The current development compiler still generates JS host dependencies and has
+not reached that target. [The single-Wasm plan](doc/single-wasm.md) records the
+replacement path, verified boundaries, and outstanding requirements in
+[#144](https://github.com/medz/napi/issues/144). Existing JS-dependent fixtures
+remain regression evidence for the earlier contract, not zero-JS acceptance.
+
 ## Working foundation
 
 - Resolved `@NAPI()` discovery with renaming, class/member selection and reexports
@@ -20,8 +27,9 @@ It is a development foundation, not a new release or the complete binding API.
 - Handwritten ABI fixtures proving real Dart constructors and argument-presence semantics
 - Direct imports, installed package resolution, artifact inspection, and strict TypeScript tests
 
-The generated JavaScript files are dependencies imported by Wasm. Consumers need
-no JavaScript entrypoint, loader setup, registration, or call to application `main`.
+The current generated JavaScript files are dependencies imported by Wasm. The
+replacement must eliminate them from the complete artifact graph, preserve direct
+imports, and require no loader setup, registration, or call to application `main`.
 
 The annotation frontend records complete declaration metadata; build-time checks
 reject unsupported signatures before writing output. Optional-parameter/class
