@@ -540,8 +540,9 @@ final class _Reader {
         constructorName?.offset ?? fragment.nameOffset ?? fragment.offset;
     final offset = rawOffset < 0 ? 0 : rawOffset;
     final position = unit?.lineInfo.getLocation(offset);
+    final source = unit?.source ?? element.library?.firstFragment.source;
     return SourceLocation(
-      unit?.source.uri ?? element.library?.uri ?? entry,
+      source == null ? entry : File(source.fullName).uri,
       offset,
       constructorName?.length ?? element.name?.length ?? 0,
       line: position?.lineNumber,
@@ -592,7 +593,7 @@ final class _AnnotationVisitor extends RecursiveAstVisitor<void> {
       code,
       message,
       SourceLocation(
-        fragment.source.uri,
+        File(fragment.source.fullName).uri,
         node.offset,
         node.length,
         line: location.lineNumber,

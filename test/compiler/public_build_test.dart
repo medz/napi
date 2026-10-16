@@ -15,7 +15,8 @@ dependencies:
   napi:
     path: ${jsonEncode(Directory.current.path)}
 ''');
-    await File('${root.path}/entry.dart').writeAsString('''
+    await Directory('${root.path}/lib').create();
+    await File('${root.path}/lib/entry.dart').writeAsString('''
 import 'package:napi/napi.dart';
 @NAPI(name: 'increment')
 int addOne(int value) => value + 1;
@@ -25,7 +26,7 @@ import 'dart:io';
 import 'package:napi/build.dart';
 Future<void> main() async {
   final BuiltModule built = await buildLibrary(
-    library: File('entry.dart').absolute.uri,
+    library: File('lib/entry.dart').absolute.uri,
     output: Directory('output'),
     packagesPath: File('.dart_tool/package_config.json').absolute.path,
   );

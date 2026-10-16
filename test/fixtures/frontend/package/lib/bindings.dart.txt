@@ -1,0 +1,7 @@
+import 'package:napi/napi.dart';
+
+export 'exported.dart';
+part 'bindings_part.dart';
+
+@NAPI()
+int scalar(int value) => value;
