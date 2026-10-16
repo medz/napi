@@ -60,6 +60,15 @@ active iterator by reentering and mutating the parent. Dart output uses its actu
 that sequence. Each key and value is recursively converted with paths such as
 `echo.value[1].key` and `echo.value[1].value`.
 
+Outputs first snapshot the complete Dart tree, including custom List getters and
+Map iteration, with the depth/work/cycle checks above. Host-side integer range,
+reference-brand and converted Map-key checks run afterward on that snapshot.
+Thus a later Dart getter/iterator failure precedes an earlier invalid host leaf;
+no getter is evaluated again during host conversion. This order is shared by
+both targets. Native uses temporary storage proportional to the visited shape
+and a second traversal, bounded by the same work limit. Input traversal is
+unchanged.
+
 Input Maps use ordinary Dart equality and hashing. Structurally equal record
 keys or reference keys with custom `==` may collide even when their original JS
 objects differ. Output uses JavaScript Map SameValueZero equality. Either

@@ -98,8 +98,8 @@ Object.create reference uses the same cleanup.
 
 [Value classes](values.md) use explicit constructor mappings, recursive structural
 data and separate input/output types. Inputs containing values validate a complete
-parameter snapshot before Dart constructor materialization. Outputs containing
-values snapshot the complete Dart tree before host-side scalar, reference and
+parameter snapshot before Dart constructor materialization. All structural
+outputs snapshot the complete Dart tree before host-side scalar, reference and
 Map-key checks. These paths use temporary snapshot storage; output getters are
 read once per occurrence before converting children.
 

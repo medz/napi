@@ -95,6 +95,43 @@ final class _ThrowingList extends ListBase<int> {
 List<int> structuralThrowingOutput(bool indexError) =>
     _ThrowingList(indexError);
 
+int _outputReads = 0;
+@NAPI()
+int structuralOutputReads() => _outputReads;
+
+@NAPI()
+(int, List<int>) structuralOutputOrder(bool throwing) {
+  _outputReads = 0;
+  return (9007199254740992, _OutputOrderList(throwing));
+}
+
+@NAPI()
+(Map<double, int>, List<int>) structuralCollisionOrder(bool throwing) {
+  _outputReads = 0;
+  final entries = <double, int>{}
+    ..[double.nan] = 1
+    ..[double.nan] = 2;
+  return (entries, _OutputOrderList(throwing));
+}
+
+final class _OutputOrderList extends ListBase<int> {
+  final bool throwing;
+  _OutputOrderList(this.throwing);
+  @override
+  int get length {
+    _outputReads++;
+    if (throwing) throw StateError('later output getter failed');
+    return 1;
+  }
+
+  @override
+  set length(int value) => throw UnsupportedError('fixed length');
+  @override
+  int operator [](int index) => 7;
+  @override
+  void operator []=(int index, int value) => throw UnsupportedError('readonly');
+}
+
 final class _InvalidLengthList extends ListBase<int> {
   final int reportedLength;
   _InvalidLengthList(this.reportedLength);

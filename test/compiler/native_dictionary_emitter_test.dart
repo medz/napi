@@ -136,7 +136,6 @@ void main() {
       for (final source in [reader.source, writer.source]) {
         // Only the Dictionary node and its value consume structural work.
         expect('state.visit(path);'.allMatches(source), hasLength(2));
-        expect(source, isNot(contains('~/ 2')));
         expect(source, isNot(contains('containsKey(')));
         expect(source, isNot(contains('checkedInsertMap(')));
       }
@@ -225,7 +224,7 @@ typedef Alias<T> = api.Dictionary<T>;
       expect(dart, contains('_api.ownerValue(env, value, path, 0)'));
       expect(
         dart,
-        contains('_api.referenceResult(env, value, 0, path, state.pending)'),
+        contains('_api.referenceResult(env, value!, 0, path, state.pending)'),
       );
       final direct = _callback(dart, plan.functions.first);
       expect(direct, contains('call.argumentCount > 0 ? call.arguments[0]'));
