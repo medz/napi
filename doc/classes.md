@@ -47,7 +47,13 @@ output validation happens after business code and does not undo Dart mutations.
 Extracted instance methods need their original receiver: `method.call(counter)`
 works; calling a detached method without a receiver fails. Forged prototypes,
 other classes, Proxy wrappers and independently loaded module instances fail
-before invoking Dart. Method/accessor functions are nonconstructible. Ordinary
+before invoking Dart. Method/accessor functions are nonconstructible: they have
+no own `prototype` and cannot serve as `Reflect.construct`'s `newTarget`, even
+after `bind`. Named constructors exposed as static methods follow this rule;
+the class constructor itself remains constructible. Native loaders install
+concise JavaScript forwarders around the generated callbacks to provide this
+shape, preserving receivers, argument counts and property attributes. Accessor
+function names use the standard `get name` / `set name` spelling. Ordinary
 JavaScript `.length` reflects the generated parameter mapping: required
 positional count, or zero for an optional/named callable; setters have length one.
 

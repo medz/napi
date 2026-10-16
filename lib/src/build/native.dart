@@ -47,7 +47,7 @@ Future<BuiltModule> buildNativeModule({
       for (final binding in bindings.classes) binding.exportName,
     ];
     await File('${artifact.path}/module.mjs')
-        .writeAsString(emitNativeLoader(exports));
+        .writeAsString(emitNativeLoader(exports, classes: plan.classes));
     await File('${artifact.path}/module.d.mts')
         .writeAsString(emitNativeDeclarations(plan));
     publishDirectory(artifact, target);
