@@ -1,23 +1,36 @@
 # Development
 
 Keep this package small: one annotation, one build command, one export model.
-Business logic must execute in Dart Wasm with real named Wasm exports.
-Consumers import functions directly from .wasm or an npm entry pointing to it.
-Do not replace that API with manual initialization or a JavaScript entrypoint.
-Do not add a native addon backend, build_runner, or a plugin framework.
+Use napi-rs as the product reference: support native Node-API .node addons and
+Dart Wasm bindings with one Dart declaration and JavaScript API model.
+Business logic executes in Dart AOT or Dart Wasm. Generated JavaScript loaders
+and runtime bindings are allowed; consumers should not initialize them manually.
+Preserve new Counter(), argument presence, Dart defaults and shared TypeScript
+declarations. Do not substitute factories or explicit presence parameters.
+Keep backend ABI and lifecycle code separate from shared semantic IR. Verify
+native runtime distribution and each target independently; Dart WasmGC does not
+implement napi-rs's WASI/emnapi ABI. Minimize cost using measurements, not a
+zero-JS or single-Wasm constraint. Do not add build_runner or a plugin framework.
+Preserve unresolved requirements and their evidence. Do not weaken scalar,
+presence, identity, or lifetime contracts to make a prototype count as complete.
 
-Run format for lib/test/tool, analyze, dart test, dart run tool/verify.dart
-(including Node and TypeScript), tool/check_package.dart (pub dry-run), and
-git diff --check for changes.
-The foundation CI runs the full check suite. Annotated scalar fixtures exercise
-the source-to-Wasm pipeline. Handwritten
-ABI fixtures independently prove later class and argument-presence contracts.
-Document tested compiler/runtime versions; the Dart Wasm interop is experimental.
+Run format, analyze, tests (including Node and TypeScript), and pub dry-run for
+code, tests, tools, dependency or CI changes. Ordinary non-executable Markdown
+changes limited to AGENTS.md, README.md, CHANGELOG.md and doc/**/*.md use
+git diff --check. Mixed or unknown paths and uncertain history use full CI.
+Annotated scalar fixtures currently exercise the source-to-Wasm pipeline.
+Handwritten ABI fixtures provide separate, limited evidence for later contracts.
+Add native conformance as its implementation lands, including fresh packages,
+workers, teardown and cross-backend behavior. Document tested compiler/runtime
+versions and experimental SDK coupling for both backends.
 
 # Code review
 
-Use an independent Codex reviewer or review thread on the final commit. Do not
-wait for a cloud review bot's quota when independent review is available.
+Use the Codex GitHub connector's PR review on the final commit. Its completed
+review with no unresolved findings, together with required CI, permits merging
+that exact head SHA. A review of an earlier head does not approve a later head.
+Independent reviews may supplement it. Do not wait for other review bots' quota.
+CodeRabbit is not a review or merge gate; its status and quota do not block work.
 Report correctness defects at every priority, including P2. Check generated
 code and fresh-consumer behavior, not only the generator source. Pay attention
 to reference and buffer lifetimes, errors, nullable values, integer precision,
@@ -32,9 +45,12 @@ Documentation, CI, tests, benchmarks, examples and non-urgent fixes normally wai
 for that milestone. Ship an urgent patch only for a concrete user-impacting
 failure, security defect or compatibility break.
 
-Merge the independently reviewed final commit by its exact SHA after required
+Merge the Codex-reviewed final commit by its exact SHA after required
 checks pass, without publishing each PR. Publish a planned milestone only after
 final release review, CI and package validation; verify the public package with a
-fresh consumer before announcing it. A recovered registry quota is not a release trigger and a registry
-limit does not block independent development. Preserve unpublished tags and
+fresh consumer before announcing it. Publish at most four versions per
+Asia/Shanghai calendar day; count public registry versions and release evidence
+before every upload. The cap is a limit, not a target. A recovered registry quota
+is not a release trigger and a registry limit does not block development.
+Preserve unpublished tags and
 release evidence; do not rewrite published history or retry uploads in a loop.

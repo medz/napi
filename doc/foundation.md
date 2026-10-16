@@ -1,5 +1,10 @@
 # Direct-Wasm foundation
 
+This document describes the existing Wasm development foundation. The
+[native and Wasm architecture](architecture.md) defines the current product
+direction. JavaScript host dependencies and callable globals remain valid Wasm
+implementation choices. This foundation does not implement the native backend.
+
 This implements the bounded foundation in #115, following #107 and #114. It
 removes the old implementation, tests, fixtures, benchmarks, examples, and
 historical documentation. The repository, Git history, MIT license, development
@@ -80,8 +85,8 @@ Wasm start section and other non-import sections are preserved. Dart application
 `main` is never called; both test entrypoints deliberately throw if invoked.
 
 For constructor-valued exports, the thin public Wasm module depends on a JS host
-which in turn imports the core. No public JS facade or manual instantiation is
-introduced. The compiler-generated loader's compile/instantiate/invokeMain APIs
+which in turn imports the core. This fixture uses no public JS facade or manual
+instantiation. The compiler-generated loader's compile/instantiate/invokeMain APIs
 are not copied into the dependency module.
 
 Repeated imports of one URL share exports and Dart state. Copying the complete

@@ -1,6 +1,6 @@
 # Argument presence and Dart defaults
 
-Annotated scalar functions support required and optional positional parameters,
+The current Wasm backend supports required and optional positional parameters,
 or required positional parameters followed by named parameters. Named parameters
 become one final JavaScript options object:
 
@@ -59,10 +59,11 @@ Presence-sensitive functions are immutable externref globals containing JS arrow
 functions. They capture actual argc and own-property presence before calling a
 private Dart core export. Required positional functions remain native Wasm
 function exports, even in the same public module. Consumers import both forms
-directly from `.wasm`; neither form is constructible. There is no public JS entry
-or initialization API. The shared presence-policy hook is also exercised by the
+directly from `.wasm`; neither function form is constructible. This implementation
+requires no consumer initialization. The shared presence-policy hook is also exercised by the
 real `.wasm` opaque fixture, where `f()` and `f(undefined)` have different results.
-Opaque storage itself remains #125.
+Opaque storage itself remains #125. The native backend must implement the same
+call semantics through Node-API; that work remains open in #118 and #144.
 
 Declarations use optional positional parameters and a final typed options object.
 Optional properties explicitly allow `undefined`, including under
