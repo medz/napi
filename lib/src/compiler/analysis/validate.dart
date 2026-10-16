@@ -471,13 +471,11 @@ ValidatedModule validate(BindingModule module) {
       function.source,
       referenceClasses: module.classes,
     );
-    if (!_isBackendValue(function.result) &&
-        !isReferenceType(function.result, module.classes)) {
-      reject(
-        'NAPI_TYPE',
-        'No scalar or structural conversion engine for this result.',
-      );
-    }
+    validateValueType(
+      function.result,
+      function.source,
+      referenceClasses: module.classes,
+    );
   }
   return ValidatedModule._(declarations.bindings, classes);
 }
@@ -721,6 +719,22 @@ bool isReferenceType(BindingType type, List<ClassBinding> classes) =>
           binding.typeParameters.isEmpty,
     );
 
+/// Scalar/structural values and direct selected references share one capability
+/// check. Structural leaves remain scalar; this does not enable nested refs.
+void validateValueType(
+  BindingType type,
+  SourceLocation source, {
+  List<ClassBinding> referenceClasses = const [],
+}) {
+  if (!_isBackendValue(type) && !isReferenceType(type, referenceClasses)) {
+    throw BindingDiagnostic(
+      'NAPI_TYPE',
+      'No scalar, structural or selected class reference conversion for this type.',
+      source,
+    );
+  }
+}
+
 void validateReferenceType(
   BindingType type,
   SourceLocation source,
@@ -883,10 +897,12 @@ bool _isBackendValue(BindingType type) {
   }
   return type is DeclaredType &&
       type.semantics == ValueSemantics.structural &&
-      type.declaration.library == Uri.parse('dart:core') &&
-      type.declaration.kind == DeclarationKind.classType &&
-      type.declaration.owner == null &&
-      type.declaration.name == 'List' &&
+      type.declaration ==
+          DeclarationId(
+            Uri.parse('dart:core'),
+            'List',
+            kind: DeclarationKind.classType,
+          ) &&
       type.typeArguments.length == 1 &&
       _isBackendValue(type.typeArguments.single);
 }

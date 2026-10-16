@@ -71,9 +71,9 @@ StructuralBoundary emitStructuralBoundary(
           '''  if (!Array.isArray(value)) throw new TypeError(path + ': expected an Array');
   enterStructure(value, path, state, depth);
   try {
-    checkArrayProperties(value, path, state);
+    const length = checkArrayProperties(value, path, state);
     const result = [];
-    for (let i = 0; i < value.length; i++) {
+    for (let i = 0; i < length; i++) {
       const childPath = path + '[' + i + ']';
       const property = Object.getOwnPropertyDescriptor(value, String(i));
       if (!property || !Object.hasOwn(property, 'value')) {
@@ -158,16 +158,21 @@ function checkArrayProperties(value, path, state) {
   if (prototype !== null && prototype !== Array.prototype) {
     throw new TypeError(path + ': expected a plain Array');
   }
-  if (value.length > 10000 - state.work) {
+  const length = value.length;
+  if (typeof length !== 'number' || !Number.isInteger(length) || length < 0 || length > 0xffffffff) {
+    throw new TypeError(path + '.length: expected an Array length');
+  }
+  if (length > 10000 - state.work) {
     throw new RangeError(path + ': structural work limit (10000) exceeded');
   }
   for (const key of Reflect.ownKeys(value)) {
     if (key === 'length') continue;
     const index = typeof key === 'string' ? Number(key) : NaN;
-    if (!Number.isInteger(index) || index < 0 || index >= value.length || String(index) !== key) {
+    if (!Number.isInteger(index) || index < 0 || index >= length || String(index) !== key) {
       throw new TypeError(path + '.' + String(key) + ': unknown Array property');
     }
   }
+  return length;
 }
 function checkRecordProperties(value, fields, path, state) {
   let properties = 0;

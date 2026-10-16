@@ -89,9 +89,16 @@ Future<void> installedConsumer(
     '${scalar.path}/napi-foundation-fixture-0.0.0.tgz',
   ], cwd: consumer.path);
   await File('test/integration/$fixture.mjs').copy('${consumer.path}/test.mjs');
+  if (fixture == 'structural_package') {
+    await File('test/integration/structural_contract.mjs')
+        .copy('${consumer.path}/structural_contract.mjs');
+  }
   await File('test/typescript/$fixture.mts')
       .copy('${consumer.path}/consumer.mts');
-  await run('node', ['test.mjs'], cwd: consumer.path);
+  await run('node', [
+    if (fixture == 'structural_package') '--expose-gc',
+    'test.mjs',
+  ], cwd: consumer.path);
   await typescript(consumer, 'consumer.mts');
 }
 
@@ -117,7 +124,7 @@ Future<void> main() async {
   );
   final structural = Directory('${root.absolute.path}/structural');
   await buildStructuralFixture(structural);
-  await run('node', ['test.mjs'], cwd: structural.path);
+  await run('node', ['--expose-gc', 'test.mjs'], cwd: structural.path);
   await typescript(structural, 'consumer.mts');
   await installedConsumer(
     structural,

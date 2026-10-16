@@ -2,6 +2,7 @@
 #include <node_api.h>
 #include <dlfcn.h>
 #include <cstdint>
+#include <cmath>
 #include <cstdio>
 #include <cerrno>
 #include <cstring>
@@ -245,6 +246,240 @@ static napi_status reference_create(napi_env env, uint32_t class_id,
   return status;
 }
 
+static napi_status js_method(napi_env env, const char* owner_name,
+                             const char* method_name, size_t count,
+                             const napi_value* args, napi_value* result) {
+  napi_value global, object, method;
+  auto status = napi_get_global(env, &global);
+  if (status != napi_ok) return status;
+  status = napi_get_named_property(env, global, owner_name, &object);
+  if (status != napi_ok) return status;
+  status = napi_get_named_property(env, object, method_name, &method);
+  if (status != napi_ok) return status;
+  return napi_call_function(env, object, method, count, args, result);
+}
+
+// The raw Node-API predicates/prototype getter bypass Proxy semantics. Use the
+// same JS operations as the Wasm boundary, preserving their pending exceptions.
+static napi_status js_is_array(napi_env env, napi_value input, bool* result) {
+  napi_value value;
+  auto status = js_method(env, "Array", "isArray", 1, &input, &value);
+  return status == napi_ok ? napi_get_value_bool(env, value, result) : status;
+}
+
+static napi_status js_prototype(napi_env env, napi_value input, napi_value* result) {
+  return js_method(env, "Object", "getPrototypeOf", 1, &input, result);
+}
+
+static napi_status utf16(napi_env env, napi_value value, std::u16string* result) {
+  size_t length;
+  auto status = napi_get_value_string_utf16(env, value, nullptr, 0, &length);
+  if (status != napi_ok) return status;
+  result->resize(length + 1);
+  status = napi_get_value_string_utf16(env, value, result->data(), result->size(), &length);
+  if (status == napi_ok) result->resize(length);
+  return status;
+}
+
+static napi_status structure_error(napi_env env, const std::u16string& path,
+                                   const char16_t* message, bool range = false) {
+  const auto text = path + u": " + message;
+  napi_value string, error;
+  auto status = napi_create_string_utf16(env, text.data(), text.size(), &string);
+  if (status != napi_ok) return status;
+  status = range ? napi_create_range_error(env, nullptr, string, &error)
+                 : napi_create_type_error(env, nullptr, string, &error);
+  if (status != napi_ok) return status;
+  status = napi_throw(env, error);
+  // Throwing successfully sets a pending JS exception; Dart must stop reading
+  // this argument rather than treating napi_ok as a converted empty container.
+  return status == napi_ok ? napi_pending_exception : status;
+}
+
+static napi_status display_key(napi_env env, napi_value key, std::u16string* result) {
+  napi_valuetype type;
+  auto status = napi_typeof(env, key, &type);
+  if (status != napi_ok) return status;
+  if (type != napi_string) {
+    // String(symbol) is defined; Node-API's ToString coercion throws instead.
+    napi_value global, string_function, text;
+    status = napi_get_global(env, &global);
+    if (status != napi_ok) return status;
+    status = napi_get_named_property(env, global, "String", &string_function);
+    if (status != napi_ok) return status;
+    status = napi_call_function(env, global, string_function, 1, &key, &text);
+    if (status != napi_ok) return status;
+    key = text;
+  }
+  return utf16(env, key, result);
+}
+
+static napi_status plain_shape(napi_env env, napi_value input, bool array,
+                               bool* result) {
+  napi_value prototype, global, constructor, expected, null_value;
+  auto status = js_prototype(env, input, &prototype);
+  if (status != napi_ok) return status;
+  status = napi_get_null(env, &null_value);
+  if (status != napi_ok) return status;
+  status = napi_strict_equals(env, prototype, null_value, result);
+  if (status != napi_ok || *result) return status;
+  status = napi_get_global(env, &global);
+  if (status != napi_ok) return status;
+  status = napi_get_named_property(env, global, array ? "Array" : "Object", &constructor);
+  if (status != napi_ok) return status;
+  status = napi_get_named_property(env, constructor, "prototype", &expected);
+  return status == napi_ok ? napi_strict_equals(env, prototype, expected, result) : status;
+}
+
+static bool array_index(const std::u16string& key, uint32_t length) {
+  if (key.empty() || (key.size() > 1 && key[0] == u'0')) return false;
+  uint64_t index = 0;
+  for (auto unit : key) {
+    if (unit < u'0' || unit > u'9') return false;
+    index = index * 10 + (unit - u'0');
+    if (index >= length) return false;
+  }
+  return index < length;
+}
+
+static napi_status inspect_shape(
+    napi_env env, napi_value input, bool array, const napi_value* fields,
+    size_t count, napi_value path_value, uint32_t remaining, uint32_t depth,
+    bool cyclic, uint32_t* length) {
+  *length = 0;
+  try {
+    std::u16string path;
+    auto status = utf16(env, path_value, &path);
+    if (status != napi_ok) return status;
+    napi_valuetype type;
+    status = napi_typeof(env, input, &type);
+    if (status != napi_ok) return status;
+    if (!array && type != napi_object)
+      return structure_error(env, path, u"expected a record object");
+    bool is_array;
+    status = js_is_array(env, input, &is_array);
+    if (status != napi_ok) return status;
+    if (array && !is_array) return structure_error(env, path, u"expected an Array");
+    napi_value null_value;
+    status = napi_get_null(env, &null_value);
+    if (status != napi_ok) return status;
+    bool is_null;
+    status = napi_strict_equals(env, input, null_value, &is_null);
+    if (status != napi_ok) return status;
+    if (!array && (is_array || is_null))
+      return structure_error(env, path, u"expected a record object");
+    // Wasm checks Array type before depth/cycle, but a record's prototype first.
+    if (array) {
+      if (depth >= 64) return structure_error(env, path, u"structural depth limit (64) exceeded", true);
+      if (cyclic) return structure_error(env, path, u"cyclic structural value");
+    }
+    bool plain;
+    status = plain_shape(env, input, array, &plain);
+    if (status != napi_ok) return status;
+    if (!plain) return structure_error(env, path, array ? u"expected a plain Array" : u"expected a plain record object");
+    if (!array) {
+      if (depth >= 64) return structure_error(env, path, u"structural depth limit (64) exceeded", true);
+      if (cyclic) return structure_error(env, path, u"cyclic structural value");
+    }
+    if (array) {
+      napi_value value;
+      status = napi_get_named_property(env, input, "length", &value);
+      if (status != napi_ok) return status;
+      status = napi_typeof(env, value, &type);
+      if (status != napi_ok) return status;
+      double size = -1;
+      if (type == napi_number) {
+        status = napi_get_value_double(env, value, &size);
+        if (status != napi_ok) return status;
+      }
+      if (!std::isfinite(size) || size < 0 || size > UINT32_MAX || std::floor(size) != size)
+        return structure_error(env, path + u".length", u"expected an Array length");
+      *length = static_cast<uint32_t>(size);
+      if (*length > remaining)
+        return structure_error(env, path, u"structural work limit (10000) exceeded", true);
+    } else {
+      *length = static_cast<uint32_t>(count);
+    }
+    std::set<std::u16string> names;
+    for (size_t i = 0; i < count; i++) {
+      std::u16string field;
+      status = utf16(env, fields[i], &field);
+      if (status != napi_ok) return status;
+      names.insert(std::move(field));
+    }
+    napi_value keys;
+    status = napi_get_all_property_names(env, input, napi_key_own_only,
+        napi_key_all_properties, napi_key_numbers_to_strings, &keys);
+    if (status != napi_ok) return status;
+    uint32_t properties;
+    status = napi_get_array_length(env, keys, &properties);
+    if (status != napi_ok) return status;
+    for (uint32_t i = 0; i < properties; i++) {
+      napi_value key;
+      status = napi_get_element(env, keys, i, &key);
+      if (status != napi_ok) return status;
+      status = napi_typeof(env, key, &type);
+      if (status != napi_ok) return status;
+      std::u16string name;
+      status = display_key(env, key, &name);
+      if (status != napi_ok) return status;
+      if (array && type == napi_string && name == u"length") continue;
+      if (!array && i >= remaining)
+        return structure_error(env, path + u"." + name, u"structural work limit (10000) exceeded", true);
+      if (type != napi_string ||
+          (array ? !array_index(name, *length) : !names.count(name)))
+        return structure_error(env, path + u"." + name, array ? u"unknown Array property" : u"unknown record field");
+    }
+    return napi_ok;
+  } catch (const std::bad_alloc&) {
+    fail_error(env, "Cannot inspect structural value");
+    return napi_generic_failure;
+  }
+}
+
+static napi_status read_own_value(napi_env env, napi_value input, napi_value key,
+                                  napi_value path_value, napi_value* result) {
+  try {
+    napi_value args[] = {input, key};
+    napi_value descriptor;
+    auto status = js_method(env, "Object", "getOwnPropertyDescriptor", 2, args, &descriptor);
+    if (status != napi_ok) return status;
+    napi_valuetype type;
+    status = napi_typeof(env, descriptor, &type);
+    if (status != napi_ok) return status;
+    bool data = false;
+    if (type == napi_object) {
+      napi_value value_key;
+      status = napi_create_string_utf8(env, "value", NAPI_AUTO_LENGTH, &value_key);
+      if (status != napi_ok) return status;
+      status = napi_has_own_property(env, descriptor, value_key, &data);
+      if (status != napi_ok) return status;
+    }
+    if (!data) {
+      std::u16string path;
+      status = utf16(env, path_value, &path);
+      return status == napi_ok ? structure_error(env, path, u"expected an own data property") : status;
+    }
+    return napi_get_named_property(env, descriptor, "value", result);
+  } catch (const std::bad_alloc&) {
+    fail_error(env, "Cannot read structural value");
+    return napi_generic_failure;
+  }
+}
+
+static napi_status create_container(napi_env env, bool array, uint32_t length,
+                                    napi_value* result) {
+  return array ? napi_create_array_with_length(env, length, result)
+               : napi_create_object(env, result);
+}
+
+static napi_status define_own_value(napi_env env, napi_value container,
+                                   napi_value key, napi_value value) {
+  napi_property_descriptor property = {nullptr, key, nullptr, nullptr, nullptr,
+      value, napi_default_jsproperty, nullptr};
+  return napi_define_properties(env, container, 1, &property);
+}
+
 static napi_status read_options(
     napi_env env, napi_value input, bool supplied, const char* const* names,
     size_t count, napi_value* values, uint8_t* present, const char* context) {
@@ -262,7 +497,7 @@ static napi_status read_options(
   OPTIONS_NAPI(napi_typeof(env, input, &type));
   if (type == napi_undefined) return napi_ok;
   bool array = false;
-  OPTIONS_NAPI(napi_is_array(env, input, &array));
+  OPTIONS_NAPI(js_is_array(env, input, &array));
   napi_value null_value;
   bool is_null = false;
   OPTIONS_NAPI(napi_get_null(env, &null_value));
@@ -272,7 +507,7 @@ static napi_status read_options(
   OPTIONS_NAPI(napi_get_global(env, &global));
   OPTIONS_NAPI(napi_get_named_property(env, global, "Object", &object));
   OPTIONS_NAPI(napi_get_named_property(env, object, "prototype", &plain_prototype));
-  OPTIONS_NAPI(napi_get_prototype(env, input, &prototype));
+  OPTIONS_NAPI(js_prototype(env, input, &prototype));
   bool plain = false;
   OPTIONS_NAPI(napi_strict_equals(env, prototype, plain_prototype, &plain));
   OPTIONS_NAPI(napi_strict_equals(env, prototype, null_value, &is_null));
@@ -342,6 +577,11 @@ static void* api_table[] = {
     reinterpret_cast<void*>(&read_options),
     reinterpret_cast<void*>(&reference_value),
     reinterpret_cast<void*>(&reference_create),
+    reinterpret_cast<void*>(&inspect_shape),
+    reinterpret_cast<void*>(&read_own_value),
+    reinterpret_cast<void*>(&napi_strict_equals),
+    reinterpret_cast<void*>(&create_container),
+    reinterpret_cast<void*>(&define_own_value),
 };
 static_assert(sizeof(api_table) / sizeof(*api_table) == bridge_api_count);
 

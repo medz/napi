@@ -1,3 +1,5 @@
+import * as api from '@napi/foundation-fixture';
+import {verifyStructures} from './structural_contract.mjs';
 import assert from 'node:assert/strict';
 import {structuralLists, structuralRecords, structuralSaved} from '@napi/foundation-fixture';
 import {structuralLists as subpath} from '@napi/foundation-fixture/module.wasm';
@@ -12,4 +14,5 @@ assert.deepEqual(structuralRecords([{$1: 'x', values: null, detail: null}]),
   [{$1: 'x', values: null, detail: null}]);
 assert.throws(() => structuralLists([[undefined]]), TypeError);
 assert.deepEqual(subpath([[1]]), [[1]]);
+verifyStructures(api);
 console.log('PASS: freshly installed structural package root and Wasm subpath');

@@ -150,11 +150,6 @@ ValueConversion conversionFor(
   List<ClassBinding> classes = const [],
 }) => switch (type) {
   RecordTypeBinding() => RecordConversion(type, context, bigint: bigint),
-  DeclaredType(declaration: DeclarationId(name: 'List')) => ListConversion(
-    type,
-    context,
-    bigint: bigint,
-  ),
   DeclaredType() when isReferenceType(type, classes) => ReferenceConversion(
     type,
     context,
@@ -165,6 +160,18 @@ ValueConversion conversionFor(
       (binding) => binding.declaration == type.declaration,
     ),
   ),
+  DeclaredType(
+    declaration: final declaration,
+    semantics: ValueSemantics.structural,
+    typeArguments: [_],
+  )
+      when declaration ==
+          DeclarationId(
+            Uri.parse('dart:core'),
+            'List',
+            kind: DeclarationKind.classType,
+          ) =>
+    ListConversion(type, context, bigint: bigint),
   _ => ScalarConversion(type, context, bigint: bigint),
 };
 

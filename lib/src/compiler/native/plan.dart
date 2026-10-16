@@ -140,11 +140,15 @@ NativeModulePlan validateNative(BindingModule module) {
     validateCallParameters(
       parameters,
       source,
-      scalarOnly: true,
+      scalarOnly: function == null,
       referenceClasses: module.classes,
     );
     if (result != null && result is! VoidType) {
-      validateReferenceType(result, source, module.classes);
+      if (function == null) {
+        validateReferenceType(result, source, module.classes);
+      } else {
+        validateValueType(result, source, referenceClasses: module.classes);
+      }
     }
     return NativeCallPlan._(
       callback: '_native${next++}',

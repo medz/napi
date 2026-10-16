@@ -1,4 +1,4 @@
-// Compiler-private bridge ABI, version 2. Keep generated Dart in lockstep.
+// Compiler-private bridge ABI, version 3. Keep generated Dart in lockstep.
 #pragma once
 #include <node_api.h>
 #include <stdint.h>
@@ -59,7 +59,12 @@ enum BridgeApiSlot {
   bridge_read_options = 27,
   bridge_reference_value = 28,
   bridge_reference_create = 29,
-  bridge_api_count = 30,
+  bridge_inspect_shape = 30,
+  bridge_read_own_value = 31,
+  bridge_strict_equals = 32,
+  bridge_create_container = 33,
+  bridge_define_own_value = 34,
+  bridge_api_count = 35,
 };
 typedef napi_status (*BridgeOwnerWrap)(napi_env, napi_value self, int64_t ownerId);
 typedef int64_t (*BridgeOwnerUnwrap)(napi_env, napi_value self);
@@ -74,3 +79,17 @@ typedef napi_status (*BridgeReferenceValue)(
 // the Dart business constructor. The new lease is already retained by Dart.
 typedef napi_status (*BridgeReferenceCreate)(
     napi_env, uint32_t classId, int64_t ownerId, napi_value* result);
+// Node-local operations only: no schema traversal, persistent refs or C state.
+// fields/key/path are JS strings (UTF-16); all handles use the callback scope.
+// inspect_shape checks type/plain shape, depth/cycle flags, keys and remaining
+// work. Array length is read once; own child descriptors are read during recursion.
+typedef napi_status (*BridgeInspectShape)(
+    napi_env, napi_value input, bool array, const napi_value* fields, size_t count,
+    napi_value path, uint32_t remaining, uint32_t depth, bool cyclic,
+    uint32_t* length);
+typedef napi_status (*BridgeReadOwnValue)(
+    napi_env, napi_value input, napi_value key, napi_value path, napi_value* result);
+typedef napi_status (*BridgeCreateContainer)(
+    napi_env, bool array, uint32_t length, napi_value* result);
+typedef napi_status (*BridgeDefineOwnValue)(
+    napi_env, napi_value container, napi_value key, napi_value value);

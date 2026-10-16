@@ -10,6 +10,7 @@ Future<void> buildStructuralFixture(Directory output) async {
   );
   for (final entry in {
     'test/integration/structural_values.mjs': 'test.mjs',
+    'test/integration/structural_contract.mjs': 'structural_contract.mjs',
     'test/typescript/structural_values.mts': 'consumer.mts',
   }.entries) {
     await File(entry.key).copy('${output.path}/${entry.value}');

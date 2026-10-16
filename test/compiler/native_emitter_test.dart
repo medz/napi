@@ -151,8 +151,8 @@ import 'package:napi/napi.dart';
 
   for (final (label, declaration, code) in [
     (
-      'structural',
-      '@NAPI() List<int> bad(List<int> value) => value;',
+      'structural class member',
+      '@NAPI() class Bad { List<int> bad(List<int> value) => value; }',
       'NAPI_TYPE',
     ),
     ('generic function', '@NAPI() T bad<T>(T value) => value;', 'NAPI_GENERIC'),
