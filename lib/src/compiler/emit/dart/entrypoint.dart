@@ -16,24 +16,50 @@ String emitDart(ModulePlan plan) {
     result.writeln(
       'WasmExternRef? _export$index(${[for (var i = 0; i < parameters.length; i++) 'WasmExternRef? p$i'].join(', ')}) {',
     );
-    // Validate outside the Dart exception boundary: preserve JS TypeErrors.
+    // Validate raw externrefs outside the Dart exception boundary. In
+    // particular undefined is not erased into Dart null before validation.
     for (var i = 0; i < parameters.length; i++) {
+      final conversion = function.inputs[i];
       result.writeln(
-        '  final a$i = _readInt(p$i, WasmI32.fromInt(${context++}))'
-        '.toDouble().toInt();',
+        '  final v$i = _readValue(p$i, WasmI32.fromInt(${context++}));',
+      );
+      final value = _read(conversion, 'v$i!');
+      result.writeln(
+        '  final ${conversion.dartType} a$i = '
+        '${conversion.nullable ? 'v$i.isNull ? null : ' : ''}$value;',
       );
     }
-    result.writeln('  int value;\n  try {');
+    result.writeln('  ${function.output.dartType} value;\n  try {');
     result.writeln(
       '    value = target.${function.binding.callPath}(${[for (var i = 0; i < parameters.length; i++) 'a$i'].join(', ')});',
     );
     result.writeln(
       '  } catch (error) {\n    return _normalizeError(error);\n  }',
     );
-    result.writeln(
-      '  return _writeInt(WasmF64.fromDouble(value.toDouble()), '
-      'WasmI32.fromInt(${context++}));\n}',
-    );
+    if (function.output.nullable) {
+      result.writeln('  if (value == null) return WasmExternRef.nullRef;');
+    }
+    result.writeln('  return ${_write(function.output, context++)};\n}');
   }
   return result.toString();
+}
+
+String _read(ScalarConversion conversion, String value) {
+  if (conversion.usesBigInt) {
+    final parse = conversion.kind == ScalarKind.integer ? 'int' : 'BigInt';
+    return '$parse.parse((_readBigInt($value).toJS as JSString).toDart)';
+  }
+  return switch (conversion.kind) {
+    ScalarKind.boolean => '($value.toJS as JSBoolean).toDart',
+    ScalarKind.string => '($value.toJS as JSString).toDart',
+    ScalarKind.integer => '($value.toJS as JSNumber).toDartDouble.toInt()',
+    ScalarKind.doubleValue => '($value.toJS as JSNumber).toDartDouble',
+    ScalarKind.bigInteger => throw StateError('Handled above'),
+  };
+}
+
+String _write(ScalarConversion conversion, int context) {
+  final value = conversion.usesBigInt ? 'value.toString().toJS' : 'value.toJS';
+  final method = conversion.usesBigInt ? '_writeBigInt' : '_writeValue';
+  return '$method(externRefForJSAny($value)${conversion.usesBigInt ? '!' : ''}, WasmI32.fromInt($context))';
 }

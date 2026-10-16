@@ -49,11 +49,52 @@ void main() {
         ExportRepresentation.nativeFunction,
       );
       expect(emitDart(plan), contains('WasmExternRef? p0'));
-      expect(emitDart(plan), contains('_readInt(p0, WasmI32.fromInt(0))'));
+      expect(emitDart(plan), contains('_readValue(p0, WasmI32.fromInt(0))'));
       expect(emitBoundary(plan), contains('Number.isSafeInteger'));
       expect(emitDeclarations(plan), contains('add(value: number): number'));
     },
   );
+  test('all scalar representations share a fixed conversion plan', () {
+    final types = <BindingType>[
+      const SafeIntType(),
+      for (final name in ['bool', 'String', 'double', 'BigInt'])
+        DeclaredType(
+          DeclarationId(
+            Uri.parse('dart:core'),
+            name,
+            kind: DeclarationKind.classType,
+          ),
+          ValueSemantics.scalar,
+        ),
+    ];
+    for (final bigint in [false, true]) {
+      for (final type in types) {
+        final binding = FunctionBinding(
+          declaration: DeclarationId(source, 'convert'),
+          exportName: 'convert',
+          source: SourceLocation(source, 0, 1),
+          parameters: [ParameterBinding('value', type)],
+          result: type,
+          bigint: bigint,
+        );
+        final plan = lower(validate(module([binding])));
+        final input = plan.functions.single.inputs.single;
+        final output = plan.functions.single.output;
+        expect(input.jsType, output.jsType);
+        expect(input.dartType, output.dartType);
+        expect(
+          emitDeclarations(plan),
+          contains('value: ${input.typescriptType}'),
+        );
+        expect(
+          emitDeclarations(plan),
+          contains('): ${output.typescriptType};'),
+        );
+        expect(emitDart(plan), contains('_readValue(p0, WasmI32.fromInt(0))'));
+        expect(emitBoundary(plan), contains('"type":"${input.jsType}"'));
+      }
+    }
+  });
   test('diagnostics retain original source and reject duplicates', () {
     expect(
       () => validate(module([function(), function()])),

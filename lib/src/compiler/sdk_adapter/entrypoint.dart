@@ -7,10 +7,14 @@ import 'dart:_wasm';
 import 'dart:_js_interop_wasm';
 import 'dart:js_interop';
 
-@pragma('wasm:import', 'napi.readInt')
-external WasmF64 _readInt(WasmExternRef? value, WasmI32 context);
-@pragma('wasm:import', 'napi.writeInt')
-external WasmExternRef? _writeInt(WasmF64 value, WasmI32 context);
+@pragma('wasm:import', 'napi.readValue')
+external WasmExternRef? _readValue(WasmExternRef? value, WasmI32 context);
+@pragma('wasm:import', 'napi.writeValue')
+external WasmExternRef? _writeValue(WasmExternRef? value, WasmI32 context);
+@pragma('wasm:import', 'napi.readBigInt')
+external WasmExternRef _readBigInt(WasmExternRef value);
+@pragma('wasm:import', 'napi.writeBigInt')
+external WasmExternRef? _writeBigInt(WasmExternRef value, WasmI32 context);
 @pragma('wasm:import', 'napi.throwDartError')
 external WasmExternRef? _throwDartError(WasmExternRef? message);
 

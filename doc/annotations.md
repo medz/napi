@@ -10,6 +10,7 @@ a different class also named `NAPI` does not select anything.
 | Placement | Syntax | Selection |
 | --- | --- | --- |
 | Public top-level function | `@NAPI()` | Function, using its Dart name |
+| Public top-level function | `@NAPI(bigint: true)` | Function, mapping all Dart `int` parameters/results to JavaScript `bigint` |
 | Public function or class | `@NAPI(name: 'PublicName')` | Declaration, with an explicit export name |
 | Public class | `@NAPI()` | Class and its own public constructors, fields, accessors and methods |
 | Member of an annotated class | `@NAPI(name: 'publicName')` | Override that member's name |
@@ -67,10 +68,14 @@ platform.
 `AnnotationFrontend.read` normalizes declarations and validates selections even
 when no runtime engine exists for their signatures. Building separately checks
 backend capabilities before creating output: currently only nongeneric top-level
-functions with required positional, nonnullable int inputs and int results are
-supported. Optional/named parameters, nullable values, other types, external
-functions and classes produce source diagnostics; selected unsupported
-declarations are never dropped.
+functions with required positional scalar parameters and scalar results are
+supported: `bool`, `String`, `double`, `int`, `BigInt`, and their nullable forms.
+`@NAPI(bigint: true)` selects fixed JavaScript `bigint` representation for every
+Dart `int` parameter/result of that function, including nullable ints and typedefs.
+It does not change other scalar types; Dart `BigInt` always uses JavaScript
+`bigint`. See [scalar conversion semantics](scalars.md). Optional/named parameters,
+other types, external functions and classes produce source diagnostics; selected
+unsupported declarations are never dropped.
 
 `buildLibrary` connects discovery to the existing direct-Wasm build pipeline.
 Use its build-time entrypoint in a separate Dart VM script:
@@ -100,6 +105,6 @@ import { add } from './module.wasm';
 ```
 
 The actual `.wasm` exports, direct installed-package entry, safe-integer checks,
-strict TypeScript checks and atomic output publication remain unchanged. Broader
-conversions, exact argument-presence execution, external bindings and class
-runtime engines belong to subsequent work.
+strict TypeScript checks and atomic output publication remain unchanged. Optional
+argument-presence execution, structural/reference conversions, external bindings
+and class runtime engines belong to subsequent work.

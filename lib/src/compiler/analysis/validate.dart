@@ -331,7 +331,7 @@ void _checkType(BindingType type, SourceLocation source) {
   }
 }
 
-/// Check the current fixed-arity safe-integer backend, after declaration checks.
+/// Check the current fixed-arity scalar backend, after declaration checks.
 ///
 /// Unsupported metadata is rejected explicitly; it is never erased to make a
 /// declaration fit the backend or silently omitted from the lowered module.
@@ -402,7 +402,7 @@ ValidatedModule validate(BindingModule module) {
               'the foundation only generates required scalar functions.',
         );
       }
-      if (!_isBackendInt(parameter.type)) {
+      if (!_isBackendScalar(parameter.type)) {
         reject(
           'NAPI_TYPE',
           'No conversion engine for this '
@@ -410,12 +410,26 @@ ValidatedModule validate(BindingModule module) {
         );
       }
     }
-    if (!_isBackendInt(function.result)) {
-      reject('NAPI_TYPE', 'The foundation only generates safe-int results.');
+    if (!_isBackendScalar(function.result)) {
+      reject('NAPI_TYPE', 'The current backend only generates scalar results.');
     }
   }
   return ValidatedModule._(declarations.bindings);
 }
 
-bool _isBackendInt(BindingType type) =>
-    type is SafeIntType && type.nullability == TypeNullability.nonNullable;
+bool _isBackendScalar(BindingType type) {
+  if (type.nullability == TypeNullability.legacy) return false;
+  if (type is SafeIntType) return true;
+  return type is DeclaredType &&
+      type.semantics == ValueSemantics.scalar &&
+      type.typeArguments.isEmpty &&
+      type.declaration.library == Uri.parse('dart:core') &&
+      type.declaration.kind == DeclarationKind.classType &&
+      type.declaration.owner == null &&
+      const {
+        'bool',
+        'String',
+        'double',
+        'BigInt',
+      }.contains(type.declaration.name);
+}

@@ -40,10 +40,14 @@ engine. No empty feature directories stand in for implementations.
 Native Wasm function parameters cannot recover whether a caller omitted an
 argument or explicitly passed `undefined`. Numeric Wasm inputs can coerce JS values
 before generated validation. The scalar entry therefore receives raw externrefs;
-its host import checks `typeof` and `Number.isSafeInteger` before returning a
-number to Dart. Invalid inputs never enter business code or invoke coercion hooks.
-Missing and explicit-undefined required scalars both reject. Dart output is also
-checked for the safe-integer range; Dart int canonicalizes negative zero to zero.
+its host import validates primitive type and numeric policy before conversion to
+Dart. Invalid inputs never enter business code or invoke coercion hooks. Missing
+and explicit-undefined required scalars both reject, including nullable scalars.
+Dart output is also checked for the safe-integer range when using number-represented
+ints; Dart int canonicalizes negative zero to zero. #117 adds nullable and
+nonnullable `bool`, `String`, `double`, `BigInt`, and fixed bigint-represented
+`int` conversions. See [the scalar contract](scalars.md) for precise ranges,
+UTF-16 and IEEE-754 behavior.
 
 The handwritten export-kind fixture uses a thin public `module.wasm` whose globals
 import JS class/function values from a host dependency. That host calls a separate
