@@ -15,6 +15,7 @@ final class DartStructuralEmitter {
     final children = switch (conversion) {
       ListConversion(:final element) => [element],
       MapConversion(:final key, :final value) => [key, value],
+      DictionaryConversion(:final value) => [value],
       RecordConversion() => conversion.fields.values.toList(),
       ScalarConversion() || ReferenceConversion() => <ValueConversion>[],
     };
@@ -90,6 +91,41 @@ final class DartStructuralEmitter {
     result[key] = child;
   }
   return result;''');
+        }
+      case DictionaryConversion(:final value):
+        if (output) {
+          _code.writeln('''  state.enter(value, path, depth);
+  try {
+    final length = value.length;
+    if (length < 0 || length > 0xffffffff) _structureError('\$path.length', 'expected a Dictionary length', false);
+    if (length > 10000 - state.work) _structureError(path, 'structural work limit (10000) exceeded', true);
+    final entries = <(String, ${value.dartType})>[];
+    final keys = <String>{};
+    final iterator = value.entries.iterator;
+    for (var i = 0; i < length; i++) {
+      if (!iterator.moveNext()) _structureError(path, 'Dictionary length changed during iteration', false);
+      final entry = iterator.current;
+      final key = entry.key;
+      final child = entry.value;
+      if (!keys.add(key)) _structureError('\$path[\${jsonEncode(key)}]', 'duplicate Dictionary key', false);
+      entries.add((key, child));
+    }
+    if (iterator.moveNext()) _structureError(path, 'Dictionary length changed during iteration', false);
+    return <JSAny?>[
+      for (var i = 0; i < entries.length; i++) ...[
+        entries[i].\$1.toJS,
+        ${functions.single}(entries[i].\$2, state, '\$path[\${jsonEncode(entries[i].\$1)}]', depth + 1),
+      ],
+    ].toJS;
+  } finally { state.leave(value); }''');
+        } else {
+          _code.writeln('''  final entries = (value as JSArray<JSAny?>).toDart;
+  final result = <String, ${value.dartType}>{};
+  for (var i = 0; i < entries.length ~/ 2; i++) {
+    final key = (entries[2 * i] as JSString).toDart;
+    result[key] = ${functions.single}(entries[2 * i + 1], '\$path[\${jsonEncode(key)}]');
+  }
+  return napi.Dictionary<${value.dartType}>(result);''');
         }
       case RecordConversion():
         if (output) {

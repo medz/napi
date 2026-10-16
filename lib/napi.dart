@@ -2,3 +2,4 @@
 library;
 
 export 'src/api/annotation.dart';
+export 'src/api/dictionary.dart';

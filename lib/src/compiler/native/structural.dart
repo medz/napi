@@ -34,6 +34,7 @@ final class NativeStructuralEmitter {
     final children = switch (conversion) {
       ListConversion(:final element) => [element],
       MapConversion(:final key, :final value) => [key, value],
+      DictionaryConversion(:final value) => [value],
       RecordConversion() => conversion.fields.values.toList(),
       ScalarConversion() || ReferenceConversion() => <ValueConversion>[],
     };
@@ -148,6 +149,50 @@ final class NativeStructuralEmitter {
       result[key] = child;
     }
     return result;
+  } finally { state.active.removeLast(); }''',
+          );
+        }
+      case DictionaryConversion(:final value):
+        if (output) {
+          _code.writeln('''  state.enter(value, path, depth);
+  try {
+    final length = value.length;
+    if (length < 0 || length > 0xffffffff) throw NapiTypeError('\$path.length: expected a Dictionary length');
+    if (length > 10000 - state.work) throw NapiRangeError('\$path: structural work limit (10000) exceeded');
+    final entries = <(String, ${value.dartType})>[];
+    final keys = <String>{};
+    final iterator = value.entries.iterator;
+    for (var i = 0; i < length; i++) {
+      if (!iterator.moveNext()) throw NapiTypeError('\$path: Dictionary length changed during iteration');
+      final entry = iterator.current;
+      final key = entry.key;
+      final child = entry.value;
+      if (!keys.add(key)) throw NapiTypeError('\$path[\${jsonEncode(key)}]: duplicate Dictionary key');
+      entries.add((key, child));
+    }
+    if (iterator.moveNext()) throw NapiTypeError('\$path: Dictionary length changed during iteration');
+    final result = _api.createDictionary(env);
+    for (final entry in entries) {
+      final key = entry.\$1;
+      final child = ${functions.single}(env, entry.\$2, state, '\$path[\${jsonEncode(key)}]', depth + 1);
+      _api.defineOwnValue(env, result, key, child);
+    }
+    return result;
+  } finally { state.leave(value); }''');
+        } else {
+          _code.writeln(
+            '''  final (keys, length) = _api.dictionaryKeys(env, value, path, 10000 - state.work, depth, state.contains(env, value));
+  state.active.add(value);
+  try {
+    final result = <String, ${value.dartType}>{};
+    for (var i = 0; i < length; i++) {
+      final rawKey = _api.readOwnValue(env, keys, '\$i', path);
+      final key = _api.string(env, rawKey, path);
+      final childPath = '\$path[\${jsonEncode(key)}]';
+      final raw = _api.readOwnValue(env, value, key, childPath);
+      result[key] = ${functions.single}(env, raw, state, childPath, depth + 1);
+    }
+    return napi.Dictionary<${value.dartType}>(result);
   } finally { state.active.removeLast(); }''',
           );
         }

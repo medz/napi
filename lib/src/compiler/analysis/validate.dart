@@ -1,6 +1,12 @@
 import '../../api/annotation.dart' show ClassPolicy;
 import '../ir/model.dart';
 
+final dictionaryDeclaration = DeclarationId(
+  Uri.parse('package:napi/src/api/dictionary.dart'),
+  'Dictionary',
+  kind: DeclarationKind.extensionType,
+);
+
 final class BindingDiagnostic implements Exception {
   final String code;
   final String message;
@@ -903,6 +909,10 @@ bool _isBackendValue(
   }
   if (type is! DeclaredType || type.semantics != ValueSemantics.structural) {
     return false;
+  }
+  if (type.declaration == dictionaryDeclaration) {
+    return type.typeArguments.length == 1 &&
+        _isBackendValue(type.typeArguments.single, classes);
   }
   final name = type.declaration.name;
   return (name == 'List' || name == 'Map') &&

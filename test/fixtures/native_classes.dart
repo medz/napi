@@ -3,7 +3,7 @@ import 'dart:math';
 
 import 'package:napi/napi.dart';
 
-export 'maps.dart';
+export 'dictionaries.dart';
 export 'structural_values.dart';
 
 @NAPI()

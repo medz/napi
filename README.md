@@ -27,7 +27,7 @@ See [the architecture and delivery plan](doc/architecture.md) and
 - Analyzer-independent declarations, validation, lowering, and Dart/JS/TypeScript emitters
 - Required positional scalar functions: `bool`, `String`, `double`, `int`, `BigInt`, and nullable forms
 - Optional positional and named scalar arguments with resolved Dart defaults and exact presence capture
-- Nested Lists, Maps and records in functions/class members, with strict fields, reference identity and bounded traversal on both targets
+- Nested Lists, Maps, explicit Dictionaries and records in functions/class members, with strict fields, reference identity and bounded traversal on both targets
 - Safe-number `int` by default, or fixed JavaScript `bigint` with `@NAPI(bigint: true)`
 - A pinned Dart SDK adapter and linker producing actual Wasm named exports
 - Generated reference classes, named/factory constructors and weak wrapper identity on both targets

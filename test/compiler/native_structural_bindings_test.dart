@@ -49,6 +49,20 @@ typedef _DefineN = Int32 Function(
   Pointer<Void>,
   Pointer<Void>,
 );
+typedef _DictionaryKeysN = Int32 Function(
+  Pointer<Void>,
+  Pointer<Void>,
+  Pointer<Void>,
+  Uint32,
+  Uint32,
+  Bool,
+  Pointer<Pointer<Void>>,
+  Pointer<Uint32>,
+);
+typedef _DictionaryCreateN = Int32 Function(
+  Pointer<Void>,
+  Pointer<Pointer<Void>>,
+);
 
 final _libc = DynamicLibrary.process();
 final _calloc = _libc
@@ -60,7 +74,7 @@ final _free = _libc.lookupFunction<_FreeN, void Function(Pointer<Void>)>(
 // This validates the real FFI call signatures and temporary string/field
 // buffers. Generated Node conformance separately exercises reflection itself.
 final class _Table {
-  final table = _calloc(38, sizeOf<Pointer<Void>>()).cast<Pointer<Void>>();
+  final table = _calloc(40, sizeOf<Pointer<Void>>()).cast<Pointer<Void>>();
   final env = Pointer<Void>.fromAddress(1);
   final strings = <int, String>{};
   final calls = <List<Object?>>[];
@@ -73,6 +87,8 @@ final class _Table {
   late final NativeCallable<_EqualN> equal;
   late final NativeCallable<_CreateN> create;
   late final NativeCallable<_DefineN> define;
+  late final NativeCallable<_DictionaryKeysN> dictionaryKeys;
+  late final NativeCallable<_DictionaryCreateN> createDictionary;
   late final NapiApi api;
 
   _Table() {
@@ -171,6 +187,37 @@ final class _Table {
       ]);
       return failure;
     }, exceptionalReturn: 1);
+    dictionaryKeys = NativeCallable<_DictionaryKeysN>.isolateLocal((
+      Pointer<Void> env,
+      Pointer<Void> input,
+      Pointer<Void> path,
+      int remaining,
+      int depth,
+      bool cyclic,
+      Pointer<Pointer<Void>> keys,
+      Pointer<Uint32> count,
+    ) {
+      calls.add([
+        'dictionaryKeys',
+        env.address,
+        input.address,
+        strings[path.address],
+        remaining,
+        depth,
+        cyclic,
+      ]);
+      keys.value = Pointer<Void>.fromAddress(813);
+      count.value = 2;
+      return failure;
+    }, exceptionalReturn: 1);
+    createDictionary = NativeCallable<_DictionaryCreateN>.isolateLocal((
+      Pointer<Void> env,
+      Pointer<Pointer<Void>> out,
+    ) {
+      calls.add(['createDictionary', env.address]);
+      out.value = Pointer<Void>.fromAddress(814);
+      return failure;
+    }, exceptionalReturn: 1);
     table[1] = type.nativeFunction.cast();
     table[9] = string.nativeFunction.cast();
     table[30] = inspect.nativeFunction.cast();
@@ -178,10 +225,14 @@ final class _Table {
     table[32] = equal.nativeFunction.cast();
     table[33] = create.nativeFunction.cast();
     table[34] = define.nativeFunction.cast();
-    api = NapiApi(table.address, 38);
+    table[38] = dictionaryKeys.nativeFunction.cast();
+    table[39] = createDictionary.nativeFunction.cast();
+    api = NapiApi(table.address, 40);
   }
 
   void close() {
+    createDictionary.close();
+    dictionaryKeys.close();
     define.close();
     create.close();
     equal.close();
@@ -310,6 +361,56 @@ void main() {
       3,
     );
     expect(bridge.api.readOwnValue(bridge.env, input, '0', path).address, 811);
+  });
+
+  test(
+    'Dictionary FFI snapshots only keys with exact bounds and UTF-16 paths',
+    () {
+      final (keys, count) = bridge.api.dictionaryKeys(
+        bridge.env,
+        input,
+        path,
+        9999,
+        7,
+        true,
+      );
+      expect(keys.address, 813);
+      expect(count, 2);
+      expect(bridge.calls.single, [
+        'dictionaryKeys',
+        1,
+        11,
+        path,
+        9999,
+        7,
+        true,
+      ]);
+      // Child descriptors remain a separate operation on the original input.
+      bridge.api.readOwnValue(bridge.env, input, '__proto__', path);
+      expect(bridge.calls.last, ['read', 11, '__proto__', path]);
+    },
+  );
+
+  test('Dictionary creation composes with safe own data definitions', () {
+    expect(bridge.api.createDictionary(bridge.env), 814);
+    expect(bridge.calls.last, ['createDictionary', 1]);
+    bridge.api.defineOwnValue(bridge.env, 814, '__proto__\u0000\uD800', 811);
+    expect(bridge.calls.last, ['define', 814, '__proto__\u0000\uD800', 811]);
+  });
+
+  test('failed Dictionary FFI operations stop and leave the API usable', () {
+    bridge.failure = 10;
+    expect(
+      () => bridge.api.dictionaryKeys(bridge.env, input, path, 0, 64, false),
+      throwsStateError,
+    );
+    expect(() => bridge.api.createDictionary(bridge.env), throwsStateError);
+    bridge.failure = 0;
+    expect(
+      bridge.api.dictionaryKeys(bridge.env, input, path, 9999, 0, false).$2,
+      2,
+    );
+    expect(bridge.api.createDictionary(bridge.env), 814);
   });
 
   test('nullable scalar leaves retain their shared strict error messages', () {

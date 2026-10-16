@@ -137,6 +137,38 @@ final class MapConversion extends ValueConversion {
       'globalThis.Map<${key.typescriptType}, ${value.typescriptType}>${nullable ? ' | null' : ''}';
 }
 
+final class DictionaryConversion extends ValueConversion {
+  final ValueConversion value;
+  DictionaryConversion(
+    DeclaredType super.type,
+    super.context, {
+    required bool bigint,
+    List<ClassBinding> classes = const [],
+  }) : value = conversionFor(
+         type.typeArguments.single,
+         context,
+         bigint: bigint,
+         classes: classes,
+       );
+  @override
+  String get dartType =>
+      'napi.Dictionary<${value.dartType}>${nullable ? '?' : ''}';
+  @override
+  String get jsType => 'object';
+  @override
+  String get typescriptType =>
+      '{ [key: string]: ${value.typescriptType} }${nullable ? ' | null' : ''}';
+}
+
+bool containsDictionary(ValueConversion value) => switch (value) {
+  DictionaryConversion() => true,
+  ListConversion(:final element) => containsDictionary(element),
+  MapConversion(:final key, :final value) =>
+    containsDictionary(key) || containsDictionary(value),
+  RecordConversion() => value.fields.values.any(containsDictionary),
+  ScalarConversion() || ReferenceConversion() => false,
+};
+
 final class RecordConversion extends ValueConversion {
   final List<ValueConversion> positional;
   final Map<String, ValueConversion> named;
@@ -206,6 +238,13 @@ ValueConversion conversionFor(
       (binding) => binding.declaration == type.declaration,
     ),
   ),
+  DeclaredType(
+    declaration: final declaration,
+    semantics: ValueSemantics.structural,
+    typeArguments: [_],
+  )
+      when declaration == dictionaryDeclaration =>
+    DictionaryConversion(type, context, bigint: bigint, classes: classes),
   DeclaredType(
     declaration: final declaration,
     semantics: ValueSemantics.structural,

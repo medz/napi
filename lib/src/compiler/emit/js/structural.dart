@@ -54,6 +54,7 @@ StructuralBoundary emitStructuralBoundary(
     final children = switch (node) {
       ListConversion(:final element) => [element],
       MapConversion(:final key, :final value) => [key, value],
+      DictionaryConversion(:final value) => [value],
       RecordConversion() => node.fields.values.toList(),
       ScalarConversion() || ReferenceConversion() => <ValueConversion>[],
     };
@@ -121,6 +122,37 @@ StructuralBoundary emitStructuralBoundary(
         code.writeln(
           '    }\n    return result;\n  } finally { state.active.delete(value); }',
         );
+      case DictionaryConversion():
+        code.writeln(
+          output
+              ? "  if (!Array.isArray(value)) throw new TypeError(path + ': invalid private Dictionary ABI');"
+              : '  checkDictionaryObject(value, path);',
+        );
+        code.writeln('  enterStructure(value, path, state, depth);\n  try {');
+        code.writeln(
+          output
+              ? '''    const result = structureCreateDictionary(null);
+    for (let i = 0; i < value.length / 2; i++) {
+      const key = value[2 * i];
+      const childPath = path + '[' + JSON.stringify(key) + ']';
+      const child = ${converters.single}(value[2 * i + 1], childPath, state, depth + 1);
+      Object.defineProperty(result, key, {value: child, enumerable: true, writable: true, configurable: true});'''
+              : '''    const keys = dictionaryKeys(value, path, state);
+    const result = [];
+    for (let i = 0; i < keys.length; i++) {
+      const key = keys[i];
+      const childPath = path + '[' + JSON.stringify(key) + ']';
+      const property = Object.getOwnPropertyDescriptor(value, key);
+      if (!property || !Object.hasOwn(property, 'value')) {
+        throw new TypeError(childPath + ': expected an own data property');
+      }
+      const child = ${converters.single}(property.value, childPath, state, depth + 1);
+      Object.defineProperty(result, String(2 * i), {value: key, enumerable: true, writable: true, configurable: true});
+      Object.defineProperty(result, String(2 * i + 1), {value: child, enumerable: true, writable: true, configurable: true});''',
+        );
+        code.writeln(
+          '    }\n    return result;\n  } finally { state.active.delete(value); }',
+        );
       case RecordConversion():
         final fields = node.fields.keys.toList();
         if (output) {
@@ -180,6 +212,29 @@ StructuralBoundary emitStructuralBoundary(
   final write = generateWrite ? emit(conversion, true) : null;
   return StructuralBoundary(code.toString(), read, write);
 }
+
+const dictionaryStructuralPolicy = r'''
+const structureCreateDictionary = Object.create;
+function checkDictionaryObject(value, path) {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError(path + ': expected a Dictionary object');
+  }
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== null && prototype !== Object.prototype) {
+    throw new TypeError(path + ': expected a plain Dictionary object');
+  }
+}
+function dictionaryKeys(value, path, state) {
+  const keys = Reflect.ownKeys(value);
+  for (const key of keys) {
+    if (typeof key !== 'string') throw new TypeError(path + ': expected string Dictionary keys');
+  }
+  if (keys.length > 10000 - state.work) {
+    throw new RangeError(path + ': structural work limit (10000) exceeded');
+  }
+  return keys;
+}
+''';
 
 const mapStructuralPolicy = r'''
 // Capture intrinsics once; genuine cross-realm Maps work without consulting

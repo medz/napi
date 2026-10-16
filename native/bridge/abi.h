@@ -1,4 +1,4 @@
-// Compiler-private bridge ABI, version 4. Keep generated Dart in lockstep.
+// Compiler-private bridge ABI, version 5. Keep generated Dart in lockstep.
 #pragma once
 #include <node_api.h>
 #include <stdint.h>
@@ -67,7 +67,9 @@ enum BridgeApiSlot {
   bridge_snapshot_map = 35,
   bridge_create_map = 36,
   bridge_checked_insert_map = 37,
-  bridge_api_count = 38,
+  bridge_dictionary_keys = 38,
+  bridge_create_dictionary = 39,
+  bridge_api_count = 40,
 };
 typedef napi_status (*BridgeOwnerWrap)(napi_env, napi_value self, int64_t ownerId);
 typedef int64_t (*BridgeOwnerUnwrap)(napi_env, napi_value self);
@@ -107,3 +109,9 @@ typedef napi_status (*BridgeCreateMap)(napi_env, napi_value* result);
 // A collision throws at keyPath without overwriting the previous entry.
 typedef napi_status (*BridgeCheckedInsertMap)(
     napi_env, napi_value map, napi_value key, napi_value value, napi_value keyPath);
+// Capture string keys only. Values remain on the original object and their own
+// data descriptors are read one child at a time with bridge_read_own_value.
+typedef napi_status (*BridgeDictionaryKeys)(
+    napi_env, napi_value input, napi_value path, uint32_t remaining,
+    uint32_t depth, bool cyclic, napi_value* keys, uint32_t* count);
+typedef napi_status (*BridgeCreateDictionary)(napi_env, napi_value* result);
