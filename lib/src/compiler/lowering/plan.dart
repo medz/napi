@@ -12,15 +12,24 @@ enum ExportRepresentation {
 
 enum ScalarKind { boolean, string, integer, doubleValue, bigInteger }
 
-/// One fixed policy drives Dart, JavaScript and TypeScript generation.
-final class ScalarConversion {
+/// Specialized conversion shapes shared by each direction's code generator.
+sealed class ValueConversion {
   final String context;
-  final ScalarKind kind;
   final bool nullable;
+  ValueConversion(BindingType type, this.context)
+    : nullable = type.nullability == TypeNullability.nullable;
+
+  String get dartType;
+  String get jsType;
+  String get typescriptType;
+}
+
+/// One fixed policy drives Dart, JavaScript and TypeScript scalar generation.
+final class ScalarConversion extends ValueConversion {
+  final ScalarKind kind;
   final bool bigint;
-  ScalarConversion(BindingType type, this.context, {required bool bigint})
-    : nullable = type.nullability == TypeNullability.nullable,
-      kind = type is SafeIntType
+  ScalarConversion(super.type, super.context, {required bool bigint})
+    : kind = type is SafeIntType
           ? ScalarKind.integer
           : switch ((type as DeclaredType).declaration.name) {
               'bool' => ScalarKind.boolean,
@@ -31,6 +40,7 @@ final class ScalarConversion {
             },
       bigint = type is SafeIntType && bigint;
 
+  @override
   String get dartType =>
       switch (kind) {
         ScalarKind.boolean => 'bool',
@@ -41,6 +51,7 @@ final class ScalarConversion {
       } +
       (nullable ? '?' : '');
 
+  @override
   String get jsType => switch (kind) {
     ScalarKind.boolean => 'boolean',
     ScalarKind.string => 'string',
@@ -49,16 +60,89 @@ final class ScalarConversion {
     ScalarKind.bigInteger => 'bigint',
   };
 
+  @override
   String get typescriptType => '$jsType${nullable ? ' | null' : ''}';
   bool get usesBigInt => kind == ScalarKind.bigInteger || bigint;
 }
+
+final class ListConversion extends ValueConversion {
+  final ValueConversion element;
+  ListConversion(DeclaredType super.type, super.context, {required bool bigint})
+    : element = conversionFor(
+        type.typeArguments.single,
+        context,
+        bigint: bigint,
+      );
+  @override
+  String get dartType => 'List<${element.dartType}>${nullable ? '?' : ''}';
+  @override
+  String get jsType => 'object';
+  @override
+  String get typescriptType =>
+      'Array<${element.typescriptType}>${nullable ? ' | null' : ''}';
+}
+
+final class RecordConversion extends ValueConversion {
+  final List<ValueConversion> positional;
+  final Map<String, ValueConversion> named;
+  RecordConversion(
+    RecordTypeBinding super.type,
+    super.context, {
+    required bool bigint,
+  }) : positional = List.unmodifiable([
+         for (final field in type.positional)
+           conversionFor(field, context, bigint: bigint),
+       ]),
+       named = Map.unmodifiable({
+         for (final entry in type.named.entries)
+           entry.key: conversionFor(entry.value, context, bigint: bigint),
+       });
+  Map<String, ValueConversion> get fields => {
+    for (final (index, field) in positional.indexed) '\$${index + 1}': field,
+    ...named,
+  };
+  @override
+  String get dartType {
+    final entries = [for (final field in positional) field.dartType];
+    if (named.isNotEmpty) {
+      entries.add(
+        '{${[for (final e in named.entries) '${e.value.dartType} ${e.key}'].join(', ')}}',
+      );
+    }
+    final trailing = positional.length == 1 && named.isEmpty ? ',' : '';
+    return '(${entries.join(', ')}$trailing)${nullable ? '?' : ''}';
+  }
+
+  @override
+  String get jsType => 'object';
+  @override
+  String get typescriptType =>
+      (fields.isEmpty
+          ? 'Record<PropertyKey, never>'
+          : '{ ${[for (final e in fields.entries) '${e.key}: ${e.value.typescriptType}'].join('; ')} }') +
+      (nullable ? ' | null' : '');
+}
+
+ValueConversion conversionFor(
+  BindingType type,
+  String context, {
+  required bool bigint,
+}) => switch (type) {
+  RecordTypeBinding() => RecordConversion(type, context, bigint: bigint),
+  DeclaredType(declaration: DeclarationId(name: 'List')) => ListConversion(
+    type,
+    context,
+    bigint: bigint,
+  ),
+  _ => ScalarConversion(type, context, bigint: bigint),
+};
 
 /// Executable choices are separate from descriptive declaration metadata.
 final class FunctionPlan {
   final FunctionBinding binding;
   final ExportRepresentation representation;
-  final List<ScalarConversion> inputs;
-  final ScalarConversion output;
+  final List<ValueConversion> inputs;
+  final ValueConversion output;
   final String coreExportName;
   FunctionPlan._(this.binding, int index)
     : representation =
@@ -75,13 +159,13 @@ final class FunctionPlan {
           : binding.exportName,
       inputs = List.unmodifiable([
         for (final p in binding.parameters)
-          ScalarConversion(
+          conversionFor(
             p.type,
             '${binding.exportName}.${p.name}',
             bigint: binding.bigint,
           ),
       ]),
-      output = ScalarConversion(
+      output = conversionFor(
         binding.result,
         '${binding.exportName} result',
         bigint: binding.bigint,
@@ -100,7 +184,7 @@ final class ModulePlan {
 /// backend-capability wrapper guarantees that no class or unsupported callable
 /// metadata can be silently lost here.
 ModulePlan lower(ValidatedModule module) => ModulePlan._(
-  module.bindings.source,
+  module.bindings.importUri,
   module.bindings.functions.indexed.map(
     (entry) => FunctionPlan._(entry.$2, entry.$1),
   ),

@@ -395,13 +395,19 @@ final class ClassBinding {
 
 /// Declarations exposed through one entry library, with their original identity.
 final class BindingModule {
+  /// Resolved source file used for analysis, diagnostics and existence checks.
   final Uri source;
+
+  /// Requested library identity retained when generating the target import.
+  final Uri importUri;
   final List<FunctionBinding> functions;
   final List<ClassBinding> classes;
   BindingModule({
     required this.source,
+    Uri? importUri,
     Iterable<FunctionBinding> functions = const [],
     Iterable<ClassBinding> classes = const [],
-  }) : functions = List.unmodifiable(functions),
+  }) : importUri = importUri ?? source,
+       functions = List.unmodifiable(functions),
        classes = List.unmodifiable(classes);
 }

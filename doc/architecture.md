@@ -3,7 +3,8 @@
 The product is a Dart counterpart to napi-rs: one annotation, one build command,
 one export model, and matching JavaScript/TypeScript APIs across native Node-API
 and Wasm targets. This is the target architecture. The current compiler generates
-Wasm scalar functions with positional and named parameters; native addons and complete class
+Wasm scalar and structural functions with positional and named parameters,
+external selections, and fresh npm assembly; native addons and complete class
 bindings remain development work.
 
 ## Public contract

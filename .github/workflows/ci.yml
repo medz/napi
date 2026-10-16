@@ -22,8 +22,8 @@ jobs:
       - run: dart pub get
       - run: dart format --output=none --set-exit-if-changed lib test tool
       - run: dart analyze --fatal-infos
-      - run: dart test
       - run: npm install --prefix .dart_tool/js --no-save --no-package-lock --ignore-scripts --no-audit --no-fund typescript@7.0.2
+      - run: dart test
       - run: dart run tool/verify.dart
       - run: dart run tool/check_package.dart
       - run: git diff --check HEAD^ HEAD
