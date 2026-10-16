@@ -845,7 +845,7 @@ void validateParameterDefault(
       'NAPI_DEFAULT',
       type.semantics == ValueSemantics.reference
           ? 'Non-null reference defaults are not supported; a nullable reference parameter may use a null default.'
-          : 'Non-null List and record defaults are not supported; a nullable structural parameter may use a null default.',
+          : 'Non-null structural defaults are not supported; a nullable structural parameter may use a null default.',
       parameter.source ?? source,
     );
   }
@@ -901,14 +901,17 @@ bool _isBackendValue(
     return type.positional.every((field) => _isBackendValue(field, classes)) &&
         type.named.values.every((field) => _isBackendValue(field, classes));
   }
-  return type is DeclaredType &&
-      type.semantics == ValueSemantics.structural &&
+  if (type is! DeclaredType || type.semantics != ValueSemantics.structural) {
+    return false;
+  }
+  final name = type.declaration.name;
+  return (name == 'List' || name == 'Map') &&
       type.declaration ==
           DeclarationId(
             Uri.parse('dart:core'),
-            'List',
+            name,
             kind: DeclarationKind.classType,
           ) &&
-      type.typeArguments.length == 1 &&
-      _isBackendValue(type.typeArguments.single, classes);
+      type.typeArguments.length == (name == 'List' ? 1 : 2) &&
+      type.typeArguments.every((child) => _isBackendValue(child, classes));
 }

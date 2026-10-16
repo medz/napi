@@ -60,7 +60,7 @@ final _free = _libc.lookupFunction<_FreeN, void Function(Pointer<Void>)>(
 // This validates the real FFI call signatures and temporary string/field
 // buffers. Generated Node conformance separately exercises reflection itself.
 final class _Table {
-  final table = _calloc(35, sizeOf<Pointer<Void>>()).cast<Pointer<Void>>();
+  final table = _calloc(38, sizeOf<Pointer<Void>>()).cast<Pointer<Void>>();
   final env = Pointer<Void>.fromAddress(1);
   final strings = <int, String>{};
   final calls = <List<Object?>>[];
@@ -178,7 +178,7 @@ final class _Table {
     table[32] = equal.nativeFunction.cast();
     table[33] = create.nativeFunction.cast();
     table[34] = define.nativeFunction.cast();
-    api = NapiApi(table.address, 35);
+    api = NapiApi(table.address, 38);
   }
 
   void close() {

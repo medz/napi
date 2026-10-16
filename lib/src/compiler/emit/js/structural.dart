@@ -53,6 +53,7 @@ StructuralBoundary emitStructuralBoundary(
     final name = '${prefix}_${output ? 'write' : 'read'}${next++}';
     final children = switch (node) {
       ListConversion(:final element) => [element],
+      MapConversion(:final key, :final value) => [key, value],
       RecordConversion() => node.fields.values.toList(),
       ScalarConversion() || ReferenceConversion() => <ValueConversion>[],
     };
@@ -82,6 +83,43 @@ StructuralBoundary emitStructuralBoundary(
     }
     return result;
   } finally { state.active.delete(value); }''',
+        );
+      case MapConversion():
+        code.writeln(
+          output
+              ? "  if (!Array.isArray(value)) throw new TypeError(path + ': invalid private Map ABI');"
+              : '  const length = mapLength(value, path);',
+        );
+        code.writeln('  enterStructure(value, path, state, depth);\n  try {');
+        code.writeln(
+          output
+              ? '''    const entries = value;
+    const result = new structureMapConstructor();'''
+              : '''    const entries = snapshotMap(value, length, path, state);
+    const result = [];''',
+        );
+        code.writeln(
+          '''
+    for (let i = 0; i < entries.length / 2; i++) {
+      const keyPath = path + '[' + i + '].key';
+      const key = ${converters[0]}(entries[2 * i], keyPath, state, depth + 1);
+      const child = ${converters[1]}(entries[2 * i + 1], path + '[' + i + '].value', state, depth + 1);''',
+        );
+        if (output) {
+          code.writeln(
+            '''      if (structureApply(structureMapHas, result, [key])) {
+        throw new TypeError(keyPath + ': duplicate converted Map key');
+      }
+      structureApply(structureMapSet, result, [key, child]);''',
+          );
+        } else {
+          code.writeln(
+            '''      Object.defineProperty(result, String(2 * i), {value: key, enumerable: true, writable: true, configurable: true});
+      Object.defineProperty(result, String(2 * i + 1), {value: child, enumerable: true, writable: true, configurable: true});''',
+          );
+        }
+        code.writeln(
+          '    }\n    return result;\n  } finally { state.active.delete(value); }',
         );
       case RecordConversion():
         final fields = node.fields.keys.toList();
@@ -142,6 +180,35 @@ StructuralBoundary emitStructuralBoundary(
   final write = generateWrite ? emit(conversion, true) : null;
   return StructuralBoundary(code.toString(), read, write);
 }
+
+const mapStructuralPolicy = r'''
+// Capture intrinsics once; genuine cross-realm Maps work without consulting
+// user-defined size, entries, iterator, has or set properties.
+const structureMapConstructor = Map;
+const structureApply = Reflect.apply;
+const structureMapSize = Object.getOwnPropertyDescriptor(Map.prototype, 'size').get;
+const structureMapEntries = Map.prototype.entries;
+const structureMapNext = Object.getPrototypeOf(new Map().entries()).next;
+const structureMapHas = Map.prototype.has;
+const structureMapSet = Map.prototype.set;
+function mapLength(value, path) {
+  try { return structureApply(structureMapSize, value, []); }
+  catch (_) { throw new TypeError(path + ': expected a Map'); }
+}
+function snapshotMap(value, length, path, state) {
+  if (length > Math.floor((10000 - state.work) / 2)) {
+    throw new RangeError(path + ': structural work limit (10000) exceeded');
+  }
+  const entries = [];
+  const iterator = structureApply(structureMapEntries, value, []);
+  for (let i = 0; i < length; i++) {
+    const entry = structureApply(structureMapNext, iterator, []).value;
+    Object.defineProperty(entries, String(2 * i), {value: entry[0], enumerable: true, writable: true, configurable: true});
+    Object.defineProperty(entries, String(2 * i + 1), {value: entry[1], enumerable: true, writable: true, configurable: true});
+  }
+  return entries;
+}
+''';
 
 const structuralPolicy = r'''
 function visitStructure(state, path) {

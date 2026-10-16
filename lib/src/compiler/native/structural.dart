@@ -33,6 +33,7 @@ final class NativeStructuralEmitter {
     final name = '_${output ? 'write' : 'read'}NativeStructure${_next++}';
     final children = switch (conversion) {
       ListConversion(:final element) => [element],
+      MapConversion(:final key, :final value) => [key, value],
       RecordConversion() => conversion.fields.values.toList(),
       ScalarConversion() || ReferenceConversion() => <ValueConversion>[],
     };
@@ -101,6 +102,50 @@ final class NativeStructuralEmitter {
       final childPath = '\$path[\$i]';
       final child = _api.readOwnValue(env, value, '\$i', childPath);
       result.add(${functions.single}(env, child, state, childPath, depth + 1));
+    }
+    return result;
+  } finally { state.active.removeLast(); }''',
+          );
+        }
+      case MapConversion(:final key, :final value):
+        if (output) {
+          _code.writeln('''  state.enter(value, path, depth);
+  try {
+    final length = value.length;
+    if (length < 0 || length > 0xffffffff) throw NapiTypeError('\$path.length: expected a Map length');
+    if (length > (10000 - state.work) ~/ 2) throw NapiRangeError('\$path: structural work limit (10000) exceeded');
+    final entries = <(${key.dartType}, ${value.dartType})>[];
+    final iterator = value.entries.iterator;
+    for (var i = 0; i < length; i++) {
+      if (!iterator.moveNext()) throw NapiTypeError('\$path: Map length changed during iteration');
+      final entry = iterator.current;
+      entries.add((entry.key, entry.value));
+    }
+    if (iterator.moveNext()) throw NapiTypeError('\$path: Map length changed during iteration');
+    final result = _api.createMap(env);
+    for (var i = 0; i < entries.length; i++) {
+      final keyPath = '\$path[\$i].key';
+      final key = ${functions[0]}(env, entries[i].\$1, state, keyPath, depth + 1);
+      final child = ${functions[1]}(env, entries[i].\$2, state, '\$path[\$i].value', depth + 1);
+      _api.checkedInsertMap(env, result, key, child, keyPath);
+    }
+    return result;
+  } finally { state.leave(value); }''');
+        } else {
+          _code.writeln(
+            '''  final (entries, length) = _api.snapshotMap(env, value, path, 10000 - state.work, depth, state.contains(env, value));
+  state.active.add(value);
+  try {
+    final result = <${key.dartType}, ${value.dartType}>{};
+    for (var i = 0; i < length; i++) {
+      final keyPath = '\$path[\$i].key';
+      final rawKey = _api.readOwnValue(env, entries, '\${2 * i}', keyPath);
+      final key = ${functions[0]}(env, rawKey, state, keyPath, depth + 1);
+      final valuePath = '\$path[\$i].value';
+      final rawValue = _api.readOwnValue(env, entries, '\${2 * i + 1}', valuePath);
+      final child = ${functions[1]}(env, rawValue, state, valuePath, depth + 1);
+      if (result.containsKey(key)) throw NapiTypeError('\$keyPath: duplicate converted Map key');
+      result[key] = child;
     }
     return result;
   } finally { state.active.removeLast(); }''',

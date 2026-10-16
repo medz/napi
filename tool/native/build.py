@@ -18,7 +18,7 @@ import tempfile
 
 SDK_VERSION = '3.13.5'
 SDK_REVISION = '04bcd1036cdc799ac6564988f159ee454d42c822'
-ABI = 3
+ABI = 4
 MINIMUM_OS = '14.0'
 ROOT = Path(__file__).resolve().parents[2]
 

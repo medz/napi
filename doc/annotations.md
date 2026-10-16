@@ -97,7 +97,7 @@ platform.
 when no runtime engine exists for their signatures. Building separately checks
 backend capabilities before creating output: nongeneric top-level functions
 support positional/named parameters and results using `bool`, `String`, `double`,
-`int`, `BigInt`, and their nullable forms, plus recursively nested `List` and
+`int`, `BigInt`, and their nullable forms, plus recursively nested `List`, `Map` and
 record values with supported leaves.
 `@NAPI(bigint: true)` selects fixed JavaScript `bigint` representation for every
 Dart `int` parameter/result of that function, including nullable ints and typedefs.

@@ -1,4 +1,4 @@
-// Compiler-private bridge ABI, version 3. Keep generated Dart in lockstep.
+// Compiler-private bridge ABI, version 4. Keep generated Dart in lockstep.
 #pragma once
 #include <node_api.h>
 #include <stdint.h>
@@ -64,7 +64,10 @@ enum BridgeApiSlot {
   bridge_strict_equals = 32,
   bridge_create_container = 33,
   bridge_define_own_value = 34,
-  bridge_api_count = 35,
+  bridge_snapshot_map = 35,
+  bridge_create_map = 36,
+  bridge_checked_insert_map = 37,
+  bridge_api_count = 38,
 };
 typedef napi_status (*BridgeOwnerWrap)(napi_env, napi_value self, int64_t ownerId);
 typedef int64_t (*BridgeOwnerUnwrap)(napi_env, napi_value self);
@@ -93,3 +96,14 @@ typedef napi_status (*BridgeCreateContainer)(
     napi_env, bool array, uint32_t length, napi_value* result);
 typedef napi_status (*BridgeDefineOwnValue)(
     napi_env, napi_value container, napi_value key, napi_value value);
+// Snapshot genuine Map entries with captured intrinsics before any child
+// conversion can reenter JS. The dense array contains key/value pairs in order;
+// its entries and all returned handles belong to the current callback scope.
+typedef napi_status (*BridgeSnapshotMap)(
+    napi_env, napi_value input, napi_value path, uint32_t remaining,
+    uint32_t depth, bool cyclic, napi_value* pairs, uint32_t* count);
+typedef napi_status (*BridgeCreateMap)(napi_env, napi_value* result);
+// Key and value are converted before checking JS SameValueZero equality.
+// A collision throws at keyPath without overwriting the previous entry.
+typedef napi_status (*BridgeCheckedInsertMap)(
+    napi_env, napi_value map, napi_value key, napi_value value, napi_value keyPath);

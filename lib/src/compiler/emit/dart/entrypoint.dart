@@ -12,7 +12,7 @@ String emitDart(ModulePlan plan) {
   );
   final structural = DartStructuralEmitter();
   final hasStructural = plan.conversions.any(
-    (c) => c is ListConversion || c is RecordConversion,
+    (c) => c is ListConversion || c is RecordConversion || c is MapConversion,
   );
   if (hasStructural) result.writeln(dartStructuralPrelude);
   for (final (index, call) in plan.calls.indexed) {
@@ -50,10 +50,26 @@ String emitDart(ModulePlan plan) {
         );
         final value = conversion is ScalarConversion
             ? _read(conversion, 'v$i!')
-            : '${structural.read(conversion)}(v$i.isNull ? null : v$i!.toJS)';
+            : '${structural.read(conversion)}(v$i.isNull ? null : v$i!.toJS, ${jsonEncode(conversion.context).replaceAll(r'$', r'\$')})';
+        if (conversion is! ScalarConversion) result.writeln('  try {');
         result.writeln(
           '  a$i = ${conversion.nullable && conversion is ScalarConversion ? 'v$i.isNull ? null : ' : ''}$value;',
         );
+        if (conversion is! ScalarConversion) {
+          result.writeln('  } on _StructureViolation catch (error) {');
+          result.writeln(
+            returnsVoid
+                ? '    _reportStructureError(error);\n    return;'
+                : '    return _reportStructureError(error);',
+          );
+          result.writeln('  } catch (error) {');
+          result.writeln(
+            returnsVoid
+                ? '    _normalizeError(error);\n    return;'
+                : '    return _normalizeError(error);',
+          );
+          result.writeln('  }');
+        }
       }
       if (_optional(parameters[i])) result.writeln('  }');
     }
