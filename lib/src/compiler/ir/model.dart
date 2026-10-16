@@ -1,3 +1,5 @@
+import '../../api/annotation.dart' show ClassPolicy;
+
 /// Stable identity independent of an analyzer session or element object.
 ///
 /// A member's owner and declaration kind distinguish, for example, a field,
@@ -351,6 +353,13 @@ final class MemberBinding {
 
 final class ClassBinding {
   final DeclarationId declaration;
+
+  /// Explicit boundary intent; no runtime representation is implied.
+  final ClassPolicy classPolicy;
+
+  /// Refers to the existing member containing the complete cleanup signature.
+  /// A JavaScript rename or exclusion does not change this Dart identity.
+  final DeclarationId? cleanup;
   final String exportName;
   final SourceLocation source;
   final String? documentation;
@@ -371,6 +380,8 @@ final class ClassBinding {
     required this.declaration,
     required this.exportName,
     required this.source,
+    this.classPolicy = ClassPolicy.reference,
+    this.cleanup,
     Iterable<MemberBinding> members = const [],
     Iterable<TypeParameterBinding> typeParameters = const [],
     this.documentation,

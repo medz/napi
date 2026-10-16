@@ -1,3 +1,8 @@
+/// Requested boundary behavior for a selected Dart class.
+///
+/// These policies describe declarations, not available runtime engines.
+enum ClassPolicy { reference, value, resource }
+
 /// Selects a public function or class for a napi binding.
 ///
 /// An annotated class includes its own public members, not inherited members.
@@ -14,5 +19,22 @@ class NAPI {
   final String? name;
   final bool exclude;
   final bool bigint;
-  const NAPI({this.name, this.exclude = false, this.bigint = false});
+
+  /// Class-only policy; omitted classes retain reference semantics.
+  final ClassPolicy? classPolicy;
+
+  /// Original Dart name of a resource's own public instance cleanup method.
+  ///
+  /// Required for [ClassPolicy.resource] and invalid for other policies. Its
+  /// full signature is retained; resource invocation and lifecycle generation
+  /// remain backend work. This does not add disposal to ordinary classes.
+  final String? cleanup;
+
+  const NAPI({
+    this.name,
+    this.exclude = false,
+    this.bigint = false,
+    this.classPolicy,
+    this.cleanup,
+  });
 }

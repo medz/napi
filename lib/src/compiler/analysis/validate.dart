@@ -1,3 +1,4 @@
+import '../../api/annotation.dart' show ClassPolicy;
 import '../ir/model.dart';
 
 final class BindingDiagnostic implements Exception {
@@ -162,9 +163,60 @@ ValidatedDeclarations validateDeclarations(BindingModule module) {
       if (member.result case final type?) _checkType(type, member.source);
       if (member.type case final type?) _checkType(type, member.source);
     }
+    _checkClassPolicy(binding);
     _checkMemberExports(binding);
   }
   return ValidatedDeclarations._(module);
+}
+
+void _checkClassPolicy(ClassBinding binding) {
+  final cleanup = binding.cleanup;
+  if (binding.classPolicy != ClassPolicy.resource) {
+    if (cleanup != null) {
+      throw BindingDiagnostic(
+        'NAPI_SELECTION',
+        'cleanup requires the resource class policy.',
+        binding.source,
+      );
+    }
+    return;
+  }
+  if (cleanup == null) {
+    throw BindingDiagnostic(
+      'NAPI_SELECTION',
+      'A resource policy requires a cleanup method.',
+      binding.source,
+    );
+  }
+  final members = binding.members
+      .where((member) => member.declaration == cleanup)
+      .toList();
+  if (members.length != 1 ||
+      cleanup.owner != binding.declaration ||
+      cleanup.library != binding.declaration.library) {
+    throw BindingDiagnostic(
+      'NAPI_SELECTION',
+      'Cleanup must refer to one declared member of its owning class.',
+      binding.source,
+    );
+  }
+  final member = members.single;
+  if (member.declaration.name.startsWith('_')) {
+    throw BindingDiagnostic(
+      'NAPI_VISIBILITY',
+      'A cleanup method must be public.',
+      member.source,
+    );
+  }
+  if (member.kind != MemberKind.method ||
+      cleanup.kind != DeclarationKind.method ||
+      member.isStatic) {
+    throw BindingDiagnostic(
+      'NAPI_SELECTION',
+      'Cleanup must select a declared instance method.',
+      member.source,
+    );
+  }
 }
 
 void _checkMemberExports(ClassBinding binding) {
