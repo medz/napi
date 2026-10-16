@@ -35,7 +35,7 @@ JS wrapper. Named constructors and factories become static methods, for example
 constructor exposes a private TypeScript constructor and rejects public `new`.
 Abstract classes can expose factory constructors backed by a concrete Dart object.
 
-Parameters/results use strict scalar, selected reference or nested List/Map/Dictionary/record
+Parameters/results use strict scalar, selected reference, [value-class](values.md) or nested List/Map/Dictionary/record
 types, including nullable nodes. Containers are cloned while their reference
 leaves preserve live wrapper identity. This also applies to constructors, methods,
 fields and accessors. Optional reference/structural parameters may default to null; omission
@@ -74,7 +74,7 @@ subpaths, share constructors. A copied complete Wasm graph has independent class
 brands and Dart state; a query suffix on only the facade is not an independent
 graph because its dependencies may still be shared.
 
-Generic specialization, value/resource policies
+Generic specialization, resource policies
 and async APIs remain unsupported and produce build diagnostics. Non-null Dart
 object defaults are also rejected. JavaScript inheritance relationships are not
 generated: only a selected class's own public members are exposed, and a wrapper

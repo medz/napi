@@ -266,14 +266,32 @@ final class _Reader {
 
   void _checkClassOptions(a.Element element, NAPI config) {
     if (element is! a.ClassElement) {
-      if (config.classPolicy != null || config.cleanup != null) {
+      if (config.classPolicy != null ||
+          config.cleanup != null ||
+          config.valueConstructor != null ||
+          config.valueFields != null) {
         _reject(
           element,
           'NAPI_PLACEMENT',
-          'classPolicy and cleanup are only valid on a class.',
+          'classPolicy, cleanup and value construction options are only valid on a class.',
         );
       }
       return;
+    }
+    if ((config.valueConstructor != null || config.valueFields != null) &&
+        config.classPolicy != ClassPolicy.value) {
+      _reject(
+        element,
+        'NAPI_SELECTION',
+        'Value construction options require the value class policy.',
+      );
+    }
+    if (config.valueFields != null && config.valueConstructor == null) {
+      _reject(
+        element,
+        'NAPI_SELECTION',
+        'valueFields requires valueConstructor.',
+      );
     }
     if (config.classPolicy == ClassPolicy.resource) {
       if (config.cleanup == null) {
@@ -325,6 +343,63 @@ final class _Reader {
       );
     }
     return _id(member);
+  }
+
+  DeclarationId? _valueConstructor(a.ClassElement owner, NAPI config) {
+    _checkClassOptions(owner, config);
+    final name = config.valueConstructor;
+    if (name == null) return null;
+    final matches = owner.constructors
+        .where((member) => member.name == name)
+        .toList();
+    if (matches.length != 1) {
+      _reject(
+        owner,
+        'NAPI_SELECTION',
+        'Select one declared value constructor ${owner.name}.$name.',
+      );
+    }
+    final constructor = matches.single;
+    if (constructor.isPrivate) {
+      _reject(
+        constructor,
+        'NAPI_VISIBILITY',
+        'A value constructor must be public.',
+      );
+    }
+    return _id(constructor);
+  }
+
+  Map<String, DeclarationId> _valueFields(a.ClassElement owner, NAPI config) =>
+      {
+        for (final entry
+            in (config.valueFields ?? const <String, String>{}).entries)
+          entry.key: _valueField(owner, entry.value),
+      };
+
+  DeclarationId _valueField(a.ClassElement owner, String name) {
+    final matches = _classMembers(owner)
+        .where(
+          (member) =>
+              member.name == name &&
+              (member is a.FieldElement || member is a.GetterElement),
+        )
+        .toList();
+    if (matches.length != 1) {
+      _reject(
+        owner,
+        'NAPI_SELECTION',
+        'Select one own readable value member ${owner.name}.$name.',
+      );
+    }
+    if (matches.single.isPrivate) {
+      _reject(
+        matches.single,
+        'NAPI_VISIBILITY',
+        'A value member must be public.',
+      );
+    }
+    return _id(matches.single);
   }
 
   void _selectMembers(a.ClassElement owner, ExternalClass selection) {
@@ -501,6 +576,35 @@ final class _Reader {
         ? ClassPolicy.values[policyIndex]
         : null;
     final cleanup = value.getField('cleanup')?.toStringValue();
+    final valueConstructor = value
+        .getField('valueConstructor')
+        ?.toStringValue();
+    final fieldsValue = value.getField('valueFields');
+    final fieldsMap = fieldsValue?.toMapValue();
+    final valueFields = fieldsMap == null ? null : <String, String>{};
+    if ((valueConstructor == null &&
+            value.getField('valueConstructor')?.isNull != true) ||
+        (fieldsMap == null && fieldsValue?.isNull != true)) {
+      _reject(
+        element,
+        'NAPI_ANNOTATION',
+        'Value construction options must be resolved constants.',
+      );
+    }
+    if (fieldsMap != null) {
+      for (final entry in fieldsMap.entries) {
+        final key = entry.key?.toStringValue();
+        final field = entry.value?.toStringValue();
+        if (key == null || field == null) {
+          _reject(
+            element,
+            'NAPI_ANNOTATION',
+            'valueFields must map Dart parameter names to member names.',
+          );
+        }
+        valueFields![key] = field;
+      }
+    }
     if ((classPolicy == null && policyValue?.isNull != true) ||
         (cleanup == null && value.getField('cleanup')?.isNull != true)) {
       _reject(
@@ -531,6 +635,8 @@ final class _Reader {
       bigint: bigint,
       classPolicy: classPolicy,
       cleanup: cleanup,
+      valueConstructor: valueConstructor,
+      valueFields: valueFields,
     );
   }
 
@@ -564,6 +670,8 @@ final class _Reader {
       source: _source(element),
       classPolicy: config.classPolicy ?? ClassPolicy.reference,
       cleanup: _cleanup(element, config),
+      valueConstructor: _valueConstructor(element, config),
+      valueFields: _valueFields(element, config),
       exportSurface: entry,
       callPath: path,
       documentation: element.documentationComment ?? _documentation[element],
@@ -937,13 +1045,18 @@ final class _AnnotationVisitor extends RecursiveAstVisitor<void> {
         node.arguments?.arguments.any(
           (argument) =>
               argument is NamedArgument &&
-              const {'classPolicy', 'cleanup'}.contains(argument.name.lexeme),
+              const {
+                'classPolicy',
+                'cleanup',
+                'valueConstructor',
+                'valueFields',
+              }.contains(argument.name.lexeme),
         ) ??
         false;
     if (hasClassOption && element is! a.ClassElement) {
       reject(
         'NAPI_PLACEMENT',
-        'classPolicy and cleanup are only valid on a class.',
+        'classPolicy, cleanup and value construction options are only valid on a class.',
       );
     }
     if (config != null) reader._checkClassOptions(element, config);

@@ -16,7 +16,8 @@ String emitBoundary(ModulePlan plan) {
       if (conversion is ListConversion ||
           conversion is RecordConversion ||
           conversion is MapConversion ||
-          conversion is DictionaryConversion)
+          conversion is DictionaryConversion ||
+          conversion is ValueClassConversion)
         index: emitStructuralBoundary(
           conversion,
           prefix: 'structure$index',
@@ -70,10 +71,5 @@ ${plan.classes.isNotEmpty || plan.functions.any((f) => f.representation == Expor
 ''';
 }
 
-bool _containsMap(ValueConversion value) => switch (value) {
-  MapConversion() => true,
-  ListConversion(:final element) => _containsMap(element),
-  DictionaryConversion(:final value) => _containsMap(value),
-  RecordConversion() => value.fields.values.any(_containsMap),
-  ScalarConversion() || ReferenceConversion() => false,
-};
+bool _containsMap(ValueConversion value) =>
+    conversionGraph([value]).any((c) => c is MapConversion);

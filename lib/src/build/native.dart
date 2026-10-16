@@ -43,8 +43,8 @@ Future<BuiltModule> buildNativeModule({
     );
     await bundle.copyTo(artifact);
     final exports = [
-      for (final function in bindings.functions) function.exportName,
-      for (final binding in bindings.classes) binding.exportName,
+      for (final function in plan.functions) function.exportName,
+      for (final binding in plan.classes) binding.binding.exportName,
     ];
     await File('${artifact.path}/module.mjs')
         .writeAsString(emitNativeLoader(exports, classes: plan.classes));

@@ -57,7 +57,13 @@ final class NativeModulePlan {
   final BindingModule bindings;
   final List<NativeCallPlan> functions;
   final List<NativeClassPlan> classes;
-  NativeModulePlan._(this.bindings, this.functions, this.classes);
+  final List<ValueClassSchema> valueSchemas;
+  NativeModulePlan._(
+    this.bindings,
+    this.functions,
+    this.classes,
+    this.valueSchemas,
+  );
   Iterable<NativeCallPlan> get calls sync* {
     yield* functions;
     for (final binding in classes) {
@@ -123,6 +129,7 @@ const _reserved = {
 /// Unsupported declarations fail before generating or publishing artifacts.
 NativeModulePlan validateNative(BindingModule module) {
   validateDeclarations(module);
+  final valueSchemas = validateValueClasses(module);
   var next = 0;
   NativeCallPlan call({
     required String context,
@@ -157,6 +164,8 @@ NativeModulePlan validateNative(BindingModule module) {
             '$context.${parameter.name}',
             bigint: bigint,
             classes: module.classes,
+            valueSchemas: valueSchemas,
+            direction: ValueDirection.input,
           ),
       ]),
       output: result == null || result is VoidType
@@ -166,6 +175,8 @@ NativeModulePlan validateNative(BindingModule module) {
               '$context result',
               bigint: bigint,
               classes: module.classes,
+              valueSchemas: valueSchemas,
+              direction: ValueDirection.output,
             ),
       function: function,
       owner: owner,
@@ -255,6 +266,7 @@ NativeModulePlan validateNative(BindingModule module) {
     module,
     List.unmodifiable(functions),
     List.unmodifiable(classes),
+    List.unmodifiable(valueSchemas),
   );
 }
 

@@ -83,12 +83,16 @@ Future<void> main(List<String> arguments) async {
       output: Directory('unsupported'),
       packagesPath: packages,
       external: const ExternalLibrary([
-        ExternalClass('Resource', config: NAPI(classPolicy: ClassPolicy.value)),
+        ExternalClass('Resource', config: NAPI(
+          classPolicy: ClassPolicy.value,
+          valueConstructor: 'new',
+          valueFields: {'missing': 'value'},
+        )),
       ]),
     );
-    throw StateError('Value-class metadata must not imply a value runtime');
+    throw StateError('Invalid value construction must fail before publishing output');
   } on BindingDiagnostic catch (error) {
-    if (error.code != 'NAPI_CLASS' || Directory('unsupported').existsSync()) {
+    if (error.code != 'NAPI_VALUE' || Directory('unsupported').existsSync()) {
       rethrow;
     }
   }

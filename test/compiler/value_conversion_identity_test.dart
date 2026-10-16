@@ -191,7 +191,7 @@ void main() {
         ),
       );
     }
-    for (final policy in [ClassPolicy.value, ClassPolicy.resource]) {
+    for (final policy in [ClassPolicy.resource]) {
       final unsupported = ClassBinding(
         declaration: owner,
         exportName: 'Box',

@@ -11,7 +11,9 @@ import '../lowering/plan.dart'
         ReferenceConversion,
         ScalarConversion,
         ScalarKind,
-        containsDictionary;
+        ValueClassConversion,
+        containsDictionary,
+        containsValueClass;
 import 'plan.dart';
 import 'structural.dart';
 
@@ -25,7 +27,8 @@ String emitNativeDart(NativeModulePlan plan) {
           value is ListConversion ||
           value is RecordConversion ||
           value is MapConversion ||
-          value is DictionaryConversion,
+          value is DictionaryConversion ||
+          value is ValueClassConversion,
     ),
   );
   final hasDictionary = plan.calls.any(
@@ -118,6 +121,49 @@ void main() {}
         '    final options = _api.options(call, $positionalCount, ${jsonEncode(named.map((p) => p.name).toList())}, ${_quote('${call.context} options')});',
       );
     }
+    final preflight =
+        !rawStructuralArguments && call.inputs.any(containsValueClass);
+    if (preflight) {
+      var option = 0;
+      for (final (index, parameter) in parameters.indexed) {
+        final conversion = call.inputs[index];
+        final path = _quote(conversion.context);
+        final isNamed = _named(parameter);
+        final namedIndex = option;
+        if (isNamed) option++;
+        if (_optional(parameter)) {
+          final defaulted = isNamed
+              ? '_api.defaultOption(call.env, options, $namedIndex)'
+              : '_api.omittedOrUndefined(call, $index)';
+          final value = isNamed
+              ? 'options.values[$namedIndex]'
+              : 'call.arguments[$index]';
+          code.writeln('    final default$index = $defaulted;');
+          code.writeln(
+            '    final raw$index = default$index ? nullptr : $value;',
+          );
+        } else {
+          final value = isNamed
+              ? '_api.requiredOption(call.env, options, $namedIndex, $path)'
+              : '_api.requiredArgument(call, $index, $path)';
+          code.writeln('    final raw$index = $value;');
+        }
+      }
+      // Callable Wasm globals finish presence, then unwrap all direct refs,
+      // before their core performs any per-parameter value construction.
+      for (final (index, parameter) in parameters.indexed) {
+        final conversion = call.inputs[index];
+        if (conversion is! ReferenceConversion) continue;
+        code.writeln('    final ${conversion.dartType} reference$index;');
+        if (_optional(parameter)) {
+          code.writeln(
+            '    if (default$index) {\n      reference$index = ${renderDartDefault(parameter, conversion)};\n    } else {',
+          );
+        }
+        _readReference(code, conversion, index, 'reference$index');
+        if (_optional(parameter)) code.writeln('    }');
+      }
+    }
     var namedIndex = 0;
     for (final (index, parameter) in parameters.indexed) {
       final conversion = call.inputs[index];
@@ -129,7 +175,8 @@ void main() {}
           conversion is ListConversion ||
           conversion is RecordConversion ||
           conversion is MapConversion ||
-          conversion is DictionaryConversion;
+          conversion is DictionaryConversion ||
+          conversion is ValueClassConversion;
       const undefined =
           'Pointer<Void>.fromAddress(_api.undefinedResult(call.env))';
       final raw = structural && rawStructuralArguments
@@ -137,30 +184,26 @@ void main() {}
           : isNamed
           ? '_api.requiredOption(call.env, options, $option, $path)'
           : '_api.requiredArgument(call, $index, $path)';
+      if (preflight && conversion is ReferenceConversion) {
+        code.writeln(
+          '    final ${conversion.dartType} a$index = reference$index;',
+        );
+        continue;
+      }
       code.writeln('    final ${conversion.dartType} a$index;');
       if (_optional(parameter)) {
-        final defaulted = isNamed
+        final defaulted = preflight
+            ? 'default$index'
+            : isNamed
             ? '_api.defaultOption(call.env, options, $option)'
             : '_api.omittedOrUndefined(call, $index)';
         code.writeln(
           '    if ($defaulted) {\n      a$index = ${renderDartDefault(parameter, conversion)};\n    } else {',
         );
       }
-      code.writeln('    final raw$index = $raw;');
+      if (!preflight) code.writeln('    final raw$index = $raw;');
       if (conversion is ReferenceConversion) {
-        if (conversion.nullable) {
-          code.writeln(
-            '    if (_api.isNull(call.env, raw$index)) {\n      a$index = null;\n    } else {',
-          );
-        }
-        code.writeln(
-          '    final object$index = _api.ownerValue(call.env, raw$index, $path, ${conversion.classId});',
-        );
-        code.writeln(
-          '    if (object$index is! target.${conversion.classBinding.callPath}) throw NapiTypeError(${_quote('${conversion.context}: expected ${conversion.classBinding.exportName}')});',
-        );
-        code.writeln('    a$index = object$index;');
-        if (conversion.nullable) code.writeln('    }');
+        _readReference(code, conversion, index, 'a$index');
       } else if (conversion is ScalarConversion) {
         final converted =
             '_api.${nativeScalarReader(conversion)}(call.env, raw$index, $path)';
@@ -170,7 +213,8 @@ void main() {}
       } else if (conversion is ListConversion ||
           conversion is RecordConversion ||
           conversion is MapConversion ||
-          conversion is DictionaryConversion) {
+          conversion is DictionaryConversion ||
+          conversion is ValueClassConversion) {
         final read = structures.read(conversion);
         code.writeln(
           '    a$index = $read(call.env, raw$index, _NativeReadState(), $path, 0);',
@@ -215,7 +259,8 @@ void main() {}
           output is! ListConversion &&
           output is! RecordConversion &&
           output is! MapConversion &&
-          output is! DictionaryConversion) {
+          output is! DictionaryConversion &&
+          output is! ValueClassConversion) {
         code.writeln(
           '    if (value == null) return _api.nullResult(call.env);',
         );
@@ -234,7 +279,8 @@ void main() {}
       } else if (output is ListConversion ||
           output is RecordConversion ||
           output is MapConversion ||
-          output is DictionaryConversion) {
+          output is DictionaryConversion ||
+          output is ValueClassConversion) {
         final write = structures.write(output);
         code.writeln(
           '    final state = _NativeWriteState();\n'
@@ -258,6 +304,27 @@ void main() {}
     code.write(structures.source);
   }
   return code.toString();
+}
+
+void _readReference(
+  StringBuffer code,
+  ReferenceConversion conversion,
+  int index,
+  String destination,
+) {
+  if (conversion.nullable) {
+    code.writeln(
+      '    if (_api.isNull(call.env, raw$index)) {\n      $destination = null;\n    } else {',
+    );
+  }
+  code.writeln(
+    '    final object$index = _api.ownerValue(call.env, raw$index, ${_quote(conversion.context)}, ${conversion.classId});',
+  );
+  code.writeln(
+    '    if (object$index is! target.${conversion.classBinding.callPath}) throw NapiTypeError(${_quote('${conversion.context}: expected ${conversion.classBinding.exportName}')});',
+  );
+  code.writeln('    $destination = object$index;');
+  if (conversion.nullable) code.writeln('    }');
 }
 
 bool _named(ParameterBinding p) =>

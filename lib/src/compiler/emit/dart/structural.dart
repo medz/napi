@@ -1,3 +1,5 @@
+import '../../ir/model.dart';
+import 'entrypoint.dart' show renderDartDefault;
 import '../../lowering/plan.dart';
 
 /// The JavaScript boundary validates and snapshots inputs before these readers
@@ -5,18 +7,25 @@ import '../../lowering/plan.dart';
 final class DartStructuralEmitter {
   final _code = StringBuffer();
   var _next = 0;
+  final _memo = <(ValueConversion, bool), String>{};
 
   String read(ValueConversion conversion) => _emit(conversion, false);
   String write(ValueConversion conversion) => _emit(conversion, true);
   String get source => _code.toString();
 
   String _emit(ValueConversion conversion, bool output) {
+    final key = (conversion, output);
+    if (_memo[key] case final name?) return name;
     final name = '_${output ? 'write' : 'read'}Structure${_next++}';
+    _memo[key] = name;
     final children = switch (conversion) {
       ListConversion(:final element) => [element],
       MapConversion(:final key, :final value) => [key, value],
       DictionaryConversion(:final value) => [value],
       RecordConversion() => conversion.fields.values.toList(),
+      ValueClassConversion() => [
+        for (final field in conversion.fields) field.conversion,
+      ],
       ScalarConversion() || ReferenceConversion() => <ValueConversion>[],
     };
     final functions = [for (final child in children) _emit(child, output)];
@@ -126,6 +135,49 @@ final class DartStructuralEmitter {
     result[key] = ${functions.single}(entries[2 * i + 1], '\$path[\${jsonEncode(key)}]');
   }
   return napi.Dictionary<${value.dartType}>(result);''');
+        }
+      case ValueClassConversion():
+        if (output) {
+          _code.writeln('  state.enter(value, path, depth);\n  try {');
+          for (final (index, field) in conversion.fields.indexed) {
+            final member =
+                field.binding.callPath ?? field.binding.declaration.name;
+            _code.writeln('    final f$index = value.$member;');
+          }
+          _code.writeln('    return <JSAny?>[');
+          for (final (index, field) in conversion.fields.indexed) {
+            final path = field.name.replaceAll(r'$', r'\$');
+            _code.writeln(
+              "      ${functions[index]}(f$index, state, '\$path.$path', depth + 1),",
+            );
+          }
+          _code.writeln('    ].toJS;\n  } finally { state.leave(value); }');
+        } else {
+          _code.writeln('  final fields = (value as JSArray<JSAny?>).toDart;');
+          final arguments = <String>[];
+          for (final (index, field) in conversion.fields.indexed) {
+            final parameter = field.parameter!;
+            final path = field.name.replaceAll(r'$', r'\$');
+            final read =
+                "${functions[index]}(fields[${2 * index + 1}], '\$path.$path')";
+            final value = field.optional
+                ? '(fields[${2 * index}] as JSBoolean).toDart ? ${renderDartDefault(parameter, field.conversion)} : $read'
+                : read;
+            _code.writeln(
+              '  final ${field.conversion.dartType} a$index = $value;',
+            );
+            final named =
+                parameter.kind == ParameterKind.requiredNamed ||
+                parameter.kind == ParameterKind.optionalNamed;
+            arguments.add('${named ? '${parameter.name}: ' : ''}a$index');
+          }
+          final constructor = conversion.constructor!;
+          final suffix = constructor.declaration.name == 'new'
+              ? ''
+              : '.${constructor.declaration.name}';
+          _code.writeln(
+            '  return target.${conversion.classBinding.callPath}$suffix(${arguments.join(', ')});',
+          );
         }
       case RecordConversion():
         if (output) {
