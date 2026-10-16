@@ -334,7 +334,7 @@ void main() {
       expect(validated.bindings.classes.single.members, hasLength(6));
       expect(binding.members[1].isFactory, isTrue);
       expect(binding.members.last.selection, MemberSelection.excluded);
-      expect(() => validate(module), diagnostic('NAPI_CLASS'));
+      expect(() => validate(module), diagnostic('NAPI_CONSTRUCTOR'));
       expect(
         () => validate(
           BindingModule(
@@ -343,7 +343,7 @@ void main() {
             classes: [binding],
           ),
         ),
-        diagnostic('NAPI_CLASS'),
+        diagnostic('NAPI_CONSTRUCTOR'),
       );
     },
   );

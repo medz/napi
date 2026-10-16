@@ -137,14 +137,33 @@ ValueConversion conversionFor(
   _ => ScalarConversion(type, context, bigint: bigint),
 };
 
+/// Ordered private Wasm calls share conversion indices, not declaration kinds.
+abstract interface class CallPlan {
+  List<ParameterBinding> get parameters;
+  List<ValueConversion> get inputs;
+  ValueConversion? get output;
+  String get coreExportName;
+  List<int> get inputContexts;
+  int? get outputContext;
+}
+
 /// Executable choices are separate from descriptive declaration metadata.
-final class FunctionPlan {
+final class FunctionPlan implements CallPlan {
   final FunctionBinding binding;
   final ExportRepresentation representation;
+  @override
   final List<ValueConversion> inputs;
+  @override
   final ValueConversion output;
+  @override
   final String coreExportName;
-  FunctionPlan._(this.binding, int index)
+  @override
+  final List<int> inputContexts;
+  @override
+  final int outputContext;
+  @override
+  List<ParameterBinding> get parameters => binding.parameters;
+  FunctionPlan._(this.binding, int index, int firstContext)
     : representation =
           binding.parameters.any(
             (p) => p.kind != ParameterKind.requiredPositional,
@@ -169,23 +188,137 @@ final class FunctionPlan {
         binding.result,
         '${binding.exportName} result',
         bigint: binding.bigint,
-      );
+      ),
+      inputContexts = List.unmodifiable([
+        for (var i = 0; i < binding.parameters.length; i++) firstContext + i,
+      ]),
+      outputContext = firstContext + binding.parameters.length;
+}
+
+typedef MemberCallKind = ReferenceMemberKind;
+
+final class MemberCallPlan implements CallPlan {
+  final ClassBinding owner;
+  final MemberBinding binding;
+  final MemberCallKind kind;
+  final String context;
+  @override
+  final List<ParameterBinding> parameters;
+  @override
+  final List<ValueConversion> inputs;
+  @override
+  final ValueConversion? output;
+  @override
+  final String coreExportName;
+  @override
+  final List<int> inputContexts;
+  @override
+  final int? outputContext;
+  bool get isStatic => binding.isStatic;
+  String get exportName => binding.exportName ?? binding.declaration.name;
+  MemberCallPlan._(
+    this.owner,
+    ReferenceMemberShape member,
+    this.coreExportName,
+    int firstContext,
+  ) : binding = member.binding,
+      kind = member.kind,
+      parameters = member.parameters,
+      context = _memberContext(owner, member),
+      inputs = List.unmodifiable([
+        for (final parameter in member.parameters)
+          conversionFor(
+            parameter.type,
+            '${_memberContext(owner, member)}.${parameter.name}',
+            bigint: false,
+          ),
+      ]),
+      output = member.result == null
+          ? null
+          : conversionFor(
+              member.result!,
+              '${_memberContext(owner, member)} result',
+              bigint: false,
+            ),
+      inputContexts = List.unmodifiable([
+        for (var i = 0; i < member.parameters.length; i++) firstContext + i,
+      ]),
+      outputContext = member.result == null
+          ? null
+          : firstContext + member.parameters.length;
+}
+
+String _memberContext(ClassBinding owner, ReferenceMemberShape member) =>
+    member.kind == MemberCallKind.constructor
+    ? owner.exportName
+    : '${owner.exportName}.${member.binding.exportName ?? member.binding.declaration.name}';
+
+final class ClassPlan {
+  final ClassBinding binding;
+  final MemberCallPlan constructor;
+  final List<MemberCallPlan> members;
+  ClassPlan._(this.binding, this.constructor, Iterable<MemberCallPlan> members)
+    : members = List.unmodifiable(members);
 }
 
 final class ModulePlan {
   /// Import the selected entry surface, not the origin of a re-exported member.
   final Uri source;
   final List<FunctionPlan> functions;
-  ModulePlan._(this.source, Iterable<FunctionPlan> functions)
-    : functions = List.unmodifiable(functions);
+  final List<ClassPlan> classes;
+  final List<CallPlan> calls;
+  final List<ValueConversion> conversions;
+  ModulePlan._(
+    this.source,
+    Iterable<FunctionPlan> functions,
+    Iterable<ClassPlan> classes,
+    Iterable<CallPlan> calls,
+    Iterable<ValueConversion> conversions,
+  ) : functions = List.unmodifiable(functions),
+      classes = List.unmodifiable(classes),
+      calls = List.unmodifiable(calls),
+      conversions = List.unmodifiable(conversions);
 }
 
 /// Descriptive validation alone cannot produce an executable plan. The
 /// backend-capability wrapper guarantees that no class or unsupported callable
 /// metadata can be silently lost here.
-ModulePlan lower(ValidatedModule module) => ModulePlan._(
-  module.bindings.importUri,
-  module.bindings.functions.indexed.map(
-    (entry) => FunctionPlan._(entry.$2, entry.$1),
-  ),
-);
+ModulePlan lower(ValidatedModule module) {
+  final functions = <FunctionPlan>[];
+  final classes = <ClassPlan>[];
+  final calls = <CallPlan>[];
+  final conversions = <ValueConversion>[];
+  void add(CallPlan call) {
+    calls.add(call);
+    conversions.addAll(call.inputs);
+    if (call.output case final output?) conversions.add(output);
+  }
+
+  for (final (index, binding) in module.bindings.functions.indexed) {
+    final function = FunctionPlan._(binding, index, conversions.length);
+    functions.add(function);
+    add(function);
+  }
+  for (final (index, shape) in module.classes.indexed) {
+    final owner = shape.binding;
+    MemberCallPlan member(ReferenceMemberShape shape, String name) {
+      final result = MemberCallPlan._(owner, shape, name, conversions.length);
+      add(result);
+      return result;
+    }
+
+    final constructor = member(shape.constructor, 'napi:class:$index:new');
+    final members = [
+      for (final (memberIndex, shape) in shape.members.indexed)
+        member(shape, 'napi:class:$index:member:$memberIndex'),
+    ];
+    classes.add(ClassPlan._(shape.binding, constructor, members));
+  }
+  return ModulePlan._(
+    module.bindings.importUri,
+    functions,
+    classes,
+    calls,
+    conversions,
+  );
+}

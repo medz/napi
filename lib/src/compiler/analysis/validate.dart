@@ -23,7 +23,36 @@ final class ValidatedDeclarations {
 /// Only this wrapper can be passed to lowering.
 final class ValidatedModule {
   final BindingModule bindings;
-  const ValidatedModule._(this.bindings);
+  final List<ReferenceClassShape> classes;
+  ValidatedModule._(this.bindings, Iterable<ReferenceClassShape> classes)
+    : classes = List.unmodifiable(classes);
+}
+
+enum ReferenceMemberKind { constructor, method, getter, setter }
+
+/// Common selected class semantics; target-specific ABI names live in lowering.
+final class ReferenceMemberShape {
+  final MemberBinding binding;
+  final ReferenceMemberKind kind;
+  final List<ParameterBinding> parameters;
+  final BindingType? result;
+  ReferenceMemberShape._(
+    this.binding,
+    this.kind,
+    Iterable<ParameterBinding> parameters,
+    this.result,
+  ) : parameters = List.unmodifiable(parameters);
+}
+
+final class ReferenceClassShape {
+  final ClassBinding binding;
+  final ReferenceMemberShape constructor;
+  final List<ReferenceMemberShape> members;
+  ReferenceClassShape._(
+    this.binding,
+    this.constructor,
+    Iterable<ReferenceMemberShape> members,
+  ) : members = List.unmodifiable(members);
 }
 
 final _identifier = RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$');
@@ -390,14 +419,7 @@ void _checkType(BindingType type, SourceLocation source) {
 /// declaration fit the backend or silently omitted from the lowered module.
 ValidatedModule validate(BindingModule module) {
   final declarations = validateDeclarations(module);
-  if (module.classes.isNotEmpty) {
-    throw BindingDiagnostic(
-      'NAPI_CLASS',
-      'Class declarations require a class-capable backend; '
-          'the current backend only generates scalar functions.',
-      module.classes.first.source,
-    );
-  }
+  final classes = validateReferenceClasses(module);
   for (final function in module.functions) {
     void reject(String code, String message) =>
         throw BindingDiagnostic(code, message, function.source);
@@ -441,63 +463,7 @@ ValidatedModule validate(BindingModule module) {
         'External functions require an external-capable backend.',
       );
     }
-    var optionalPositional = false;
-    var named = false;
-    for (final parameter in function.parameters) {
-      if (!_identifier.hasMatch(parameter.name) ||
-          _reserved.contains(parameter.name)) {
-        reject('NAPI_PARAMETER', 'Unsupported backend parameter name.');
-      }
-      final optional =
-          parameter.kind == ParameterKind.optionalPositional ||
-          parameter.kind == ParameterKind.optionalNamed;
-      if (parameter.presence !=
-          (optional
-              ? ParameterPresence.optional
-              : ParameterPresence.required)) {
-        reject(
-          'NAPI_PRESENCE',
-          'Parameter presence must match its Dart kind. Opaque presence '
-              'requires the opaque conversion engine (#125).',
-        );
-      }
-      switch (parameter.kind) {
-        case ParameterKind.requiredPositional:
-          if (optionalPositional || named) {
-            reject(
-              'NAPI_PARAMETER',
-              'Required positional parameters must come first.',
-            );
-          }
-        case ParameterKind.optionalPositional:
-          if (named) {
-            reject(
-              'NAPI_PARAMETER',
-              'Dart cannot mix optional positional and named parameters.',
-            );
-          }
-          optionalPositional = true;
-        case ParameterKind.requiredNamed || ParameterKind.optionalNamed:
-          if (optionalPositional) {
-            reject(
-              'NAPI_PARAMETER',
-              'Dart cannot mix optional positional and named parameters.',
-            );
-          }
-          named = true;
-      }
-      if (!_isBackendValue(parameter.type)) {
-        reject(
-          'NAPI_TYPE',
-          'No conversion engine for this '
-              '${parameter.type.semantics.name} type and nullability.',
-        );
-      }
-      if (!optional && parameter.hasDefault) {
-        reject('NAPI_DEFAULT', 'Required parameters cannot have defaults.');
-      }
-      if (optional) validateParameterDefault(parameter, function.source);
-    }
+    validateCallParameters(function.parameters, function.source);
     if (!_isBackendValue(function.result)) {
       reject(
         'NAPI_TYPE',
@@ -505,7 +471,273 @@ ValidatedModule validate(BindingModule module) {
       );
     }
   }
-  return ValidatedModule._(declarations.bindings);
+  return ValidatedModule._(declarations.bindings, classes);
+}
+
+/// The shared synchronous reference-class slice, without target ABI choices.
+List<ReferenceClassShape> validateReferenceClasses(BindingModule module) {
+  final result = <ReferenceClassShape>[];
+  for (final binding in module.classes) {
+    Never reject(String code, String message, [SourceLocation? source]) =>
+        throw BindingDiagnostic(code, message, source ?? binding.source);
+    _referenceName(binding.exportName, binding.source, topLevel: true);
+    _referencePath(binding.callPath, binding.source);
+    if (binding.exportSurface != module.source) {
+      reject('NAPI_LIBRARY', 'The class must be exposed by the entry library.');
+    }
+    if (binding.classPolicy != ClassPolicy.reference || binding.isAbstract) {
+      reject('NAPI_CLASS', 'A concrete reference class is required.');
+    }
+    if (binding.typeParameters.isNotEmpty) {
+      reject(
+        'NAPI_GENERIC',
+        'Generic class specialization is not implemented.',
+      );
+    }
+    ReferenceMemberShape? constructor;
+    final members = <ReferenceMemberShape>[];
+    ReferenceMemberShape call(
+      MemberBinding member,
+      ReferenceMemberKind kind,
+      List<ParameterBinding> parameters,
+      BindingType? type,
+    ) {
+      validateCallParameters(parameters, member.source, scalarOnly: true);
+      if (type != null && type is! VoidType) {
+        validateScalarType(type, member.source);
+      }
+      return ReferenceMemberShape._(
+        member,
+        kind,
+        parameters,
+        type is VoidType ? null : type,
+      );
+    }
+
+    for (final member in binding.members) {
+      if (member.selection == MemberSelection.excluded) continue;
+      if (member.typeParameters.isNotEmpty) {
+        reject(
+          'NAPI_GENERIC',
+          'Generic members are not implemented.',
+          member.source,
+        );
+      }
+      if (member.isAsync || member.isGenerator) {
+        reject(
+          'NAPI_TYPE',
+          'Only synchronous members are implemented.',
+          member.source,
+        );
+      }
+      if (member.isExternal) {
+        reject(
+          'NAPI_EXTERNAL',
+          'Dart external members are not supported.',
+          member.source,
+        );
+      }
+      if (member.kind == MemberKind.constructor) {
+        if (member.declaration.name != 'new' ||
+            member.isFactory ||
+            member.hasExplicitExportName) {
+          reject(
+            'NAPI_CONSTRUCTOR',
+            'Named, factory and renamed constructors are not implemented.',
+            member.source,
+          );
+        }
+        constructor = call(
+          member,
+          ReferenceMemberKind.constructor,
+          member.parameters,
+          null,
+        );
+        continue;
+      }
+      final name = member.exportName ?? member.declaration.name;
+      _referenceName(name, member.source);
+      if ((!member.isStatic && name == 'constructor') ||
+          (member.isStatic && const {'length', 'prototype'}.contains(name))) {
+        reject(
+          'NAPI_NAME',
+          'Member $name conflicts with the JavaScript class shape.',
+          member.source,
+        );
+      }
+      if (member.isOperator) {
+        reject('NAPI_MEMBER', 'Operators are not implemented.', member.source);
+      }
+      _referencePath(member.callPath ?? member.declaration.name, member.source);
+      if (member.kind == MemberKind.field) {
+        final type = member.type;
+        if (type == null) {
+          reject(
+            'NAPI_TYPE',
+            'A field requires its resolved type.',
+            member.source,
+          );
+        }
+        members.add(call(member, ReferenceMemberKind.getter, const [], type));
+        if (!member.isFinal && !member.isConst) {
+          members.add(
+            call(member, ReferenceMemberKind.setter, [
+              ParameterBinding('value', type, source: member.source),
+            ], null),
+          );
+        }
+      } else {
+        if (member.result == null) {
+          reject(
+            'NAPI_TYPE',
+            'A member requires its resolved result type.',
+            member.source,
+          );
+        }
+        final kind = switch (member.kind) {
+          MemberKind.method => ReferenceMemberKind.method,
+          MemberKind.getter => ReferenceMemberKind.getter,
+          MemberKind.setter => ReferenceMemberKind.setter,
+          _ => throw StateError('Handled above'),
+        };
+        if ((kind == ReferenceMemberKind.getter &&
+                member.parameters.isNotEmpty) ||
+            (kind == ReferenceMemberKind.setter &&
+                (member.parameters.length != 1 ||
+                    member.parameters.single.kind !=
+                        ParameterKind.requiredPositional))) {
+          reject(
+            'NAPI_MEMBER',
+            'Invalid getter or setter parameter shape.',
+            member.source,
+          );
+        }
+        members.add(
+          call(
+            member,
+            kind,
+            member.parameters,
+            kind == ReferenceMemberKind.setter ? null : member.result,
+          ),
+        );
+      }
+    }
+    if (constructor == null) {
+      reject(
+        'NAPI_CONSTRUCTOR',
+        'A selected public unnamed constructor is required.',
+      );
+    }
+    result.add(ReferenceClassShape._(binding, constructor, members));
+  }
+  return List.unmodifiable(result);
+}
+
+void _referenceName(
+  String name,
+  SourceLocation source, {
+  bool topLevel = false,
+}) {
+  if (!_identifier.hasMatch(name) ||
+      (!topLevel && name.startsWith('_')) ||
+      _reserved.contains(name) ||
+      const {'eval', 'arguments'}.contains(name) ||
+      (topLevel && name == 'then')) {
+    throw BindingDiagnostic(
+      'NAPI_NAME',
+      'Unsupported public class identifier $name.',
+      source,
+    );
+  }
+}
+
+void _referencePath(String path, SourceLocation source) {
+  if (path
+      .split('.')
+      .any((part) => !_identifier.hasMatch(part) || part.startsWith('_'))) {
+    throw BindingDiagnostic(
+      'NAPI_NAME',
+      'Unsupported Dart class call path $path.',
+      source,
+    );
+  }
+}
+
+void validateScalarType(BindingType type, SourceLocation source) {
+  if (!_isBackendScalar(type)) {
+    throw BindingDiagnostic(
+      'NAPI_TYPE',
+      'No scalar conversion for this ${type.semantics.name} type.',
+      source,
+    );
+  }
+}
+
+/// Validate ordinary presence/default semantics for either backend.
+void validateCallParameters(
+  List<ParameterBinding> parameters,
+  SourceLocation source, {
+  bool scalarOnly = false,
+}) {
+  var optionalPositional = false;
+  var named = false;
+  for (final parameter in parameters) {
+    void reject(String code, String message) =>
+        throw BindingDiagnostic(code, message, parameter.source ?? source);
+    if (!_identifier.hasMatch(parameter.name) ||
+        _reserved.contains(parameter.name)) {
+      reject('NAPI_PARAMETER', 'Unsupported backend parameter name.');
+    }
+    final optional =
+        parameter.kind == ParameterKind.optionalPositional ||
+        parameter.kind == ParameterKind.optionalNamed;
+    if (parameter.presence !=
+        (optional ? ParameterPresence.optional : ParameterPresence.required)) {
+      reject(
+        'NAPI_PRESENCE',
+        'Parameter presence must match its Dart kind. Opaque presence '
+            'requires the opaque conversion engine (#125).',
+      );
+    }
+    switch (parameter.kind) {
+      case ParameterKind.requiredPositional:
+        if (optionalPositional || named) {
+          reject(
+            'NAPI_PARAMETER',
+            'Required positional parameters must come first.',
+          );
+        }
+      case ParameterKind.optionalPositional:
+        if (named) {
+          reject(
+            'NAPI_PARAMETER',
+            'Dart cannot mix optional positional and named parameters.',
+          );
+        }
+        optionalPositional = true;
+      case ParameterKind.requiredNamed || ParameterKind.optionalNamed:
+        if (optionalPositional) {
+          reject(
+            'NAPI_PARAMETER',
+            'Dart cannot mix optional positional and named parameters.',
+          );
+        }
+        named = true;
+    }
+    if (!(scalarOnly
+        ? _isBackendScalar(parameter.type)
+        : _isBackendValue(parameter.type))) {
+      reject(
+        'NAPI_TYPE',
+        'No conversion engine for this '
+            '${parameter.type.semantics.name} type and nullability.',
+      );
+    }
+    if (!optional && parameter.hasDefault) {
+      reject('NAPI_DEFAULT', 'Required parameters cannot have defaults.');
+    }
+    if (optional) validateParameterDefault(parameter, source);
+  }
 }
 
 /// Validate defaults shared by the scalar native and Wasm backends.

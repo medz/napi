@@ -71,6 +71,7 @@ Future<void> main(List<String> arguments) async {
       ExternalFunction('integer', config: NAPI(bigint: true)),
       ExternalFunction('incrementViaSelf'),
       ExternalFunction('currentCallCount'),
+      ExternalClass('Resource'),
     ]),
   );
   if (!built.wasm.existsSync() || built.sdkVersion != '3.13.5') {
@@ -81,9 +82,11 @@ Future<void> main(List<String> arguments) async {
       library: library,
       output: Directory('unsupported'),
       packagesPath: packages,
-      external: const ExternalLibrary([ExternalClass('Resource')]),
+      external: const ExternalLibrary([
+        ExternalClass('Resource', config: NAPI(classPolicy: ClassPolicy.value)),
+      ]),
     );
-    throw StateError('Class metadata must not imply a class runtime');
+    throw StateError('Value-class metadata must not imply a value runtime');
   } on BindingDiagnostic catch (error) {
     if (error.code != 'NAPI_CLASS' || Directory('unsupported').existsSync()) {
       rethrow;
@@ -101,7 +104,11 @@ Future<void> main(List<String> arguments) async {
     }
     await File('${consumer.path}/check.mjs').writeAsString('''
 import { strict as assert } from 'node:assert';
-import { sum, optional, named, echoText, integer, incrementViaSelf, currentCallCount } from './output/module.wasm';
+import { sum, optional, named, echoText, integer, incrementViaSelf, currentCallCount, Resource } from './output/module.wasm';
+const resource = new Resource();
+assert.equal(resource.value, 42);
+resource.value = 43;
+assert.equal(resource.value, 43);
 assert.equal(currentCallCount(), 0);
 assert.equal(incrementViaSelf(), 1);
 assert.equal(currentCallCount(), 1, 'package self-import shares the selected library state');
@@ -127,7 +134,9 @@ assert.equal(echoText('Dart \\ud800 \\udfff \\ud83d\\ude80'), 'Dart \\ud800 \\ud
     );
     await _run('node', ['check_default_packages.mjs'], consumer);
     await File('${consumer.path}/consumer.mts').writeAsString('''
-import { sum, optional, named, echoText, integer } from './output/module.wasm';
+import { sum, optional, named, echoText, integer, Resource } from './output/module.wasm';
+const resource: Resource = new Resource();
+resource.value = 43;
 const answer: number = sum(40, 2);
 const defaultValue: number = optional(undefined);
 const namedValue: number = named(1, {value: null});

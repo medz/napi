@@ -1,4 +1,5 @@
-import '../emit/typescript/declarations.dart' show emitParameters;
+import '../emit/typescript/declarations.dart'
+    show emitMemberName, emitParameters;
 import '../ir/model.dart';
 import 'plan.dart';
 
@@ -29,7 +30,7 @@ String emitNativeDeclarations(NativeModulePlan plan) {
     );
     for (final call in binding.members) {
       final prefix = call.isStatic ? 'static ' : '';
-      final name = call.exportName;
+      final name = emitMemberName(call.exportName);
       final parameters = emitParameters(call.parameters, call.inputs);
       final result = call.output?.typescriptType ?? 'void';
       switch (call.kind) {

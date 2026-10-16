@@ -79,9 +79,11 @@ calling a business disposal method. Explicit resource policies remain separate.
 
 Unsupported shapes fail before output is created: structural values on native,
 class values passed or returned across calls, value/resource policies, generic
-specialization, factory/named constructors, inheritance, Futures, callbacks,
-streams and cancellation. Their roadmap issues remain open. Wasm generated
-classes also remain separate work; native class support does not imply them.
+specialization, factory/named constructors, Futures, callbacks,
+streams and cancellation. Their roadmap issues remain open. The same basic
+reference-class slice is generated on Wasm and checked with a shared consumer
+contract; see [reference classes](classes.md). Only own members are selected;
+JavaScript inheritance relationships are not generated.
 
 ## Runtime and verification
 

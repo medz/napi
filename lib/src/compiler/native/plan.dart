@@ -1,4 +1,3 @@
-import '../../api/annotation.dart';
 import '../analysis/validate.dart';
 import '../ir/model.dart';
 import '../lowering/plan.dart' show ScalarConversion;
@@ -129,11 +128,10 @@ NativeModulePlan validateNative(BindingModule module) {
     ClassBinding? owner,
     MemberBinding? member,
   }) {
-    _parameters(parameters, source);
-    for (final parameter in parameters) {
-      _scalar(parameter.type, parameter.source ?? source);
+    validateCallParameters(parameters, source, scalarOnly: true);
+    if (result != null && result is! VoidType) {
+      validateScalarType(result, source);
     }
-    if (result != null && result is! VoidType) _scalar(result, source);
     return NativeCallPlan._(
       callback: '_native${next++}',
       context: context,
@@ -187,162 +185,30 @@ NativeModulePlan validateNative(BindingModule module) {
     );
   }
   final classes = <NativeClassPlan>[];
-  for (final binding in module.classes) {
-    _name(binding.exportName, binding.source, topLevel: true);
-    _path(binding.callPath, binding.source);
-    if (binding.exportSurface != module.source) {
-      _reject(
-        'NAPI_LIBRARY',
-        'The class must be exposed by the selected entry library.',
-        binding.source,
-      );
-    }
-    if (binding.classPolicy != ClassPolicy.reference || binding.isAbstract) {
-      _reject(
-        'NAPI_CLASS',
-        'Native bindings require a concrete reference class.',
-        binding.source,
-      );
-    }
-    if (binding.typeParameters.isNotEmpty) {
-      _reject(
-        'NAPI_GENERIC',
-        'Native generic specialization is not implemented.',
-        binding.source,
-      );
-    }
-    NativeCallPlan? constructor;
-    final members = <NativeCallPlan>[];
-    for (final member in binding.members) {
-      if (member.selection == MemberSelection.excluded) continue;
-      _executable(
-        member.typeParameters,
-        member.isAsync,
-        member.isGenerator,
-        member.isExternal,
-        member.source,
-      );
-      if (member.kind == MemberKind.constructor) {
-        if (member.declaration.name != 'new' ||
-            member.isFactory ||
-            member.hasExplicitExportName) {
-          _reject(
-            'NAPI_CONSTRUCTOR',
-            'Native named, factory and renamed constructors are not implemented.',
-            member.source,
-          );
-        }
-        constructor = call(
-          context: binding.exportName,
-          kind: NativeCallKind.constructor,
-          parameters: member.parameters,
-          result: null,
-          source: member.source,
-          owner: binding,
-          member: member,
-        );
-        continue;
-      }
-      final memberName = member.exportName ?? member.declaration.name;
-      _name(memberName, member.source);
-      if ((!member.isStatic && memberName == 'constructor') ||
-          (member.isStatic &&
-              const {'length', 'prototype'}.contains(memberName))) {
-        _reject(
-          'NAPI_NAME',
-          'Native member $memberName conflicts with the JavaScript class shape.',
-          member.source,
-        );
-      }
-      if (member.isOperator) {
-        _reject(
-          'NAPI_MEMBER',
-          'Native operators are not implemented.',
-          member.source,
-        );
-      }
-      _path(member.callPath ?? member.declaration.name, member.source);
-      final context =
-          '${binding.exportName}.${member.exportName ?? member.declaration.name}';
-      if (member.kind == MemberKind.field) {
-        if (member.type == null) {
-          _reject(
-            'NAPI_TYPE',
-            'A field requires its resolved type.',
-            member.source,
-          );
-        }
-        members.add(
-          call(
-            context: context,
-            kind: NativeCallKind.getter,
-            parameters: const [],
-            result: member.type,
-            source: member.source,
-            owner: binding,
-            member: member,
-          ),
-        );
-        if (!member.isFinal && !member.isConst) {
-          members.add(
-            call(
-              context: context,
-              kind: NativeCallKind.setter,
-              parameters: [ParameterBinding('value', member.type!)],
-              result: null,
-              source: member.source,
-              owner: binding,
-              member: member,
-            ),
-          );
-        }
-      } else {
-        if (member.result == null) {
-          _reject(
-            'NAPI_TYPE',
-            'A member requires its resolved result type.',
-            member.source,
-          );
-        }
-        final kind = switch (member.kind) {
-          MemberKind.method => NativeCallKind.method,
-          MemberKind.getter => NativeCallKind.getter,
-          MemberKind.setter => NativeCallKind.setter,
-          _ => throw StateError('Handled above'),
-        };
-        if ((kind == NativeCallKind.getter && member.parameters.isNotEmpty) ||
-            (kind == NativeCallKind.setter &&
-                (member.parameters.length != 1 ||
-                    member.parameters.single.kind !=
-                        ParameterKind.requiredPositional))) {
-          _reject(
-            'NAPI_MEMBER',
-            'Invalid getter or setter parameter shape.',
-            member.source,
-          );
-        }
-        members.add(
-          call(
-            context: context,
-            kind: kind,
-            parameters: member.parameters,
-            result: member.kind == MemberKind.setter ? null : member.result,
-            source: member.source,
-            owner: binding,
-            member: member,
-          ),
-        );
-      }
-    }
-    if (constructor == null) {
-      _reject(
-        'NAPI_CONSTRUCTOR',
-        'Native classes require a selected public unnamed constructor.',
-        binding.source,
-      );
-    }
+  for (final shape in validateReferenceClasses(module)) {
+    final binding = shape.binding;
+    NativeCallPlan member(ReferenceMemberShape selected) => call(
+      context: selected.kind == ReferenceMemberKind.constructor
+          ? binding.exportName
+          : '${binding.exportName}.${selected.binding.exportName ?? selected.binding.declaration.name}',
+      kind: switch (selected.kind) {
+        ReferenceMemberKind.constructor => NativeCallKind.constructor,
+        ReferenceMemberKind.method => NativeCallKind.method,
+        ReferenceMemberKind.getter => NativeCallKind.getter,
+        ReferenceMemberKind.setter => NativeCallKind.setter,
+      },
+      parameters: selected.parameters,
+      result: selected.result,
+      source: selected.binding.source,
+      owner: binding,
+      member: selected.binding,
+    );
     classes.add(
-      NativeClassPlan._(binding, constructor, List.unmodifiable(members)),
+      NativeClassPlan._(
+        binding,
+        member(shape.constructor),
+        List.unmodifiable(shape.members.map(member)),
+      ),
     );
   }
   return NativeModulePlan._(
@@ -396,94 +262,6 @@ void _executable(
       'Dart external declarations are not supported by the native backend.',
       source,
     );
-  }
-}
-
-void _scalar(BindingType type, SourceLocation source) {
-  if (type.nullability != TypeNullability.legacy &&
-      (type is SafeIntType ||
-          type is DeclaredType &&
-              type.declaration.library == Uri.parse('dart:core') &&
-              type.declaration.kind == DeclarationKind.classType &&
-              type.declaration.owner == null &&
-              type.typeArguments.isEmpty &&
-              type.semantics == ValueSemantics.scalar &&
-              const {
-                'bool',
-                'String',
-                'double',
-                'BigInt',
-              }.contains(type.declaration.name))) {
-    return;
-  }
-  _reject(
-    'NAPI_TYPE',
-    'No native scalar conversion for this ${type.semantics.name} type.',
-    source,
-  );
-}
-
-void _parameters(List<ParameterBinding> parameters, SourceLocation source) {
-  var optionalPositional = false;
-  var named = false;
-  for (final parameter in parameters) {
-    final location = parameter.source ?? source;
-    if (!_identifier.hasMatch(parameter.name) ||
-        (_reserved.contains(parameter.name) &&
-            !const {'eval', 'arguments'}.contains(parameter.name))) {
-      _reject(
-        'NAPI_PARAMETER',
-        'Unsupported native parameter identifier.',
-        location,
-      );
-    }
-    final optional =
-        parameter.kind == ParameterKind.optionalPositional ||
-        parameter.kind == ParameterKind.optionalNamed;
-    if (parameter.presence !=
-        (optional ? ParameterPresence.optional : ParameterPresence.required)) {
-      _reject(
-        'NAPI_PRESENCE',
-        'Opaque presence requires the opaque conversion engine.',
-        location,
-      );
-    }
-    switch (parameter.kind) {
-      case ParameterKind.requiredPositional:
-        if (optionalPositional || named) {
-          _reject(
-            'NAPI_PARAMETER',
-            'Required positional parameters must come first.',
-            location,
-          );
-        }
-      case ParameterKind.optionalPositional:
-        if (named) {
-          _reject(
-            'NAPI_PARAMETER',
-            'Optional positional and named parameters cannot mix.',
-            location,
-          );
-        }
-        optionalPositional = true;
-      case ParameterKind.requiredNamed || ParameterKind.optionalNamed:
-        if (optionalPositional) {
-          _reject(
-            'NAPI_PARAMETER',
-            'Optional positional and named parameters cannot mix.',
-            location,
-          );
-        }
-        named = true;
-    }
-    if (!optional && parameter.hasDefault) {
-      _reject(
-        'NAPI_DEFAULT',
-        'Required parameters cannot have defaults.',
-        location,
-      );
-    }
-    if (optional) validateParameterDefault(parameter, source);
   }
 }
 
