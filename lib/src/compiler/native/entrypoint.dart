@@ -2,7 +2,8 @@ import 'dart:convert';
 
 import '../emit/dart/entrypoint.dart' show renderDartDefault;
 import '../ir/model.dart';
-import '../lowering/plan.dart' show ScalarConversion, ScalarKind;
+import '../lowering/plan.dart'
+    show ReferenceConversion, ScalarConversion, ScalarKind;
 import 'plan.dart';
 
 String _quote(String value) => jsonEncode(value).replaceAll(r'$', r'\$');
@@ -59,8 +60,19 @@ void main() {}
     code.writeln(
       '    _api.checkNew(call, ${call.isConstructor}, ${_quote(call.context)});',
     );
+    if (call.isConstructor && call.member == null) {
+      code.writeln(
+        '    throw NapiTypeError(${_quote('${call.context}: no selected public unnamed constructor')});',
+      );
+      code.writeln(
+        '  } catch (error) {\n    return _api.fail(envAddress, error);\n  }\n}',
+      );
+      continue;
+    }
     if (call.owner != null && !call.isConstructor && !call.isStatic) {
-      code.writeln('    final object = _api.owner(call);');
+      code.writeln(
+        '    final object = _api.ownerValue(call.env, call.self, ${_quote(call.context)}, ${call.classId});',
+      );
       code.writeln(
         '    if (object is! target.${call.owner!.callPath}) throw NapiTypeError(${_quote('${call.context}: invalid native receiver')});',
       );
@@ -90,11 +102,29 @@ void main() {}
         );
       }
       code.writeln('    final raw$index = $raw;');
-      final converted =
-          '_api.${_reader(conversion)}(call.env, raw$index, $path)';
-      code.writeln(
-        '    a$index = ${conversion.nullable ? '_api.isNull(call.env, raw$index) ? null : ' : ''}$converted;',
-      );
+      if (conversion is ReferenceConversion) {
+        if (conversion.nullable) {
+          code.writeln(
+            '    if (_api.isNull(call.env, raw$index)) {\n      a$index = null;\n    } else {',
+          );
+        }
+        code.writeln(
+          '    final object$index = _api.ownerValue(call.env, raw$index, $path, ${conversion.classId});',
+        );
+        code.writeln(
+          '    if (object$index is! target.${conversion.classBinding.callPath}) throw NapiTypeError(${_quote('${conversion.context}: expected ${conversion.classBinding.exportName}')});',
+        );
+        code.writeln('    a$index = object$index;');
+        if (conversion.nullable) code.writeln('    }');
+      } else if (conversion is ScalarConversion) {
+        final converted =
+            '_api.${_reader(conversion)}(call.env, raw$index, $path)';
+        code.writeln(
+          '    a$index = ${conversion.nullable ? '_api.isNull(call.env, raw$index) ? null : ' : ''}$converted;',
+        );
+      } else {
+        throw StateError('Unsupported native input conversion');
+      }
       if (_optional(parameter)) code.writeln('    }');
     }
     final arguments = [
@@ -118,7 +148,9 @@ void main() {}
       NativeCallKind.setter => '$receiver.$path = a0',
     };
     if (call.isConstructor) {
-      code.writeln('    return _api.wrap(call, $invocation);');
+      code.writeln(
+        '    return _api.wrap(call, $invocation, ${call.classId}, ${_quote(call.context)});',
+      );
     } else if (call.output == null) {
       code.writeln(
         '    $invocation;\n    return _api.undefinedResult(call.env);',
@@ -131,12 +163,20 @@ void main() {}
           '    if (value == null) return _api.nullResult(call.env);',
         );
       }
-      final context = output.kind == ScalarKind.integer && !output.usesBigInt
-          ? ', ${_quote(output.context)}'
-          : '';
-      code.writeln(
-        '    return _api.${_writer(output)}(call.env, value$context);',
-      );
+      if (output is ReferenceConversion) {
+        code.writeln(
+          '    return _api.referenceResult(call.env, value, ${output.classId}, ${_quote(output.context)});',
+        );
+      } else if (output is ScalarConversion) {
+        final context = output.kind == ScalarKind.integer && !output.usesBigInt
+            ? ', ${_quote(output.context)}'
+            : '';
+        code.writeln(
+          '    return _api.${_writer(output)}(call.env, value$context);',
+        );
+      } else {
+        throw StateError('Unsupported native output conversion');
+      }
     }
     code.writeln(
       '  } catch (error) {\n    return _api.fail(envAddress, error);\n  }\n}',

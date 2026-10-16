@@ -18,7 +18,7 @@ import tempfile
 
 SDK_VERSION = '3.13.5'
 SDK_REVISION = '04bcd1036cdc799ac6564988f159ee454d42c822'
-ABI = 1
+ABI = 2
 MINIMUM_OS = '14.0'
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -96,7 +96,7 @@ def build(sdk, headers, output, cache):
     if not (headers/'node_api.h').is_file():
         raise ValueError('Node headers must contain node_api.h')
     target, compile_target = validate_cache(sdk, cache)
-    source_hash = hashlib.sha256(b'napi-abi=1;macos-arm64;product;minos=14.0\0')
+    source_hash = hashlib.sha256(f'napi-abi={ABI};macos-arm64;product;minos=14.0\0'.encode())
     for source in [ROOT/'native/runtime/runtime.cc', ROOT/'native/runtime/runtime.h',
                    ROOT/'native/runtime/identity.cc', ROOT/'native/bridge/abi.h']:
         source_hash.update(source.name.encode() + b'\0' + source.read_bytes() + b'\0')

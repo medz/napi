@@ -97,6 +97,28 @@ typedef _WrapNative = Int32 Function(Pointer<Void>, Pointer<Void>, Int64);
 typedef _Wrap = int Function(Pointer<Void>, Pointer<Void>, int);
 typedef _UnwrapNative = Int64 Function(Pointer<Void>, Pointer<Void>);
 typedef _Unwrap = int Function(Pointer<Void>, Pointer<Void>);
+typedef _ReferenceValueNative = Int32 Function(
+  Pointer<Void>,
+  Int64,
+  Pointer<Pointer<Void>>,
+);
+typedef _ReferenceValue = int Function(
+  Pointer<Void>,
+  int,
+  Pointer<Pointer<Void>>,
+);
+typedef _ReferenceCreateNative = Int32 Function(
+  Pointer<Void>,
+  Uint32,
+  Int64,
+  Pointer<Pointer<Void>>,
+);
+typedef _ReferenceCreate = int Function(
+  Pointer<Void>,
+  int,
+  int,
+  Pointer<Pointer<Void>>,
+);
 typedef _GetInt64Native = Int32 Function(
   Pointer<Void>,
   Pointer<Void>,
@@ -230,13 +252,19 @@ final class NapiOptions {
   NapiOptions(this.values, this.present);
 }
 
+final class _ReferenceLease {
+  final int id;
+  final int classId;
+  const _ReferenceLease(this.id, this.classId);
+}
+
 /// Private synchronous Node-API table used by generated AOT entrypoints.
 /// Every temporary native buffer is scoped to one call; no global scratch state.
 final class NapiApi {
   final Pointer<Pointer<Void>> _table;
   NapiApi(int address, int tableCount) : _table = Pointer.fromAddress(address) {
-    if (address == 0 || tableCount != 28) {
-      throw StateError('Incompatible native bridge ABI (expected 28 slots).');
+    if (address == 0 || tableCount != 30) {
+      throw StateError('Incompatible native bridge ABI (expected 30 slots).');
     }
   }
   late final _CallbackInfo _callbackInfo = _table[0]
@@ -308,7 +336,16 @@ final class NapiApi {
   late final _Options _options = _table[27]
       .cast<NativeFunction<_OptionsNative>>()
       .asFunction<_Options>();
+  late final _ReferenceValue _referenceValue = _table[28]
+      .cast<NativeFunction<_ReferenceValueNative>>()
+      .asFunction<_ReferenceValue>();
+  late final _ReferenceCreate _referenceCreate = _table[29]
+      .cast<NativeFunction<_ReferenceCreateNative>>()
+      .asFunction<_ReferenceCreate>();
+  // Only an attached JS lease retains its Dart value. The identity cache's
+  // weak keys and primitive records cannot keep either heap alive by themselves.
   final _owners = <int, Object>{};
+  final _references = Expando<_ReferenceLease>('native reference lease');
   var _nextOwner = 1;
 
   void _check(int status) {
@@ -603,27 +640,81 @@ final class NapiApi {
     }
   }
 
-  int wrap(NapiCall call, Object object) {
+  int wrap(NapiCall call, Object object, int classId, [String? path]) =>
+      _intern(call.env, object, classId, path ?? 'Native constructor', call);
+
+  int referenceResult(
+    Pointer<Void> env,
+    Object object,
+    int classId,
+    String path,
+  ) => _intern(env, object, classId, path, null);
+
+  int _intern(
+    Pointer<Void> env,
+    Object object,
+    int classId,
+    String path,
+    NapiCall? call,
+  ) {
+    final cached = _references[object];
+    if (cached != null) {
+      if (cached.classId != classId) {
+        throw NapiTypeError(
+          '$path: object is bound to a different public class',
+        );
+      }
+      final existing = _result((out) => _referenceValue(env, cached.id, out));
+      if (existing != 0) return existing;
+    }
     final id = _nextOwner++;
     if (id <= 0) throw StateError('Native owner id exhausted');
     _owners[id] = object;
     try {
-      _check(_wrap(call.env, call.self, id));
-      return call.self.address;
+      final int result;
+      if (call == null) {
+        result = _result((out) => _referenceCreate(env, classId, id, out));
+        if (result == 0) {
+          throw StateError('Native reference creation failed');
+        }
+      } else {
+        _check(_wrap(env, call.self, id));
+        result = call.self.address;
+      }
+      _references[object] = _ReferenceLease(id, classId);
+      return result;
     } catch (_) {
       _owners.remove(id);
       rethrow;
     }
   }
 
-  Object owner(NapiCall call) {
-    final id = _unwrap(call.env, call.self);
-    if (id == 0) throw NapiTypeError('Invalid native receiver');
+  Object owner(NapiCall call) =>
+      ownerValue(call.env, call.self, 'Native receiver');
+
+  Object ownerValue(
+    Pointer<Void> env,
+    Pointer<Void> value,
+    String path, [
+    int? classId,
+  ]) {
+    final id = _unwrap(env, value);
+    if (id == 0) throw NapiTypeError('$path: invalid native receiver');
     final object = _owners[id];
-    if (object == null) throw NapiTypeError('Native receiver was released');
+    if (object == null) {
+      throw NapiTypeError('$path: native receiver was released');
+    }
+    final lease = _references[object];
+    if (lease == null ||
+        lease.id != id ||
+        (classId != null && lease.classId != classId)) {
+      throw NapiTypeError('$path: incompatible native class');
+    }
     return object;
   }
 
+  // Do not clear the Expando here: an older lease's finalizer may arrive after
+  // a replacement has been attached. The weak key dies with the Dart object.
   void releaseOwner(int id) => _owners.remove(id);
 
   bool _hasPending(Pointer<Void> env) {

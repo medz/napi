@@ -32,3 +32,28 @@ new Options();
 scalars.nullable = undefined;
 // @ts-expect-error ordinary methods are not constructors
 new counter.increment();
+
+import {RefBox, Once, NamedReference, identityReference, nullableReference, optionalReference, namedReference} from '@napi/class-fixture';
+const box: RefBox = RefBox.from(1);
+const same: RefBox = identityReference(box);
+const optional: RefBox | null = optionalReference(undefined);
+const nullable: RefBox | null = nullableReference(null);
+const named: RefBox | null = namedReference({value: box});
+const factory: Once = new Once();
+const container: NamedReference = NamedReference.make(box);
+const shared: RefBox = RefBox.shared();
+box.peer = same;
+box.peer = null;
+void [optional, nullable, named, factory, container, shared];
+// @ts-expect-error private unnamed constructor
+new NamedReference();
+// @ts-expect-error references cannot be scalars
+identityReference(1);
+// @ts-expect-error required nullable remains required
+nullableReference();
+// @ts-expect-error required named reference rejects undefined
+namedReference({value: undefined});
+// @ts-expect-error selected constructor rename replaces Dart name
+RefBox.named(1);
+// @ts-expect-error property nullability does not imply undefined
+box.peer = undefined;

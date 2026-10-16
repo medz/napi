@@ -36,6 +36,9 @@ final class ReferenceMemberShape {
   final ReferenceMemberKind kind;
   final List<ParameterBinding> parameters;
   final BindingType? result;
+  bool get isStatic =>
+      kind == ReferenceMemberKind.constructor || binding.isStatic;
+  String get exportName => binding.exportName ?? binding.declaration.name;
   ReferenceMemberShape._(
     this.binding,
     this.kind,
@@ -46,7 +49,7 @@ final class ReferenceMemberShape {
 
 final class ReferenceClassShape {
   final ClassBinding binding;
-  final ReferenceMemberShape constructor;
+  final ReferenceMemberShape? constructor;
   final List<ReferenceMemberShape> members;
   ReferenceClassShape._(
     this.binding,
@@ -463,8 +466,13 @@ ValidatedModule validate(BindingModule module) {
         'External functions require an external-capable backend.',
       );
     }
-    validateCallParameters(function.parameters, function.source);
-    if (!_isBackendValue(function.result)) {
+    validateCallParameters(
+      function.parameters,
+      function.source,
+      referenceClasses: module.classes,
+    );
+    if (!_isBackendValue(function.result) &&
+        !isReferenceType(function.result, module.classes)) {
       reject(
         'NAPI_TYPE',
         'No scalar or structural conversion engine for this result.',
@@ -485,8 +493,8 @@ List<ReferenceClassShape> validateReferenceClasses(BindingModule module) {
     if (binding.exportSurface != module.source) {
       reject('NAPI_LIBRARY', 'The class must be exposed by the entry library.');
     }
-    if (binding.classPolicy != ClassPolicy.reference || binding.isAbstract) {
-      reject('NAPI_CLASS', 'A concrete reference class is required.');
+    if (binding.classPolicy != ClassPolicy.reference) {
+      reject('NAPI_CLASS', 'A reference class policy is required.');
     }
     if (binding.typeParameters.isNotEmpty) {
       reject(
@@ -502,9 +510,14 @@ List<ReferenceClassShape> validateReferenceClasses(BindingModule module) {
       List<ParameterBinding> parameters,
       BindingType? type,
     ) {
-      validateCallParameters(parameters, member.source, scalarOnly: true);
+      validateCallParameters(
+        parameters,
+        member.source,
+        scalarOnly: true,
+        referenceClasses: module.classes,
+      );
       if (type != null && type is! VoidType) {
-        validateScalarType(type, member.source);
+        validateReferenceType(type, member.source, module.classes);
       }
       return ReferenceMemberShape._(
         member,
@@ -538,21 +551,45 @@ List<ReferenceClassShape> validateReferenceClasses(BindingModule module) {
         );
       }
       if (member.kind == MemberKind.constructor) {
-        if (member.declaration.name != 'new' ||
-            member.isFactory ||
-            member.hasExplicitExportName) {
+        if (binding.isAbstract && !member.isFactory) {
           reject(
             'NAPI_CONSTRUCTOR',
-            'Named, factory and renamed constructors are not implemented.',
+            'An abstract class requires a factory constructor.',
             member.source,
           );
         }
-        constructor = call(
+        final unnamed = member.declaration.name == 'new';
+        if (unnamed && member.hasExplicitExportName) {
+          reject(
+            'NAPI_CONSTRUCTOR',
+            'An unnamed constructor cannot be renamed.',
+            member.source,
+          );
+        }
+        final selected = call(
           member,
           ReferenceMemberKind.constructor,
           member.parameters,
           null,
         );
+        if (unnamed) {
+          constructor = selected;
+        } else {
+          final name = selected.exportName;
+          _referenceName(name, member.source);
+          if (const {'length', 'prototype'}.contains(name)) {
+            reject(
+              'NAPI_NAME',
+              'Constructor $name conflicts with the JavaScript class shape.',
+              member.source,
+            );
+          }
+          _referencePath(
+            member.callPath ?? member.declaration.name,
+            member.source,
+          );
+          members.add(selected);
+        }
         continue;
       }
       final name = member.exportName ?? member.declaration.name;
@@ -622,11 +659,19 @@ List<ReferenceClassShape> validateReferenceClasses(BindingModule module) {
         );
       }
     }
-    if (constructor == null) {
-      reject(
-        'NAPI_CONSTRUCTOR',
-        'A selected public unnamed constructor is required.',
-      );
+    final staticNames = <String, ReferenceMemberShape>{};
+    for (final member in members.where((member) => member.isStatic)) {
+      final previous = staticNames[member.exportName];
+      if (previous != null &&
+          (member.kind == ReferenceMemberKind.constructor ||
+              previous.kind == ReferenceMemberKind.constructor)) {
+        reject(
+          'NAPI_DUPLICATE',
+          'Duplicate static export ${member.exportName}.',
+          member.binding.source,
+        );
+      }
+      staticNames[member.exportName] = member;
     }
     result.add(ReferenceClassShape._(binding, constructor, members));
   }
@@ -663,6 +708,33 @@ void _referencePath(String path, SourceLocation source) {
   }
 }
 
+/// Only direct references to selected public classes have a runtime mapping.
+bool isReferenceType(BindingType type, List<ClassBinding> classes) =>
+    type is DeclaredType &&
+    type.nullability != TypeNullability.legacy &&
+    type.typeArguments.isEmpty &&
+    type.semantics == ValueSemantics.reference &&
+    classes.any(
+      (binding) =>
+          binding.classPolicy == ClassPolicy.reference &&
+          binding.declaration == type.declaration &&
+          binding.typeParameters.isEmpty,
+    );
+
+void validateReferenceType(
+  BindingType type,
+  SourceLocation source,
+  List<ClassBinding> classes,
+) {
+  if (!_isBackendScalar(type) && !isReferenceType(type, classes)) {
+    throw BindingDiagnostic(
+      'NAPI_TYPE',
+      'No scalar or selected class reference conversion for this type.',
+      source,
+    );
+  }
+}
+
 void validateScalarType(BindingType type, SourceLocation source) {
   if (!_isBackendScalar(type)) {
     throw BindingDiagnostic(
@@ -678,6 +750,7 @@ void validateCallParameters(
   List<ParameterBinding> parameters,
   SourceLocation source, {
   bool scalarOnly = false,
+  List<ClassBinding> referenceClasses = const [],
 }) {
   var optionalPositional = false;
   var named = false;
@@ -725,8 +798,9 @@ void validateCallParameters(
         named = true;
     }
     if (!(scalarOnly
-        ? _isBackendScalar(parameter.type)
-        : _isBackendValue(parameter.type))) {
+            ? _isBackendScalar(parameter.type)
+            : _isBackendValue(parameter.type)) &&
+        !isReferenceType(parameter.type, referenceClasses)) {
       reject(
         'NAPI_TYPE',
         'No conversion engine for this '
@@ -752,8 +826,9 @@ void validateParameterDefault(
           value != null)) {
     throw BindingDiagnostic(
       'NAPI_DEFAULT',
-      'Non-null List and record defaults are not supported; '
-          'a nullable structural parameter may use a null default.',
+      type.semantics == ValueSemantics.reference
+          ? 'Non-null reference defaults are not supported; a nullable reference parameter may use a null default.'
+          : 'Non-null List and record defaults are not supported; a nullable structural parameter may use a null default.',
       parameter.source ?? source,
     );
   }

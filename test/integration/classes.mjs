@@ -6,8 +6,10 @@ import {fileURLToPath, pathToFileURL} from 'node:url';
 import {Worker, isMainThread, parentPort, workerData} from 'node:worker_threads';
 import * as api from '@napi/class-fixture';
 import {verifyClasses} from './class_contract.mjs';
+import {verifyReferences, verifyForeignReferences, verifyReferenceRetention} from './reference_contract.mjs';
 
 verifyClasses(api);
+verifyReferences(api);
 if (isMainThread) {
   const again = await import('@napi/class-fixture/module.wasm');
   assert.equal(api.Counter, again.Counter);
@@ -20,6 +22,7 @@ if (isMainThread) {
     await cp(source, copied, {recursive: true});
     const independent = await import(pathToFileURL(join(copied, 'module.wasm')));
     assert.notEqual(independent.Counter, api.Counter);
+    verifyForeignReferences(api, independent);
     const foreign = new independent.Counter(9);
     assert.throws(() => api.Counter.prototype.increment.call(foreign), TypeError);
     const original = new api.Counter(4);
@@ -30,6 +33,7 @@ if (isMainThread) {
     await rm(temporary, {recursive: true});
   }
   await verifyRetention();
+  await verifyReferenceRetention(api);
   for (let round = 0; round < 2; round++) {
     await Promise.all(Array.from({length: 3}, async (_, i) => {
       const hold = i === 2;
@@ -45,6 +49,7 @@ if (isMainThread) {
       await done;
     }));
     verifyClasses(api);
+verifyReferences(api);
   }
   console.log('Generated Wasm classes, independent graph brands, retention and Workers: passed');
 } else if (workerData?.hold) {

@@ -65,6 +65,26 @@ final class ScalarConversion extends ValueConversion {
   bool get usesBigInt => kind == ScalarKind.bigInteger || bigint;
 }
 
+/// A selected Dart class identity; each backend supplies its own ownership ABI.
+final class ReferenceConversion extends ValueConversion {
+  final ClassBinding classBinding;
+  final int classId;
+  ReferenceConversion(
+    DeclaredType super.type,
+    super.context, {
+    required this.classBinding,
+    required this.classId,
+  });
+  @override
+  String get dartType =>
+      'target.${classBinding.callPath}${nullable ? '?' : ''}';
+  @override
+  String get jsType => 'object';
+  @override
+  String get typescriptType =>
+      '${classBinding.exportName}${nullable ? ' | null' : ''}';
+}
+
 final class ListConversion extends ValueConversion {
   final ValueConversion element;
   ListConversion(DeclaredType super.type, super.context, {required bool bigint})
@@ -127,12 +147,23 @@ ValueConversion conversionFor(
   BindingType type,
   String context, {
   required bool bigint,
+  List<ClassBinding> classes = const [],
 }) => switch (type) {
   RecordTypeBinding() => RecordConversion(type, context, bigint: bigint),
   DeclaredType(declaration: DeclarationId(name: 'List')) => ListConversion(
     type,
     context,
     bigint: bigint,
+  ),
+  DeclaredType() when isReferenceType(type, classes) => ReferenceConversion(
+    type,
+    context,
+    classBinding: classes.firstWhere(
+      (binding) => binding.declaration == type.declaration,
+    ),
+    classId: classes.indexWhere(
+      (binding) => binding.declaration == type.declaration,
+    ),
   ),
   _ => ScalarConversion(type, context, bigint: bigint),
 };
@@ -163,17 +194,27 @@ final class FunctionPlan implements CallPlan {
   final int outputContext;
   @override
   List<ParameterBinding> get parameters => binding.parameters;
-  FunctionPlan._(this.binding, int index, int firstContext)
-    : representation =
-          binding.parameters.any(
-            (p) => p.kind != ParameterKind.requiredPositional,
-          )
+  FunctionPlan._(
+    this.binding,
+    int index,
+    int firstContext,
+    List<ClassBinding> classes,
+  ) : representation =
+          (binding.parameters.any(
+                (p) =>
+                    p.kind != ParameterKind.requiredPositional ||
+                    isReferenceType(p.type, classes),
+              ) ||
+              isReferenceType(binding.result, classes))
           ? ExportRepresentation.callableGlobal
           : ExportRepresentation.nativeFunction,
       coreExportName =
-          binding.parameters.any(
-            (p) => p.kind != ParameterKind.requiredPositional,
-          )
+          (binding.parameters.any(
+                (p) =>
+                    p.kind != ParameterKind.requiredPositional ||
+                    isReferenceType(p.type, classes),
+              ) ||
+              isReferenceType(binding.result, classes))
           ? 'napi:call:$index'
           : binding.exportName,
       inputs = List.unmodifiable([
@@ -182,12 +223,14 @@ final class FunctionPlan implements CallPlan {
             p.type,
             '${binding.exportName}.${p.name}',
             bigint: binding.bigint,
+            classes: classes,
           ),
       ]),
       output = conversionFor(
         binding.result,
         '${binding.exportName} result',
         bigint: binding.bigint,
+        classes: classes,
       ),
       inputContexts = List.unmodifiable([
         for (var i = 0; i < binding.parameters.length; i++) firstContext + i,
@@ -214,13 +257,14 @@ final class MemberCallPlan implements CallPlan {
   final List<int> inputContexts;
   @override
   final int? outputContext;
-  bool get isStatic => binding.isStatic;
+  bool get isStatic => kind == MemberCallKind.constructor || binding.isStatic;
   String get exportName => binding.exportName ?? binding.declaration.name;
   MemberCallPlan._(
     this.owner,
     ReferenceMemberShape member,
     this.coreExportName,
     int firstContext,
+    List<ClassBinding> classes,
   ) : binding = member.binding,
       kind = member.kind,
       parameters = member.parameters,
@@ -231,6 +275,7 @@ final class MemberCallPlan implements CallPlan {
             parameter.type,
             '${_memberContext(owner, member)}.${parameter.name}',
             bigint: false,
+            classes: classes,
           ),
       ]),
       output = member.result == null
@@ -239,6 +284,7 @@ final class MemberCallPlan implements CallPlan {
               member.result!,
               '${_memberContext(owner, member)} result',
               bigint: false,
+              classes: classes,
             ),
       inputContexts = List.unmodifiable([
         for (var i = 0; i < member.parameters.length; i++) firstContext + i,
@@ -249,13 +295,14 @@ final class MemberCallPlan implements CallPlan {
 }
 
 String _memberContext(ClassBinding owner, ReferenceMemberShape member) =>
-    member.kind == MemberCallKind.constructor
+    member.kind == MemberCallKind.constructor &&
+        member.binding.declaration.name == 'new'
     ? owner.exportName
     : '${owner.exportName}.${member.binding.exportName ?? member.binding.declaration.name}';
 
 final class ClassPlan {
   final ClassBinding binding;
-  final MemberCallPlan constructor;
+  final MemberCallPlan? constructor;
   final List<MemberCallPlan> members;
   ClassPlan._(this.binding, this.constructor, Iterable<MemberCallPlan> members)
     : members = List.unmodifiable(members);
@@ -295,19 +342,32 @@ ModulePlan lower(ValidatedModule module) {
   }
 
   for (final (index, binding) in module.bindings.functions.indexed) {
-    final function = FunctionPlan._(binding, index, conversions.length);
+    final function = FunctionPlan._(
+      binding,
+      index,
+      conversions.length,
+      module.bindings.classes,
+    );
     functions.add(function);
     add(function);
   }
   for (final (index, shape) in module.classes.indexed) {
     final owner = shape.binding;
     MemberCallPlan member(ReferenceMemberShape shape, String name) {
-      final result = MemberCallPlan._(owner, shape, name, conversions.length);
+      final result = MemberCallPlan._(
+        owner,
+        shape,
+        name,
+        conversions.length,
+        module.bindings.classes,
+      );
       add(result);
       return result;
     }
 
-    final constructor = member(shape.constructor, 'napi:class:$index:new');
+    final constructor = shape.constructor == null
+        ? null
+        : member(shape.constructor!, 'napi:class:$index:new');
     final members = [
       for (final (memberIndex, shape) in shape.members.indexed)
         member(shape, 'napi:class:$index:member:$memberIndex'),

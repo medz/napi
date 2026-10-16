@@ -1,6 +1,6 @@
 import '../analysis/validate.dart';
 import '../ir/model.dart';
-import '../lowering/plan.dart' show ScalarConversion;
+import '../lowering/plan.dart' show ValueConversion, conversionFor;
 
 enum NativeCallKind { function, constructor, method, getter, setter }
 
@@ -13,8 +13,10 @@ final class NativeCallPlan {
   final ClassBinding? owner;
   final MemberBinding? member;
   final List<ParameterBinding> parameters;
-  final List<ScalarConversion> inputs;
-  final ScalarConversion? output;
+  final List<ValueConversion> inputs;
+  final ValueConversion? output;
+  final bool isStatic;
+  final int? classId;
   NativeCallPlan._({
     required this.callback,
     required this.context,
@@ -25,9 +27,10 @@ final class NativeCallPlan {
     this.function,
     this.owner,
     this.member,
+    this.isStatic = false,
+    this.classId,
   });
 
-  bool get isStatic => member?.isStatic ?? false;
   bool get isConstructor => kind == NativeCallKind.constructor;
   int get javascriptArity =>
       parameters.any(
@@ -36,7 +39,10 @@ final class NativeCallPlan {
       ? 0
       : parameters.length;
   String get exportName =>
-      function?.exportName ?? member?.exportName ?? member!.declaration.name;
+      function?.exportName ??
+      member?.exportName ??
+      member?.declaration.name ??
+      owner!.exportName;
 }
 
 final class NativeClassPlan {
@@ -44,6 +50,7 @@ final class NativeClassPlan {
   final NativeCallPlan constructor;
   final List<NativeCallPlan> members;
   NativeClassPlan._(this.binding, this.constructor, this.members);
+  bool get hasPublicConstructor => constructor.member != null;
 }
 
 final class NativeModulePlan {
@@ -127,10 +134,17 @@ NativeModulePlan validateNative(BindingModule module) {
     FunctionBinding? function,
     ClassBinding? owner,
     MemberBinding? member,
+    bool isStatic = false,
+    int? classId,
   }) {
-    validateCallParameters(parameters, source, scalarOnly: true);
+    validateCallParameters(
+      parameters,
+      source,
+      scalarOnly: true,
+      referenceClasses: module.classes,
+    );
     if (result != null && result is! VoidType) {
-      validateScalarType(result, source);
+      validateReferenceType(result, source, module.classes);
     }
     return NativeCallPlan._(
       callback: '_native${next++}',
@@ -139,18 +153,26 @@ NativeModulePlan validateNative(BindingModule module) {
       parameters: List.unmodifiable(parameters),
       inputs: List.unmodifiable([
         for (final parameter in parameters)
-          ScalarConversion(
+          conversionFor(
             parameter.type,
             '$context.${parameter.name}',
             bigint: bigint,
+            classes: module.classes,
           ),
       ]),
       output: result == null || result is VoidType
           ? null
-          : ScalarConversion(result, '$context result', bigint: bigint),
+          : conversionFor(
+              result,
+              '$context result',
+              bigint: bigint,
+              classes: module.classes,
+            ),
       function: function,
       owner: owner,
       member: member,
+      isStatic: isStatic,
+      classId: classId,
     );
   }
 
@@ -187,26 +209,45 @@ NativeModulePlan validateNative(BindingModule module) {
   final classes = <NativeClassPlan>[];
   for (final shape in validateReferenceClasses(module)) {
     final binding = shape.binding;
-    NativeCallPlan member(ReferenceMemberShape selected) => call(
-      context: selected.kind == ReferenceMemberKind.constructor
+    final classId = classes.length;
+    NativeCallPlan member(
+      ReferenceMemberShape selected, {
+      bool constructor = false,
+    }) => call(
+      context: constructor
           ? binding.exportName
-          : '${binding.exportName}.${selected.binding.exportName ?? selected.binding.declaration.name}',
+          : '${binding.exportName}.${selected.exportName}',
       kind: switch (selected.kind) {
-        ReferenceMemberKind.constructor => NativeCallKind.constructor,
+        ReferenceMemberKind.constructor =>
+          constructor ? NativeCallKind.constructor : NativeCallKind.method,
         ReferenceMemberKind.method => NativeCallKind.method,
         ReferenceMemberKind.getter => NativeCallKind.getter,
         ReferenceMemberKind.setter => NativeCallKind.setter,
       },
       parameters: selected.parameters,
-      result: selected.result,
+      result: selected.kind == ReferenceMemberKind.constructor && !constructor
+          ? DeclaredType(binding.declaration, ValueSemantics.reference)
+          : selected.result,
       source: selected.binding.source,
       owner: binding,
       member: selected.binding,
+      isStatic: !constructor && selected.isStatic,
+      classId: classId,
     );
     classes.add(
       NativeClassPlan._(
         binding,
-        member(shape.constructor),
+        shape.constructor != null
+            ? member(shape.constructor!, constructor: true)
+            : call(
+                context: binding.exportName,
+                kind: NativeCallKind.constructor,
+                parameters: const [],
+                result: null,
+                source: binding.source,
+                owner: binding,
+                classId: classId,
+              ),
         List.unmodifiable(shape.members.map(member)),
       ),
     );
