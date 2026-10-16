@@ -15,10 +15,7 @@ final class DartStructuralEmitter {
     final children = switch (conversion) {
       ListConversion(:final element) => [element],
       RecordConversion() => conversion.fields.values.toList(),
-      ScalarConversion() => <ValueConversion>[],
-      ReferenceConversion() => throw StateError(
-        'Nested class references are not supported',
-      ),
+      ScalarConversion() || ReferenceConversion() => <ValueConversion>[],
     };
     final functions = [for (final child in children) _emit(child, output)];
     final type = conversion.dartType;
@@ -31,7 +28,11 @@ final class DartStructuralEmitter {
     if (conversion.nullable) _code.writeln('  if (value == null) return null;');
     switch (conversion) {
       case ReferenceConversion():
-        throw StateError('Nested class references are not supported');
+        _code.writeln(
+          output
+              ? '  return WasmAnyRef.fromObject(value).externalize().toJS;'
+              : '  return externRefForJSAny(value!)!.internalize().toObject() as ${conversion.dartType};',
+        );
       case ScalarConversion():
         _code.writeln(
           '  return ${output ? _writeScalar(conversion) : _readScalar(conversion)};',

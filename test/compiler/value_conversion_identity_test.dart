@@ -5,6 +5,7 @@ import 'package:napi/src/compiler/analysis/validate.dart';
 import 'package:napi/src/compiler/emit/dart/entrypoint.dart';
 import 'package:napi/src/compiler/emit/js/arguments.dart';
 import 'package:napi/src/compiler/emit/js/boundary.dart';
+import 'package:napi/src/compiler/emit/js/references.dart';
 import 'package:napi/src/compiler/front_end/external.dart';
 import 'package:napi/src/compiler/front_end/frontend.dart';
 import 'package:napi/src/compiler/ir/model.dart';
@@ -24,11 +25,13 @@ import 'package:napi/napi.dart';
 }
 @NAPI() List identity(List value) => value;
 @NAPI() core.List<core.int> integers(core.List<core.int> value) => value;
+@NAPI() core.List<List> nested(core.List<List> value) => value;
 ''';
 const _selection = ExternalLibrary([
   ExternalClass('List', config: NAPI(name: 'PublicList')),
   ExternalFunction('identity'),
   ExternalFunction('integers'),
+  ExternalFunction('nested'),
 ]);
 
 DeclaredType _list(BindingType element) => DeclaredType(
@@ -82,27 +85,30 @@ void main() {
         );
         expect(integers.inputs.single, isA<ListConversion>());
         expect(integers.output, isA<ListConversion>());
-        // Native's independent structural implementation is a separate test;
-        // this regression isolates the class-name collision using resolved IR.
         final nativeFrontend = external
             ? ExternalFrontend(_selection, packagesPath: packages, native: true)
             : AnnotationFrontend(packagesPath: packages, native: true);
         final nativeModule = await nativeFrontend.read(input.uri);
-        final native = validateNative(
-          BindingModule(
-            source: nativeModule.source,
-            importUri: nativeModule.importUri,
-            functions: nativeModule.functions.where(
-              (f) => f.exportName == 'identity',
-            ),
-            classes: nativeModule.classes,
-          ),
+        final native = validateNative(nativeModule);
+        final nativeIdentity = native.functions.singleWhere(
+          (f) => f.exportName == 'identity',
+        );
+        final nested = wasm.functions.singleWhere(
+          (f) => f.binding.exportName == 'nested',
         );
         expect(
-          native.functions.single.inputs.single,
+          (nested.inputs.single as ListConversion).element,
           isA<ReferenceConversion>(),
         );
-        expect(native.functions.single.output, isA<ReferenceConversion>());
+        final nativeNested = native.functions.singleWhere(
+          (f) => f.exportName == 'nested',
+        );
+        expect(
+          (nativeNested.inputs.single as ListConversion).element,
+          isA<ReferenceConversion>(),
+        );
+        expect(nativeIdentity.inputs.single, isA<ReferenceConversion>());
+        expect(nativeIdentity.output, isA<ReferenceConversion>());
         expect(
           native.classes.single.members
               .singleWhere((m) => m.exportName == 'self')
@@ -113,7 +119,7 @@ void main() {
     );
   }
 
-  test('shared result validation allows values and direct refs without nested refs', () {
+  test('shared result validation allows nested selected refs and rejects unknown leaves', () {
     final source = SourceLocation(input.uri, 0, 1);
     final owner = DeclarationId(
       input.uri,
@@ -131,6 +137,8 @@ void main() {
       _list(const SafeIntType()),
       RecordTypeBinding(positional: [_list(const SafeIntType())]),
       reference,
+      _list(reference),
+      RecordTypeBinding(named: {'value': reference}),
       DeclaredType(
         owner,
         ValueSemantics.reference,
@@ -143,8 +151,24 @@ void main() {
       );
     }
     for (final type in <BindingType>[
-      _list(reference),
-      RecordTypeBinding(named: {'value': reference}),
+      _list(
+        DeclaredType(
+          DeclarationId(input.uri, 'Missing', kind: DeclarationKind.classType),
+          ValueSemantics.reference,
+        ),
+      ),
+      RecordTypeBinding(
+        named: {
+          'value': DeclaredType(
+            DeclarationId(
+              input.uri,
+              'Missing',
+              kind: DeclarationKind.classType,
+            ),
+            ValueSemantics.reference,
+          ),
+        },
+      ),
       DeclaredType(
         owner,
         ValueSemantics.reference,
@@ -185,27 +209,17 @@ void main() {
     }
   });
 
-  test(
-    'structural result helper does not enable structural class members',
-    () async {
-      await input.writeAsString('''import 'package:napi/napi.dart';
+  test('structural class members use the shared value conversions', () async {
+    await input.writeAsString('''import 'package:napi/napi.dart';
 @NAPI() class Box { List<int> values() => [1]; }
 ''');
-      final module = await AnnotationFrontend(packagesPath: packages)
-          .read(input.uri);
-      for (final operation in [
-        () => validate(module),
-        () => validateNative(module),
-      ]) {
-        expect(
-          operation,
-          throwsA(
-            isA<BindingDiagnostic>().having((e) => e.code, 'code', 'NAPI_TYPE'),
-          ),
-        );
-      }
-    },
-  );
+    final module = await AnnotationFrontend(packagesPath: packages)
+        .read(input.uri);
+    final wasm = lower(validate(module));
+    expect(wasm.classes.single.members.single.output, isA<ListConversion>());
+    final native = validateNative(module);
+    expect(native.classes.single.members.single.output, isA<ListConversion>());
+  });
 
   test(
     'a class named List runs beside actual core Lists in generated Wasm',
@@ -228,6 +242,8 @@ void main() {
         additionalImports: {'napi': './boundary.mjs'},
       );
       await File('${directory.path}/core.wasm').writeAsBytes(linked.wasmBytes);
+      await File('${directory.path}/references.mjs')
+          .writeAsString(emitReferences());
       await File('${directory.path}/host.mjs')
           .writeAsString(linked.hostJavaScript);
       await File('${directory.path}/boundary.mjs')
@@ -237,11 +253,16 @@ void main() {
       await File('${directory.path}/test.mjs').writeAsString('''
 import assert from 'node:assert/strict';
 import {PublicList, identity} from './calls.mjs';
-import {integers} from './core.wasm';
+import {integers, nested} from './core.wasm';
 const selected = new PublicList(17);
 assert.equal(selected.value, 17);
 assert.equal(selected.self(), selected);
 assert.equal(identity(selected), selected);
+const nestedSource = [selected, selected];
+const nestedResult = nested(nestedSource);
+assert.notEqual(nestedResult, nestedSource);
+assert.equal(nestedResult[0], selected);
+assert.equal(nestedResult[1], selected);
 const source = [1, 2];
 const output = integers(source);
 assert.deepEqual(output, source);

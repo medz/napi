@@ -2,8 +2,9 @@
 
 Both Dart Wasm and native Node-API backends convert nested `List<T>` and Dart records in both directions.
 Every structural node can be nullable. Leaves use the existing strict scalar
-rules for `bool`, `String`, `int`, `double` and `BigInt`; `@NAPI(bigint: true)`
-applies recursively to Dart `int` leaves.
+rules for `bool`, `String`, `int`, `double` and `BigInt`, or the selected
+reference-class contract. `@NAPI(bigint: true)` applies recursively to Dart `int`
+leaves. Functions, constructors, methods, fields and accessors share this model.
 
 ```dart
 @NAPI()
@@ -36,7 +37,7 @@ compilation or output creation.
 
 | Boundary case | Policy |
 | --- | --- |
-| Containers | Every occurrence becomes an independent container. Repeating one source List/record in separate branches does not preserve container identity. Output mutation cannot modify the Dart source container. |
+| Containers | Every occurrence becomes an independent container. Repeating one source List/record in separate branches does not preserve container identity. Output mutation cannot modify the Dart source container. Reference leaves preserve their live wrapper identity and mutable Dart object state. |
 | Arrays | Require `Array.isArray`, with `Array.prototype` or null prototype. Typed arrays and custom array prototypes are rejected. Read length once per container, require a numeric uint32 length, then use that snapshot for budget, key bounds and traversal. Invalid lengths fail at `.length`; this also applies to custom Dart output Lists. |
 | Record objects | Require an ordinary object with `Object.prototype` or null prototype. Arrays and custom prototypes are rejected. Output records are ordinary mutable objects. |
 | Fields and indices | Require own data properties. Sparse indices, missing record fields and accessors are rejected. Accessor getters/setters are never invoked by conversion. Non-enumerable own data properties are accepted. |
@@ -56,11 +57,15 @@ length capture can cause an own-data error at the now-missing index. The work li
 bounds converted values and recursive traversal, not the JavaScript engine's
 allocation for that initial key enumeration.
 
-Generated structural traversal has a leaf-adapter interface. Its contract tests
-verify that an identity adapter preserves leaf identity while copying the
-containers. Production currently supplies only scalar leaves: this does not
-implement opaque values, reference handles, shared buffers, class construction,
-or Map/dictionary conversion.
+Generated structural traversal uses the scalar and selected-reference leaf
+converters. Repeated references in independent cloned containers reuse the same
+reachable wrapper, also shared with direct reference calls. Forged, Proxy,
+wrong-class and foreign-runtime leaves fail at their precise field/index path.
+Dropping the wrapper while Dart retains a container permits collection; returning
+the object later adopts a new wrapper without executing its constructor again.
+The exact-public-type and lifetime rules in [reference classes](classes.md) apply
+equally inside containers. Opaque values, shared buffers and Map/dictionary
+conversion remain unsupported.
 
 The shared generated-consumer contract covers nested nullable values, cloning,
 strict leaves, descriptor failures, cycles, depth/work boundaries, recovery,
@@ -71,7 +76,10 @@ Tested with Dart 3.13.5, Node 24.19.0/26.11.1 and TypeScript 7.0.2. Native execu
 is qualified on macOS arm64 and requires an ABI 3 bundle. The compiler/runtime
 use private experimental SDK APIs; other native platforms remain unqualified.
 
-Structural class members, nested reference/opaque/shared leaves and non-null
-structural defaults remain separate work. Only generated top-level structural
-functions are supported in this slice; class values still use their direct
-reference conversion contract.
+Non-null structural defaults, generic reference specialization and opaque/shared
+leaves remain separate work. Failed input conversion does not invoke a method,
+constructor or setter. Failed output conversion does not undo business mutations;
+any temporary wrappers created before failure follow normal garbage collection.
+An unsuccessful output conversion discards new public-type identity claims for
+objects it did not return. It preserves identities established by earlier
+successful calls; failure cannot change an already exposed object's class.

@@ -57,3 +57,30 @@ namedReference({value: undefined});
 RefBox.named(1);
 // @ts-expect-error property nullability does not imply undefined
 box.peer = undefined;
+
+import {RefCollection, echoReferenceRows, heldReferenceRows, holdReferenceRows, mixedReferenceRows} from '@napi/class-fixture';
+const rows: Array<{$1: RefBox; peers: Array<RefBox | null> | null} | null> = echoReferenceRows([{$1: box, peers: [box, null]}, null]);
+holdReferenceRows(rows);
+holdReferenceRows(null);
+const held: typeof rows | null = heldReferenceRows();
+const refs: Array<RefBox | null> = mixedReferenceRows(box, [box, null]);
+const collection = new RefCollection(refs, {counts: [1, null]});
+collection.values = RefCollection.duplicate([box]);
+collection.row = {$1: box, peers: [box, null]};
+collection.row = null;
+const copy: Array<RefBox | null> = collection.named({value: [box]});
+const numbers: Array<number | null> | null = collection.optional(undefined);
+const from: RefCollection = RefCollection.fromRows([box]);
+void [held, copy, numbers, from];
+// @ts-expect-error nested references reject scalar values
+echoReferenceRows([{$1: box, peers: [1]}]);
+// @ts-expect-error nullable container elements do not permit undefined
+echoReferenceRows([undefined]);
+// @ts-expect-error readonly structural field
+collection.counts = [];
+// @ts-expect-error required constructor structure
+new RefCollection();
+// @ts-expect-error required named structure
+collection.named({value: undefined});
+// @ts-expect-error renamed static member
+RefCollection.echo([]);

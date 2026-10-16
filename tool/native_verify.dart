@@ -116,6 +116,8 @@ Future<void> main() async {
       .copy('${consumer.path}/structural_contract.mjs');
   await File('test/integration/reference_contract.mjs')
       .copy('${consumer.path}/reference_contract.mjs');
+  await File('test/integration/structural_reference_contract.mjs')
+      .copy('${consumer.path}/structural_reference_contract.mjs');
   await File('test/typescript/native_classes.mts')
       .copy('${consumer.path}/consumer.mts');
   await run('node', ['--expose-gc', 'test.mjs'], cwd: consumer.path);

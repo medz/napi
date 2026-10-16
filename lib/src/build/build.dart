@@ -4,6 +4,7 @@ import '../compiler/analysis/validate.dart';
 import '../compiler/emit/dart/entrypoint.dart';
 import '../compiler/emit/js/boundary.dart';
 import '../compiler/emit/js/arguments.dart';
+import '../compiler/emit/js/references.dart';
 import '../compiler/emit/typescript/declarations.dart';
 import '../compiler/front_end/frontend.dart';
 import '../compiler/front_end/external.dart';
@@ -139,6 +140,8 @@ Future<BuiltModule> buildModule({
     await File('${artifact.path}/${hasCalls ? 'core' : 'module'}.wasm')
         .writeAsBytes(linked.wasmBytes);
     if (hasCalls) {
+      await File('${artifact.path}/references.mjs')
+          .writeAsString(emitReferences());
       await File('${artifact.path}/calls.mjs')
           .writeAsString(emitArgumentCalls(plan));
       await File('${artifact.path}/module.wasm').writeAsBytes(

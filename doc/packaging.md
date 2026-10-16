@@ -26,8 +26,9 @@ conflict error when supplied. Scoped names such as `@scope/path` are valid;
 unscoped Node built-in names are rejected using the installed Node runtime.
 
 The runtime file allowlist is `module.wasm`, `module.d.wasm.ts`, `host.mjs`,
-`boundary.mjs`, and `DART_LICENSE`, plus `core.wasm` and `calls.mjs` together when
-present. `DART_LICENSE` is required. Other build-directory files are ignored.
+`boundary.mjs`, and `DART_LICENSE`, plus `core.wasm`, `calls.mjs` and
+`references.mjs` together when present. `DART_LICENSE` is required. Other
+build-directory files are ignored.
 Explicit assets may use `README`, `README.md`, `LICENSE`, `LICENSE.md`,
 `LICENSE.txt`, `NOTICE`, `NOTICE.md`, `NOTICE.txt`, and `CHANGELOG.md`. Asset
 destinations are flat names; arbitrary paths, executable assets, symlinks,

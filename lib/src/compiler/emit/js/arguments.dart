@@ -49,16 +49,21 @@ import * as core from './core.wasm';
 import {useDefault, readOptions} from './boundary.mjs';
 ''');
   if (plan.classes.isNotEmpty) {
+    result.writeln("import {registerReference} from './references.mjs';");
     result.writeln(r'''const wrappers = new WeakMap();
-function intern(reference, classId, create, context) {
-  const entry = wrappers.get(reference);
-  if (entry !== undefined) {
-    if (entry.classId !== classId) throw new TypeError(context + ': conflicting public class identity');
-    const wrapper = entry.wrapper.deref();
+function intern(reference, classId, create, context, pending) {
+  const previous = wrappers.get(reference);
+  if (previous !== undefined) {
+    if (previous.classId !== classId) throw new TypeError(context + ': conflicting public class identity');
+    const wrapper = previous.wrapper.deref();
     if (wrapper !== undefined) return wrapper;
   }
   const wrapper = create();
-  wrappers.set(reference, {classId, wrapper: new WeakRef(wrapper)});
+  const entry = {classId, wrapper: new WeakRef(wrapper)};
+  wrappers.set(reference, entry);
+  if (previous === undefined && pending !== undefined) {
+    pending.add(() => { if (wrappers.get(reference) === entry) wrappers.delete(reference); });
+  }
   return wrapper;
 }
 ''');
@@ -66,7 +71,7 @@ function intern(reference, classId, create, context) {
       result.writeln('let unwrap$index;');
       result.writeln('const adopt$index = Symbol();');
       result.writeln(
-        'const wrap$index = (reference, context) => reference === null ? null : intern(reference, $index, () => new class$index(adopt$index, reference), context);',
+        'const wrap$index = (reference, context, pending) => reference === null ? null : intern(reference, $index, () => new class$index(adopt$index, reference), context, pending);',
       );
     }
   }
@@ -162,6 +167,7 @@ function intern(reference, classId, create, context) {
       );
     }
     result.writeln('}');
+    result.writeln('registerReference($index, unwrap$index, wrap$index);');
     if (!binding.members.any(
       (member) => member.isStatic && member.exportName == 'name',
     )) {

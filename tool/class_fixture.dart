@@ -67,6 +67,8 @@ Future<void> main() async {
       .copy('${consumer.path}/class_contract.mjs');
   await File('test/integration/reference_contract.mjs')
       .copy('${consumer.path}/reference_contract.mjs');
+  await File('test/integration/structural_reference_contract.mjs')
+      .copy('${consumer.path}/structural_reference_contract.mjs');
   await File('test/typescript/classes.mts')
       .copy('${consumer.path}/consumer.mts');
   await run('node', ['--expose-gc', 'test.mjs'], cwd: consumer.path);
@@ -95,6 +97,23 @@ Future<void> main() async {
       ExternalFunction('heldReference'),
       ExternalFunction('referenceAlive'),
       ExternalFunction('referencePressure'),
+      ExternalFunction('structuralReferenceCalls'),
+      ExternalFunction('echoReferenceRows'),
+      ExternalFunction('holdReferenceRows'),
+      ExternalFunction('heldReferenceRows'),
+      ExternalFunction('invalidReferenceRow'),
+      ExternalFunction('mixedReferenceRows'),
+      ExternalFunction('failingReferenceList'),
+      ExternalFunction('failingReferenceScalar'),
+      ExternalFunction('partialReferenceChild'),
+      ExternalFunction('createPartialReferenceBase'),
+      ExternalFunction('failingExistingReferenceScalar'),
+      ExternalClass(
+        'RefCollection',
+        members: [
+          ExternalMember.method('echo', config: NAPI(name: 'duplicate')),
+        ],
+      ),
       ExternalClass(
         'RefBox',
         members: [
@@ -126,12 +145,16 @@ Future<void> main() async {
       .copy('${external.directory.path}/class_contract.mjs');
   await File('test/integration/reference_contract.mjs')
       .copy('${external.directory.path}/reference_contract.mjs');
+  await File('test/integration/structural_reference_contract.mjs')
+      .copy('${external.directory.path}/structural_reference_contract.mjs');
   await File('${external.directory.path}/test.mjs').writeAsString('''
 import * as api from './module.wasm';
 import {verifyClasses} from './class_contract.mjs';
 import {verifyReferences} from './reference_contract.mjs';
+import {verifyStructuralReferences} from './structural_reference_contract.mjs';
 verifyClasses(api);
 verifyReferences(api);
+verifyStructuralReferences(api);
 console.log('External unannotated Wasm classes: passed');
 ''');
   await run('node', ['--expose-gc', 'test.mjs'], cwd: external.directory.path);

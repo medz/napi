@@ -67,6 +67,7 @@ void main() {}
     final named = parameters.where(_named).toList();
     final capacity = positionalCount + (named.isEmpty ? 0 : 1);
     final rawStructuralArguments =
+        call.function != null &&
         parameters.every((p) => p.kind == ParameterKind.requiredPositional) &&
         !call.inputs.any((value) => value is ReferenceConversion) &&
         call.output is! ReferenceConversion;
@@ -210,7 +211,13 @@ void main() {}
       } else if (output is ListConversion || output is RecordConversion) {
         final write = structures.write(output);
         code.writeln(
-          '    return $write(call.env, value, _NativeWriteState(), ${_quote(output.context)}, 0);',
+          '    final state = _NativeWriteState();\n'
+          '    try {\n'
+          '      return $write(call.env, value, state, ${_quote(output.context)}, 0);\n'
+          '    } catch (_) {\n'
+          '      _api.rollbackReferences(state.pending);\n'
+          '      rethrow;\n'
+          '    }',
         );
       } else {
         throw StateError('Unsupported native output conversion');
