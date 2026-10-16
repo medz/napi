@@ -184,7 +184,7 @@ final class ModulePlan {
 /// backend-capability wrapper guarantees that no class or unsupported callable
 /// metadata can be silently lost here.
 ModulePlan lower(ValidatedModule module) => ModulePlan._(
-  module.bindings.source,
+  module.bindings.importUri,
   module.bindings.functions.indexed.map(
     (entry) => FunctionPlan._(entry.$2, entry.$1),
   ),

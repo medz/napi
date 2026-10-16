@@ -122,6 +122,7 @@ final class ExternalFrontend implements BindingFrontend {
       return await _Reader(
         File(path).absolute.uri,
         null,
+        importUri: library.scheme == 'package' ? library : null,
       ).readExternal(result, selections);
     } finally {
       await contexts.dispose();
@@ -131,12 +132,13 @@ final class ExternalFrontend implements BindingFrontend {
 
 final class _Reader {
   final Uri entry;
+  final Uri? importUri;
   final a.ClassElement? annotationClass;
   final _externalConfigs = <a.Element, NAPI>{};
   final _libraries = <a.LibraryElement, ResolvedLibraryResult>{};
   final _documentation = <a.Element, String>{};
   final _typeParameterIds = <a.TypeParameterElement, DeclarationId>{};
-  _Reader(this.entry, this.annotationClass);
+  _Reader(this.entry, this.annotationClass, {this.importUri});
 
   Future<BindingModule> readExternal(
     ResolvedLibraryResult root,
@@ -204,6 +206,7 @@ final class _Reader {
     }
     final module = BindingModule(
       source: entry,
+      importUri: importUri,
       functions: functions,
       classes: classes,
     );

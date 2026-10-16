@@ -12,6 +12,7 @@ void main() {
     final dependency = await Directory('${root.path}/third_party/lib')
         .create(recursive: true);
     const thirdPartySource = '''
+import 'package:external_primitives/primitives.dart' as self;
 import 'package:external_primitives/src/defaults.dart' as defaults;
 
 /// Add two integers from an ordinary package.
@@ -22,6 +23,9 @@ int named(int base, {required int? value, int extra = _answer}) => base + (value
 String echoText(String value) => value;
 int integer(int value) => value;
 class Resource { int value = 42; }
+int callCount = 0;
+int incrementViaSelf() => ++self.callCount;
+int currentCallCount() => callCount;
 ''';
     const thirdPartyManifest = '''
 name: external_primitives
@@ -65,6 +69,8 @@ Future<void> main(List<String> arguments) async {
       ExternalFunction('named'),
       ExternalFunction('echoText'),
       ExternalFunction('integer', config: NAPI(bigint: true)),
+      ExternalFunction('incrementViaSelf'),
+      ExternalFunction('currentCallCount'),
     ]),
   );
   if (!built.wasm.existsSync() || built.sdkVersion != '3.13.5') {
@@ -95,7 +101,12 @@ Future<void> main(List<String> arguments) async {
     }
     await File('${consumer.path}/check.mjs').writeAsString('''
 import { strict as assert } from 'node:assert';
-import { sum, optional, named, echoText, integer } from './output/module.wasm';
+import { sum, optional, named, echoText, integer, incrementViaSelf, currentCallCount } from './output/module.wasm';
+assert.equal(currentCallCount(), 0);
+assert.equal(incrementViaSelf(), 1);
+assert.equal(currentCallCount(), 1, 'package self-import shares the selected library state');
+assert.equal(incrementViaSelf(), 2);
+assert.equal(currentCallCount(), 2);
 assert.equal(sum(40, 2), 42);
 assert.equal(optional(), 42);
 assert.equal(optional(undefined), 42);

@@ -84,6 +84,7 @@ final _dartIdentifier = RegExp(r'^[A-Za-z_$][A-Za-z0-9_$]*$');
 /// [validate], not in discovery or this descriptive validation step.
 ValidatedDeclarations validateDeclarations(BindingModule module) {
   if (module.source.scheme != 'file' ||
+      !{'file', 'package'}.contains(module.importUri.scheme) ||
       (module.functions.isEmpty && module.classes.isEmpty)) {
     throw const BindingDiagnostic(
       'NAPI_INPUT',
