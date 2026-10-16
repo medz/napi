@@ -210,21 +210,36 @@ bigints([{wide: 42, huge: 1n}]);
     timeout: const Timeout(Duration(minutes: 2)),
   );
 
-  for (final declaration in [
-    '@NAPI() class Bad { List<int> method(List<int> value) => value; }',
-    '@NAPI() class Bad { List<int> get values => [1]; }',
-    '@NAPI() class Ref {} @NAPI() List<Ref> bad(List<Ref> value) => value;',
+  for (final (description, declaration, code) in [
+    (
+      'Map leaves',
+      '@NAPI() List<Map<String, int>> bad(List<Map<String, int>> value) => value;',
+      'NAPI_TYPE',
+    ),
+    (
+      'unselected reference leaves',
+      'class Ref {} @NAPI() List<Ref> bad(List<Ref> value) => value;',
+      'NAPI_TYPE',
+    ),
+    (
+      'non-null structural defaults',
+      '@NAPI() class Bad { List<int> method([List<int> value = const []]) => value; }',
+      'NAPI_DEFAULT',
+    ),
   ]) {
-    test(
-      'unsupported structural member or reference leaf stays diagnostic',
-      () async {
-        expect(
-          () => read("import 'package:napi/napi.dart';\n$declaration"),
-          throwsA(
-            isA<BindingDiagnostic>().having((e) => e.code, 'code', 'NAPI_TYPE'),
-          ),
-        );
-      },
-    );
+    test('$description stay diagnostic', () async {
+      expect(
+        () => read("import 'package:napi/napi.dart';\n$declaration"),
+        throwsA(
+          isA<BindingDiagnostic>()
+              .having((e) => e.code, 'code', code)
+              .having(
+                (e) => e.source?.uri.path,
+                'source',
+                endsWith('business.dart'),
+              ),
+        ),
+      );
+    });
   }
 }

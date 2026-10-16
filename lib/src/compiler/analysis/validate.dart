@@ -511,11 +511,14 @@ List<ReferenceClassShape> validateReferenceClasses(BindingModule module) {
       validateCallParameters(
         parameters,
         member.source,
-        scalarOnly: true,
         referenceClasses: module.classes,
       );
       if (type != null && type is! VoidType) {
-        validateReferenceType(type, member.source, module.classes);
+        validateValueType(
+          type,
+          member.source,
+          referenceClasses: module.classes,
+        );
       }
       return ReferenceMemberShape._(
         member,
@@ -719,14 +722,14 @@ bool isReferenceType(BindingType type, List<ClassBinding> classes) =>
           binding.typeParameters.isEmpty,
     );
 
-/// Scalar/structural values and direct selected references share one capability
-/// check. Structural leaves remain scalar; this does not enable nested refs.
+/// Scalar/structural values and selected reference leaves share one capability
+/// check. Reference leaves must name a selected, non-generic public class.
 void validateValueType(
   BindingType type,
   SourceLocation source, {
   List<ClassBinding> referenceClasses = const [],
 }) {
-  if (!_isBackendValue(type) && !isReferenceType(type, referenceClasses)) {
+  if (!_isBackendValue(type, referenceClasses)) {
     throw BindingDiagnostic(
       'NAPI_TYPE',
       'No scalar, structural or selected class reference conversion for this type.',
@@ -813,7 +816,7 @@ void validateCallParameters(
     }
     if (!(scalarOnly
             ? _isBackendScalar(parameter.type)
-            : _isBackendValue(parameter.type)) &&
+            : _isBackendValue(parameter.type, referenceClasses)) &&
         !isReferenceType(parameter.type, referenceClasses)) {
       reject(
         'NAPI_TYPE',
@@ -888,12 +891,15 @@ bool _isBackendScalar(BindingType type) {
       }.contains(type.declaration.name);
 }
 
-bool _isBackendValue(BindingType type) {
-  if (_isBackendScalar(type)) return true;
+bool _isBackendValue(
+  BindingType type, [
+  List<ClassBinding> classes = const [],
+]) {
+  if (_isBackendScalar(type) || isReferenceType(type, classes)) return true;
   if (type.nullability == TypeNullability.legacy) return false;
   if (type is RecordTypeBinding) {
-    return type.positional.every(_isBackendValue) &&
-        type.named.values.every(_isBackendValue);
+    return type.positional.every((field) => _isBackendValue(field, classes)) &&
+        type.named.values.every((field) => _isBackendValue(field, classes));
   }
   return type is DeclaredType &&
       type.semantics == ValueSemantics.structural &&
@@ -904,5 +910,5 @@ bool _isBackendValue(BindingType type) {
             kind: DeclarationKind.classType,
           ) &&
       type.typeArguments.length == 1 &&
-      _isBackendValue(type.typeArguments.single);
+      _isBackendValue(type.typeArguments.single, classes);
 }

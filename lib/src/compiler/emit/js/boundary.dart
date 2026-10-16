@@ -22,6 +22,7 @@ String emitBoundary(ModulePlan plan) {
         ),
   };
   return '''// Generated JS imports for the Wasm boundary, not a consumer entry.
+${plan.classes.isEmpty ? '' : "import {readReference, writeReference} from './references.mjs';"}
 const policies = ${jsonEncode(policies)};
 function checkedScalar(value, policy, path) {
   if (value === null && policy.nullable) return null;
@@ -49,7 +50,7 @@ ${[for (final e in structures.entries)
 export function writeValue(value, context) {
   switch (context) {
 ${[for (final e in structures.entries)
-    if (e.value.write != null) '    case ${e.key}: return ${e.value.write}(value, ${jsonEncode(conversions[e.key].context)}, {work: 0, active: new Set()}, 0);'].join('\n')}
+    if (e.value.write != null) '    case ${e.key}: {\n      const state = {work: 0, active: new Set(), pending: null};\n      try { return ${e.value.write}(value, ${jsonEncode(conversions[e.key].context)}, state, 0); }\n      catch (error) { if (state.pending !== null) { for (const undo of state.pending) undo(); } throw error; }\n    }'].join('\n')}
     default: return checked(value, context);
   }
 }

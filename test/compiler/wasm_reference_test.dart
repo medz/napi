@@ -5,6 +5,7 @@ import 'package:napi/src/compiler/analysis/validate.dart';
 import 'package:napi/src/compiler/emit/dart/entrypoint.dart';
 import 'package:napi/src/compiler/emit/js/arguments.dart';
 import 'package:napi/src/compiler/emit/js/boundary.dart';
+import 'package:napi/src/compiler/emit/js/references.dart';
 import 'package:napi/src/compiler/emit/typescript/declarations.dart';
 import 'package:napi/src/compiler/front_end/frontend.dart';
 import 'package:napi/src/compiler/front_end/external.dart';
@@ -208,16 +209,6 @@ final _shared = Box();
       'NAPI_TYPE',
     ),
     (
-      'nested list reference',
-      '@NAPI() class Box {} @NAPI() List<Box> identity(List<Box> x) => x;',
-      'NAPI_TYPE',
-    ),
-    (
-      'nested record reference',
-      '@NAPI() class Box {} @NAPI() (Box,) identity((Box,) x) => x;',
-      'NAPI_TYPE',
-    ),
-    (
       'nonnull class default',
       '@NAPI() class Box { const Box(); } @NAPI() Box identity([Box x = const Box()]) => x;',
       'NAPI_DEFAULT',
@@ -268,6 +259,8 @@ final _shared = Box();
         additionalImports: {'napi': './boundary.mjs'},
       );
       await File('${directory.path}/core.wasm').writeAsBytes(linked.wasmBytes);
+      await File('${directory.path}/references.mjs')
+          .writeAsString(emitReferences());
       await File('${directory.path}/host.mjs')
           .writeAsString(linked.hostJavaScript);
       await File('${directory.path}/calls.mjs')
@@ -280,6 +273,7 @@ final _shared = Box();
         'host.mjs',
         'calls.mjs',
         'boundary.mjs',
+        'references.mjs',
       ]) {
         await File('${directory.path}/$name').copy('${other.path}/$name');
       }

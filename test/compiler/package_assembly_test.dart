@@ -91,14 +91,21 @@ void main() {
     },
   );
 
-  test('optional callable artifacts must be a complete pair', () async {
+  test('optional callable artifacts must be complete', () async {
     await File('${source.path}/core.wasm').writeAsString('core');
     await expectLater(assemble(), throwsArgumentError);
     expect(await output.exists(), isFalse);
     await File('${source.path}/calls.mjs').writeAsString('calls');
+    await expectLater(assemble(), throwsArgumentError);
+    expect(await output.exists(), isFalse);
+    await File('${source.path}/references.mjs').writeAsString('references');
     await assemble();
     expect(await File('${output.path}/core.wasm').readAsString(), 'core');
     expect(await File('${output.path}/calls.mjs').readAsString(), 'calls');
+    expect(
+      await File('${output.path}/references.mjs').readAsString(),
+      'references',
+    );
   });
 
   for (final field in [

@@ -1,3 +1,5 @@
+import 'dart:collection';
+
 import 'package:napi/napi.dart';
 
 final _counters = <WeakReference<Counter>>[];
@@ -144,4 +146,82 @@ class RefBase {
 class RefChild extends RefBase {
   RefChild();
   RefBase asBase() => this;
+}
+
+int _structuralReferenceCalls = 0;
+List<(RefBox, {List<RefBox?>? peers})?>? _heldReferenceRows;
+
+@NAPI()
+int structuralReferenceCalls() => _structuralReferenceCalls;
+@NAPI()
+List<(RefBox, {List<RefBox?>? peers})?> echoReferenceRows(
+  List<(RefBox, {List<RefBox?>? peers})?> value,
+) {
+  _structuralReferenceCalls++;
+  return value;
+}
+
+@NAPI()
+int holdReferenceRows(List<(RefBox, {List<RefBox?>? peers})?>? value) {
+  _heldReferenceRows = value;
+  return 0;
+}
+
+@NAPI()
+List<(RefBox, {List<RefBox?>? peers})?>? heldReferenceRows() =>
+    _heldReferenceRows;
+@NAPI()
+(RefBox, int) invalidReferenceRow(RefBox value) => (value, 9007199254740992);
+@NAPI()
+List<RefBox?> mixedReferenceRows(RefBox first, List<RefBox?> rest) => [
+  first,
+  ...rest,
+];
+
+@NAPI()
+class RefCollection {
+  List<RefBox?> values;
+  final List<int?>? counts;
+  (RefBox, {List<RefBox?> peers})? _row;
+  RefCollection(this.values, {this.counts});
+  factory RefCollection.fromRows(List<RefBox?> values) => RefCollection(values);
+  // Exercise explicit structural accessor pairs separately from public fields.
+  // ignore: unnecessary_getters_setters
+  (RefBox, {List<RefBox?> peers})? get row => _row;
+  set row((RefBox, {List<RefBox?> peers})? value) => _row = value;
+  List<RefBox?> replace(List<RefBox?> value) => values = value;
+  List<int?>? optional([List<int?>? value]) => value;
+  List<RefBox?> named({required List<RefBox?> value}) => value;
+  @NAPI(name: 'duplicate')
+  static List<RefBox?> echo(List<RefBox?> value) => value;
+}
+
+RefChild? _partialReference;
+@NAPI()
+List<RefBase> failingReferenceList() =>
+    _PartialReferenceList(_partialReference = RefChild());
+@NAPI()
+(RefBase, int) failingReferenceScalar() =>
+    (_partialReference = RefChild(), 9007199254740992);
+@NAPI()
+RefChild partialReferenceChild() => _partialReference!;
+@NAPI()
+RefBase createPartialReferenceBase() => _partialReference = RefChild();
+@NAPI()
+(RefBase, int) failingExistingReferenceScalar(RefBase value) =>
+    (value, 9007199254740992);
+
+class _PartialReferenceList extends ListBase<RefBase> {
+  final RefBase firstValue;
+  _PartialReferenceList(this.firstValue);
+  @override
+  int get length => 2;
+  @override
+  set length(int value) => throw UnsupportedError('fixed length');
+  @override
+  RefBase operator [](int index) =>
+      index == 0 ? firstValue : throw StateError('later output read failed');
+  @override
+  void operator []=(int index, RefBase value) =>
+      throw UnsupportedError('readonly');
 }

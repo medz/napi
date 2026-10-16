@@ -34,10 +34,7 @@ final class NativeStructuralEmitter {
     final children = switch (conversion) {
       ListConversion(:final element) => [element],
       RecordConversion() => conversion.fields.values.toList(),
-      ScalarConversion() => <ValueConversion>[],
-      ReferenceConversion() => throw StateError(
-        'Nested class references are not supported',
-      ),
+      ScalarConversion() || ReferenceConversion() => <ValueConversion>[],
     };
     final functions = [for (final child in children) _emit(child, output)];
     _code.writeln(
@@ -55,7 +52,19 @@ final class NativeStructuralEmitter {
     }
     switch (conversion) {
       case ReferenceConversion():
-        throw StateError('Nested class references are not supported');
+        if (output) {
+          _code.writeln(
+            '  return _api.referenceResult(env, value, ${conversion.classId}, path, state.pending);',
+          );
+        } else {
+          _code.writeln(
+            '  final object = _api.ownerValue(env, value, path, ${conversion.classId});',
+          );
+          _code.writeln(
+            "  if (object is! target.${conversion.classBinding.callPath}) throw NapiTypeError('\$path: expected ${conversion.classBinding.exportName}');",
+          );
+          _code.writeln('  return object;');
+        }
       case ScalarConversion():
         final context =
             output &&
@@ -172,6 +181,7 @@ final class _NativeReadState {
 final class _NativeWriteState {
   int work = 0;
   final active = Set<Object>.identity();
+  late final pending = <(Object, int)>[];
   void visit(String path) {
     if (++work > 10000) throw NapiRangeError('$path: structural work limit (10000) exceeded');
   }

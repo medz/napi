@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:napi/src/compiler/analysis/validate.dart';
 import 'package:napi/src/compiler/emit/js/arguments.dart';
 import 'package:napi/src/compiler/emit/js/boundary.dart';
+import 'package:napi/src/compiler/emit/js/references.dart';
 import 'package:napi/src/compiler/emit/typescript/declarations.dart';
 import 'package:napi/src/compiler/front_end/frontend.dart';
 import 'package:napi/src/compiler/lowering/plan.dart';
@@ -75,6 +76,8 @@ export {call$index as ${jsonEncode(call.coreExportName)}};
     for (final child in ['', '/independent']) {
       final output = await Directory('${directory.path}$child').create();
       await File('${output.path}/core.mjs').writeAsString(core.toString());
+      await File('${output.path}/references.mjs')
+          .writeAsString(emitReferences());
       await File('${output.path}/boundary.mjs')
           .writeAsString(emitBoundary(plan));
       await File('${output.path}/calls.mjs').writeAsString(

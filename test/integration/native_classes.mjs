@@ -4,12 +4,14 @@ import * as api from '@napi/native-fixture';
 import {verifyStructures} from './structural_contract.mjs';
 import {verifyClasses} from './class_contract.mjs';
 import {verifyReferences, verifyForeignReferences, verifyReferenceRetention} from './reference_contract.mjs';
+import {verifyStructuralReferences, verifyForeignStructuralReferences, verifyStructuralReferenceRetention} from './structural_reference_contract.mjs';
 const {Counter, randomValue, executable, createRequire, bindings, globalThis: exportedGlobal, URL: exportedUrl} = api;
 
 function check() {
   assert.deepEqual([createRequire(), bindings(), exportedGlobal(), exportedUrl()], [1, 2, 3, 4]);
   verifyClasses(api);
   verifyReferences(api);
+  verifyStructuralReferences(api);
   verifyStructures(api);
   assert(randomValue() >= 0);
   assert.equal(executable(), process.execPath);
@@ -20,7 +22,9 @@ if (isMainThread) {
   assert.equal(again.Counter, Counter);
   const independent = await import(import.meta.resolve('@napi/native-fixture') + '?independent');
   verifyForeignReferences(api, independent);
+  verifyForeignStructuralReferences(api, independent);
   await verifyReferenceRetention(api);
+  await verifyStructuralReferenceRetention(api);
   const foreign = new independent.Counter(9);
   assert.throws(() => Counter.prototype.increment.call(foreign), TypeError);
   assert.equal(foreign.value, 9);

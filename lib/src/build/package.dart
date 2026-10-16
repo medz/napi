@@ -14,7 +14,7 @@ const _requiredFiles = [
   'boundary.mjs',
   'DART_LICENSE',
 ];
-const _callFiles = ['core.wasm', 'calls.mjs'];
+const _callFiles = ['core.wasm', 'calls.mjs', 'references.mjs'];
 const _assetNames = {
   'README',
   'README.md',
@@ -134,7 +134,7 @@ Future<Directory> _assemblePackage({
   }
   if (callFiles.isNotEmpty && callFiles.length != _callFiles.length) {
     throw ArgumentError(
-      'Callable artifacts require both core.wasm and calls.mjs.',
+      'Callable artifacts require core.wasm, calls.mjs and references.mjs.',
     );
   }
   files.addAll(callFiles);

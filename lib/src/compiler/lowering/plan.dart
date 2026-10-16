@@ -87,12 +87,17 @@ final class ReferenceConversion extends ValueConversion {
 
 final class ListConversion extends ValueConversion {
   final ValueConversion element;
-  ListConversion(DeclaredType super.type, super.context, {required bool bigint})
-    : element = conversionFor(
-        type.typeArguments.single,
-        context,
-        bigint: bigint,
-      );
+  ListConversion(
+    DeclaredType super.type,
+    super.context, {
+    required bool bigint,
+    List<ClassBinding> classes = const [],
+  }) : element = conversionFor(
+         type.typeArguments.single,
+         context,
+         bigint: bigint,
+         classes: classes,
+       );
   @override
   String get dartType => 'List<${element.dartType}>${nullable ? '?' : ''}';
   @override
@@ -109,13 +114,19 @@ final class RecordConversion extends ValueConversion {
     RecordTypeBinding super.type,
     super.context, {
     required bool bigint,
+    List<ClassBinding> classes = const [],
   }) : positional = List.unmodifiable([
          for (final field in type.positional)
-           conversionFor(field, context, bigint: bigint),
+           conversionFor(field, context, bigint: bigint, classes: classes),
        ]),
        named = Map.unmodifiable({
          for (final entry in type.named.entries)
-           entry.key: conversionFor(entry.value, context, bigint: bigint),
+           entry.key: conversionFor(
+             entry.value,
+             context,
+             bigint: bigint,
+             classes: classes,
+           ),
        });
   Map<String, ValueConversion> get fields => {
     for (final (index, field) in positional.indexed) '\$${index + 1}': field,
@@ -149,7 +160,12 @@ ValueConversion conversionFor(
   required bool bigint,
   List<ClassBinding> classes = const [],
 }) => switch (type) {
-  RecordTypeBinding() => RecordConversion(type, context, bigint: bigint),
+  RecordTypeBinding() => RecordConversion(
+    type,
+    context,
+    bigint: bigint,
+    classes: classes,
+  ),
   DeclaredType() when isReferenceType(type, classes) => ReferenceConversion(
     type,
     context,
@@ -171,7 +187,7 @@ ValueConversion conversionFor(
             'List',
             kind: DeclarationKind.classType,
           ) =>
-    ListConversion(type, context, bigint: bigint),
+    ListConversion(type, context, bigint: bigint, classes: classes),
   _ => ScalarConversion(type, context, bigint: bigint),
 };
 

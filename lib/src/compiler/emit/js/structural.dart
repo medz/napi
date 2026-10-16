@@ -3,20 +3,24 @@ import 'dart:convert';
 import '../../lowering/plan.dart';
 
 /// Leaf engines plug into generated structural traversal without owning or
-/// cloning containers. Production currently supplies only the scalar engine;
-/// an identity adapter in the contract tests is not an opaque/reference engine.
+/// cloning containers. Production supplies scalar and selected class engines.
 abstract interface class StructuralLeafAdapter {
   String read(ValueConversion leaf, String value, String path);
   String write(ValueConversion leaf, String value, String path);
 }
 
-final class ScalarLeafAdapter implements StructuralLeafAdapter {
-  const ScalarLeafAdapter();
+final class BoundaryLeafAdapter implements StructuralLeafAdapter {
+  const BoundaryLeafAdapter();
   @override
   String read(ValueConversion leaf, String value, String path) =>
-      'checkedScalar($value, ${jsonEncode(scalarPolicy(leaf as ScalarConversion))}, $path)';
+      leaf is ReferenceConversion
+      ? 'readReference($value, ${leaf.classId}, ${leaf.nullable}, $path)'
+      : 'checkedScalar($value, ${jsonEncode(scalarPolicy(leaf as ScalarConversion))}, $path)';
   @override
   String write(ValueConversion leaf, String value, String path) {
+    if (leaf is ReferenceConversion) {
+      return 'writeReference($value, ${leaf.classId}, $path, state.pending ??= new Set())';
+    }
     final scalar = leaf as ScalarConversion;
     return 'checkedScalar(${scalar.usesBigInt ? 'BigInt($value)' : value}, ${jsonEncode(scalarPolicy(scalar))}, $path)';
   }
@@ -39,7 +43,7 @@ final class StructuralBoundary {
 StructuralBoundary emitStructuralBoundary(
   ValueConversion conversion, {
   required String prefix,
-  StructuralLeafAdapter leafAdapter = const ScalarLeafAdapter(),
+  StructuralLeafAdapter leafAdapter = const BoundaryLeafAdapter(),
   bool generateRead = true,
   bool generateWrite = true,
 }) {
@@ -50,19 +54,14 @@ StructuralBoundary emitStructuralBoundary(
     final children = switch (node) {
       ListConversion(:final element) => [element],
       RecordConversion() => node.fields.values.toList(),
-      ScalarConversion() => <ValueConversion>[],
-      ReferenceConversion() => throw StateError(
-        'Nested class references are not supported',
-      ),
+      ScalarConversion() || ReferenceConversion() => <ValueConversion>[],
     };
     final converters = [for (final child in children) emit(child, output)];
     code.writeln('function $name(value, path, state, depth) {');
     code.writeln('  visitStructure(state, path);');
     if (node.nullable) code.writeln('  if (value === null) return null;');
     switch (node) {
-      case ReferenceConversion():
-        throw StateError('Nested class references are not supported');
-      case ScalarConversion():
+      case ReferenceConversion() || ScalarConversion():
         code.writeln(
           '  return ${output ? leafAdapter.write(node, 'value', 'path') : leafAdapter.read(node, 'value', 'path')};',
         );

@@ -22,7 +22,8 @@ counter.increment(2); // 42
 Constructors, methods and property access execute in Dart. The generated Wasm
 facade exports each class as an immutable externref global imported from its
 private JavaScript dependency. Required top-level scalar functions retain their direct
-Wasm function exports; reference-valued calls use callable globals. Native packages expose the same class shape through their
+Wasm function exports, including required List/record arguments containing class
+references; direct reference-valued calls use callable globals. Native packages expose the same class shape through their
 automatic ESM entry and Node-API bridge.
 
 The implemented slice includes non-generic reference classes, direct class
@@ -34,8 +35,10 @@ JS wrapper. Named constructors and factories become static methods, for example
 constructor exposes a private TypeScript constructor and rejects public `new`.
 Abstract classes can expose factory constructors backed by a concrete Dart object.
 
-Parameters/results use strict scalar or selected reference types, including
-nullable references. Optional reference parameters may default to null; omission
+Parameters/results use strict scalar, selected reference or nested List/record
+types, including nullable nodes. Containers are cloned while their reference
+leaves preserve live wrapper identity. This also applies to constructors, methods,
+fields and accessors. Optional reference/structural parameters may default to null; omission
 and `undefined` apply that default. Required nullable references still require a
 value, with `null` accepted. Named parameters use the ordinary options-object
 policy. Void methods return `undefined`. Invalid input fails before business code;
@@ -56,14 +59,16 @@ wrapper owns a separate retained-object lease. When Dart keeps the object but JS
 drops its wrapper, the wrapper can be collected and a later return creates a new
 one without running a business constructor. Old finalizers cannot release the
 new lease. No identity cache permanently roots ordinary unreachable objects, and
-GC never calls a business disposal method. See [native builds](native.md).
+GC never calls a business disposal method. Wasm registers its private reference
+converters automatically when classes are defined; structural traversal uses the
+same cache and brands, without consumer initialization. See [native builds](native.md).
 
 Repeated imports of the same module graph, including npm root/direct-Wasm
 subpaths, share constructors. A copied complete Wasm graph has independent class
 brands and Dart state; a query suffix on only the facade is not an independent
 graph because its dependencies may still be shared.
 
-Generic specialization, nested structural references, value/resource policies
+Generic specialization, value/resource policies
 and async APIs remain unsupported and produce build diagnostics. Non-null Dart
 object defaults are also rejected. JavaScript inheritance relationships are not
 generated: only a selected class's own public members are exposed, and a wrapper
@@ -76,7 +81,9 @@ this slice must not be treated as complete polymorphic class support.
 classes, a class-only module, an independent Dart build project, an npm tarball
 installed after removing the original business/build/package directories,
 TypeScript NodeNext/Bundler, whole-graph isolation, twelve collect/readopt cycles,
-Dart weak-reference collection under bounded allocation pressure, and normal/terminated
-Workers. The shared class contract is also run by `tool/native_verify.dart`.
+Dart weak-reference collection under bounded allocation pressure, nested reference
+identity and six container-held collect/readopt cycles, structural class members,
+and normal/terminated Workers. The shared class contract is also run by
+`tool/native_verify.dart`.
 Tested with Dart 3.13.5, Node 24.19.0/26.11.1 and TypeScript 7.0.2; native execution
 is currently qualified only on macOS arm64.

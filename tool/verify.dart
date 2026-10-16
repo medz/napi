@@ -62,6 +62,7 @@ Future<void> installedConsumer(
           'module.wasm',
           'core.wasm',
           'calls.mjs',
+          'references.mjs',
           'module.d.wasm.ts',
           'host.mjs',
           'boundary.mjs',

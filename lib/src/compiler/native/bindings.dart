@@ -851,16 +851,27 @@ final class NapiApi {
     Pointer<Void> env,
     Object object,
     int classId,
-    String path,
-  ) => _intern(env, object, classId, path, null);
+    String path, [
+    List<(Object, int)>? pending,
+  ]) => _intern(env, object, classId, path, null, pending);
+
+  // A failed structural result has not exposed its newly created wrappers.
+  // Keep their owners until the ordinary finalizers run, but undo only claims
+  // first created by this result and still attached to the same lease.
+  void rollbackReferences(List<(Object, int)> pending) {
+    for (final (object, id) in pending.reversed) {
+      if (_references[object]?.id == id) _references[object] = null;
+    }
+  }
 
   int _intern(
     Pointer<Void> env,
     Object object,
     int classId,
     String path,
-    NapiCall? call,
-  ) {
+    NapiCall? call, [
+    List<(Object, int)>? pending,
+  ]) {
     final cached = _references[object];
     if (cached != null) {
       if (cached.classId != classId) {
@@ -885,6 +896,7 @@ final class NapiApi {
         _check(_wrap(env, call.self, id));
         result = call.self.address;
       }
+      if (cached == null) pending?.add((object, id));
       _references[object] = _ReferenceLease(id, classId);
       return result;
     } catch (_) {

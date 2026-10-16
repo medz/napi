@@ -191,11 +191,6 @@ import 'package:napi/napi.dart';
       'NAPI_GENERIC',
     ),
     (
-      'structural member',
-      '@NAPI() class Bad { List<int> read() => [1]; }',
-      'NAPI_TYPE',
-    ),
-    (
       'async member',
       '@NAPI() class Bad { Future<int> read() async => 1; }',
       'NAPI_TYPE',
