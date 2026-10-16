@@ -1,9 +1,40 @@
 import assert from 'node:assert/strict';
 
-export function verifyClasses({Counter, Other, Scalars, Options}) {
+export function verifyClasses({Counter, Other, Scalars, Options, RefBox, NamedReference}) {
+  for (const type of [Counter, Other, Scalars, Options, RefBox, NamedReference]) {
+    // Real class constructors retain [[Construct]]. Methods and accessor
+    // functions must reject use as newTarget before running any Dart callback.
+    assert(Object.hasOwn(type, 'prototype'));
+    assert.equal(Object.getPrototypeOf(Reflect.construct(Object, [], type)), type.prototype);
+    for (const target of [type, type.prototype]) {
+      for (const [name, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(target))) {
+        if (target === type.prototype && name === 'constructor') continue;
+        const functions = [descriptor.value, descriptor.get, descriptor.set].filter(value => typeof value === 'function');
+        if (functions.length === 0) continue;
+        assert.equal(descriptor.enumerable, false);
+        assert.equal(descriptor.configurable, true);
+        if (descriptor.value) {
+          assert.equal(descriptor.writable, true);
+          assert.equal(descriptor.value.name, name);
+        }
+        if (descriptor.get) assert.equal(descriptor.get.name, `get ${name}`);
+        if (descriptor.set) assert.equal(descriptor.set.name, `set ${name}`);
+        for (const fn of functions) {
+          assert.equal(Object.hasOwn(fn, 'prototype'), false, `${name} must not expose a function prototype`);
+          assert.throws(() => Reflect.construct(Object, [], fn), TypeError);
+          assert.throws(() => Reflect.construct(Object, [], fn.bind(null)), TypeError);
+          assert.throws(() => new fn(), TypeError);
+        }
+      }
+    }
+  }
   assert.equal(Counter.length, 0);
   assert.equal(Counter.prototype.increment.length, 0);
   assert.equal(Scalars.prototype.echo.length, 1);
+  assert.equal(Counter.label.length, 0);
+  assert.equal(RefBox.from.length, 1);
+  assert.equal(RefBox.shared.length, 0);
+  assert.equal(NamedReference.make.length, 1);
   const descriptor = Object.getOwnPropertyDescriptor(Counter.prototype, 'value');
   assert.equal(descriptor.get.length, 0);
   assert.equal(descriptor.set.length, 1);
