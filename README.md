@@ -1,6 +1,7 @@
 # napi
 
-A Dart-to-WebAssembly binding compiler for direct Node ESM imports:
+A Dart binding compiler targeting native Node-API `.node` addons and WebAssembly.
+The current development implementation supports direct Node ESM Wasm imports:
 
 ```js
 import { add } from './module.wasm';
@@ -10,12 +11,13 @@ console.log(add(20, 22));
 This branch builds on the clean rebuild described in [#115](https://github.com/medz/napi/issues/115).
 It is a development foundation, not a new release or the complete binding API.
 
-The target artifact is now **one `module.wasm` with no distributed JavaScript**.
-The current development compiler still generates JS host dependencies and has
-not reached that target. [The single-Wasm plan](doc/single-wasm.md) records the
-replacement path, verified boundaries, and outstanding requirements in
-[#144](https://github.com/medz/napi/issues/144). Existing JS-dependent fixtures
-remain regression evidence for the earlier contract, not zero-JS acceptance.
+The product follows napi-rs's model: one Dart export declaration, generated
+bindings and TypeScript types, and npm packages for native and Wasm targets.
+Necessary JavaScript loaders and runtime helpers are allowed. Both targets must
+preserve the same supported calls, including `new Counter()` and argument
+presence. Native output is a development goal, not an implemented backend.
+See [the architecture and delivery plan](doc/architecture.md) and
+[#144](https://github.com/medz/napi/issues/144) for its validation gates.
 
 ## Working foundation
 
@@ -27,9 +29,9 @@ remain regression evidence for the earlier contract, not zero-JS acceptance.
 - Handwritten ABI fixtures proving real Dart constructors and argument-presence semantics
 - Direct imports, installed package resolution, artifact inspection, and strict TypeScript tests
 
-The current generated JavaScript files are dependencies imported by Wasm. The
-replacement must eliminate them from the complete artifact graph, preserve direct
-imports, and require no loader setup, registration, or call to application `main`.
+The current generated JavaScript files are dependencies imported by Wasm.
+The package entry may select and load a backend automatically; consumers should
+not need loader setup, registration, or a call to application `main`.
 
 The annotation frontend records complete declaration metadata; build-time checks
 reject unsupported signatures before writing output. Optional-parameter/class
@@ -70,8 +72,8 @@ signed 64-bit input range; Dart `BigInt` always uses arbitrary-precision JavaScr
 
 The current tested toolchain is Dart **3.13.5 stable**, Node **24.19.0**, and
 TypeScript **7.0.2**. The SDK adapter deliberately rejects other Dart versions.
-Node's Wasm module warning is expected on this version. Bun, browsers, and native
-`.node` addons are outside this version's target.
+Node's Wasm module warning is expected on this version. Native `.node` execution,
+Bun and browser compatibility have not yet been verified by this implementation.
 
 ```sh
 dart pub get
