@@ -107,6 +107,22 @@ export function verifyArguments(api) {
   for (const value of [null, false, 0, '', [], () => {}, new Date(0), Object.create({count: 1})]) {
     rejectsBeforeCall(() => namedValues(3, value));
   }
+  assert.equal(namedValues(3, new Proxy({count: 0}, {})), '3|0|true|fallback|11');
+  rejectsBeforeCall(() => namedValues(3, new Proxy([], {})));
+  rejectsBeforeCall(() => namedValues(3, new Proxy({}, {getPrototypeOf() { return {}; }})));
+  const revokedOptions = Proxy.revocable({}, {});
+  revokedOptions.revoke();
+  rejectsBeforeCall(() => namedValues(3, revokedOptions.proxy));
+  const reflectionError = new Error('options reflection');
+  for (const traps of [
+    {getPrototypeOf() { throw reflectionError; }},
+    {ownKeys() { throw reflectionError; }},
+    {getOwnPropertyDescriptor() { throw reflectionError; }},
+  ]) {
+    const before = argumentCalls();
+    assert.throws(() => namedValues(3, new Proxy({count: 0}, traps)), error => error === reflectionError);
+    assert.equal(argumentCalls(), before);
+  }
 
   let getterCalls = 0;
   for (const property of ['count', 'unknown']) {

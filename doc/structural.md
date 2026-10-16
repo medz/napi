@@ -1,6 +1,6 @@
 # Lists and records
 
-The Wasm backend converts nested `List<T>` and Dart records in both directions.
+Both Dart Wasm and native Node-API backends convert nested `List<T>` and Dart records in both directions.
 Every structural node can be nullable. Leaves use the existing strict scalar
 rules for `bool`, `String`, `int`, `double` and `BigInt`; `@NAPI(bigint: true)`
 applies recursively to Dart `int` leaves.
@@ -37,7 +37,7 @@ compilation or output creation.
 | Boundary case | Policy |
 | --- | --- |
 | Containers | Every occurrence becomes an independent container. Repeating one source List/record in separate branches does not preserve container identity. Output mutation cannot modify the Dart source container. |
-| Arrays | Require `Array.isArray`, with `Array.prototype` or null prototype. Typed arrays and custom array prototypes are rejected. |
+| Arrays | Require `Array.isArray`, with `Array.prototype` or null prototype. Typed arrays and custom array prototypes are rejected. Read length once per container, require a numeric uint32 length, then use that snapshot for budget, key bounds and traversal. Invalid lengths fail at `.length`; this also applies to custom Dart output Lists. |
 | Record objects | Require an ordinary object with `Object.prototype` or null prototype. Arrays and custom prototypes are rejected. Output records are ordinary mutable objects. |
 | Fields and indices | Require own data properties. Sparse indices, missing record fields and accessors are rejected. Accessor getters/setters are never invoked by conversion. Non-enumerable own data properties are accepted. |
 | Extra properties | Reject unknown record keys and array properties other than `length` and canonical indices. Symbol keys are also rejected. |
@@ -48,7 +48,11 @@ compilation or output creation.
 
 JavaScript proxies can run their own reflection traps during inspection; the
 own-data rule prevents invoking property accessors, not arbitrary proxy code.
-Reflection enumerates an object's own keys before checking them. The work limit
+Reflection enumerates an object's own keys before checking them. Descriptors are
+read one child at a time, immediately followed by that child's recursive
+conversion. Both backends use JavaScript Array/prototype checks for Proxy inputs
+and preserve thrown reflection exceptions. A Proxy that shrinks a List after
+length capture can cause an own-data error at the now-missing index. The work limit
 bounds converted values and recursive traversal, not the JavaScript engine's
 allocation for that initial key enumeration.
 
@@ -58,9 +62,16 @@ containers. Production currently supplies only scalar leaves: this does not
 implement opaque values, reference handles, shared buffers, class construction,
 or Map/dictionary conversion.
 
-The source-to-Wasm fixtures cover nested nullable values, cloning, strict leaves,
-descriptor failures, cycles, depth/work boundaries, recovery, TypeScript and
-output List getter failures. Tested with Dart 3.13.5 and Node 24.19.0; the compiler
-adapter uses private experimental SDK APIs. Native Node-API `.node` conformance
-remains open until its runtime and generator exist; Wasm results do not establish
-native parity.
+The shared generated-consumer contract covers nested nullable values, cloning,
+strict leaves, descriptor failures, cycles, depth/work boundaries, recovery,
+TypeScript, output List getter failures, Proxy reflection order/length capture,
+UTF-16 error paths and same-module reentry with GC. Fresh native/Wasm npm
+consumers run it with the original native source/build directories removed.
+Tested with Dart 3.13.5, Node 24.19.0/26.11.1 and TypeScript 7.0.2. Native execution
+is qualified on macOS arm64 and requires an ABI 3 bundle. The compiler/runtime
+use private experimental SDK APIs; other native platforms remain unqualified.
+
+Structural class members, nested reference/opaque/shared leaves and non-null
+structural defaults remain separate work. Only generated top-level structural
+functions are supported in this slice; class values still use their direct
+reference conversion contract.

@@ -2,6 +2,8 @@ import 'dart:collection';
 
 import 'package:napi/napi.dart';
 
+export 'named_list.dart';
+
 typedef Item = (
   String, {
   List<int?>? values,
@@ -62,6 +64,15 @@ List<({int wide, BigInt huge})> structuralBigInts(
 List<int?>? structuralOptional([List<int?>? value]) => value;
 
 @NAPI()
+List<int?>? structuralNamedRequired({required List<int?>? value}) => value;
+
+@NAPI()
+List<int?>? structuralNamedOptional({List<int?>? value}) => value;
+
+@NAPI()
+List<int?>? structuralMixed(List<int?>? value, [bool ignored = false]) => value;
+
+@NAPI()
 List<int> structuralUnsafeOutput() => [9007199254740992];
 
 @NAPI()
@@ -83,6 +94,22 @@ final class _ThrowingList extends ListBase<int> {
 @NAPI()
 List<int> structuralThrowingOutput(bool indexError) =>
     _ThrowingList(indexError);
+
+final class _InvalidLengthList extends ListBase<int> {
+  final int reportedLength;
+  _InvalidLengthList(this.reportedLength);
+  @override
+  int get length => reportedLength;
+  @override
+  set length(int value) => throw UnimplementedError();
+  @override
+  int operator [](int index) => throw StateError('must check length first');
+  @override
+  void operator []=(int index, int value) => throw UnimplementedError();
+}
+
+@NAPI()
+List<int> structuralInvalidLength(int length) => _InvalidLengthList(length);
 
 void main() => throw StateError('business main must not run');
 

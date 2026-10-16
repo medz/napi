@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:napi/napi.dart';
 
 export 'classes.dart';
+export 'structural_values.dart';
 
 @NAPI()
 int randomValue() => Random.secure().nextInt(1024);

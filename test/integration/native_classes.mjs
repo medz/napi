@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {Worker, isMainThread, parentPort, workerData} from 'node:worker_threads';
 import * as api from '@napi/native-fixture';
+import {verifyStructures} from './structural_contract.mjs';
 import {verifyClasses} from './class_contract.mjs';
 import {verifyReferences, verifyForeignReferences, verifyReferenceRetention} from './reference_contract.mjs';
 const {Counter, randomValue, executable, createRequire, bindings, globalThis: exportedGlobal, URL: exportedUrl} = api;
@@ -9,6 +10,7 @@ function check() {
   assert.deepEqual([createRequire(), bindings(), exportedGlobal(), exportedUrl()], [1, 2, 3, 4]);
   verifyClasses(api);
   verifyReferences(api);
+  verifyStructures(api);
   assert(randomValue() >= 0);
   assert.equal(executable(), process.execPath);
 }

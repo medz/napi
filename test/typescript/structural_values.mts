@@ -1,7 +1,9 @@
 import {
   structuralLists, structuralRecords, structuralNamed, structuralSingle,
   structuralEmpty, structuralBooleans, structuralDoubles, structuralStrings,
-  structuralBigInts, structuralOptional,
+  structuralBigInts, structuralOptional, structuralNamedRequired,
+  NamedList, namedListIdentity,
+  structuralNamedOptional, structuralMixed,
 } from './module.wasm';
 
 const lists: Array<Array<number | null> | null> | null = structuralLists([[1, null], null]);
@@ -46,3 +48,19 @@ structuralBigInts([{wide: 1, huge: 1n}]);
 // @ts-expect-error optional nullable list does not permit undefined elements
 structuralOptional([undefined]);
 void [lists, records];
+
+const namedRequired: Array<number | null> | null = structuralNamedRequired({value: null});
+const namedOptional: Array<number | null> | null = structuralNamedOptional({value: undefined});
+const mixed: Array<number | null> | null = structuralMixed([1, null], undefined);
+// @ts-expect-error required named container stays required
+structuralNamedRequired({});
+// @ts-expect-error required nullable is not undefined
+structuralNamedRequired({value: undefined});
+// @ts-expect-error required positional structure remains required
+structuralMixed();
+void [namedRequired, namedOptional, mixed];
+
+const namedList: NamedList = namedListIdentity(new NamedList(1));
+// @ts-expect-error a user class named List is not a structural array
+namedListIdentity([]);
+void namedList;

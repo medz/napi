@@ -119,6 +119,80 @@ typedef _ReferenceCreate = int Function(
   int,
   Pointer<Pointer<Void>>,
 );
+typedef _InspectShapeNative = Int32 Function(
+  Pointer<Void>,
+  Pointer<Void>,
+  Bool,
+  Pointer<Pointer<Void>>,
+  Size,
+  Pointer<Void>,
+  Uint32,
+  Uint32,
+  Bool,
+  Pointer<Uint32>,
+);
+typedef _InspectShape = int Function(
+  Pointer<Void>,
+  Pointer<Void>,
+  bool,
+  Pointer<Pointer<Void>>,
+  int,
+  Pointer<Void>,
+  int,
+  int,
+  bool,
+  Pointer<Uint32>,
+);
+typedef _ReadOwnValueNative = Int32 Function(
+  Pointer<Void>,
+  Pointer<Void>,
+  Pointer<Void>,
+  Pointer<Void>,
+  Pointer<Pointer<Void>>,
+);
+typedef _ReadOwnValue = int Function(
+  Pointer<Void>,
+  Pointer<Void>,
+  Pointer<Void>,
+  Pointer<Void>,
+  Pointer<Pointer<Void>>,
+);
+typedef _StrictEqualsNative = Int32 Function(
+  Pointer<Void>,
+  Pointer<Void>,
+  Pointer<Void>,
+  Pointer<Bool>,
+);
+typedef _StrictEquals = int Function(
+  Pointer<Void>,
+  Pointer<Void>,
+  Pointer<Void>,
+  Pointer<Bool>,
+);
+typedef _CreateContainerNative = Int32 Function(
+  Pointer<Void>,
+  Bool,
+  Uint32,
+  Pointer<Pointer<Void>>,
+);
+typedef _CreateContainer = int Function(
+  Pointer<Void>,
+  bool,
+  int,
+  Pointer<Pointer<Void>>,
+);
+typedef _DefineOwnValueNative = Int32 Function(
+  Pointer<Void>,
+  Pointer<Void>,
+  Pointer<Void>,
+  Pointer<Void>,
+);
+typedef _DefineOwnValue = int Function(
+  Pointer<Void>,
+  Pointer<Void>,
+  Pointer<Void>,
+  Pointer<Void>,
+);
 typedef _GetInt64Native = Int32 Function(
   Pointer<Void>,
   Pointer<Void>,
@@ -263,8 +337,8 @@ final class _ReferenceLease {
 final class NapiApi {
   final Pointer<Pointer<Void>> _table;
   NapiApi(int address, int tableCount) : _table = Pointer.fromAddress(address) {
-    if (address == 0 || tableCount != 30) {
-      throw StateError('Incompatible native bridge ABI (expected 30 slots).');
+    if (address == 0 || tableCount != 35) {
+      throw StateError('Incompatible native bridge ABI (expected 35 slots).');
     }
   }
   late final _CallbackInfo _callbackInfo = _table[0]
@@ -342,6 +416,21 @@ final class NapiApi {
   late final _ReferenceCreate _referenceCreate = _table[29]
       .cast<NativeFunction<_ReferenceCreateNative>>()
       .asFunction<_ReferenceCreate>();
+  late final _InspectShape _inspectShape = _table[30]
+      .cast<NativeFunction<_InspectShapeNative>>()
+      .asFunction<_InspectShape>();
+  late final _ReadOwnValue _readOwnValue = _table[31]
+      .cast<NativeFunction<_ReadOwnValueNative>>()
+      .asFunction<_ReadOwnValue>();
+  late final _StrictEquals _strictEquals = _table[32]
+      .cast<NativeFunction<_StrictEqualsNative>>()
+      .asFunction<_StrictEquals>();
+  late final _CreateContainer _createContainer = _table[33]
+      .cast<NativeFunction<_CreateContainerNative>>()
+      .asFunction<_CreateContainer>();
+  late final _DefineOwnValue _defineOwnValue = _table[34]
+      .cast<NativeFunction<_DefineOwnValueNative>>()
+      .asFunction<_DefineOwnValue>();
   // Only an attached JS lease retains its Dart value. The identity cache's
   // weak keys and primitive records cannot keep either heap alive by themselves.
   final _owners = <int, Object>{};
@@ -477,15 +566,23 @@ final class NapiApi {
     Pointer<Void> value,
     int type,
     String name,
-    String path,
-  ) {
+    String path, {
+    bool nullable = false,
+  }) {
     if (typeOf(env, value) != type) {
-      throw NapiTypeError('$path: expected a JavaScript $name');
+      throw NapiTypeError(
+        '$path: expected a JavaScript $name${nullable ? ' or null' : ''}',
+      );
     }
   }
 
-  int integer(Pointer<Void> env, Pointer<Void> value, String path) {
-    final number = doubleValue(env, value, path);
+  int integer(
+    Pointer<Void> env,
+    Pointer<Void> value,
+    String path, {
+    bool nullable = false,
+  }) {
+    final number = doubleValue(env, value, path, nullable: nullable);
     if (!number.isFinite ||
         number.truncateToDouble() != number ||
         number.abs() > 9007199254740991) {
@@ -494,8 +591,13 @@ final class NapiApi {
     return number.toInt();
   }
 
-  double doubleValue(Pointer<Void> env, Pointer<Void> value, String path) {
-    _expect(env, value, 3, 'number', path);
+  double doubleValue(
+    Pointer<Void> env,
+    Pointer<Void> value,
+    String path, {
+    bool nullable = false,
+  }) {
+    _expect(env, value, 3, 'number', path, nullable: nullable);
     final out = _allocate<Double>(1, sizeOf<Double>());
     try {
       _check(_getDouble(env, value, out));
@@ -505,8 +607,13 @@ final class NapiApi {
     }
   }
 
-  bool boolean(Pointer<Void> env, Pointer<Void> value, String path) {
-    _expect(env, value, 2, 'boolean', path);
+  bool boolean(
+    Pointer<Void> env,
+    Pointer<Void> value,
+    String path, {
+    bool nullable = false,
+  }) {
+    _expect(env, value, 2, 'boolean', path, nullable: nullable);
     final out = _allocate<Bool>(1, sizeOf<Bool>());
     try {
       _check(_getBool(env, value, out));
@@ -516,8 +623,13 @@ final class NapiApi {
     }
   }
 
-  String string(Pointer<Void> env, Pointer<Void> value, String path) {
-    _expect(env, value, 4, 'string', path);
+  String string(
+    Pointer<Void> env,
+    Pointer<Void> value,
+    String path, {
+    bool nullable = false,
+  }) {
+    _expect(env, value, 4, 'string', path, nullable: nullable);
     final length = _allocate<Size>(1, sizeOf<Size>());
     try {
       _check(_getString(env, value, nullptr, 0, length));
@@ -534,8 +646,13 @@ final class NapiApi {
     }
   }
 
-  int integerBigInt(Pointer<Void> env, Pointer<Void> value, String path) {
-    _expect(env, value, 9, 'bigint', path);
+  int integerBigInt(
+    Pointer<Void> env,
+    Pointer<Void> value,
+    String path, {
+    bool nullable = false,
+  }) {
+    _expect(env, value, 9, 'bigint', path, nullable: nullable);
     Pointer<Int64> out = nullptr;
     Pointer<Bool> lossless = nullptr;
     try {
@@ -552,8 +669,13 @@ final class NapiApi {
     }
   }
 
-  BigInt bigInteger(Pointer<Void> env, Pointer<Void> value, String path) {
-    _expect(env, value, 9, 'bigint', path);
+  BigInt bigInteger(
+    Pointer<Void> env,
+    Pointer<Void> value,
+    String path, {
+    bool nullable = false,
+  }) {
+    _expect(env, value, 9, 'bigint', path, nullable: nullable);
     Pointer<Size> count = nullptr;
     Pointer<Int32> sign = nullptr;
     try {
@@ -624,6 +746,88 @@ final class NapiApi {
     } finally {
       _free(words.cast());
     }
+  }
+
+  int inspectShape(
+    Pointer<Void> env,
+    Pointer<Void> input,
+    bool array,
+    List<String> fields,
+    String path,
+    int remaining,
+    int depth,
+    bool cyclic,
+  ) {
+    Pointer<Pointer<Void>> keys = nullptr;
+    Pointer<Uint32> length = nullptr;
+    try {
+      keys = _allocate<Pointer<Void>>(fields.length, sizeOf<Pointer<Void>>());
+      length = _allocate<Uint32>(1, sizeOf<Uint32>());
+      for (var i = 0; i < fields.length; i++) {
+        keys[i] = Pointer<Void>.fromAddress(stringResult(env, fields[i]));
+      }
+      final context = Pointer<Void>.fromAddress(stringResult(env, path));
+      _check(
+        _inspectShape(
+          env,
+          input,
+          array,
+          keys,
+          fields.length,
+          context,
+          remaining,
+          depth,
+          cyclic,
+          length,
+        ),
+      );
+      return length.value;
+    } finally {
+      _free(length.cast());
+      _free(keys.cast());
+    }
+  }
+
+  Pointer<Void> readOwnValue(
+    Pointer<Void> env,
+    Pointer<Void> input,
+    String key,
+    String path,
+  ) {
+    final name = Pointer<Void>.fromAddress(stringResult(env, key));
+    final context = Pointer<Void>.fromAddress(stringResult(env, path));
+    return Pointer<Void>.fromAddress(
+      _result((out) => _readOwnValue(env, input, name, context, out)),
+    );
+  }
+
+  bool strictEquals(
+    Pointer<Void> env,
+    Pointer<Void> left,
+    Pointer<Void> right,
+  ) {
+    final result = _allocate<Bool>(1, sizeOf<Bool>());
+    try {
+      _check(_strictEquals(env, left, right, result));
+      return result.value;
+    } finally {
+      _free(result.cast());
+    }
+  }
+
+  int createContainer(Pointer<Void> env, bool array, int length) =>
+      _result((out) => _createContainer(env, array, length, out));
+
+  void defineOwnValue(Pointer<Void> env, int container, String key, int value) {
+    final name = Pointer<Void>.fromAddress(stringResult(env, key));
+    _check(
+      _defineOwnValue(
+        env,
+        Pointer<Void>.fromAddress(container),
+        name,
+        Pointer<Void>.fromAddress(value),
+      ),
+    );
   }
 
   void checkNew(NapiCall call, bool required, String context) {

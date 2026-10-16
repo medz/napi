@@ -25,7 +25,7 @@ final _free = _libc.lookupFunction<_FreeNative, _Free>('free');
 // cache expiry/finalizer ordering; real Node weak references and teardown are
 // covered by the generated native integration contract.
 final class _Table {
-  final table = _calloc(30, sizeOf<Pointer<Void>>()).cast<Pointer<Void>>();
+  final table = _calloc(35, sizeOf<Pointer<Void>>()).cast<Pointer<Void>>();
   final byLease = <int, int>{};
   final byPointer = <int, int>{};
   final creations = <(int, int)>[];
@@ -84,7 +84,7 @@ final class _Table {
     table[15] = unwrap.nativeFunction.cast();
     table[28] = value.nativeFunction.cast();
     table[29] = create.nativeFunction.cast();
-    api = NapiApi(table.address, 30);
+    api = NapiApi(table.address, 35);
   }
 
   NapiCall call(int self) => NapiCall(
@@ -250,5 +250,6 @@ void main() {
       ),
     );
     expect(() => NapiApi(bridge.table.address, 28), throwsStateError);
+    expect(() => NapiApi(bridge.table.address, 30), throwsStateError);
   });
 }

@@ -79,11 +79,18 @@ Weak identity entries and zero-count Node-API references do not root wrappers.
 Environment and exact selected class brands are checked before business calls.
 Readonly fields remain readonly and GC does not call business disposal methods.
 
-The private bridge table is ABI 2 (30 slots). Older bundles are rejected before
+The private bridge table is ABI 3 (35 slots). Older bundles are rejected before
 copying; maintainers rebuild the bridge/runtime bundle using their existing VM
 cache. Consumer builds still require only the ordinary Dart SDK and that bundle.
 
-Unsupported shapes fail before output is created: structural values on native,
+Top-level List/record functions share Wasm's [structural conversion](structural.md)
+contract, including nullable containers, cloned outputs, own-data fields, bounded
+traversal and precise UTF-16 paths. Reflection uses JavaScript Array/prototype
+semantics for Proxy inputs; lengths are captured once and descriptors are read
+child by child. Handles stay scoped to the current callback; structural conversion
+does not create a persistent object registry.
+
+Unsupported shapes fail before output is created: structural class members,
 nested references, value/resource policies, generic specialization, non-null
 object defaults, Futures, callbacks, streams and cancellation. The same reference
 contract runs on Wasm; see [reference classes](classes.md). JavaScript inheritance

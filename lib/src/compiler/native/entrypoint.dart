@@ -3,14 +3,29 @@ import 'dart:convert';
 import '../emit/dart/entrypoint.dart' show renderDartDefault;
 import '../ir/model.dart';
 import '../lowering/plan.dart'
-    show ReferenceConversion, ScalarConversion, ScalarKind;
+    show
+        ListConversion,
+        RecordConversion,
+        ReferenceConversion,
+        ScalarConversion,
+        ScalarKind;
 import 'plan.dart';
+import 'structural.dart';
 
 String _quote(String value) => jsonEncode(value).replaceAll(r'$', r'\$');
 
 /// Generate business-specific Dart only. The Node-API bridge stays generic.
 String emitNativeDart(NativeModulePlan plan) {
-  final code = StringBuffer('''
+  final hasStructures = plan.calls.any(
+    (call) => [
+      ...call.inputs,
+      if (call.output != null) call.output!,
+    ].any((value) => value is ListConversion || value is RecordConversion),
+  );
+  final structures = NativeStructuralEmitter();
+  final code = StringBuffer();
+  if (hasStructures) code.writeln("import 'dart:ffi';");
+  code.write('''
 import 'package:napi/src/compiler/native/bindings.dart';
 import ${_quote(plan.bindings.importUri.toString())} as target;
 
@@ -51,6 +66,10 @@ void main() {}
     final positionalCount = parameters.where((p) => !_named(p)).length;
     final named = parameters.where(_named).toList();
     final capacity = positionalCount + (named.isEmpty ? 0 : 1);
+    final rawStructuralArguments =
+        parameters.every((p) => p.kind == ParameterKind.requiredPositional) &&
+        !call.inputs.any((value) => value is ReferenceConversion) &&
+        call.output is! ReferenceConversion;
     code.writeln(
       'int ${call.callback}(int envAddress, int infoAddress) {\n  try {',
     );
@@ -89,7 +108,13 @@ void main() {}
       final isNamed = _named(parameter);
       final option = namedIndex;
       if (isNamed) namedIndex++;
-      final raw = isNamed
+      final structural =
+          conversion is ListConversion || conversion is RecordConversion;
+      const undefined =
+          'Pointer<Void>.fromAddress(_api.undefinedResult(call.env))';
+      final raw = structural && rawStructuralArguments
+          ? '(call.argumentCount > $index ? call.arguments[$index] : $undefined)'
+          : isNamed
           ? '_api.requiredOption(call.env, options, $option, $path)'
           : '_api.requiredArgument(call, $index, $path)';
       code.writeln('    final ${conversion.dartType} a$index;');
@@ -118,9 +143,15 @@ void main() {}
         if (conversion.nullable) code.writeln('    }');
       } else if (conversion is ScalarConversion) {
         final converted =
-            '_api.${_reader(conversion)}(call.env, raw$index, $path)';
+            '_api.${nativeScalarReader(conversion)}(call.env, raw$index, $path)';
         code.writeln(
           '    a$index = ${conversion.nullable ? '_api.isNull(call.env, raw$index) ? null : ' : ''}$converted;',
+        );
+      } else if (conversion is ListConversion ||
+          conversion is RecordConversion) {
+        final read = structures.read(conversion);
+        code.writeln(
+          '    a$index = $read(call.env, raw$index, _NativeReadState(), $path, 0);',
         );
       } else {
         throw StateError('Unsupported native input conversion');
@@ -158,7 +189,9 @@ void main() {}
     } else {
       final output = call.output!;
       code.writeln('    final value = $invocation;');
-      if (output.nullable) {
+      if (output.nullable &&
+          output is! ListConversion &&
+          output is! RecordConversion) {
         code.writeln(
           '    if (value == null) return _api.nullResult(call.env);',
         );
@@ -172,7 +205,12 @@ void main() {}
             ? ', ${_quote(output.context)}'
             : '';
         code.writeln(
-          '    return _api.${_writer(output)}(call.env, value$context);',
+          '    return _api.${nativeScalarWriter(output)}(call.env, value$context);',
+        );
+      } else if (output is ListConversion || output is RecordConversion) {
+        final write = structures.write(output);
+        code.writeln(
+          '    return $write(call.env, value, _NativeWriteState(), ${_quote(output.context)}, 0);',
         );
       } else {
         throw StateError('Unsupported native output conversion');
@@ -181,6 +219,10 @@ void main() {}
     code.writeln(
       '  } catch (error) {\n    return _api.fail(envAddress, error);\n  }\n}',
     );
+  }
+  if (hasStructures) {
+    code.writeln(nativeStructuralPrelude);
+    code.write(structures.source);
   }
   return code.toString();
 }
@@ -191,17 +233,3 @@ bool _named(ParameterBinding p) =>
 bool _optional(ParameterBinding p) =>
     p.kind == ParameterKind.optionalNamed ||
     p.kind == ParameterKind.optionalPositional;
-String _reader(ScalarConversion value) => switch (value.kind) {
-  ScalarKind.integer => value.bigint ? 'integerBigInt' : 'integer',
-  ScalarKind.boolean => 'boolean',
-  ScalarKind.string => 'string',
-  ScalarKind.doubleValue => 'doubleValue',
-  ScalarKind.bigInteger => 'bigInteger',
-};
-String _writer(ScalarConversion value) => switch (value.kind) {
-  ScalarKind.integer => value.bigint ? 'integerBigIntResult' : 'integerResult',
-  ScalarKind.boolean => 'booleanResult',
-  ScalarKind.string => 'stringResult',
-  ScalarKind.doubleValue => 'doubleResult',
-  ScalarKind.bigInteger => 'bigIntegerResult',
-};

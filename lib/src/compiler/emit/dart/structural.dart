@@ -41,6 +41,7 @@ final class DartStructuralEmitter {
           _code.writeln('''  state.enter(value, path, depth);
   try {
     final length = value.length;
+    if (length < 0 || length > 0xffffffff) _structureError('\$path.length', 'expected an Array length', false);
     if (length > 10000 - state.work) _structureError(path, 'structural work limit (10000) exceeded', true);
     return <JSAny?>[
       for (var i = 0; i < length; i++)
