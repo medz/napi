@@ -14,7 +14,8 @@ It is a development foundation, not a new release or the complete binding API.
 
 - Resolved `@NAPI()` discovery with renaming, class/member selection and reexports
 - Analyzer-independent declarations, validation, lowering, and Dart/JS/TypeScript emitters
-- Required positional Dart `int` functions with JavaScript safe-integer inputs and outputs
+- Required positional scalar functions: `bool`, `String`, `double`, `int`, `BigInt`, and nullable forms
+- Safe-number `int` by default, or fixed JavaScript `bigint` with `@NAPI(bigint: true)`
 - A pinned Dart SDK adapter and linker producing actual Wasm named exports
 - Handwritten ABI fixtures proving real Dart constructors and argument-presence semantics
 - Direct imports, installed package resolution, artifact inspection, and strict TypeScript tests
@@ -23,11 +24,39 @@ The generated JavaScript files are dependencies imported by Wasm. Consumers need
 no JavaScript entrypoint, loader setup, registration, or call to application `main`.
 
 The annotation frontend records complete declaration metadata; build-time checks
-reject unsupported signatures before writing output. Complete scalar/optional/class
+reject unsupported signatures before writing output. Optional-parameter/class
 execution and production npm package assembly remain separate work in
-[#114](https://github.com/medz/napi/issues/114). See [annotation syntax and scope](doc/annotations.md).
+[#114](https://github.com/medz/napi/issues/114). See [annotation syntax and scope](doc/annotations.md) and the
+[scalar conversion contract](doc/scalars.md).
 Annotated sources import `package:napi/napi.dart`; separate Dart VM build scripts
 use `buildLibrary` from `package:napi/build.dart`.
+
+## Scalar conversions
+
+```dart
+import 'package:napi/napi.dart';
+
+@NAPI()
+String? echo(String? value) => value;
+
+@NAPI(bigint: true)
+int addWide(int left, int right) => left + right;
+```
+
+```js
+import { echo, addWide } from './module.wasm';
+echo(null);           // null
+echo('🙂');           // '🙂'
+addWide(1n, 2n);      // 3n
+```
+
+Conversions never coerce input values. Nullable parameters accept `null`, but not
+`undefined` or omission. `double` preserves NaN, infinities and negative zero;
+strings preserve UTF-16 code units, including lone surrogates. Default `int`
+checks the JavaScript safe-integer range in both directions. The `bigint` option
+maps all Dart `int` inputs/results of that function to JavaScript `bigint` with a
+signed 64-bit input range; Dart `BigInt` always uses arbitrary-precision JavaScript
+`bigint`. See [the full contract](doc/scalars.md), including error behavior.
 
 ## Verify
 

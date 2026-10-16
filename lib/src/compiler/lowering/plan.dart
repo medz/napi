@@ -10,24 +10,70 @@ enum ExportRepresentation {
   callableGlobal,
 }
 
-final class SafeIntConversion {
+enum ScalarKind { boolean, string, integer, doubleValue, bigInteger }
+
+/// One fixed policy drives Dart, JavaScript and TypeScript generation.
+final class ScalarConversion {
   final String context;
-  const SafeIntConversion(this.context);
+  final ScalarKind kind;
+  final bool nullable;
+  final bool bigint;
+  ScalarConversion(BindingType type, this.context, {required bool bigint})
+    : nullable = type.nullability == TypeNullability.nullable,
+      kind = type is SafeIntType
+          ? ScalarKind.integer
+          : switch ((type as DeclaredType).declaration.name) {
+              'bool' => ScalarKind.boolean,
+              'String' => ScalarKind.string,
+              'double' => ScalarKind.doubleValue,
+              'BigInt' => ScalarKind.bigInteger,
+              _ => throw StateError('Unvalidated scalar type'),
+            },
+      bigint = type is SafeIntType && bigint;
+
+  String get dartType =>
+      switch (kind) {
+        ScalarKind.boolean => 'bool',
+        ScalarKind.string => 'String',
+        ScalarKind.integer => 'int',
+        ScalarKind.doubleValue => 'double',
+        ScalarKind.bigInteger => 'BigInt',
+      } +
+      (nullable ? '?' : '');
+
+  String get jsType => switch (kind) {
+    ScalarKind.boolean => 'boolean',
+    ScalarKind.string => 'string',
+    ScalarKind.integer => bigint ? 'bigint' : 'number',
+    ScalarKind.doubleValue => 'number',
+    ScalarKind.bigInteger => 'bigint',
+  };
+
+  String get typescriptType => '$jsType${nullable ? ' | null' : ''}';
+  bool get usesBigInt => kind == ScalarKind.bigInteger || bigint;
 }
 
 /// Executable choices are separate from descriptive declaration metadata.
 final class FunctionPlan {
   final FunctionBinding binding;
   final ExportRepresentation representation;
-  final List<SafeIntConversion> inputs;
-  final SafeIntConversion output;
+  final List<ScalarConversion> inputs;
+  final ScalarConversion output;
   FunctionPlan._(this.binding)
     : representation = ExportRepresentation.nativeFunction,
       inputs = List.unmodifiable([
         for (final p in binding.parameters)
-          SafeIntConversion('${binding.exportName}.${p.name}'),
+          ScalarConversion(
+            p.type,
+            '${binding.exportName}.${p.name}',
+            bigint: binding.bigint,
+          ),
       ]),
-      output = SafeIntConversion('${binding.exportName} result');
+      output = ScalarConversion(
+        binding.result,
+        '${binding.exportName} result',
+        bigint: binding.bigint,
+      );
 }
 
 final class ModulePlan {

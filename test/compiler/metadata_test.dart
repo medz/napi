@@ -365,9 +365,8 @@ void main() {
     }
   });
 
-  test('nullable integers cannot reach safe-int lowering', () {
+  test('legacy integer nullability cannot reach scalar lowering', () {
     for (final type in [
-      const SafeIntType(nullability: TypeNullability.nullable),
       const SafeIntType(nullability: TypeNullability.legacy),
     ]) {
       for (final binding in [

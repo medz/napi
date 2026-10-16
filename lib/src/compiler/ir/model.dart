@@ -85,7 +85,8 @@ sealed class BindingType {
   ValueSemantics get semantics;
 }
 
-/// Dart int represented by a JavaScript safe integer, in both directions.
+/// Dart int, using JavaScript safe integers unless [FunctionBinding.bigint]
+/// explicitly selects JavaScript bigint conversion for the function.
 final class SafeIntType extends BindingType {
   const SafeIntType({super.nullability, super.alias});
   @override
@@ -246,6 +247,10 @@ final class FunctionBinding {
   final bool isExternal;
   final bool isAsync;
   final bool isGenerator;
+
+  /// Represent every Dart int parameter and result as JavaScript bigint.
+  /// Dart BigInt always uses bigint, independently of this policy.
+  final bool bigint;
   FunctionBinding({
     required this.declaration,
     required this.exportName,
@@ -259,6 +264,7 @@ final class FunctionBinding {
     this.isExternal = false,
     this.isAsync = false,
     this.isGenerator = false,
+    this.bigint = false,
   }) : parameters = List.unmodifiable(parameters),
        typeParameters = List.unmodifiable(typeParameters),
        callPath = callPath ?? declaration.name,

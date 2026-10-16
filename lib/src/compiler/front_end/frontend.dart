@@ -73,7 +73,8 @@ final class AnnotationFrontend implements BindingFrontend {
 final class _Configuration {
   final String? name;
   final bool exclude;
-  const _Configuration(this.name, this.exclude);
+  final bool bigint;
+  const _Configuration(this.name, this.exclude, this.bigint);
 }
 
 final class _Reader {
@@ -212,7 +213,9 @@ final class _Reader {
     }
     final name = value.getField('name')?.toStringValue();
     final exclude = value.getField('exclude')?.toBoolValue();
+    final bigint = value.getField('bigint')?.toBoolValue();
     if (exclude == null ||
+        bigint == null ||
         (name == null && value.getField('name')?.isNull != true)) {
       _reject(
         element,
@@ -227,7 +230,7 @@ final class _Reader {
         'name and exclude cannot be combined.',
       );
     }
-    return _Configuration(name, exclude);
+    return _Configuration(name, exclude, bigint);
   }
 
   FunctionBinding _function(
@@ -249,6 +252,7 @@ final class _Reader {
     isExternal: element.isExternal,
     isAsync: element.firstFragment.isAsynchronous,
     isGenerator: element.firstFragment.isGenerator,
+    bigint: config.bigint,
   );
 
   ClassBinding _class(
@@ -411,7 +415,9 @@ final class _Reader {
           ? ValueSemantics.structural
           : type.isDartCoreBool ||
                 type.isDartCoreDouble ||
-                type.isDartCoreString
+                type.isDartCoreString ||
+                (type.element.library.uri == Uri.parse('dart:core') &&
+                    type.element.name == 'BigInt')
           ? ValueSemantics.scalar
           : ValueSemantics.reference;
       return DeclaredType(
@@ -607,6 +613,21 @@ final class _AnnotationVisitor extends RecursiveAstVisitor<void> {
       );
     }
     final config = reader._config(element);
+    final hasBigintOption =
+        node.arguments?.arguments.any(
+          (argument) =>
+              argument is NamedArgument && argument.name.lexeme == 'bigint',
+        ) ??
+        false;
+    if (hasBigintOption && config?.exclude == true) {
+      reject('NAPI_SELECTION', 'bigint and exclude cannot be combined.');
+    }
+    if (hasBigintOption && element is! a.TopLevelFunctionElement) {
+      reject(
+        'NAPI_PLACEMENT',
+        'bigint is only supported on a top-level function.',
+      );
+    }
     if (element.isPrivate) {
       reject('NAPI_VISIBILITY', 'An annotated declaration must be public.');
     }
