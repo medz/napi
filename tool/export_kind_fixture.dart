@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:napi/src/compiler/linker/dart_module_linker.dart';
+import 'package:napi/src/compiler/emit/js/arguments.dart';
 import 'package:napi/src/compiler/sdk_adapter/dart_sdk_adapter.dart';
 
 /// Builds the handwritten class/presence regression through the real adapter.
@@ -44,6 +45,7 @@ Future<Directory> buildExportKindFixture({
     ),
   );
   await File('${fixture.path}/host.mjs').copy('${output.path}/public_api.mjs');
+  await File('${output.path}/arguments.mjs').writeAsString(argumentPolicy);
   for (final name in [
     'test.mjs',
     'module.d.wasm.ts',
@@ -60,6 +62,7 @@ Future<Directory> buildExportKindFixture({
     'module.wasm',
     'public_api.mjs',
     'DART_LICENSE',
+    'arguments.mjs',
   ]) {
     await File('${output.path}/$name').copy('${second.path}/$name');
   }

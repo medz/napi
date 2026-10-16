@@ -51,8 +51,8 @@ accidentally call a nonexistent declaration in the entry file.
 The IR preserves documentation, line/column and offsets, nullable types, generic
 arguments and bounds, typedef identity, function/record types, parameter kinds,
 explicit defaults, initializing/super formals, fields and member modifiers. Default
-expressions are source metadata, not copied executable JavaScript. Later presence
-and conversion work chooses how to apply defaults and named-parameter options.
+expressions remain source metadata. Evaluated scalar constants drive generated
+Dart defaults and named-parameter options without copying source expressions.
 Wildcard parameters retain their positional slots, including repeated wildcard
 type parameters. Synthetic callback parameters have no invented source span;
 their source is absent. No analyzer elements, AST nodes or types leave the frontend.
@@ -68,13 +68,14 @@ platform.
 `AnnotationFrontend.read` normalizes declarations and validates selections even
 when no runtime engine exists for their signatures. Building separately checks
 backend capabilities before creating output: currently only nongeneric top-level
-functions with required positional scalar parameters and scalar results are
+functions with positional/named scalar parameters and scalar results are
 supported: `bool`, `String`, `double`, `int`, `BigInt`, and their nullable forms.
 `@NAPI(bigint: true)` selects fixed JavaScript `bigint` representation for every
 Dart `int` parameter/result of that function, including nullable ints and typedefs.
 It does not change other scalar types; Dart `BigInt` always uses JavaScript
-`bigint`. See [scalar conversion semantics](scalars.md). Optional/named parameters,
-other types, external functions and classes produce source diagnostics; selected
+`bigint`. See [scalar conversion semantics](scalars.md) and
+[optional/named arguments and defaults](arguments.md). Other types, external
+functions and classes produce source diagnostics; selected
 unsupported declarations are never dropped.
 
 `buildLibrary` connects discovery to the existing direct-Wasm build pipeline.
@@ -105,6 +106,6 @@ import { add } from './module.wasm';
 ```
 
 The actual `.wasm` exports, direct installed-package entry, safe-integer checks,
-strict TypeScript checks and atomic output publication remain unchanged. Optional
-argument-presence execution, structural/reference conversions, external bindings
+strict TypeScript checks and atomic output publication remain unchanged.
+Structural/reference conversions, external bindings
 and class runtime engines belong to subsequent work.

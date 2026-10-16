@@ -20,6 +20,11 @@ dependencies:
 import 'package:napi/napi.dart';
 @NAPI(name: 'increment')
 int addOne(int value) => value + 1;
+const _default = 6 * 7;
+@NAPI()
+int optional([int value = _default]) => value;
+@NAPI()
+int named(int base, {required int? value, int extra = _default}) => base + (value ?? 0) + extra;
 ''');
     await File('${root.path}/build.dart').writeAsString('''
 import 'dart:io';
@@ -49,8 +54,14 @@ Future<void> main() async {
     }
     await File('${root.path}/check.mjs').writeAsString('''
 import { strict as assert } from 'node:assert';
-import { increment } from './output/module.wasm';
+import { increment, optional, named } from './output/module.wasm';
 assert.equal(increment(41), 42);
+assert.equal(optional(), 42);
+assert.equal(optional(undefined), 42);
+assert.equal(optional(0), 0);
+assert.equal(named(1, {value: null}), 43);
+assert.equal(named(1, {value: 0, extra: undefined}), 43);
+assert.throws(() => named(1, {value: undefined}), TypeError);
 ''');
     final result = await Process.run('node', [
       'check.mjs',

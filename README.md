@@ -24,6 +24,7 @@ See [the architecture and delivery plan](doc/architecture.md) and
 - Resolved `@NAPI()` discovery with renaming, class/member selection and reexports
 - Analyzer-independent declarations, validation, lowering, and Dart/JS/TypeScript emitters
 - Required positional scalar functions: `bool`, `String`, `double`, `int`, `BigInt`, and nullable forms
+- Optional positional and named scalar arguments with resolved Dart defaults and exact presence capture
 - Safe-number `int` by default, or fixed JavaScript `bigint` with `@NAPI(bigint: true)`
 - A pinned Dart SDK adapter and linker producing actual Wasm named exports
 - Handwritten ABI fixtures proving real Dart constructors and argument-presence semantics
@@ -34,10 +35,10 @@ The package entry may select and load a backend automatically; consumers should
 not need loader setup, registration, or a call to application `main`.
 
 The annotation frontend records complete declaration metadata; build-time checks
-reject unsupported signatures before writing output. Optional-parameter/class
+reject unsupported signatures before writing output. Class
 execution and production npm package assembly remain separate work in
 [#114](https://github.com/medz/napi/issues/114). See [annotation syntax and scope](doc/annotations.md) and the
-[scalar conversion contract](doc/scalars.md).
+[scalar conversion contract](doc/scalars.md), plus [argument presence and defaults](doc/arguments.md).
 Annotated sources import `package:napi/napi.dart`; separate Dart VM build scripts
 use `buildLibrary` from `package:napi/build.dart`.
 
@@ -60,8 +61,9 @@ echo('🙂');           // '🙂'
 addWide(1n, 2n);      // 3n
 ```
 
-Conversions never coerce input values. Nullable parameters accept `null`, but not
-`undefined` or omission. `double` preserves NaN, infinities and negative zero;
+Conversions never coerce input values. Required nullable parameters accept `null`, but not
+`undefined` or omission. Optional parameters default for omission and `undefined`.
+`double` preserves NaN, infinities and negative zero;
 strings preserve UTF-16 code units, including lone surrogates. Default `int`
 checks the JavaScript safe-integer range in both directions. The `bigint` option
 maps all Dart `int` inputs/results of that function to JavaScript `bigint` with a

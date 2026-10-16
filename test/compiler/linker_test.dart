@@ -46,10 +46,57 @@ void main() {
       _import('', 'mutable', [3, 0x6f, 1]),
       _import('', 'numeric', [3, 0x7f, 0]),
       _import('dart2wasm', 'table', [1]),
+      _import('s', '0', [3, 0x6f, 0]),
     ]) {
       expect(() => _link(_module([import])), throwsA(isA<WasmLinkException>()));
     }
   });
+
+  test(
+    'indexed SDK strings require immutable refs and canonical bounded indices',
+    () {
+      final host = _hostFixture.replaceFirst(
+        '      "": new Proxy',
+        '      s: [\n        "a\\ud800b",\n      ],\n      "": new Proxy',
+      );
+      final linked = linkDartModule(
+        rawWasmBytes: _module([
+          _import('s', '0', [3, 0x6f, 0]),
+        ]),
+        rawMjsText: host,
+        hostSpecifier: './host.mjs',
+        coreSpecifier: './module.wasm',
+      );
+      expect(linked.hostJavaScript, contains(r'"a\ud800b"'));
+      for (final import in [
+        _import('s', '1', [3, 0x6f, 0]),
+        _import('s', '-1', [3, 0x6f, 0]),
+        _import('s', '00', [3, 0x6f, 0]),
+        _import('s', '0', [3, 0x6f, 1]),
+        _import('s', '0', [0, 0]),
+      ]) {
+        expect(
+          () => linkDartModule(
+            rawWasmBytes: _module([import]),
+            rawMjsText: host,
+            hostSpecifier: './host.mjs',
+            coreSpecifier: './module.wasm',
+          ),
+          throwsA(isA<WasmLinkException>()),
+        );
+      }
+      expect(
+        () => linkDartModule(
+          rawWasmBytes: _module([]),
+          rawMjsText: host,
+          hostSpecifier: './host.mjs',
+          coreSpecifier: './module.wasm',
+          additionalImports: {'s': './override.mjs'},
+        ),
+        throwsArgumentError,
+      );
+    },
+  );
 
   test('truncated or malformed binaries fail before publishing output', () {
     final valid = _module([
@@ -94,6 +141,22 @@ void main() {
       ),
       throwsArgumentError,
     );
+    for (final arguments in [
+      (['Counter'], {'Counter': 1}, './core.wasm'),
+      (<String>[], {'': 1}, './core.wasm'),
+      (<String>[], {'negative': -1}, './core.wasm'),
+      (<String>[], {'native': 1}, 'node:fs'),
+    ]) {
+      expect(
+        () => buildPublicWasmFacade(
+          hostSpecifier: './host.mjs',
+          exportNames: arguments.$1,
+          nativeFunctions: arguments.$2,
+          coreSpecifier: arguments.$3,
+        ),
+        throwsArgumentError,
+      );
+    }
   });
 
   test('public facade rejects Promise-sensitive and reserved ESM names', () {
@@ -111,7 +174,33 @@ void main() {
           ),
         ),
       );
+      expect(
+        () => buildPublicWasmFacade(
+          hostSpecifier: './host.mjs',
+          exportNames: [],
+          nativeFunctions: {name: 1},
+        ),
+        throwsA(isA<WasmLinkException>()),
+      );
     }
+  });
+
+  test('global-only facade binary remains unchanged', () {
+    expect(
+      buildPublicWasmFacade(
+        hostSpecifier: './host.mjs',
+        exportNames: ['Counter', 'arity'],
+      ),
+      [
+        ..._header,
+        ..._section(2, [
+          2,
+          ..._import('./host.mjs', 'Counter', [3, 0x6f, 0]),
+          ..._import('./host.mjs', 'arity', [3, 0x6f, 0]),
+        ]),
+        ..._section(7, [2, ..._name('Counter'), 3, 0, ..._name('arity'), 3, 1]),
+      ],
+    );
   });
 
   test(
@@ -147,6 +236,69 @@ console.log('native-facade-ok');
       ]);
       expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
       expect(result.stdout, contains('native-facade-ok'));
+    },
+  );
+
+  test(
+    'mixed facade re-exports native functions with exact signatures',
+    () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'napi-mixed-facade-',
+      );
+      addTearDown(() => directory.delete(recursive: true));
+      const nativeFunctions = {'zero': 0, 'identity': 1, 'first': 2, 'echo': 1};
+      await File('${directory.path}/module.wasm').writeAsBytes(
+        buildPublicWasmFacade(
+          hostSpecifier: './host.mjs',
+          exportNames: ['Counter', 'arity'],
+          nativeFunctions: nativeFunctions,
+        ),
+      );
+      await File('${directory.path}/core.wasm')
+          .writeAsBytes(_nativeCoreModule(nativeFunctions));
+      await File('${directory.path}/host.mjs').writeAsString('''
+export class Counter { constructor(value) { this.value = value; } }
+export function arity() { return arguments.length; }
+''');
+      await File('${directory.path}/consumer.mjs').writeAsString('''
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {Counter, arity, zero, identity, first, echo} from './module.wasm';
+import * as core from './core.wasm';
+const module = new WebAssembly.Module(readFileSync(new URL('./module.wasm', import.meta.url)));
+assert.deepEqual(WebAssembly.Module.imports(module), [
+  {module: './host.mjs', name: 'Counter', kind: 'global'},
+  {module: './host.mjs', name: 'arity', kind: 'global'},
+  ...['zero', 'identity', 'first', 'echo'].map(name => ({module: './core.wasm', name, kind: 'function'})),
+]);
+assert.deepEqual(WebAssembly.Module.exports(module), [
+  {name: 'Counter', kind: 'global'}, {name: 'arity', kind: 'global'},
+  ...['zero', 'identity', 'first', 'echo'].map(name => ({name, kind: 'function'})),
+]);
+assert.equal(new Counter(9).value, 9);
+assert.equal(arity(undefined, null), 2);
+assert.equal(zero.length, 0);
+assert.equal(identity.length, 1);
+assert.equal(first.length, 2);
+assert.equal(zero(), null);
+assert.equal(identity, core.identity);
+assert.equal(identity(), undefined);
+assert.equal(identity(null), null);
+const value = {};
+assert.equal(identity(value), value);
+assert.equal(first(value, null), value);
+assert.equal(echo('a 🦊'), 'a 🦊');
+assert.throws(() => new WebAssembly.Instance(module, {
+  './host.mjs': {Counter, arity},
+  './core.wasm': {...core, first: core.identity},
+}), WebAssembly.LinkError);
+console.log('mixed-native-facade-ok');
+''');
+      final result = await Process.run('node', [
+        '${directory.path}/consumer.mjs',
+      ]);
+      expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
+      expect(result.stdout, contains('mixed-native-facade-ok'));
     },
   );
 }
@@ -194,6 +346,41 @@ List<int> _module(List<List<int>> imports) => [
   ..._section(0, [
     ..._name('sourceMappingURL'),
     ...utf8.encode('raw.wasm.map'),
+  ]),
+];
+
+List<int> _nativeCoreModule(Map<String, int> functions) => [
+  ..._header,
+  ..._section(1, [
+    ..._u32(functions.length),
+    for (final arity in functions.values) ...[
+      0x60,
+      ..._u32(arity),
+      ...List.filled(arity, 0x6f),
+      1,
+      0x6f,
+    ],
+  ]),
+  ..._section(3, [
+    ..._u32(functions.length),
+    for (var index = 0; index < functions.length; index++) ..._u32(index),
+  ]),
+  ..._section(7, [
+    ..._u32(functions.length),
+    for (final (index, name) in functions.keys.indexed) ...[
+      ..._name(name),
+      0,
+      ..._u32(index),
+    ],
+  ]),
+  ..._section(10, [
+    ..._u32(functions.length),
+    for (final arity in functions.values) ...[
+      4,
+      0,
+      if (arity == 0) ...[0xd0, 0x6f] else ...[0x20, 0],
+      0x0b,
+    ],
   ]),
 ];
 

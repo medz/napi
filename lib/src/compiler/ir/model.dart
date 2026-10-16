@@ -196,12 +196,27 @@ enum ParameterKind {
   optionalNamed,
 }
 
+/// An evaluated scalar constant, independent of its source spelling or library.
+/// A missing instance means an explicit default could not be represented.
+final class ScalarDefault {
+  final Object? value;
+  const ScalarDefault(this.value)
+    : assert(
+        value == null ||
+            value is bool ||
+            value is int ||
+            value is double ||
+            value is String,
+      );
+}
+
 final class ParameterBinding {
   final String name;
   final BindingType type;
   final ParameterPresence presence;
   final ParameterKind kind;
   final String? defaultSource;
+  final ScalarDefault? defaultValue;
   final bool hasDefault;
   final SourceLocation? source;
   final String? documentation;
@@ -214,13 +229,14 @@ final class ParameterBinding {
     ParameterPresence? presence,
     this.kind = ParameterKind.requiredPositional,
     this.defaultSource,
+    this.defaultValue,
     bool hasDefault = false,
     this.source,
     this.documentation,
     this.isInitializingFormal = false,
     this.isSuperFormal = false,
     this.isCovariant = false,
-  }) : hasDefault = hasDefault || defaultSource != null,
+  }) : hasDefault = hasDefault || defaultSource != null || defaultValue != null,
        presence =
            presence ??
            (kind == ParameterKind.optionalPositional ||

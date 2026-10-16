@@ -348,7 +348,7 @@ void main() {
     },
   );
 
-  test('unsupported parameter kinds keep the presence diagnostic', () {
+  test('parameter kinds require representable defaults only when optional', () {
     for (final kind in ParameterKind.values.skip(1)) {
       final module = BindingModule(
         source: source,
@@ -361,7 +361,11 @@ void main() {
         ],
       );
       expect(validateDeclarations(module).bindings.functions, hasLength(1));
-      expect(() => validate(module), diagnostic('NAPI_PRESENCE'));
+      if (kind == ParameterKind.requiredNamed) {
+        expect(validate(module).bindings, same(module));
+      } else {
+        expect(() => validate(module), diagnostic('NAPI_DEFAULT'));
+      }
     }
   });
 

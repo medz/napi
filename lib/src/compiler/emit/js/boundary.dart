@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import '../../lowering/plan.dart';
+import 'arguments.dart';
 
 String emitBoundary(ModulePlan plan) {
   final conversions = [
@@ -43,5 +44,6 @@ export function writeValue(value, context) { return checked(value, context); }
 export function readBigInt(value) { return value.toString(); }
 export function writeBigInt(value, context) { return checked(BigInt(value), context); }
 export function throwDartError(message) { throw new Error(message); }
+${plan.functions.any((f) => f.representation == ExportRepresentation.callableGlobal) ? argumentPolicy : ''}
 ''';
 }

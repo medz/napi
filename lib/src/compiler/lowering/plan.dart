@@ -59,8 +59,20 @@ final class FunctionPlan {
   final ExportRepresentation representation;
   final List<ScalarConversion> inputs;
   final ScalarConversion output;
-  FunctionPlan._(this.binding)
-    : representation = ExportRepresentation.nativeFunction,
+  final String coreExportName;
+  FunctionPlan._(this.binding, int index)
+    : representation =
+          binding.parameters.any(
+            (p) => p.kind != ParameterKind.requiredPositional,
+          )
+          ? ExportRepresentation.callableGlobal
+          : ExportRepresentation.nativeFunction,
+      coreExportName =
+          binding.parameters.any(
+            (p) => p.kind != ParameterKind.requiredPositional,
+          )
+          ? 'napi:call:$index'
+          : binding.exportName,
       inputs = List.unmodifiable([
         for (final p in binding.parameters)
           ScalarConversion(
@@ -89,5 +101,7 @@ final class ModulePlan {
 /// metadata can be silently lost here.
 ModulePlan lower(ValidatedModule module) => ModulePlan._(
   module.bindings.source,
-  module.bindings.functions.map(FunctionPlan._),
+  module.bindings.functions.indexed.map(
+    (entry) => FunctionPlan._(entry.$2, entry.$1),
+  ),
 );

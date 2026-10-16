@@ -368,6 +368,7 @@ final class _Reader {
         ? ParameterKind.optionalPositional
         : ParameterKind.requiredPositional,
     defaultSource: element.defaultValueCode,
+    defaultValue: _scalarDefault(element),
     hasDefault: element.hasDefaultValue,
     source: element.firstFragment.libraryFragment == null
         ? null
@@ -377,6 +378,19 @@ final class _Reader {
     isSuperFormal: element is a.SuperFormalParameterElement,
     isCovariant: element.isCovariant,
   );
+
+  ScalarDefault? _scalarDefault(a.FormalParameterElement element) {
+    if (!element.hasDefaultValue) return null;
+    final value = element.computeConstantValue();
+    if (value == null) return null;
+    if (value.isNull) return const ScalarDefault(null);
+    final scalar =
+        value.toBoolValue() ??
+        value.toIntValue() ??
+        value.toDoubleValue() ??
+        value.toStringValue();
+    return scalar == null ? null : ScalarDefault(scalar);
+  }
 
   TypeParameterBinding _typeParameter(a.TypeParameterElement element) =>
       TypeParameterBinding(

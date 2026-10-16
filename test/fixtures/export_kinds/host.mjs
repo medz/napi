@@ -1,5 +1,6 @@
 // Handwritten boundary fixture. The public entry is module.wasm.
 import * as dart from './core.wasm';
+import {useDefault} from './arguments.mjs';
 
 function int32(value, name) {
   if (typeof value !== 'number' || !Number.isInteger(value)
@@ -29,18 +30,17 @@ export class Counter {
 
 // Count arguments before lowering to the fixed-arity Wasm ABI.
 export function requiredOpaque(value) {
-  if (arguments.length === 0) {
-    throw new TypeError('requiredOpaque requires one argument');
-  }
+  useDefault(value, arguments.length > 0, 'opaqueRequired', 'requiredOpaque');
   return dart.requiredOpaqueCall(value);
 }
 
 export function optionalOpaque(value) {
-  return dart.optionalOpaqueCall(arguments.length === 0 ? 0 : 1, value);
+  return dart.optionalOpaqueCall(
+    useDefault(value, arguments.length > 0, 'opaqueOptional', 'optionalOpaque') ? 0 : 1, value);
 }
 
 export function optionalNumber(value) {
   // An ordinary optional Dart value defaults for both omission and undefined.
-  if (value === undefined) return dart.optionalNumberCall(0, 0);
+  if (useDefault(value, arguments.length > 0, 'optional', 'optionalNumber')) return dart.optionalNumberCall(0, 0);
   return dart.optionalNumberCall(1, int32(value, 'value'));
 }

@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'export_kind_fixture.dart';
 import 'scalar_fixture.dart';
+import 'argument_fixture.dart';
 
 Future<void> run(String command, List<String> args, {String? cwd}) async {
   final result = await Process.run(command, args, workingDirectory: cwd);
@@ -27,6 +28,7 @@ Future<void> typescript(Directory directory, String consumer) async {
       File(tsc).absolute.path,
       '--ignoreConfig',
       '--strict',
+      '--exactOptionalPropertyTypes',
       '--noEmit',
       '--target',
       'ES2022',
@@ -40,7 +42,11 @@ Future<void> typescript(Directory directory, String consumer) async {
   }
 }
 
-Future<void> installedConsumer(Directory scalar, Directory root) async {
+Future<void> installedConsumer(
+  Directory scalar,
+  Directory root, {
+  String fixture = 'package',
+}) async {
   // This handwritten package tests the foundation's contract. Production npm
   // metadata generation, naming, assets and rebuild safety belong to #134/135.
   await File('${scalar.path}/package.json').writeAsString(
@@ -49,11 +55,16 @@ Future<void> installedConsumer(Directory scalar, Directory root) async {
       'version': '0.0.0',
       'type': 'module',
       'files': [
-        'module.wasm',
-        'module.d.wasm.ts',
-        'host.mjs',
-        'boundary.mjs',
-        'DART_LICENSE',
+        for (final name in [
+          'module.wasm',
+          'core.wasm',
+          'calls.mjs',
+          'module.d.wasm.ts',
+          'host.mjs',
+          'boundary.mjs',
+          'DART_LICENSE',
+        ])
+          if (File('${scalar.path}/$name').existsSync()) name,
       ],
       'exports': {
         for (final key in ['.', './module.wasm'])
@@ -62,7 +73,8 @@ Future<void> installedConsumer(Directory scalar, Directory root) async {
     }),
   );
   await run('npm', ['pack', '--ignore-scripts', '--silent'], cwd: scalar.path);
-  final consumer = await Directory('${root.path}/installed consumer').create();
+  final consumer = await Directory('${root.path}/installed consumer $fixture')
+      .create();
   await File('${consumer.path}/package.json')
       .writeAsString('{"private":true,"type":"module"}');
   await run('npm', [
@@ -73,8 +85,8 @@ Future<void> installedConsumer(Directory scalar, Directory root) async {
     '--no-fund',
     '${scalar.path}/napi-foundation-fixture-0.0.0.tgz',
   ], cwd: consumer.path);
-  await File('test/integration/package.mjs').copy('${consumer.path}/test.mjs');
-  await File('test/typescript/package.mts')
+  await File('test/integration/$fixture.mjs').copy('${consumer.path}/test.mjs');
+  await File('test/typescript/$fixture.mts')
       .copy('${consumer.path}/consumer.mts');
   await run('node', ['test.mjs'], cwd: consumer.path);
   await typescript(consumer, 'consumer.mts');
@@ -91,6 +103,15 @@ Future<void> main() async {
   await run('node', ['test.mjs'], cwd: scalar.path);
   await typescript(scalar, 'consumer.mts');
   await installedConsumer(scalar, root.absolute);
+  final arguments = Directory('${root.absolute.path}/arguments');
+  await buildArgumentFixture(arguments);
+  await run('node', ['test.mjs'], cwd: arguments.path);
+  await typescript(arguments, 'consumer.mts');
+  await installedConsumer(
+    arguments,
+    root.absolute,
+    fixture: 'arguments_package',
+  );
   final kinds = await buildExportKindFixture();
   await run('node', ['test.mjs'], cwd: kinds.path);
   await typescript(kinds, 'consumer.mts');
