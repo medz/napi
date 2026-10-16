@@ -195,6 +195,140 @@ import 'package:napi/napi.dart';
     },
   );
 
+  test(
+    'value export collisions ignore methods and setters in both frontends',
+    () async {
+      for (final getter in [false, true]) {
+        await input.writeAsString('''
+import 'package:napi/napi.dart';
+@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+class Value {
+  Value(int source) : _source = source;
+  int _source;
+  ${getter ? "@NAPI(name: 'compute') int get source => _source; set source(int next) => _source = next;" : "@NAPI(name: 'compute') int source = 1;"}
+  int compute() => _source + 1;
+}
+@NAPI() Value echo(Value value) => value;
+''');
+        final selection = ExternalLibrary([
+          ExternalClass(
+            'Value',
+            config: const NAPI(
+              classPolicy: ClassPolicy.value,
+              valueConstructor: 'new',
+            ),
+            members: [
+              if (getter)
+                const ExternalMember.getter(
+                  'source',
+                  config: NAPI(name: 'compute'),
+                )
+              else
+                const ExternalMember.field(
+                  'source',
+                  config: NAPI(name: 'compute'),
+                ),
+            ],
+          ),
+          const ExternalFunction('echo'),
+        ]);
+        for (final external in [false, true]) {
+          final bindings = external
+              ? await ExternalFrontend(
+                  selection,
+                  packagesPath: packages,
+                ).read(input.uri)
+              : await read();
+          final wasm = lower(validate(bindings));
+          final schema = wasm.valueSchemas.single;
+          expect(schema.outputFields.map((f) => f.name), ['compute']);
+          expect(schema.inputFields.map((f) => f.field.name), ['compute']);
+          expect(
+            validateNative(bindings)
+                .valueSchemas
+                .single
+                .outputFields
+                .single
+                .name,
+            'compute',
+          );
+        }
+      }
+    },
+  );
+
+  test('explicit non-data value members still diagnose and reference collisions stay rejected', () async {
+    for (final valuePolicy in [true, false]) {
+      await input.writeAsString('''
+import 'package:napi/napi.dart';
+@NAPI(${valuePolicy ? "classPolicy: ClassPolicy.value, valueConstructor: 'new'" : ''})
+class Value {
+  Value(this.source);
+  @NAPI(name: 'compute') final int source;
+  ${valuePolicy ? "@NAPI(name: 'included')" : ''} int compute() => source + 1;
+}
+@NAPI() Value echo(Value value) => value;
+''');
+      final selection = ExternalLibrary([
+        ExternalClass(
+          'Value',
+          config: valuePolicy
+              ? const NAPI(
+                  classPolicy: ClassPolicy.value,
+                  valueConstructor: 'new',
+                )
+              : const NAPI(),
+          members: [
+            const ExternalMember.field('source', config: NAPI(name: 'compute')),
+            if (valuePolicy)
+              const ExternalMember.method(
+                'compute',
+                config: NAPI(name: 'included'),
+              ),
+          ],
+        ),
+        const ExternalFunction('echo'),
+      ]);
+      for (final external in [false, true]) {
+        Future<BindingModule> load() => external
+            ? ExternalFrontend(
+                selection,
+                packagesPath: packages,
+              ).read(input.uri)
+            : read();
+        if (!valuePolicy) {
+          await expectLater(
+            load(),
+            throwsA(
+              isA<BindingDiagnostic>()
+                  .having((e) => e.code, 'code', 'NAPI_DUPLICATE')
+                  .having((e) => e.source?.uri, 'source', input.uri),
+            ),
+          );
+          continue;
+        }
+        final bindings = await load();
+        for (final backend in [
+          () => validate(bindings),
+          () => validateNative(bindings),
+        ]) {
+          expect(
+            backend,
+            throwsA(
+              isA<BindingDiagnostic>()
+                  .having(
+                    (e) => e.code,
+                    'code',
+                    valuePolicy ? 'NAPI_VALUE' : 'NAPI_DUPLICATE',
+                  )
+                  .having((e) => e.source?.uri, 'source', input.uri),
+            ),
+          );
+        }
+      }
+    }
+  });
+
   test('invalid configuration diagnoses source instead of silently dropping selections', () async {
     for (final body in [
       "@NAPI(classPolicy: ClassPolicy.value, valueConstructor: '_hidden') class Bad { Bad._hidden(this.x); int x; }",

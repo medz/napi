@@ -466,6 +466,14 @@ void _checkMemberExports(ClassBinding binding) {
   final accessors = <(bool, String), MemberBinding>{};
   final constructors = <String, MemberBinding>{};
   for (final member in binding.members) {
+    // Value exports are data properties. Other explicit selections are checked
+    // by validateValueClasses, while implicit methods/setters are not exports.
+    if (binding.classPolicy == ClassPolicy.value &&
+        (member.isStatic ||
+            (member.kind != MemberKind.field &&
+                member.kind != MemberKind.getter))) {
+      continue;
+    }
     final selected = member.selection != MemberSelection.excluded;
     final exportName = member.exportName ?? member.declaration.name;
     if ((member.hasExplicitExportName || selected) &&

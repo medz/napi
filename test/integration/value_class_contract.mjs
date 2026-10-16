@@ -8,7 +8,8 @@ const point = (x, y = 7, tag = null) => ({x, y, tag});
 export function verifyValueClasses(api) {
   for (const name of ['ValuePoint', 'ValueNormalized', 'ValueNode', 'ValueBranch',
     'ValueLink', 'ValueLeft', 'ValueRight', 'ValueLeaf', 'ValueSnapshot',
-    'ValueGetterFailure', 'ValueKey', 'ValueEnvelope', 'ValueFailure']) {
+    'ValueGetterFailure', 'ValueKey', 'ValueEnvelope', 'ValueFailure',
+    'ValueScalarOrder', 'ValueReferenceOrder']) {
     assert.equal(Object.hasOwn(api, name), false, `${name} must remain a type-only export`);
   }
   const source = {x: 2};

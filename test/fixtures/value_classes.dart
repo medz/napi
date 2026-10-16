@@ -58,7 +58,8 @@ class ValueNormalized {
   }
 
   int get doubled => value * 2;
-  int ignoredMethod() => value;
+  int total() =>
+      value; // Same wire name as the field; methods are not value data.
 }
 
 @NAPI()
@@ -133,10 +134,13 @@ ValueLeft echoValueLeft(ValueLeft value) => value;
 @NAPI(classPolicy: ClassPolicy.value)
 class ValueLeaf {
   int _value = 1;
-  int get value {
+  @NAPI(name: 'value')
+  int get rawValue {
     _trace.add('leaf');
     return _value;
   }
+
+  set rawValue(int next) => _value = next;
 }
 
 @NAPI(classPolicy: ClassPolicy.value)
