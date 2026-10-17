@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'command.dart';
+
 import 'package:napi/src/compiler/linker/dart_module_linker.dart';
 import 'package:napi/src/compiler/emit/js/arguments.dart';
 import 'package:napi/src/compiler/sdk_adapter/dart_sdk_adapter.dart';
@@ -70,15 +72,10 @@ Future<Directory> buildExportKindFixture({
 }
 
 Future<void> main() async {
+  await reportNodeVersions();
   final output = await buildExportKindFixture(
     repositoryRoot: File.fromUri(Platform.script).parent.parent,
   );
-  final test = await Process.run('node', ['${output.path}/test.mjs']);
-  stdout.write(test.stdout);
-  stderr.write(test.stderr);
-  if (test.exitCode != 0) {
-    exitCode = test.exitCode;
-    return;
-  }
+  await run('node', ['${output.path}/test.mjs']);
   stdout.writeln('Export-kind fixture artifacts: ${output.path}');
 }
