@@ -57,7 +57,7 @@ untouched. Node headers affect the reusable bridge, not individual businesses.
 The flat bundle contains `bridge.node`, the identity-qualified runtime dylib,
 `DART_LICENSE`, `DART_AUTHORS`, `NAPI_LICENSE`, and `manifest.json`.
 The manifest has `format: 1`, `sdkVersion`, `sdkRevision`, `platform: "macos"`,
-`architecture: "arm64"`, `minimumOsVersion: "14.0"`, `abi: 13`, `identity`,
+`architecture: "arm64"`, `minimumOsVersion: "14.0"`, `abi: 14`, `identity`,
 `bridge`, `runtime`, and `files` mapping the five payload names to SHA-256 hashes.
 Its `build` evidence records the cache arguments hash, combined input-object
 digest/count, and runtime/ABI source hash. It contains no local SDK paths.
@@ -83,7 +83,7 @@ operations initialize, load immutable canonical AOT snapshots, create/enter/exit
 isolates, drain microtasks, free errors and shut down one isolate. Public Dart C
 APIs provide scopes, values, invocation and persistent handles while entered.
 
-`bridge/abi.h` fixes the 53-slot compiler-private table and binding metadata.
+`bridge/abi.h` fixes the 55-slot compiler-private table and binding metadata.
 `napiBindings(address, count)` must validate that count before reading the table.
 Functions/classes retain actual JS call presence and `new` behavior. Getter and
 setter closures share one JS property descriptor but remain distinct callbacks.
@@ -160,8 +160,8 @@ Their acceptance remains open. `DART_LICENSE` and `DART_AUTHORS` retain the
 upstream SDK license/attribution; original bridge code uses the package license.
 
 Slot 41 compares actual `new.target` with the captured selected constructor; it
-performs no mutable JavaScript property lookup. The compiler-private ABI is 13
-with 53 slots. It retains the owner-thread event scheduling and async environment
+performs no mutable JavaScript property lookup. The compiler-private ABI is 14
+with 55 slots. It retains the owner-thread event scheduling and async environment
 cleanup introduced by ABI 9. Older bundles are rejected before copying.
 
 Slot 42 registers a composite selected-interface shape through the generated
@@ -213,9 +213,11 @@ before Owner teardown, so a late acknowledgement cannot dereference a freed
 Owner. See [resource semantics and host limits](../doc/resources.md).
 
 Slots 46–48 own, borrow and release a persistent host value. An owner-local map
-stores a strong Node-API reference to a private holder's own data property.
-The holder supports every JS value even on Node-API versions that cannot retain
-all primitives directly; no payload property, conversion or callback is read.
+stores a strong Node-API reference directly for functions, or to a private
+holder's own data property for other values. The holder supports every JS value
+even on Node-API versions that cannot retain all primitives directly. The
+function check uses `napi_typeof`; no payload property, conversion or callback
+is read, including for callable Proxies.
 Tokens are never reused, and the Dart carrier checks its originating NapiApi
 before borrowing a value. Returned handles remain scoped to the current callback.
 
@@ -229,12 +231,33 @@ heaps need an author-directed ownership break; see the
 [public ownership contract](../doc/architecture.md#public-contract).
 Generated opaque storage and saved callback exceptions use these private operations.
 
-Slots 49–52 open/close a handle scope, invoke a borrowed JS function and take/clear
-a pending JS exception. Each invocation's scope covers argument conversion,
+Slots 49–52 open/close a handle scope, invoke a JS function and take/clear a
+pending JS exception. Slot 51 accepts either an owned function token or a
+borrowed private helper; the owned function is borrowed and invoked inside the
+caller's local handle scope. Each invocation's scope covers argument conversion,
 execution and result conversion. The generated adapter snapshots all Dart
 structural arguments before host validation and owns a caught JS exception before
-closing its handles. Its outer frame clears borrowed function handles on exit,
-before releasing resource operation leases; saved adapters then fail without
-touching Node. Same-owner reentry uses independent frames. Retained/async callbacks
-and different-isolate reentry remain unsupported; see the
-[supported signatures and lifetime contract](../doc/callbacks.md).
+closing its handles. No callback-scoped handle survives the invocation.
+
+A retained Dart adapter owns its original JS function. A weak Dart cache keyed
+by conversion signature and JS identity reuses live adapters without making an
+unused adapter permanent. Removing one business registration does not invalidate
+other Dart references. Same-owner reentry uses independent invocation scopes;
+different-isolate reentry remains rejected.
+
+Slot 53 supplies a private helper: kind 0 maps JS functions to weak identities;
+kind 1 lazily initializes strict Promise observation and the owner-local incoming
+completion queue. Slot 54 obtains the numeric identity inside a C-local handle
+scope. Async JS reactions enqueue owned payloads without entering Dart; only the
+owning isolate's existing pump invokes `acceptCallback`, in bounded batches of
+64. Pending entries retain the adapter until completion. The acceptance closure
+returns that root into the current Dart handle scope before discarding its entry,
+preventing AOT from removing an otherwise write-only root. A pending Promise
+alone does not keep Node alive.
+
+Teardown invalidates the callback sentinel before releasing queue references and
+the Dart closure, so late JS reactions cannot access a destroyed owner. It does
+not invoke JS or business cleanup. Generated retained and asynchronous callbacks
+are tested through fresh packages and workers on Node 24.19.0 and 26.11.1 with
+the pinned Dart profile. See the [supported signatures, Promise admission,
+lifetime contract and measured costs](../doc/callbacks.md).
