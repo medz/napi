@@ -63,9 +63,11 @@ restrict JS payloads to objects or exclude nullish values.
 
 Required opaque arguments must be supplied: `identity()` fails before business
 code, while `identity(undefined)` succeeds. A required named property follows
-the same rule; its own data property must exist. Optional positional `T?`
+the same rule; its own data property must exist. Optional positional and named `T?`
 parameters may default to Dart null. Only omission selects that default;
-explicit `undefined` and `null` are stored payloads.
+explicit `undefined` and `null` are stored payloads. For named arguments, an
+absent property selects the default. Omitting an all-optional options object,
+passing `undefined` as that object, or passing `{}` all omit its properties.
 
 An actual Dart null result becomes JS null. There is no extra universal missing
 value outside the unrestricted payload set. Use the original API's `has`, tagged
@@ -78,6 +80,34 @@ payloads use supplied-prefix overloads so `Router<string>.optional(undefined)`
 does not become valid merely because the parameter can be omitted. Strict null
 checking is part of the TypeScript contract. Named constructors introduce their
 own inferred type parameters and return the corresponding generic class.
+
+Optional named payloads use standard TypeScript properties such as
+`value?: T | null`, including when several share an options object. Enable
+`exactOptionalPropertyTypes` with strict null checking to reject a present
+`undefined` when it is not part of `T`. Without that flag, TypeScript's ordinary
+optional-property rules permit explicit `undefined`; the generated declaration
+does not block the whole options object. Runtime presence remains exact under
+either configuration:
+
+```dart
+@NAPI()
+T? choose<T>({T? first, T? second, bool useSecond = false}) =>
+    useSecond ? second : first;
+```
+
+```ts
+choose<string>();                            // null
+choose<string>({first: 'value'});            // 'value'
+choose<string | undefined>({first: undefined}); // undefined
+choose<string | undefined>({second: undefined, useSecond: true}); // undefined
+// With exactOptionalPropertyTypes, this is a type error:
+choose<string>({first: undefined});
+```
+
+The entire options object may be omitted only when every named parameter is
+optional. Required named properties retain their payload type without an added
+`undefined`, under either compiler setting. Ordinary optional scalar properties
+still allow `undefined` because it selects their Dart default.
 
 ## Ownership
 
@@ -96,12 +126,12 @@ contract. Environment teardown releases remaining native references.
 
 ## Current boundaries
 
-The first generated slice supports ordinary generic reference classes,
-top-level generic functions, direct opaque inputs/results/fields, required
-named inputs, optional positional inputs and matching selected generic class
-references. Future results may also carry direct opaque payloads, including
-nullable payloads, with standard Promise resolution. Future calls retain opaque inputs until
-the Dart Future completes and its result is handed to the JS resolver. Waiting
+Generated bindings support ordinary generic reference classes, top-level generic
+functions, direct opaque inputs/results/fields, required and optional named
+inputs, optional positional inputs and matching selected generic class references.
+Future results may also carry direct opaque payloads, including nullable payloads,
+with standard Promise resolution. Future calls retain opaque inputs until the
+Dart Future completes and its result is handed to the JS resolver. Waiting
 through subsequent JS thenable adoption is the separate resource-lease contract.
 
 Type parameter names use the current TypeScript-compatible ASCII identifier
@@ -109,9 +139,9 @@ subset: a letter or underscore followed by letters, digits or underscores,
 excluding `$`, reserved words and the standalone wildcard `_`. A type parameter
 must not shadow its class's exported name or a referenced class's exported name.
 
-Optional named opaque parameters, opaque leaves inside structural containers,
-generic selected hierarchies, independent generic member methods and generic
-resource/value classes remain unsupported. Concrete or erased specializations
+Opaque leaves inside structural containers, generic selected hierarchies,
+independent generic member methods and generic resource/value classes remain
+unsupported. Concrete or erased specializations
 such as `Router<String>` or raw `Router` are not interchangeable with
 `Router<T>` under this carrier policy. They receive build diagnostics.
 
@@ -132,10 +162,20 @@ Without a compatible getter view, the read remains exactly `undefined`, so a
 setter-only `then` preserves the wrapper. Static setter-only reads are always
 `undefined` because static members do not participate in view composition.
 
-The unsupported generic combinations above remain tracked in #125 and the
-broader generics/composition issues.
+The unsupported generic combinations above remain tracked in the broader
+generics/composition issues, including #110.
 
 ## Validation and cost
+
+The optional named follow-up passes 15 fresh-process opaque scenarios and eight
+TypeScript configurations for each backend on Node 24.19.0/26.11.1. Annotated and
+external selections cover multiple optional fields, required/optional mixtures,
+constructors, methods, Future inputs/results, exact reflection failures and
+retention/release after field clearing or Future settlement. TypeScript tests
+cover both literal and aliased options under both exact-optional settings. Full
+native/Wasm consumers, 538 Dart tests (one Windows-only local skip) and 23 Wasm
+resource tests pass. It reuses the existing ABI14 bundle; no runtime rebuild or
+additional host-value operation is required.
 
 The standard Promise-resolution follow-up passed 13 fresh-process opaque scenarios
 and eight TypeScript configurations per backend on Node 24.19.0/26.11.1. Both full

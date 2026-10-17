@@ -1,6 +1,6 @@
 # Argument presence and Dart defaults
 
-The current Wasm backend supports required and optional positional parameters,
+Both backends support required and optional positional parameters,
 or required positional parameters followed by named parameters. Named parameters
 become one final JavaScript options object:
 
@@ -33,15 +33,15 @@ before conversion. Proxy traps can still execute while inspecting an object.
 | Required scalar, including nullable | TypeError | TypeError | Accepted only if nullable |
 | Optional scalar | Dart default | Dart default | Accepted only if nullable |
 | Required opaque parameter | TypeError | Supplied value | Supplied value |
-| Optional positional opaque parameter | Dart default | Supplied value | Supplied value |
+| Optional opaque parameter, positional or named | Dart default | Supplied value | Supplied value |
 
 `false`, `0`, `-0`, `0n` and `''` remain supplied values. Optional positional holes
 work independently: `f(undefined, 0)` defaults only the first parameter. Surplus
 JavaScript arguments are ignored; TypeScript declarations expose the declared
 arity. All supplied scalars are validated before business code runs.
 For a generic payload parameter, a supplied `undefined` is a payload
-rather than a positional hole. Optional named opaque inputs remain unsupported;
-see [opaque payloads](opaque.md).
+rather than a positional hole or absent named property. Only omission selects
+its Dart default; see [opaque payloads](opaque.md).
 
 The frontend evaluates defaults in their declaring library. Generated Dart uses
 typed scalar literals, preserving private/imported constant expressions, exact
@@ -75,6 +75,12 @@ Ordinary optional properties explicitly allow `undefined`, including under
 `undefined` unless their type is a generic payload. Optional positional opaque
 parameters use finite prefix overloads to preserve their logical payload type;
 required named opaque properties use that type without adding `undefined`.
+Optional named opaque properties use standard `value?: T | null` declarations.
+With strict null checking and `exactOptionalPropertyTypes`, a present `undefined`
+requires a payload type that includes it. Without that flag, TypeScript permits
+it through its ordinary optional-property rules. Runtime presence remains exact
+in either mode; no configuration-gating helper or extra presence parameter is
+added.
 
 Verified with Dart 3.13.5 stable, Node 26.11.1 and TypeScript 7.0.2; CI also tests
 Node 24.19.0. Dart Wasm interop remains experimental.

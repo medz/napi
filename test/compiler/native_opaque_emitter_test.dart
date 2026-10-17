@@ -32,6 +32,7 @@ class Empty<T> {
 @NAPI() T echo<T>(T value) => value;
 @NAPI() T? optional<T>([T? value]) => value;
 @NAPI() T named<T>({required T value}) => value;
+@NAPI() T? optionalNamed<T>(int index, {T? first, T? second, int fallback = 7}) => index == 0 ? first : second;
 @NAPI() T ordered<T>(T value, int requiredSecond) => value;
 @NAPI() Future<int> wait<T>(T value) => Completer<int>().future;
 @NAPI() Router<T> same<T>(Router<T> value) => value;
@@ -120,6 +121,22 @@ void main() {
     expect(optional, contains('a0 = null;'));
     expect(optional, isNot(contains('omittedOrUndefined')));
     expect(body('named'), contains('_api.presentOption(options, 0,'));
+    final named = body('optionalNamed');
+    expect(named, contains('final default1 = !options.present[0];'));
+    expect(named, contains('final default2 = !options.present[1];'));
+    expect(
+      named,
+      contains('final raw1 = default1 ? nullptr : options.values[0];'),
+    );
+    expect(
+      named,
+      contains('final raw2 = default2 ? nullptr : options.values[1];'),
+    );
+    expect(
+      named,
+      contains('final default3 = _api.defaultOption(call.env, options, 2);'),
+    );
+    expect(named, isNot(contains('>= call.argumentCount')));
   });
 
   test('ordinary modules do not emit the opaque carrier', () async {

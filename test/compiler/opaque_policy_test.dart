@@ -188,6 +188,163 @@ typedef Payload<T> = T;
     },
   );
 
+  test(
+    'optional named opaque values share presence and declarations',
+    () async {
+      final file = await source('''
+typedef Payload<T> = T;
+@NAPI() T? choose<T>(String options, {Payload<T>? first, T? second = null, int count = 7}) => first;
+@NAPI() T? required<T>({required T value, T? first, T? second, int count = 7}) => first;
+@NAPI() class NamedStore<T> {
+  NamedStore({T? first, T? second});
+  NamedStore.named({required String key, T? first, T? second});
+  T? put({T? first, T? second, int count = 7}) => first;
+  T? mixed({required T value, T? first, T? second}) => first;
+}
+@NAPI() class RequiredStore<T> {
+  RequiredStore({required String key, T? first, T? second});
+}
+''');
+      final annotated = await AnnotationFrontend(packagesPath: _packages)
+          .read(file.uri);
+      final external = await ExternalFrontend(
+        const ExternalLibrary([
+          ExternalFunction('choose'),
+          ExternalFunction('required'),
+          ExternalClass('NamedStore'),
+          ExternalClass('RequiredStore'),
+        ]),
+        packagesPath: _packages,
+      ).read(file.uri);
+      final wasm = lower(validate(annotated));
+      final native = validateNative(annotated);
+      for (final parameters in [
+        wasm.functions.first.parameters,
+        native.functions.first.parameters,
+      ]) {
+        expect(parameters.map((p) => p.presence), [
+          ParameterPresence.required,
+          ParameterPresence.opaqueOptional,
+          ParameterPresence.opaqueOptional,
+          ParameterPresence.optional,
+        ]);
+        expect(parameters[1].kind, ParameterKind.optionalNamed);
+        expect(parameters[1].defaultValue?.value, isNull);
+        expect(parameters[2].defaultValue?.value, isNull);
+      }
+      final wasmTypes = emitDeclarations(wasm);
+      final nativeTypes = emitNativeDeclarations(native);
+      expect(emitDeclarations(lower(validate(external))), wasmTypes);
+      expect(emitNativeDeclarations(validateNative(external)), nativeTypes);
+      for (final code in [wasmTypes, nativeTypes]) {
+        expect(
+          code,
+          contains(
+            'choose: <T = unknown>(options: string, options1?: { first?: T | null; second?: T | null; count?: number | undefined }) => T | null;',
+          ),
+        );
+        expect(
+          code,
+          contains(
+            'required: <T = unknown>(options: { value: T; first?: T | null; second?: T | null; count?: number | undefined }) => T | null;',
+          ),
+        );
+        expect(
+          code,
+          contains(
+            'constructor(options?: { first?: T | null; second?: T | null });',
+          ),
+        );
+        expect(
+          code,
+          contains(
+            'constructor(options: { key: string; first?: T | null; second?: T | null });',
+          ),
+        );
+        expect(
+          code,
+          contains(
+            'static named<T = unknown>(options: { key: string; first?: T | null; second?: T | null }): NamedStore<T>;',
+          ),
+        );
+        expect(
+          code,
+          contains(
+            'put(options?: { first?: T | null; second?: T | null; count?: number | undefined }): T | null;',
+          ),
+        );
+        expect(
+          code,
+          contains(
+            'mixed(options: { value: T; first?: T | null; second?: T | null }): T | null;',
+          ),
+        );
+        expect(code, isNot(contains('T | null | undefined')));
+      }
+    },
+  );
+
+  test(
+    'optional named opaque values still validate presence and defaults',
+    () async {
+      final module = await read('@NAPI() T? echo<T>({T? value}) => value;');
+      final function = module.functions.single;
+      final type = function.typeParameters.single.declaration;
+      final nullable = TypeParameterType(
+        type,
+        nullability: TypeNullability.nullable,
+      );
+      for (final (parameter, code) in [
+        (
+          ParameterBinding(
+            'value',
+            nullable,
+            kind: ParameterKind.optionalNamed,
+          ),
+          'NAPI_PRESENCE',
+        ),
+        (
+          ParameterBinding(
+            'value',
+            TypeParameterType(type),
+            kind: ParameterKind.optionalNamed,
+            presence: ParameterPresence.opaqueOptional,
+          ),
+          'NAPI_DEFAULT',
+        ),
+        (
+          ParameterBinding(
+            'value',
+            nullable,
+            kind: ParameterKind.optionalNamed,
+            presence: ParameterPresence.opaqueOptional,
+            defaultValue: const ScalarDefault(1),
+          ),
+          'NAPI_DEFAULT',
+        ),
+        (
+          ParameterBinding(
+            'value',
+            nullable,
+            kind: ParameterKind.optionalNamed,
+            presence: ParameterPresence.opaqueOptional,
+            defaultSource: 'unresolved',
+          ),
+          'NAPI_DEFAULT',
+        ),
+      ]) {
+        expect(
+          () => validateCallParameters(
+            [parameter],
+            function.source,
+            opaqueParameters: {type},
+          ),
+          throwsA(isA<BindingDiagnostic>().having((e) => e.code, 'code', code)),
+        );
+      }
+    },
+  );
+
   test('opaque names preserve built-in TypeScript types in both backends', () async {
     final module = await read('''
 @NAPI() List<int> array<Array>(Array value) => [1];
@@ -364,10 +521,6 @@ void [values, nested, empty, wrong];
     'cross parameter bound': (
       "@NAPI() U echo<T, U extends T>(U value) => value;",
       'NAPI_TYPE',
-    ),
-    'optional named': (
-      "@NAPI() T? echo<T>({T? value}) => value;",
-      'NAPI_PRESENCE',
     ),
     'nested input': ("@NAPI() int echo<T>(List<T> value) => 1;", 'NAPI_TYPE'),
     'nested output': (

@@ -254,7 +254,9 @@ ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int toke
         if (_optional(parameter)) {
           final defaulted =
               parameter.presence == ParameterPresence.opaqueOptional
-              ? '$index >= call.argumentCount'
+              ? isNamed
+                    ? '!options.present[$namedIndex]'
+                    : '$index >= call.argumentCount'
               : isNamed
               ? '_api.defaultOption(call.env, options, $namedIndex)'
               : '_api.omittedOrUndefined(call, $index)';
@@ -331,7 +333,9 @@ ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int toke
         final defaulted = preflight
             ? 'default$index'
             : parameter.presence == ParameterPresence.opaqueOptional
-            ? '$index >= call.argumentCount'
+            ? isNamed
+                  ? '!options.present[$option]'
+                  : '$index >= call.argumentCount'
             : isNamed
             ? '_api.defaultOption(call.env, options, $option)'
             : '_api.omittedOrUndefined(call, $index)';

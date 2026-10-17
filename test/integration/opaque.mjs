@@ -33,6 +33,7 @@ async function keep(api, check, label) {
 }
 
 async function values(api) {
+  const external = await import('@napi/opaque-external');
   let traps = 0;
   const hostile = new Proxy({}, {
     get() { traps++; throw Error('unexpected payload get'); },
@@ -67,6 +68,16 @@ async function values(api) {
   for (const value of payloads) {
     assert(Object.is(api.identity(value), value));
     assert(Object.is(api.optional(value), value));
+    for (const entry of [api, external]) {
+      assert(Object.is(entry.named(7, {first: value}), value));
+      assert(Object.is(entry.named(0, {second: value}), value));
+      assert(Object.is(entry.mixedRequired({first: value}), value));
+      const store = new entry.NamedStore({first: value, second: value});
+      assert(Object.is(store.first, value));
+      assert(Object.is(store.second, value));
+      assert(Object.is(store.select(0, {second: value}), value));
+      store.clear();
+    }
     router.set('value', value);
     router.value = value;
     await turn();
@@ -135,6 +146,118 @@ function presence(api) {
     assert(Object.is(router.value, value));
     assert(Object.is(api.Router.withValue(value).get('initial'), value));
   }
+}
+
+async function namedPresence(api) {
+  const store = new api.NamedStore();
+  for (const args of [[], [undefined], [{}]]) {
+    assert.equal(api.named(7, ...args), null);
+    assert.equal(api.named(0, ...args), null);
+    const empty = new api.NamedStore(...args);
+    assert.equal(empty.first, null);
+    assert.equal(empty.second, null);
+    const marked = api.NamedStore.withMarker(9, ...args);
+    assert.equal(marked.marker, 9);
+    assert.equal(marked.first, null);
+    assert.equal(marked.second, null);
+    assert.equal(store.select(7, ...args), null);
+    assert.equal(await genuine(() => api.futureNamed(0, ...args)), null);
+    assert.equal(await genuine(() => store.futureSelect(7, ...args)), null);
+  }
+  assert.equal(api.named(7, {first: 'first', second: 'second', choose: undefined}), 'first');
+  assert.equal(api.named(7, {first: 'first', second: 'second', choose: 0}), 'second');
+  for (const value of [undefined, null]) {
+    assert.equal(api.named(7, {first: value}), value);
+    assert.equal(api.named(0, {second: value}), value);
+    assert.equal(api.mixedRequired({first: value}), value);
+    assert.equal(api.mixedRequired({first: 'required', second: value, choose: 0}), value);
+    const initial = new api.NamedStore({first: value, second: value});
+    const marked = api.NamedStore.withMarker(9, {first: value, second: value});
+    for (const current of [initial, marked]) {
+      assert.equal(current.first, value);
+      assert.equal(current.second, value);
+      assert.equal(current.select(7, {first: value}), value);
+      assert.equal(current.select(0, {second: value}), value);
+      assert.equal(await genuine(() => current.futureSelect(7, {first: value})), value);
+      assert.equal(await genuine(() => current.futureSelect(0, {second: value})), value);
+    }
+    assert.equal(await genuine(() => api.futureNamed(7, {first: value})), value);
+    assert.equal(await genuine(() => api.futureNamed(0, {second: value})), value);
+  }
+  const payload = {named: true};
+  assert.equal(await genuine(() => api.futureNamed(7, {first: payload})), payload);
+  assert.equal(await genuine(() => store.futureSelect(0, {second: payload})), payload);
+  assert.equal(await genuine(() => api.futureNamed(0, {
+    second: {then(resolve) { resolve(42); }},
+  })), 42);
+  assert.equal(api.mixedRequired({first: 'required', choose: 0}), null);
+
+  const before = api.opaqueCalls();
+  for (const call of [
+    () => api.named(),
+    () => api.named(undefined),
+    () => api.named(7, null),
+    () => api.named(7, {unknown: 1}),
+    () => api.named(7, {choose: null}),
+    () => api.mixedRequired(),
+    () => api.mixedRequired(undefined),
+    () => api.mixedRequired({}),
+    () => api.mixedRequired({second: null}),
+    () => api.mixedRequired(Object.assign(Object.create({first: 1}), {second: 2})),
+    () => new api.NamedStore({unknown: 1}),
+    () => api.NamedStore.withMarker(),
+    () => api.NamedStore.withMarker(9, null),
+    () => store.select(7, {choose: null}),
+  ]) assert.throws(call, TypeError);
+  await assert.rejects(genuine(() => api.futureNamed(7, {choose: null})), TypeError);
+  await assert.rejects(genuine(() => store.futureSelect()), TypeError);
+  let getterCalls = 0;
+  for (const key of ['first', 'second']) {
+    const options = Object.defineProperty({}, key, {get() { getterCalls++; return 1; }});
+    assert.throws(() => api.named(7, options), TypeError);
+    assert.throws(() => new api.NamedStore(options), TypeError);
+    assert.throws(() => api.NamedStore.withMarker(9, options), TypeError);
+    assert.throws(() => store.select(7, options), TypeError);
+    await assert.rejects(genuine(() => api.futureNamed(7, options)), TypeError);
+    await assert.rejects(genuine(() => store.futureSelect(7, options)), TypeError);
+  }
+  assert.equal(getterCalls, 0, 'named opaque accessors are rejected without invocation');
+  for (const exact of [{reflection: true}, null, undefined]) {
+    for (const trap of ['getPrototypeOf', 'ownKeys', 'getOwnPropertyDescriptor']) {
+      const options = new Proxy({first: 1}, {[trap]() { throw exact; }});
+      assert.throws(() => api.named(7, options), error => error === exact);
+      await assert.rejects(genuine(() => api.futureNamed(7, options)), error => error === exact);
+    }
+  }
+  assert.equal(api.opaqueCalls(), before, 'invalid named input never enters business code');
+}
+
+async function namedRetention(api) {
+  let pending;
+  const pendingValues = (() => {
+    const first = {namedPending: 'first'};
+    const second = {namedPending: 'second'};
+    pending = api.waitNamed({first, second});
+    assert(pending instanceof Promise);
+    return [new WeakRef(first), new WeakRef(second)];
+  })();
+  await keep(api, () => pendingValues.every(ref => ref.deref()), 'pending named inputs');
+  api.completeOpaque(43);
+  assert.equal(await pending, 43);
+  await collect(api, () => pendingValues.every(ref => !ref.deref()), 'completed named inputs');
+
+  let store;
+  const storedValues = (() => {
+    const first = {namedStored: 'first'};
+    const second = {namedStored: 'second'};
+    store = api.NamedStore.withMarker(9, {first, second});
+    return [new WeakRef(first), new WeakRef(second)];
+  })();
+  await keep(api, () => storedValues.every(ref => ref.deref()), 'stored named inputs');
+  assert.equal(store.first, storedValues[0].deref());
+  assert.equal(store.second, storedValues[1].deref());
+  store.clear();
+  await collect(api, () => storedValues.every(ref => !ref.deref()), 'cleared named inputs');
 }
 
 function genuine(call) {
@@ -301,6 +424,14 @@ async function scenario(name) {
   switch (name) {
     case 'values': await values(api); break;
     case 'presence': presence(api); break;
+    case 'named':
+      await namedPresence(api);
+      await namedPresence(await import('@napi/opaque-external'));
+      break;
+    case 'named-retention':
+      await namedRetention(api);
+      await namedRetention(await import('@napi/opaque-external'));
+      break;
     case 'future-values': await futureValues(api); break;
     case 'thenables': await thenables(api); break;
     case 'future-unhandled': {
@@ -427,7 +558,7 @@ if (!isMainThread) {
   await scenario(process.argv[2]);
 } else {
   const cases = ['values', 'presence', 'future-values', 'thenables', 'future-unhandled',
-    'external', 'retention', 'overwrite-remove',
+    'external', 'named', 'named-retention', 'retention', 'overwrite-remove',
     'cycles', 'pending', 'independent', 'worker-only', 'workers-with-main'];
   for (const name of cases) {
     const result = spawnSync(process.execPath, ['--expose-gc', filename, name], {

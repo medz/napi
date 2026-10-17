@@ -1,5 +1,6 @@
 import * as api from '@napi/opaque-fixture';
 import * as direct from '@napi/opaque-fixture/BACKEND';
+import * as namedExternal from '@napi/opaque-external';
 import {plainEcho, plainFuture, PlainStore, SetterThenBox as ExternalSetterThenBox} from '@napi/opaque-external';
 
 const item = {name: 'payload'};
@@ -170,3 +171,78 @@ const wrongIsolated: Promise<number> = isolatedSetter.futureSelf();
 isolatedSetter.then = 'wrong';
 void [compositeRead, compositeFuture, wrongCompositeRead, wrongCompositeFuture,
   isolatedRead, isolatedSelf, isolatedOpaque, wrongIsolated];
+
+// Optional named properties use ordinary TypeScript optional-field semantics.
+const namedOutput: string | null = api.named<string>(7);
+api.named<string>(7, undefined);
+api.named<string>(7, {});
+api.named<string>(7, {first: 'first', second: null, choose: undefined});
+api.named<string | undefined>(0, {first: undefined, second: undefined});
+api.mixedRequired<string>({first: 'required'});
+api.mixedRequired<string | undefined>({first: undefined, second: undefined});
+const namedFuture: Promise<string | null> = api.futureNamed<string>(7, {second: 'second'});
+const namedAdopted: Promise<number | null> = api.futureNamed(0, {second: thenable});
+const namedStore = new api.NamedStore<string>();
+new api.NamedStore<string>(undefined);
+new api.NamedStore<string>({});
+const namedStored: string | null = namedStore.first;
+const namedSecond: string | null = namedStore.second;
+const markedStore: api.NamedStore<string> = api.NamedStore.withMarker<string>(9, {first: null, second: 'second'});
+const namedSelection: string | null = namedStore.select(7, {});
+const namedSelectedFuture: Promise<string | null> = namedStore.futureSelect(0, {second: 'second'});
+const undefinedStore = new api.NamedStore<string | undefined>({first: undefined, second: undefined});
+undefinedStore.select(7, {first: undefined});
+const undefinedFuture: Promise<string | null | undefined> = undefinedStore.futureSelect(0, {second: undefined});
+const externalNamed: string | null = namedExternal.named<string>(7, {});
+const externalNamedFuture: Promise<string | null> = namedExternal.futureNamed<string>(0, {second: 'second'});
+const externalNamedStore = new namedExternal.NamedStore<string>({first: 'first'});
+const externalMarked: namedExternal.NamedStore<string> = namedExternal.NamedStore.withMarker<string>(9);
+const directNamed: string | null = direct.named<string>(7, {first: 'first'});
+
+// @ts-expect-error A required positional argument stays required before options.
+api.named<string>();
+// @ts-expect-error Required named properties remain required in both optional modes.
+api.mixedRequired<string>();
+// @ts-expect-error An empty object does not satisfy the required named payload.
+api.mixedRequired<string>({});
+// @ts-expect-error A required opaque field does not admit undefined for string T.
+api.mixedRequired<string>({first: undefined});
+// @ts-expect-error Named fields retain T instead of becoming unknown.
+api.named<string>(7, {second: 42});
+// @ts-expect-error Options must be an object or omitted, not null.
+new api.NamedStore<string>(null);
+// @ts-expect-error Named constructor positional presence is independent of its options.
+api.NamedStore.withMarker<string>();
+// @ts-expect-error Omission changes the parameter shape, not the stored value type.
+namedStore.first = undefined;
+// @exact-optional-error
+api.named<string>(7, {first: undefined});
+// @exact-optional-error
+api.named<string>(0, {second: undefined});
+// @exact-optional-error
+api.mixedRequired<string>({first: 'required', second: undefined});
+// @exact-optional-error
+new api.NamedStore<string>({first: undefined, second: undefined});
+// @exact-optional-error
+api.NamedStore.withMarker<string>(9, {second: undefined});
+// @exact-optional-error
+namedStore.select(7, {first: undefined});
+// @exact-optional-error
+namedStore.futureSelect(0, {second: undefined});
+// @exact-optional-error
+api.futureNamed<string>(7, {first: undefined});
+// @exact-optional-error
+namedExternal.named<string>(7, {first: undefined});
+// @exact-optional-error
+externalNamedStore.select(0, {second: undefined});
+const undefinedOptions = {first: undefined, second: undefined};
+api.named<string | undefined>(7, undefinedOptions);
+// @exact-optional-error
+api.named<string>(7, undefinedOptions);
+const optionalPayload: {first?: string | undefined} = {first: undefined};
+namedExternal.named<string | undefined>(7, optionalPayload);
+// @exact-optional-error
+namedExternal.named<string>(7, optionalPayload);
+void [namedOutput, namedFuture, namedAdopted, namedStored, namedSecond, markedStore,
+  namedSelection, namedSelectedFuture, undefinedFuture, externalNamed,
+  externalNamedFuture, externalMarked, directNamed];
