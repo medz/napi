@@ -3,10 +3,13 @@ import '../emit/typescript/declarations.dart'
         emitMemberName,
         emitParameterVariants,
         emitReferenceInheritance,
+        emitWriteOnlyReads,
+        emitViewGetterResult,
         emitResult,
         emitTypeParameters,
         emitOpaquePhantom,
-        emitFunctionDeclarations;
+        emitFunctionDeclarations,
+        emitPromiseResolutionDeclarations;
 import '../ir/model.dart';
 import '../emit/typescript/values.dart';
 import 'plan.dart';
@@ -16,6 +19,11 @@ String emitNativeDeclarations(NativeModulePlan plan) {
   final code = StringBuffer(
     '// Generated declarations for the native module.\n',
   );
+  for (final declaration in emitPromiseResolutionDeclarations(
+    plan.calls.where((call) => call.returnsFuture).map((call) => call.output),
+  )) {
+    code.writeln(declaration);
+  }
   code.writeln(
     emitValueDeclarations(
       plan.bindings.classes,
@@ -89,6 +97,19 @@ String emitNativeDeclarations(NativeModulePlan plan) {
             throw StateError('Unsupported class declaration');
         }
       }
+    }
+    for (final declaration in emitWriteOnlyReads(
+      binding.shape,
+      plan.classes.map((binding) => binding.shape).toList(),
+      (ref) {
+        final member = plan.classes[ref.classId].members[ref.memberIndex];
+        return emitViewGetterResult(
+          member.output,
+          returnsFuture: member.returnsFuture,
+        );
+      },
+    )) {
+      code.writeln(declaration);
     }
     code.writeln('}');
     for (final declaration in emitReferenceInheritance(

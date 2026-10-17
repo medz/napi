@@ -23,6 +23,19 @@ T? optional<T>([T? value]) {
 }
 
 @NAPI()
+Future<T> futureIdentity<T>(T value) {
+  _calls++;
+  return Future.value(value);
+}
+
+@NAPI()
+Future<T?> futureOptional<T>([T? value]) => Future.value(value);
+
+@NAPI()
+Future<T> futureDelayed<T>(T value, int milliseconds) =>
+    Future.delayed(Duration(milliseconds: milliseconds), () => value);
+
+@NAPI()
 T? prefix<T>([T? first, int choose = 7, T? last]) => choose == 7 ? first : last;
 
 @NAPI()
@@ -58,6 +71,8 @@ class Router<T> {
   }
 
   T? get(String key) => _values[key];
+  Future<T?> futureGet(String key) => Future.value(_values[key]);
+  Future<T?> get futureValue => Future.value(value);
   bool has(String key) => _values.containsKey(key);
   bool remove(String key) => _values.remove(key) != null;
   void put({required String key, required T value}) => set(key, value);
@@ -134,10 +149,62 @@ class EmptyRecord<T> {
 @NAPI()
 Future<Router<T>> futureRouter<T>(Router<T> value) => Future.value(value);
 
+@NAPI()
+Future<Awaited> opaqueAwaited<Awaited>(Awaited value) => Future.value(value);
+
+@NAPI(name: 'Awaited')
+class AwaitedStorage<T> {
+  T value;
+  AwaitedStorage(this.value);
+}
+
+@NAPI()
+class ThenBox<T> {
+  T then;
+  ThenBox(this.then);
+  Future<ThenBox<T>> futureSelf() => Future.value(this);
+}
+
+@NAPI()
+Future<ThenBox<T>> futureThenBox<T>(ThenBox<T> value) => Future.value(value);
+
 // Selected from a second build through the public ExternalLibrary API.
 T plainEcho<T>(T value) => value;
+
+Future<T> plainFuture<T>(T value) => Future.value(value);
 
 class PlainStore<T> {
   T value;
   PlainStore(this.value);
+  Future<T> futureValue() => Future.value(value);
 }
+
+@NAPI()
+class SetterThenBox<T> {
+  T _value;
+  SetterThenBox(this._value);
+  set then(T value) => _value = value;
+  T get value => _value;
+  Future<SetterThenBox<T>> futureSelf() => Future.value(this);
+}
+
+@NAPI()
+class StaticSetterThenBox {
+  static set then(void Function() value) => value();
+}
+
+@NAPI()
+class GetterThenView<T> {
+  GetterThenView(this._value);
+  final T _value;
+  T get then => _value;
+}
+
+class _CompositeThen<T> extends SetterThenBox<T> implements GetterThenView<T> {
+  _CompositeThen(super.value);
+  @override
+  T get then => value;
+}
+
+@NAPI()
+SetterThenBox<T> compositeThen<T>(T value) => _CompositeThen(value);

@@ -1461,31 +1461,6 @@ void validateCallResult(
     }
     return;
   }
-  if (future && isOpaqueType(payload, opaqueParameters)) {
-    reject(
-      'Future results cannot be opaque: Promise resolution observes and assimilates thenables.',
-    );
-  }
-  if (future && payload is DeclaredType) {
-    for (final binding in referenceClasses) {
-      if (binding.declaration != payload.declaration ||
-          binding.typeParameters.isEmpty) {
-        continue;
-      }
-      if (binding.members.any(
-        (member) =>
-            member.selection != MemberSelection.excluded &&
-            !member.isStatic &&
-            member.kind != MemberKind.constructor &&
-            member.kind != MemberKind.setter &&
-            (member.exportName ?? member.declaration.name) == 'then',
-      )) {
-        reject(
-          'A generic reference Future result cannot expose an instance then member: Promise resolution would observe or assimilate the wrapper.',
-        );
-      }
-    }
-  }
   validateValueType(
     payload,
     source,

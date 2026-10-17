@@ -4,6 +4,9 @@ import '../../lowering/plan.dart';
 import 'values.dart';
 
 String emitDeclarations(ModulePlan plan) => [
+  ...emitPromiseResolutionDeclarations(
+    plan.calls.where((call) => call.returnsFuture).map((call) => call.output),
+  ),
   if (plan.valueSchemas.isNotEmpty)
     emitValueDeclarations(
       plan.allClasses,
@@ -59,6 +62,17 @@ String emitDeclarations(ModulePlan plan) => [
           MemberCallKind.constructor =>
             '  static ${emitMemberName(member.exportName)}${emitTypeParameters(binding.binding.typeParameters)}($parameters): ${binding.binding.exportName}${emitLogicalTypeArguments(binding.binding.typeParameters)};',
         },
+    ...emitWriteOnlyReads(
+      binding.shape,
+      plan.classes.map((binding) => binding.shape).toList(),
+      (ref) {
+        final member = plan.classes[ref.classId].members[ref.memberIndex];
+        return emitViewGetterResult(
+          member.output,
+          returnsFuture: member.returnsFuture,
+        );
+      },
+    ),
     '}',
     ...emitReferenceInheritance(
       binding.shape,
@@ -133,10 +147,105 @@ Iterable<String> emitParameterVariants(
   }
 }
 
-/// Completion changes the result container, never the payload conversion.
+/// Promise resolution assimilates a root payload's callable `then` member.
 String emitResult(ValueConversion? output, {required bool returnsFuture}) {
   final payload = output?.typescriptType ?? 'void';
-  return returnsFuture ? 'globalThis.Promise<$payload>' : payload;
+  if (!returnsFuture) return payload;
+  final resolved = _needsPromiseResolution(output)
+      ? '\$napiAwaited<$payload>'
+      : payload;
+  return 'globalThis.Promise<$resolved>';
+}
+
+bool _needsPromiseResolution(ValueConversion? output) =>
+    output is OpaqueConversion || output is ReferenceConversion;
+
+/// Unlike TypeScript's Awaited, distribute a nullable or union-valued `then`:
+/// its callable branch resolves, while its non-callable branch returns T.
+/// Public export and generic identifiers cannot contain `$`.
+Iterable<String> emitPromiseResolutionDeclarations(
+  Iterable<ValueConversion?> outputs,
+) sync* {
+  if (outputs.any(_needsPromiseResolution)) {
+    yield r'''type $napiAwaited<T> = unknown extends T ? unknown : T extends object
+  ? 'then' extends keyof T
+    ? T['then'] extends infer F
+      ? unknown extends F ? unknown
+        : F extends (onfulfilled: infer C, ...args: any[]) => any
+          ? C extends (value: infer V, ...args: any[]) => any ? $napiAwaited<V> : never
+          : F extends globalThis.Function ? unknown : T
+      : never
+    : T
+  : T;''';
+  }
+}
+
+/// A getter supplied by another view has no known generic arguments.
+String emitViewGetterResult(
+  ValueConversion? output, {
+  required bool returnsFuture,
+}) {
+  if (output != null &&
+      conversionGraph([output]).any(
+        (value) =>
+            value is OpaqueConversion ||
+            value is ReferenceConversion && value.typeArguments.isNotEmpty,
+      )) {
+    return returnsFuture ? 'globalThis.Promise<unknown>' : 'unknown';
+  }
+  return emitResult(output, returnsFuture: returnsFuture);
+}
+
+/// Missing accessors read undefined, but composed views can supply a getter.
+Iterable<String> emitWriteOnlyReads(
+  ReferenceClassShape shape,
+  List<ReferenceClassShape> classes,
+  String Function(ReferenceMemberRef) getterType,
+) sync* {
+  for (final property in shape.prototypeProperties) {
+    if (property.setter == null || property.getter != null) continue;
+    final setter = classes[property.setter!.classId]
+        .members[property.setter!.memberIndex]
+        .binding;
+    final types = <String>{'undefined'};
+    for (final view in classes) {
+      for (final candidate in view.prototypeProperties) {
+        final ref = candidate.getter;
+        if (candidate.name != property.name || ref == null) continue;
+        final getter = classes[ref.classId].members[ref.memberIndex].binding;
+        // Match the same target used by runtime composite descriptors. Different
+        // Dart members renamed to one JS name conflict instead of composing.
+        if (getter.declaration.name != setter.declaration.name ||
+            (getter.callPath ?? getter.declaration.name) !=
+                (setter.callPath ?? setter.declaration.name)) {
+          continue;
+        }
+        var type = getterType(ref);
+        // A newly referenced view type must not resolve to this class's generic.
+        if (shape.binding.typeParameters.any(
+          (parameter) =>
+              RegExp('\\b${parameter.declaration.name}\\b').hasMatch(type),
+        )) {
+          type = 'unknown';
+        }
+        types.add(type);
+      }
+    }
+    final result = types.contains('unknown') ? 'unknown' : types.join(' | ');
+    yield '  get ${emitMemberName(property.name)}(): $result;';
+  }
+  final staticGetters = {
+    for (final member in shape.members)
+      if (member.isStatic && member.kind == ReferenceMemberKind.getter)
+        member.exportName,
+  };
+  for (final member in shape.members) {
+    if (member.isStatic &&
+        member.kind == ReferenceMemberKind.setter &&
+        !staticGetters.contains(member.exportName)) {
+      yield '  static get ${emitMemberName(member.exportName)}(): undefined;';
+    }
+  }
 }
 
 /// Merge only the instance type. `class Child extends Base` would incorrectly

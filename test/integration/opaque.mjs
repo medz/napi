@@ -127,6 +127,120 @@ function presence(api) {
   }
 }
 
+function genuine(call) {
+  let result;
+  assert.doesNotThrow(() => { result = call(); });
+  assert(result instanceof Promise, 'Future export returns a genuine Promise');
+  return result;
+}
+
+async function futureValues(api) {
+  for (const value of [undefined, null, -0, NaN, Infinity, 42, 1n << 100n,
+    'a\ud800b\udfff', Symbol('future'), {plain: true}, () => 42]) {
+    assert(Object.is(await genuine(() => api.futureIdentity(value)), value));
+    assert(Object.is(await genuine(() => api.futureOptional(value)), value));
+  }
+  assert.equal(await api.futureOptional(), null);
+  const calls = api.opaqueCalls();
+  await assert.rejects(genuine(() => api.futureIdentity()), TypeError);
+  assert.equal(api.opaqueCalls(), calls, 'missing input never enters Dart');
+  const router = new api.Router();
+  assert.equal(await router.futureGet('missing'), null);
+  router.set('undefined', undefined);
+  assert.equal(await router.futureGet('undefined'), undefined);
+  router.value = undefined;
+  assert.equal(await router.futureValue, undefined);
+  router.value = null;
+  assert.equal(await router.futureValue, null);
+  assert.equal(await api.opaqueAwaited(undefined), undefined);
+  const stored = new api.Awaited('value');
+  assert.equal(await api.futureIdentity(stored), stored);
+  const payloads = Array.from({length: 40}, (_, id) => ({id}));
+  const results = await Promise.all(payloads.map((value, id) =>
+    api.futureDelayed(value, id % 4)));
+  for (let i = 0; i < payloads.length; i++) assert.equal(results[i], payloads[i]);
+}
+
+async function thenables(api) {
+  let setterCalls = 0;
+  const setterValue = resolve => { setterCalls++; resolve(42); };
+  const setterOnly = new api.SetterThenBox(setterValue);
+  assert.equal(setterOnly.then, undefined);
+  assert.equal(setterOnly.value, setterValue);
+  assert.equal(await setterOnly.futureSelf(), setterOnly);
+  assert.equal(await api.futureIdentity(setterOnly), setterOnly);
+  setterOnly.then = resolve => { setterCalls++; resolve(43); };
+  assert.equal(setterOnly.then, undefined);
+  assert.equal(await setterOnly.futureSelf(), setterOnly);
+  assert.equal(setterCalls, 0, 'Promise resolution never invokes a setter-only then');
+  let staticSetterCalls = 0;
+  api.StaticSetterThenBox.then = () => { staticSetterCalls++; };
+  assert.equal(staticSetterCalls, 1);
+  assert.equal(api.StaticSetterThenBox.then, undefined);
+  assert.equal(await api.futureIdentity(api.StaticSetterThenBox), api.StaticSetterThenBox);
+  assert.equal(staticSetterCalls, 1, 'Promise resolution does not invoke a static setter');
+  let compositeCalls = 0;
+  const compositeValue = resolve => { compositeCalls++; resolve(45); };
+  const composite = api.compositeThen(compositeValue);
+  assert.equal(composite.then, compositeValue, 'an unselected implementation composes getter and setter views');
+  assert.equal(await api.futureIdentity(composite), 45);
+  assert.equal(await composite.futureSelf(), 45);
+  assert.equal(compositeCalls, 2);
+  const payload = {result: true};
+  let gets = 0;
+  let invokes = 0;
+  const value = Object.defineProperty({}, 'then', {get() {
+    gets++;
+    assert.equal(api.identity(payload), payload, 'resolver reflection can reenter Dart');
+    return function(resolve, reject) {
+      assert.equal(this, value);
+      invokes++;
+      resolve({then(next) { next(payload); }});
+      reject(Error('ignored second settlement'));
+      throw Error('ignored after settlement');
+    };
+  }});
+  assert.equal(api.identity(value), value);
+  assert.equal(gets, 0, 'synchronous opaque payload never reads then');
+  assert.equal(await api.futureIdentity(value), payload);
+  assert.equal(gets, 1);
+  assert.equal(invokes, 1);
+  assert.equal(await api.futureIdentity(Promise.resolve(payload)), payload);
+  const foreign = runInNewContext('Promise.resolve({foreign: true})');
+  assert.equal(await api.futureIdentity(foreign), await foreign);
+  for (const error of [Error('getter'), {error: true}, 23, Symbol('error'), null, undefined]) {
+    const throwing = Object.defineProperty({}, 'then', {get() { throw error; }});
+    await assert.rejects(genuine(() => api.futureIdentity(throwing)), failure => Object.is(failure, error));
+    await assert.rejects(genuine(() => api.futureIdentity({then(_resolve, reject) { reject(error); }})),
+      failure => Object.is(failure, error));
+    assert.equal(await api.futureIdentity(7), 7, 'failed adoption leaves the next call usable');
+  }
+  const noncallable = {then: 42};
+  assert.equal(await api.futureIdentity(noncallable), noncallable);
+  const revoked = Proxy.revocable({}, {});
+  revoked.revoke();
+  await assert.rejects(api.futureIdentity(revoked.proxy), TypeError);
+
+  let nestedCalls = 0;
+  const callback = resolve => { nestedCalls++; resolve(payload); };
+  const box = new api.ThenBox(callback);
+  assert.equal(box.then, callback);
+  assert.equal(await box.futureSelf(), payload);
+  assert.equal(await api.futureThenBox(box), payload);
+  assert.equal(nestedCalls, 2);
+  // The Array is an opaque payload; no structural generic conversion is implied.
+  const rows = await api.futureIdentity([box]);
+  assert.equal(rows[0], box);
+  assert.equal(rows[0].then, callback);
+  assert.equal(nestedCalls, 2, 'nested reference values are not assimilated');
+  const plain = new api.ThenBox(null);
+  assert.equal(await plain.futureSelf(), plain);
+  assert.equal(await api.futureThenBox(plain), plain);
+  const router = new api.Router();
+  Object.defineProperty(router, 'then', {value: resolve => resolve(19)});
+  assert.equal(await api.futureRouter(router), 19, 'ordinary JS wrapper mutation follows Promise resolution');
+}
+
 function retained(api) {
   const value = {retained: true};
   const router = new api.Router();
@@ -177,17 +291,39 @@ async function scenario(name) {
   switch (name) {
     case 'values': await values(api); break;
     case 'presence': presence(api); break;
+    case 'future-values': await futureValues(api); break;
+    case 'thenables': await thenables(api); break;
+    case 'future-unhandled': {
+      const error = {unhandled: true};
+      let actual;
+      process.once('unhandledRejection', (reason, promise) => {
+        assert.equal(reason, error);
+        assert.equal(promise, actual);
+        process.exitCode = 0;
+      });
+      process.exitCode = 9;
+      actual = api.futureIdentity({then(_resolve, reject) { reject(error); }});
+      break;
+    }
     case 'external': {
       const external = await import('@napi/opaque-external');
       const value = {external: true};
       assert.equal(external.plainEcho(value), value);
       assert.equal(external.plainEcho(undefined), undefined);
+      assert.equal(await external.plainFuture(value), value);
+      assert.equal(await external.plainFuture(undefined), undefined);
+      assert.equal(await external.plainFuture({then(resolve) { resolve(42); }}), 42);
       assert.throws(() => external.plainEcho(), TypeError);
       const store = new external.PlainStore(value);
       assert.equal(store.value, value);
       store.value = undefined;
       assert.equal(store.value, undefined);
+      assert.equal(await store.futureValue(), undefined);
       assert.throws(() => new external.PlainStore(), TypeError);
+      const setter = new external.SetterThenBox(resolve => resolve(46));
+      assert.equal(setter.then, undefined);
+      assert.equal(await setter.futureSelf(), setter);
+      assert.equal(await external.plainFuture(setter), setter);
       break;
     }
     case 'retention': {
@@ -268,6 +404,9 @@ if (!isMainThread) {
   const value = {worker: true};
   router.set('value', value);
   assert.equal(router.get('value'), value);
+  assert.equal(await api.futureIdentity(value), value);
+  assert.equal(await api.futureIdentity(undefined), undefined);
+  assert.equal(await api.futureIdentity({then(resolve) { resolve(17); }}), 17);
   router.pin();
   api.opaquePressure(1);
   if (workerData.held) {
@@ -277,7 +416,8 @@ if (!isMainThread) {
 } else if (process.argv[2]) {
   await scenario(process.argv[2]);
 } else {
-  const cases = ['values', 'presence', 'external', 'retention', 'overwrite-remove',
+  const cases = ['values', 'presence', 'future-values', 'thenables', 'future-unhandled',
+    'external', 'retention', 'overwrite-remove',
     'cycles', 'pending', 'independent', 'worker-only', 'workers-with-main'];
   for (const name of cases) {
     const result = spawnSync(process.execPath, ['--expose-gc', filename, name], {

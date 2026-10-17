@@ -274,11 +274,14 @@ void [array, record, keyRecord, future, nested, member];
     }
   });
 
-  test('generic Future references allow static and excluded then members', () async {
+  test('generic Future references use ordinary Promise resolution', () async {
     for (final member in [
       'static int then() => 0;',
       '@NAPI(exclude: true) void then() {}',
       'void other() {}',
+      'void then() {}',
+      "@NAPI(name: 'then') T? get value => null;",
+      'T? then;',
     ]) {
       final module = await read(
         '@NAPI() class Box<T> { Box(); $member Future<Box<T>> self() async => this; } '
@@ -350,22 +353,6 @@ void [values, nested, empty, wrong];
   });
 
   final rejected = <String, (String, String)>{
-    'generic Future then method': (
-      "@NAPI() class Box<T> { Box(); void then() {} } @NAPI() Future<Box<T>> pending<T>() async => Box<T>();",
-      'NAPI_TYPE',
-    ),
-    'generic Future renamed then getter': (
-      "@NAPI() class Box<T> { Box(); @NAPI(name: 'then') T? get value => null; } @NAPI() Future<Box<T>> pending<T>() async => Box<T>();",
-      'NAPI_TYPE',
-    ),
-    'generic Future then field': (
-      "@NAPI() class Box<T> { Box(); T? then; } @NAPI() Future<Box<T>?> pending<T>() async => Box<T>();",
-      'NAPI_TYPE',
-    ),
-    'generic member Future then result': (
-      "@NAPI() class Box<T> { Box(); int then() => 0; Future<Box<T>> pending() async => this; }",
-      'NAPI_TYPE',
-    ),
     'semantic bound': (
       "@NAPI() T echo<T extends num>(T value) => value;",
       'NAPI_TYPE',
@@ -385,14 +372,6 @@ void [values, nested, empty, wrong];
     'nested input': ("@NAPI() int echo<T>(List<T> value) => 1;", 'NAPI_TYPE'),
     'nested output': (
       "@NAPI() List<T> echo<T>(T value) => [value];",
-      'NAPI_TYPE',
-    ),
-    'opaque Future': (
-      "@NAPI() Future<T> echo<T>(T value) => Future.value(value);",
-      'NAPI_TYPE',
-    ),
-    'nullable opaque Future': (
-      "@NAPI() Future<T?> echo<T>(T value) => Future.value(value);",
       'NAPI_TYPE',
     ),
     'dynamic is not opaque': (

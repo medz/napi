@@ -1,6 +1,6 @@
 import * as api from '@napi/opaque-fixture';
 import * as direct from '@napi/opaque-fixture/BACKEND';
-import {plainEcho, PlainStore} from '@napi/opaque-external';
+import {plainEcho, plainFuture, PlainStore, SetterThenBox as ExternalSetterThenBox} from '@napi/opaque-external';
 
 const item = {name: 'payload'};
 const same: typeof item = api.identity(item);
@@ -53,6 +53,49 @@ const empty: Record<PropertyKey, never> = new api.Record().empty();
 const futureRouter: Promise<api.Router<string>> = api.futureRouter(router);
 void [numbers, empty, futureRouter];
 
+const futurePayload: Promise<typeof item> = api.futureIdentity(item);
+const futureUndefined: Promise<undefined> = api.futureIdentity(undefined);
+const futureNull: Promise<null> = api.futureIdentity(null);
+const futureMissing: Promise<string | null> = api.futureOptional<string>();
+const futureSupplied: Promise<undefined | null> = api.futureOptional<undefined>(undefined);
+const futureRead: Promise<string | null> = router.futureGet('key');
+const futureField: Promise<string | null> = router.futureValue;
+const promised: Promise<number> = api.futureIdentity(Promise.resolve(42));
+const thenable = {then(resolve: (value: number) => void) { resolve(42); }};
+const adopted: Promise<number> = api.futureIdentity(thenable);
+const box = new api.ThenBox(thenable.then);
+const boxFuture: Promise<number> = box.futureSelf();
+const boxForward: Promise<number> = api.futureThenBox(box);
+const boxNested: Promise<api.ThenBox<typeof thenable.then>[]> = api.futureIdentity([box]);
+const nullableThen = new api.ThenBox<typeof thenable.then | null>(null);
+const nullableAdopted: Promise<number | typeof nullableThen> = nullableThen.futureSelf();
+const unknownThen = new api.ThenBox<unknown>(undefined);
+const unknownResult: Promise<unknown> = api.futureThenBox(unknownThen);
+const noncallableThen = new api.ThenBox('not callable');
+const noncallableResult: Promise<typeof noncallableThen> = noncallableThen.futureSelf();
+const shadowed: Promise<symbol> = api.opaqueAwaited(Symbol());
+const awaitedStore = new api.Awaited('value');
+const awaitedStored: Promise<api.Awaited<string>> = api.futureIdentity(awaitedStore);
+const externalFuture: Promise<number> = plainFuture(thenable);
+const storedFuture: Promise<string> = store.futureValue();
+
+// @ts-expect-error Future validation preserves required input presence.
+api.futureIdentity();
+// @ts-expect-error Supplied undefined is not string, even for an optional Future input.
+api.futureOptional<string>(undefined);
+// @ts-expect-error Promise results adopt the thenable instead of preserving its root type.
+const wrongAdopted: Promise<typeof thenable> = api.futureIdentity(thenable);
+// @ts-expect-error A selected then member also participates in Promise resolution.
+const wrongBox: Promise<typeof box> = box.futureSelf();
+// @ts-expect-error A nullable then can still be callable at runtime.
+const wrongNullable: Promise<typeof nullableThen> = nullableThen.futureSelf();
+// @ts-expect-error Unknown then values cannot promise the original wrapper.
+const wrongUnknown: Promise<typeof unknownThen> = api.futureThenBox(unknownThen);
+void [futurePayload, futureUndefined, futureNull, futureMissing, futureSupplied,
+  futureRead, futureField, promised, adopted, boxFuture, boxForward, boxNested,
+  nullableAdopted, unknownResult, noncallableResult, shadowed, awaitedStored,
+  externalFuture, storedFuture, wrongAdopted, wrongBox, wrongNullable, wrongUnknown];
+
 // @ts-expect-error A required opaque argument may be undefined, but cannot be omitted.
 api.identity();
 // @ts-expect-error Fixed T preserves the declared payload relationship.
@@ -90,3 +133,40 @@ new PlainStore<string>();
 void [same, un, nullable, directValue, read, sameRouter, forwarded, readopted,
   optional, named, first, second, boundedNull, boundedUndefined, output, pending,
   external, stored, array, emptyRecord, emptyKey, globalResult, widened, narrowed, fake];
+
+const setterOnly = new api.SetterThenBox(thenable.then);
+const setterRead: unknown = setterOnly.then;
+setterOnly.then = thenable.then;
+const setterPromise: Promise<unknown> = setterOnly.futureSelf();
+const setterOpaque: Promise<unknown> = api.futureIdentity(setterOnly);
+// @ts-expect-error A composed getter can produce an unknown fulfillment value.
+const wrongSetter: Promise<number> = setterOnly.futureSelf();
+void [setterRead, setterPromise, setterOpaque, wrongSetter];
+
+api.StaticSetterThenBox.then = () => {};
+const staticSetterRead: undefined = api.StaticSetterThenBox.then;
+const staticSetterPromise: Promise<typeof api.StaticSetterThenBox> = api.futureIdentity(api.StaticSetterThenBox);
+// @ts-expect-error Reading static setter-only then must not assimilate its callback input.
+const wrongStaticSetter: Promise<never> = api.futureIdentity(api.StaticSetterThenBox);
+// @ts-expect-error An independent undefined read must preserve the setter input type.
+api.StaticSetterThenBox.then = 'wrong';
+void [staticSetterRead, staticSetterPromise, wrongStaticSetter];
+
+const composite = api.compositeThen(thenable.then);
+const compositeRead: unknown = composite.then;
+const compositeFuture: Promise<unknown> = composite.futureSelf();
+// @ts-expect-error Unselected implementations can add compatible getter views.
+const wrongCompositeRead: undefined = composite.then;
+// @ts-expect-error A composed then getter can assimilate instead of preserving the wrapper.
+const wrongCompositeFuture: Promise<typeof composite> = composite.futureSelf();
+const isolatedSetter = new ExternalSetterThenBox(thenable.then);
+isolatedSetter.then = thenable.then;
+const isolatedRead: undefined = isolatedSetter.then;
+const isolatedSelf: Promise<typeof isolatedSetter> = isolatedSetter.futureSelf();
+const isolatedOpaque: Promise<typeof isolatedSetter> = plainFuture(isolatedSetter);
+// @ts-expect-error A setter without a possible getter never assimilates its input type.
+const wrongIsolated: Promise<number> = isolatedSetter.futureSelf();
+// @ts-expect-error Exact read typing still preserves setter input validation.
+isolatedSetter.then = 'wrong';
+void [compositeRead, compositeFuture, wrongCompositeRead, wrongCompositeFuture,
+  isolatedRead, isolatedSelf, isolatedOpaque, wrongIsolated];

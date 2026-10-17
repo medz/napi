@@ -347,6 +347,42 @@ async function adoption(api, rejectResult = false, getterThrows = false) {
   delete api.ResourceResult.prototype.then;
 }
 
+async function opaqueAdoption(api) {
+  let id = 200;
+  for (const kind of ['resolve', 'reject', 'throw']) {
+    for (const exact of [undefined, null, Symbol(kind)]) {
+      const resource = new api.ResourceCounter(++id);
+      let finish, closing, closeSettled = false;
+      const payload = {get then() {
+        closing = promise(() => resource.release());
+        closing.then(() => { closeSettled = true; });
+        assert.equal(api.resourceCleanupCalls(id), 0, 'opaque result getter retains its resource argument');
+        if (kind === 'throw') throw exact;
+        return (resolve, reject) => { finish = () => kind === 'resolve' ? resolve(exact) : reject(exact); };
+      }};
+      const result = promise(() => api.resourceOpaqueResult(resource, payload));
+      const observed = kind === 'resolve'
+        ? result.then(value => assert.equal(value, exact))
+        : assert.rejects(result, error => error === exact);
+      if (kind !== 'throw') {
+        await until(() => finish !== undefined, 'opaque thenable adoption must start');
+        for (let round = 0; round < 4; round++) {
+          global.gc();
+          api.resourcePressure(round);
+          await turn();
+          assert.equal(closeSettled, false);
+          assert.equal(api.resourceCleanupCalls(id), 0, 'opaque thenable remains inside its accepted operation');
+        }
+        finish();
+      }
+      await observed;
+      await closing;
+      assert.equal(resource.release(), closing);
+      assert.equal(api.resourceCleanupCalls(id), 1);
+    }
+  }
+}
+
 async function retention(api) {
   let resource = new api.ResourceCounter(40);
   const operation = promise(() => api.resourceHold(resource, 40));
@@ -494,6 +530,7 @@ async function scenario(name) {
     case 'adoption-getter-error': await adoption(api, false, true); break;
     case 'adoption-getter-null': await adoption(api, false, 'null'); break;
     case 'adoption-getter-undefined': await adoption(api, false, 'undefined'); break;
+    case 'opaque-adoption': await opaqueAdoption(api); break;
     case 'retention': await retention(api); break;
     case 'no-implicit-cleanup': await noImplicitCleanup(api); break;
     case 'orphan': await orphan(api); break;
@@ -618,7 +655,7 @@ if (!isMainThread) {
   await scenario(process.argv[2]);
 } else {
   const cases = ['basic', 'leases', 'nested', 'input-reentry', 'receiver-reentry', 'failure', 'dynamic-cleanup', 'adoption', 'adoption-reject',
-    'adoption-getter-error', 'adoption-getter-null', 'adoption-getter-undefined',
+    'adoption-getter-error', 'adoption-getter-null', 'adoption-getter-undefined', 'opaque-adoption',
     'retention', 'no-implicit-cleanup', 'orphan', 'orphan-cleanup', 'readoption', 'independent', 'liveness',
     'pending', 'unhandled-event', 'unhandled-adoption', 'unhandled-strict',
     'worker-only', 'workers-with-main'];

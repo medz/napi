@@ -90,6 +90,8 @@ const futureEntrypointPrelude = r'''
 external void _retainPromise(WasmExternRef capability, WasmExternRef roots);
 @pragma('wasm:import', 'napi.completePromise')
 external void _completePromise(WasmExternRef capability, WasmExternRef? convert);
+@pragma('wasm:import', 'napi.resolvePromiseValue')
+external void _resolvePromiseValue(WasmExternRef capability, WasmExternRef? value);
 @pragma('wasm:import', 'napi.failPromise')
 external void _failPromise(WasmExternRef capability, WasmExternRef message, WasmExternRef stack);
 @pragma('wasm:import', 'napi.throwFutureError')
@@ -113,10 +115,7 @@ void _failFuture(WasmExternRef capability, Object error, StackTrace stack, Strin
 WasmExternRef? _normalizeFutureError(Object error, StackTrace stack, String context) =>
     _throwFutureError(externRefForJSAny('$context: ${_futureErrorMessage(error)}'.toJS)!, externRefForJSAny(_stackMessage(stack).toJS)!);
 
-// Private Wasm reference types require isNull rather than a Dart ?. cast.
-JSAny? _futureJSValue(WasmExternRef? value) => value.isNull ? null : value!.toJS;
-
-void _observeFuture<T>(Future<T> future, WasmExternRef capability, String context, JSAny? Function(T)? convert) {
+void _observeFuture<T>(Future<T> future, WasmExternRef capability, String context, void Function(T)? convert) {
   var delivered = false;
   void fail(Object error, StackTrace stack) {
     if (delivered) return;
@@ -127,7 +126,9 @@ void _observeFuture<T>(Future<T> future, WasmExternRef capability, String contex
     future.then<void>((value) {
       if (delivered) return;
       delivered = true;
-      _completePromise(capability, convert == null ? null : externRefForJSAny((() => convert(value)).toJS));
+      // The void converter delivers its raw externref with _resolvePromiseValue
+      // under the host's exception handler. JSAny would erase JS undefined.
+      _completePromise(capability, convert == null ? null : externRefForJSAny((() { convert(value); }).toJS));
     }, onError: fail);
   } catch (error, stack) { fail(error, stack); }
 }

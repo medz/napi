@@ -34,7 +34,7 @@ See [the architecture and delivery plan](doc/architecture.md) and
 - Generated reference classes, named/factory constructors and weak wrapper identity on both targets
 - Generic payload storage with identity, nullish presence and shared TypeScript relationships
 - Structural value classes with explicit constructors, recursive fields and direction-specific TypeScript
-- Future-returning functions/methods/getters with genuine Promises and shared payload/error conversion
+- Future-returning functions/methods/getters, including generic payloads, with standard Promise resolution and shared error conversion
 - Resource cleanup with shared state, stable completion identity and operation leases through Promise settlement
 - Synchronous borrowed callbacks with scalar/List/record conversions, reentry, exact JS throws and expiry
 - Direct imports, installed package resolution, artifact inspection, and strict TypeScript tests

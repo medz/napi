@@ -200,17 +200,20 @@ export function failPromise(capability, message, stack) {
 export function throwFutureError(message, stack) {
   throw dartFutureError(message, stack);
 }
+export function resolvePromiseValue(capability, value) {
+${resources ? '''  const output = capability.wrap === null ? value : capability.wrap(value);
+  if (capability.hasOperation && output !== null && (typeof output === 'object' || typeof output === 'function')) {
+    resourceSettlements.observe(capability.promise, capability);
+    capability.observed = true;
+  }
+  capability.resolve(output);''' : '  capability.resolve(capability.wrap === null ? value : capability.wrap(value));'}
+}
 export function completePromise(capability, convert) {
   if (capability.done) return;
   capability.done = true;
   try {
-    const value = convert === null ? undefined : convert();
-${resources ? '''    const output = capability.wrap === null ? value : capability.wrap(value);
-    if (capability.hasOperation && output !== null && (typeof output === 'object' || typeof output === 'function')) {
-      resourceSettlements.observe(capability.promise, capability);
-      capability.observed = true;
-    }
-    capability.resolve(output);''' : '    capability.resolve(capability.wrap === null ? value : capability.wrap(value));'}
+    if (convert === null) resolvePromiseValue(capability, undefined);
+    else convert();
   } catch (error) {
     capability.reject(error);
   } finally {

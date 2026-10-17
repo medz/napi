@@ -1,7 +1,8 @@
 # Future exports
 
 A selected Dart function, method or getter returning `Future<T>` exposes a
-JavaScript `Promise<T>` on both backends. This also applies to synchronous Dart
+genuine JavaScript Promise on both backends. Its fulfillment value follows
+standard Promise resolution of the converted result. This also applies to synchronous Dart
 functions returning an existing Future and to aliases of `dart:async/Future`.
 The `async` keyword alone does not define the binding contract.
 
@@ -80,7 +81,7 @@ Both targets run business code in Dart; Promise return types do not imply
 background-thread execution. Ordering against unrelated JavaScript microtasks
 is not guaranteed to be identical between the two runtimes.
 
-## Remaining contracts
+## Promise resolution and identity
 
 [Resource bindings](resources.md) acquire operation leases during receiver/input
 conversion. For object results, a private Node settlement observer keeps these
@@ -95,11 +96,25 @@ existing wrapper can affect this behavior. Nested object fields and collection
 elements are not recursively assimilated. The binding does not hide `then`,
 box the result or substitute a Promise-like object.
 
-Unconditional identity for arbitrary root thenables remains unresolved in
-[#129](https://github.com/medz/napi/issues/129): it conflicts with standard Promise
-assimilation. Resolver return is only a resolution handoff for thenables; resource
-leases now wait for actual settlement. Neither that lifetime guarantee nor
-ordinary reference identity establishes unconditional thenable identity.
+This standard behavior also applies to generic `Future<T>` payloads and selected
+generic reference classes with a `then` member. A synchronous opaque return never
+reads `then`; a Future hands its raw result to the Promise resolver, which does.
+For example, returning `{then(resolve) { resolve(42); }}` from `Future<T>` fulfills
+with `42`. Returning that object synchronously, or as a nested element of a
+returned container, preserves its identity. `null` and `undefined` remain distinct.
+
+TypeScript declarations describe the resolved value. A private conditional type
+handles recursive thenables and union-valued `then` properties: a callable branch
+adopts its resolution type, while a non-callable branch preserves the object.
+An unknown callable result stays unknown. This does not inspect runtime values or
+introduce a consumer wrapper. Mutations outside the declared TypeScript shape,
+type assertions and `any` retain TypeScript's usual limitations.
+
+Resolver return is only a resolution handoff for thenables; resource leases wait
+for actual settlement. Synchronous and nested identity does not promise the
+original object as the fulfillment value of a root thenable.
+
+## Remaining contracts
 
 Future/Promise inputs, `FutureOr`, nullable outer Futures, nested Future payloads,
 `async void`, generators and still-unsupported payload types produce build
@@ -123,5 +138,31 @@ and receiver reachability, event-loop liveness, unhandled rejections, and normal
 or terminated Workers in eleven fresh-process scenarios. The full Wasm and native
 verification commands include this fixture. These tests establish the ordinary
 Future delivery contract above. The separate [resource fixture](resources.md)
-checks generated cleanup and operation leases; neither suite changes the
-arbitrary root-thenable identity boundary.
+checks generated cleanup and operation leases. The generic payload fixture adds
+standard thenable adoption, exact getter/rejection values, nullable and undefined
+completion, selected `then` members, and preservation of synchronous/nested values.
+
+The standard-resolution update passed the complete native/Wasm suites on both
+Node versions, 527 Dart tests (one Windows-only skip locally), and 23 Wasm
+resource-kernel tests. The opaque suite now has 13 fresh-process scenarios and
+eight TypeScript configurations per backend/version. The resource suite has 26
+scenarios, including nine opaque-result resolve/reject/getter-throw combinations
+that keep cleanup pending through GC and thenable settlement. Native reuses ABI13;
+its runtime binaries and settlement implementation did not change.
+
+## Measured update cost
+
+The unchanged Future fixture was compared with its prior installed Wasm package
+using two A/A and three balanced A/B ABBA blocks per Node version (40 independent
+processes). Each sample excludes import and 10,000 warmup calls, then checks
+100,000 sequential awaits and 100,000 calls in batches of 128. Median changes
+were -0.42% / -1.17% on Node 24 and -2.19% / -4.04% on Node 26. A/A median
+movement was -0.13% to +2.54%; no repeatable slowdown appeared, and these samples
+do not establish a general speedup or application-throughput bound.
+
+The nine-file fixture grows from 549,966 to 637,976 bytes (+88,010). Of this,
+85,890 bytes are Wasm name metadata; executable code grows 1,434 bytes and all
+non-name core data grows 1,587 bytes. Actual npm archives grow 2,738 and 2,609
+bytes on the two builds. The wrapper Wasm, calls, host, reference bindings,
+package metadata and license remain byte-identical. No artifact was stripped
+for this comparison; native artifact sizes were not measured in this update.

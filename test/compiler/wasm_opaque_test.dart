@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:napi/src/build/build.dart';
 import 'package:napi/src/compiler/analysis/validate.dart';
 import 'package:napi/src/compiler/emit/dart/entrypoint.dart';
 import 'package:napi/src/compiler/emit/js/arguments.dart';
@@ -112,4 +113,78 @@ import 'package:napi/napi.dart';
     expect(code, isNot(contains('_NapiHostValue')));
     expect(code, contains('target.value(a0)'));
   });
+
+  test(
+    'Future payloads preserve raw values through standard Promise resolution',
+    () async {
+      final input = await File('${directory.path}/business.dart')
+          .writeAsString('''
+import 'package:napi/napi.dart';
+@NAPI() Future<T> later<T>(T value) => Future.value(value);
+@NAPI() Future<T?> optional<T>([T? value]) async => value;
+@NAPI() Future<void> empty() async {}
+@NAPI() class Box<T> {
+  Box(this.value);
+  T value;
+  Future<T> get pending => Future.value(value);
+}
+''');
+      await buildLibrary(
+        library: input.uri,
+        output: Directory('${directory.path}/module'),
+        packagesPath: _packages,
+      );
+      await File('${directory.path}/check.mjs').writeAsString(r'''
+import assert from 'node:assert/strict';
+import {later, optional, empty, Box} from './module/module.wasm';
+const object = {};
+const fn = () => 1;
+for (const value of [undefined, null, false, 0, -0, NaN, Infinity, 4n, '\ud800', Symbol('opaque'), object, fn]) {
+  assert(Object.is(await later(value), value));
+  assert(Object.is(await optional(value), value));
+  assert(Object.is(await new Box(value).pending, value));
+}
+assert.equal(await optional(), null);
+assert.equal(await empty(), undefined);
+let reads = 0;
+let calls = 0;
+const thenable = {
+  get then() {
+    reads++;
+    return function(resolve, reject) {
+      assert.equal(this, thenable);
+      calls++;
+      resolve(object);
+      reject(new Error('second settlement'));
+    };
+  },
+};
+assert.equal(await later(thenable), object);
+assert.equal(reads, 1);
+assert.equal(calls, 1);
+for (const reason of [undefined, null, Symbol('thrown'), object]) {
+  const throwing = {get then() { throw reason; }};
+  let rejected = false;
+  try { await later(throwing); }
+  catch (error) { rejected = true; assert.equal(error, reason); }
+  assert(rejected);
+}
+const nested = {value: thenable};
+assert.equal(await later(nested), nested);
+assert.equal((await later([thenable]))[0], thenable);
+assert.equal(reads, 1, 'Promise resolution does not traverse nested payloads');
+assert.equal(new Box(thenable).value, thenable);
+assert.equal(reads, 1, 'synchronous values do not trigger Promise resolution');
+''');
+      final execution = await Process.run('node', [
+        'check.mjs',
+      ], workingDirectory: directory.path);
+      expect(
+        execution.exitCode,
+        0,
+        reason: '${execution.stdout}${execution.stderr}',
+      );
+    },
+    timeout: const Timeout(Duration(minutes: 2)),
+  );
 }
