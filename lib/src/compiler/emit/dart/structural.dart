@@ -28,6 +28,7 @@ final class DartStructuralEmitter {
         for (final field in conversion.fields) field.conversion,
       ],
       ScalarConversion() ||
+      BinaryConversion() ||
       ReferenceConversion() ||
       OpaqueConversion() ||
       AbortSignalConversion() ||
@@ -61,6 +62,18 @@ final class DartStructuralEmitter {
         _code.writeln(
           '  return ${output ? _writeScalar(conversion) : _readScalar(conversion, bigintText: bigintText)};',
         );
+      case BinaryConversion(:final kind):
+        if (output) {
+          _code.writeln(
+            kind == BinaryKind.uint8List
+                ? '  return _copyBinary(value, path, 0);'
+                : '  return _copyBinary(value.asUint8List(), path, 1);',
+          );
+        } else {
+          _code.writeln(
+            '  return (value as ${kind == BinaryKind.uint8List ? 'JSUint8Array' : 'JSArrayBuffer'}).toDart;',
+          );
+        }
       case ListConversion(:final element):
         if (output) {
           _code.writeln('''  state.enter(value, path, depth);

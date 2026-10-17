@@ -20,6 +20,27 @@ bool isAbortSignalType(BindingType type) =>
     type.typeArguments.isEmpty &&
     type.nullability != TypeNullability.legacy;
 
+final uint8ListDeclaration = DeclarationId(
+  Uri.parse('dart:typed_data'),
+  'Uint8List',
+  kind: DeclarationKind.classType,
+);
+
+final byteBufferDeclaration = DeclarationId(
+  Uri.parse('dart:typed_data'),
+  'ByteBuffer',
+  kind: DeclarationKind.classType,
+);
+
+/// Ordinary binary bindings copy the visible bytes in either direction.
+/// Typedef spelling and similarly named user classes do not change identity.
+bool isBinaryType(BindingType type) =>
+    type is DeclaredType &&
+    (type.declaration == uint8ListDeclaration ||
+        type.declaration == byteBufferDeclaration) &&
+    type.typeArguments.isEmpty &&
+    type.nullability != TypeNullability.legacy;
+
 final class BindingDiagnostic implements Exception {
   final String code;
   final String message;
@@ -1698,6 +1719,9 @@ void _validateCallback(FunctionTypeBinding type, SourceLocation source) {
   if (type.nullability == TypeNullability.legacy) {
     reject('Legacy callback nullability is not supported.');
   }
+  if (_containsTypedData(type)) {
+    reject('Binary values are not supported in callback signatures.');
+  }
   for (final parameter in type.parameters) {
     if (parameter.kind != ParameterKind.requiredPositional) {
       reject(
@@ -1729,6 +1753,19 @@ void _validateCallback(FunctionTypeBinding type, SourceLocation source) {
     );
   }
 }
+
+bool _containsTypedData(BindingType type) => switch (type) {
+  DeclaredType() =>
+    type.declaration.library == Uri.parse('dart:typed_data') ||
+        type.typeArguments.any(_containsTypedData),
+  RecordTypeBinding() =>
+    type.positional.any(_containsTypedData) ||
+        type.named.values.any(_containsTypedData),
+  FunctionTypeBinding() =>
+    _containsTypedData(type.result) ||
+        type.parameters.any((parameter) => _containsTypedData(parameter.type)),
+  _ => false,
+};
 
 bool _isCallbackValue(BindingType type) {
   if (_isBackendScalar(type)) return true;
@@ -1990,6 +2027,16 @@ void _checkValueDirection(
   ValueDirection direction,
   Set<DeclarationId> visited,
 ) {
+  if (type is DeclaredType &&
+      type.declaration.library == Uri.parse('dart:typed_data') &&
+      !isBinaryType(type)) {
+    throw BindingDiagnostic(
+      'NAPI_BINARY',
+      '${type.declaration.name} is not a supported binary snapshot type; '
+          'use Uint8List or ByteBuffer without legacy nullability.',
+      source,
+    );
+  }
   if (isValueClassType(type, classes)) {
     final binding = classes.firstWhere(
       (c) => c.declaration == (type as DeclaredType).declaration,
@@ -2022,7 +2069,11 @@ bool _isBackendValue(
   ValueDirection direction = ValueDirection.output,
   Set<DeclarationId>? seen,
 ]) {
-  if (_isBackendScalar(type) || isReferenceType(type, classes)) return true;
+  if (_isBackendScalar(type) ||
+      isBinaryType(type) ||
+      isReferenceType(type, classes)) {
+    return true;
+  }
   if (type.nullability == TypeNullability.legacy) return false;
   final visited = seen ?? <DeclarationId>{};
   bool child(BindingType value) =>

@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import '../analysis/reference_views.dart' show hasCompositeReferenceViews;
 import '../emit/js/callbacks.dart';
+import '../emit/js/binary.dart';
 import '../emit/js/cancellation.dart';
 import '../emit/js/reference_views.dart';
 import '../emit/js/settlement.dart';
@@ -15,12 +16,13 @@ String emitNativeLoader(
   bool hasCallbacks = false,
   bool hasAsyncCallbacks = false,
   bool hasSignals = false,
+  bool hasBinary = false,
   String? streamClassName,
 }) {
   final hasResources = classes.any((binding) => binding.shape.cleanup != null);
   final shapes = [for (final binding in classes) binding.shape];
   final hasCompositeViews = hasCompositeReferenceViews(shapes);
-  final hasCallbackHelper = hasCallbacks || hasSignals;
+  final hasCallbackHelper = hasCallbacks || hasSignals || hasBinary;
   final code = StringBuffer('''
 import {createRequire} from 'node:module';
 import {fileURLToPath} from 'node:url';
@@ -55,6 +57,7 @@ function $napiCreatePromise() {
     );
   }
   if (hasSignals) code.write(cancellationPolicy);
+  if (hasBinary) code.write(binaryPolicy);
   if (hasCallbackHelper) {
     if (hasAsyncCallbacks) {
       code.write(callbackPromisePolicy);
@@ -70,8 +73,14 @@ const $napiCallbackSet = WeakMap.prototype.set;
   if (kind === 0) {
     const functions = new $napiCallbackWeakMap();
     let next = 0;
-    return function identify(callback) {
-      let id = $napiCallbackApply($napiCallbackGet, functions, [callback]);
+    return function identify(callback, kind, nullable, path) {
+''');
+    if (hasBinary) {
+      code.writeln(
+        r'      if (arguments.length === 4) return $napiBinaryView(callback, kind, nullable, path);',
+      );
+    }
+    code.writeln(r'''      let id = $napiCallbackApply($napiCallbackGet, functions, [callback]);
       if (id === undefined) {
         if (next === 9007199254740991) throw new RangeError('Native callback identity space exhausted');
         id = ++next;

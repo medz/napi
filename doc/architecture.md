@@ -17,6 +17,8 @@ Both generate [Stream async iterators](streams.md) with a shared subscription
 kernel and the existing backend delivery transports. Explicit
 [AbortSignal inputs](cancellation.md) share cooperative cancellation and retained
 token ownership, reusing the native owner queue without an ABI change.
+Both generate [independent byte snapshots](binary.md) for `Uint8List` and
+`ByteBuffer`, including existing structural, Future and Stream conversions.
 Shared-buffer lifetimes, other native targets and
 automatic runtime supply remain development work; see [native scope](native.md).
 

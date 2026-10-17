@@ -79,13 +79,20 @@ Weak identity entries and zero-count Node-API references do not root wrappers.
 Environment, live lease and actual selected-class membership are checked before business calls.
 Readonly fields remain readonly and GC does not call business disposal methods.
 
-The private bridge table is ABI 14 (55 slots). It adds lazy retained-callback
+The private bridge table is ABI 15 (57 slots). Its two bulk binary operations
+copy valid input windows into Dart-owned storage and Dart output into independent
+JS storage. The short acquired-pointer intervals contain no JS callbacks or
+allocation. See [binary snapshots](binary.md) for the validity and ownership
+contract; these operations do not implement live shared views.
+
+ABI 14 added lazy retained-callback
 identity and owner-queued async completion helpers to ABI 13's scoped callback
 invocation and ABI 12's owned JS values and ABI 11's
 canonical resource cleanup Promises and resource-lease settlement observation;
 ABI 10 supplied Future delivery and ABI 9 supplied owner-thread event-loop integration. Older bundles are rejected before
-copying; maintainers rebuild the bridge/runtime bundle using their existing VM
-cache. Consumer builds still require only the ordinary Dart SDK and that bundle.
+copying. The ABI 15 bundle rebuilds the bridge and reuses the existing compiled
+VM runtime; it does not require a VM rebuild. Consumer builds still require only
+the ordinary Dart SDK and that bundle.
 Constructor-target detection preserves custom JS subclass receivers during
 canonical adoption. The reference-shape slot registers a composite wrapper creator only
 after its observed interface combination passes the shared contract checks.

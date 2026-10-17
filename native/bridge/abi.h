@@ -1,5 +1,5 @@
-// Compiler-private bridge ABI, version 14. Keep generated Dart in lockstep.
-// Version 14 adds retained callbacks and queued Promise input completion.
+// Compiler-private bridge ABI, version 15. Keep generated Dart in lockstep.
+// Version 15 adds bulk binary snapshot conversion in both directions.
 #pragma once
 #include <node_api.h>
 #include <stdint.h>
@@ -91,7 +91,9 @@ enum BridgeApiSlot {
   bridge_take_callback_exception = 52,
   bridge_callback_helper = 53,
   bridge_callback_identity = 54,
-  bridge_api_count = 55,
+  bridge_read_binary = 55,
+  bridge_write_binary = 56,
+  bridge_api_count = 57,
 };
 // kind 0 returns a private weak-identity helper. kind 1 lazily initializes the
 // owner-local completion queue and returns a strict Promise callback observer.
@@ -201,3 +203,14 @@ typedef napi_status (*BridgeBindCleanupPromise)(
 // final settlement acknowledgement. C observes only an actual object/function
 // fulfillment, outside Dart; rejection, null and primitives retain handoff ack.
 typedef napi_status (*BridgeObserveFutureSettlement)(napi_env, int64_t futureToken);
+
+// Slot 55: Dart_Handle (napi_env, napi_value canonical_uint8_view, int32_t kind).
+// Copies an already validated JS window into independent Dart typed storage.
+// kind 0 returns Uint8List; kind 1 wraps it in ByteBuffer. Failure returns Dart
+// null with a pending JS exception, never a Dart API error handle.
+// Slot 56: intptr_t (napi_env, Dart_Handle uint8_data, int32_t kind).
+// Copies a Dart Uint8List (including views) into independent JS storage. kind 0
+// returns Uint8Array, kind 1 ArrayBuffer; failure returns zero with a pending JS
+// exception. ByteBuffer callers first take its zero-copy Dart asUint8List view.
+// Both slots acquire Dart data only for memcpy: no JS calls or allocation until
+// the acquired pointer is released. Neither slot retains pointers across calls.

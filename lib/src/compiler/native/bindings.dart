@@ -1,10 +1,20 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
+import 'dart:typed_data';
 
 import '../../runtime/cancellation.dart';
 import '../../runtime/resources.dart';
 import '../../runtime/retention.dart';
+
+typedef _ReadBinaryNative = Handle Function(
+  Pointer<Void>,
+  Pointer<Void>,
+  Int32,
+);
+typedef _ReadBinary = Object? Function(Pointer<Void>, Pointer<Void>, int);
+typedef _WriteBinaryNative = IntPtr Function(Pointer<Void>, Handle, Int32);
+typedef _WriteBinary = int Function(Pointer<Void>, Object, int);
 
 typedef _CallbackHelperNative = Int32 Function(
   Pointer<Void>,
@@ -661,8 +671,8 @@ final class NapiApi {
     this.referenceViews,
     this.classMemberships = const [],
   }) : _table = Pointer.fromAddress(address) {
-    if (address == 0 || tableCount != 55) {
-      throw StateError('Incompatible native bridge ABI (expected 55 slots).');
+    if (address == 0 || tableCount != 57) {
+      throw StateError('Incompatible native bridge ABI (expected 57 slots).');
     }
   }
   late final _CallbackInfo _callbackInfo = _table[0]
@@ -816,6 +826,58 @@ final class NapiApi {
   late final _CallbackIdentity _callbackIdentity = _table[54]
       .cast<NativeFunction<_CallbackIdentityNative>>()
       .asFunction<_CallbackIdentity>();
+  late final _ReadBinary _readBinary = _table[55]
+      .cast<NativeFunction<_ReadBinaryNative>>()
+      .asFunction<_ReadBinary>();
+  late final _WriteBinary _writeBinary = _table[56]
+      .cast<NativeFunction<_WriteBinaryNative>>()
+      .asFunction<_WriteBinary>();
+
+  /// Snapshot the freshly validated JS view before Dart business materializes.
+  Object? binary(
+    Pointer<Void> env,
+    Pointer<Void> value,
+    int kind,
+    String path, {
+    bool nullable = false,
+  }) => _invokeCallback(
+    env,
+    _getCallbackHelper(env, 0),
+    4,
+    (env, args) {
+      args[0] = value;
+      args[1] = Pointer.fromAddress(integerResult(env, kind, 'binary kind'));
+      args[2] = Pointer.fromAddress(booleanResult(env, nullable));
+      args[3] = Pointer.fromAddress(stringResult(env, path));
+    },
+    (env, view) {
+      if (nullable && isNull(env, view)) return null;
+      final result = _readBinary(env, view, kind);
+      if (result == null) {
+        throw _callbackError(
+          env,
+          StateError('$path: native binary copy failed'),
+        );
+      }
+      return result;
+    },
+  );
+
+  /// Copy Dart bytes into JS-owned storage; no source pointer escapes the slot.
+  int binaryResult(Pointer<Void> env, Object value, int kind, String path) {
+    final bytes = kind == 0
+        ? value as Uint8List
+        : (value as ByteBuffer).asUint8List();
+    if (bytes.lengthInBytes > 0x7fffffff) {
+      throw NapiRangeError('$path: binary byte length exceeds 2147483647');
+    }
+    final result = _writeBinary(env, bytes, kind);
+    if (result == 0) {
+      throw _callbackError(env, StateError('$path: native binary copy failed'));
+    }
+    return result;
+  }
+
   late final _callbackAdapters =
       <String, Map<int, _NativeCallbackCacheEntry>>{};
   late final _callbackFinalizer = Zone.root.run(

@@ -19,6 +19,8 @@ enum ExportRepresentation {
 
 enum ScalarKind { boolean, string, integer, doubleValue, bigInteger }
 
+enum BinaryKind { uint8List, byteBuffer }
+
 /// Specialized conversion shapes shared by each direction's code generator.
 sealed class ValueConversion {
   final String context;
@@ -29,6 +31,31 @@ sealed class ValueConversion {
   String get dartType;
   String get jsType;
   String get typescriptType;
+}
+
+/// A standalone snapshot of the visible bytes, never an implicit shared view.
+/// Both backends enforce the same public bound before allocating the snapshot.
+final class BinaryConversion extends ValueConversion {
+  static const maxByteLength = 0x7fffffff;
+  final BinaryKind kind;
+  BinaryConversion(DeclaredType super.type, super.context)
+    : kind = type.declaration == uint8ListDeclaration
+          ? BinaryKind.uint8List
+          : type.declaration == byteBufferDeclaration
+          ? BinaryKind.byteBuffer
+          : throw StateError('Unvalidated binary type');
+
+  @override
+  String get dartType =>
+      'typed_data.${kind == BinaryKind.uint8List ? 'Uint8List' : 'ByteBuffer'}${nullable ? '?' : ''}';
+  @override
+  String get jsType => 'object';
+  @override
+  String get typescriptType =>
+      (kind == BinaryKind.uint8List
+          ? 'globalThis.Uint8Array<globalThis.ArrayBuffer>'
+          : 'globalThis.ArrayBuffer') +
+      (nullable ? ' | null' : '');
 }
 
 /// An explicit cancellation input. Each backend retains the host signal while
@@ -312,6 +339,7 @@ Iterable<ValueConversion> conversionGraph(
       ],
       CallbackConversion() => [...node.inputs, ?node.output],
       ScalarConversion() ||
+      BinaryConversion() ||
       ReferenceConversion() ||
       AbortSignalConversion() ||
       OpaqueConversion() => <ValueConversion>[],
@@ -443,6 +471,9 @@ final class _ConversionBuilder {
       classes.any((binding) => binding.exportName == name);
 
   ValueConversion convert(BindingType type, String context) {
+    if (isBinaryType(type)) {
+      return BinaryConversion(type as DeclaredType, context);
+    }
     if (isAbortSignalType(type)) {
       return AbortSignalConversion(type, context);
     }

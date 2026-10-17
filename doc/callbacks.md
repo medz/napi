@@ -114,7 +114,7 @@ identity, weak collection, delayed invocation, startup failures, strict Promise
 inputs, exact errors, concurrent results, resource closing, foreign-owner
 completion, normal/terminated Workers and queued teardown. TypeScript consumers
 run in eight strict/optional-property/function-variance configurations.
-Native currently requires the experimental macOS arm64 ABI14 runtime bundle;
+Native currently requires the experimental macOS arm64 ABI15 runtime bundle;
 compiler/runtime versions and broader limits are in [native.md](native.md).
 
 The 2026-10-17 final validation passed 537 Dart tests (one Windows-only local
