@@ -224,8 +224,8 @@ for (const leaf of [bad, new Proxy(value, {}), Object.create(api.Counter.prototy
   assert.throws(() => api.echoRows([{item: value, aliases: [leaf]}]), error =>
     error instanceof TypeError && error.message.startsWith('echoRows.value[0].aliases[0]: '));
 }
-assert.throws(() => new api.Child().asBase(), error => error instanceof TypeError &&
-  error.message.startsWith('Child.asBase result[0]: conflicting public class identity'));
+const child = new api.Child();
+assert.equal(child.asBase()[0], child, 'nested Base view preserves canonical Child identity');
 assert.equal(api.echoRefs([value])[0], value, 'failed leaf must leave adapters usable');
 const tick = () => new Promise(resolve => setImmediate(resolve));
 async function collect(predicate) {

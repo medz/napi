@@ -51,7 +51,7 @@ import ${_quote(plan.bindings.importUri.toString())} as target;
 late final NapiApi _api;
 @pragma('vm:entry-point')
 List<Object?> napiBindings(int apiTableAddress, int tableCount) {
-  _api = NapiApi(apiTableAddress, tableCount);
+  _api = NapiApi(apiTableAddress, tableCount${plan.classes.isEmpty ? '' : ', referenceClass: _referenceClass, classMemberships: _referenceMemberships'});
   return [
 ''');
   for (final function in plan.functions) {
@@ -80,6 +80,28 @@ List<Object?> napiBindings(int apiTableAddress, int tableCount) {
 void releaseOwner(int id) => _api.releaseOwner(id);
 void main() {}
 ''');
+  if (plan.classes.isNotEmpty) {
+    code.writeln('const _referenceMemberships = <Set<int>>[');
+    for (final binding in plan.classes) {
+      code.writeln('  {${binding.shape.memberships.join(', ')}},');
+    }
+    code.writeln('];');
+    code.writeln('''int _referenceClass(Object value, String path) {
+  int? canonical;''');
+    for (final index in plan.referenceClassOrder) {
+      code.writeln(
+        '''  if (value is target.${plan.classes[index].binding.callPath}) {
+    if (canonical == null) { canonical = $index; }
+    else if (!_referenceMemberships[canonical].contains($index)) {
+      throw NapiTypeError('\$path: no unique most-specific selected class');
+    }
+  }''',
+      );
+    }
+    code.writeln('''  if (canonical == null) throw NapiTypeError('\$path: no unique most-specific selected class');
+  return canonical;
+}''');
+  }
   for (final call in plan.calls) {
     final parameters = call.parameters;
     final positionalCount = parameters.where((p) => !_named(p)).length;

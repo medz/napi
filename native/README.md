@@ -78,7 +78,7 @@ operations initialize, load immutable canonical AOT snapshots, create/enter/exit
 isolates, drain microtasks, free errors and shut down one isolate. Public Dart C
 APIs provide scopes, values, invocation and persistent handles while entered.
 
-`bridge/abi.h` fixes the 41-slot compiler-private table and binding metadata.
+`bridge/abi.h` fixes the 42-slot compiler-private table and binding metadata.
 `napiBindings(address, count)` must validate that count before reading the table.
 Functions/classes retain actual JS call presence and `new` behavior. Getter and
 setter closures share one JS property descriptor but remain distinct callbacks.
@@ -131,3 +131,6 @@ scheduling, Dart-created child isolates, non-returning Dart interruption,
 cross-identity VM sharing and other platforms are outside this implementation.
 Their acceptance remains open. `DART_LICENSE` and `DART_AUTHORS` retain the
 upstream SDK license/attribution; original bridge code uses the package license.
+
+Slot 41 compares actual `new.target` with the captured selected constructor; it
+performs no mutable JavaScript property lookup. The compiler-private ABI is 7.

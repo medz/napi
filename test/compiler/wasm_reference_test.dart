@@ -316,7 +316,8 @@ assert.equal(new AbstractFactory().value, 23);
 assert.throws(() => new NamedOnly(), TypeError);
 assert.equal(NamedOnly.make(14).value, 14);
 assert.throws(() => new Counter.from(12), TypeError);
-assert.throws(() => new Child().asBase(), /conflicting public class identity/);
+const child = new Child();
+assert.equal(child.asBase(), child, 'the Base view preserves canonical Child identity');
 assert.equal(identity(value), value, 'failure leaves cache and calls usable');
 const tick = () => new Promise(resolve => setImmediate(resolve));
 async function collect(predicate) {

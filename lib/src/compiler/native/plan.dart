@@ -46,10 +46,12 @@ final class NativeCallPlan {
 }
 
 final class NativeClassPlan {
+  final ReferenceClassShape shape;
   final ClassBinding binding;
   final NativeCallPlan constructor;
   final List<NativeCallPlan> members;
-  NativeClassPlan._(this.binding, this.constructor, this.members);
+  NativeClassPlan._(this.shape, this.constructor, this.members)
+    : binding = shape.binding;
   bool get hasPublicConstructor => constructor.member != null;
 }
 
@@ -58,11 +60,13 @@ final class NativeModulePlan {
   final List<NativeCallPlan> functions;
   final List<NativeClassPlan> classes;
   final List<ValueClassSchema> valueSchemas;
+  final List<int> referenceClassOrder;
   NativeModulePlan._(
     this.bindings,
     this.functions,
     this.classes,
     this.valueSchemas,
+    this.referenceClassOrder,
   );
   Iterable<NativeCallPlan> get calls sync* {
     yield* functions;
@@ -217,7 +221,8 @@ NativeModulePlan validateNative(BindingModule module) {
     );
   }
   final classes = <NativeClassPlan>[];
-  for (final shape in validateReferenceClasses(module)) {
+  final shapes = validateReferenceClasses(module);
+  for (final shape in shapes) {
     final binding = shape.binding;
     final classId = classes.length;
     NativeCallPlan member(
@@ -246,7 +251,7 @@ NativeModulePlan validateNative(BindingModule module) {
     );
     classes.add(
       NativeClassPlan._(
-        binding,
+        shape,
         shape.constructor != null
             ? member(shape.constructor!, constructor: true)
             : call(
@@ -267,6 +272,7 @@ NativeModulePlan validateNative(BindingModule module) {
     List.unmodifiable(functions),
     List.unmodifiable(classes),
     List.unmodifiable(valueSchemas),
+    referenceClassOrder(shapes),
   );
 }
 

@@ -94,13 +94,14 @@ assert.throws(() => api.failFresh(), error => error instanceof RangeError &&
   error.message.startsWith('failFresh result.$2: '));
 const child = api.savedChild();
 assert(child instanceof api.Child, 'unexposed Base claim must not poison Child');
-assert.throws(() => api.savedBase(), TypeError);
+assert.equal(api.savedBase(), child, 'Base view keeps the canonical Child wrapper');
 const weak = (() => {
   const exposed = api.expose();
   assert(exposed instanceof api.Base);
+  assert(exposed instanceof api.Child);
   assert.throws(() => api.failSaved(), RangeError);
   assert.equal(api.savedBase(), exposed, 'failure preserves an already exposed claim');
-  assert.throws(() => api.savedChild(), TypeError);
+  assert.equal(api.savedChild(), exposed);
   return new WeakRef(exposed);
 })();
 let collected = false;
@@ -111,9 +112,10 @@ for (let i = 0; i < 80; i++) {
 }
 assert(collected);
 assert.throws(() => api.failSaved(), RangeError);
-assert.throws(() => api.savedChild(), TypeError,
-  'a previously exposed brand survives a dead wrapper and failed re-adoption');
-assert(api.savedBase() instanceof api.Base);
+const readopted = api.savedChild();
+assert(readopted instanceof api.Child,
+  'canonical identity survives a dead wrapper and failed re-adoption');
+assert.equal(api.savedBase(), readopted);
 assert.throws(() => api.failFresh(), RangeError);
 assert(api.savedChild() instanceof api.Child, 'later fresh failure is independently rolled back');
 for (const [prototype, key] of [[Array.prototype, '0'], [Object.prototype, '0'], [Object.prototype, 'pending']]) {

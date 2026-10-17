@@ -133,7 +133,7 @@ reachable wrapper, also shared with direct reference calls. Forged, Proxy,
 wrong-class and foreign-runtime leaves fail at their precise field/index path.
 Dropping the wrapper while Dart retains a container permits collection; returning
 the object later adopts a new wrapper without executing its constructor again.
-The exact-public-type and lifetime rules in [reference classes](classes.md) apply
+The canonical membership and lifetime rules in [reference classes](classes.md) apply
 equally inside containers. Opaque values and shared buffers remain unsupported.
 
 The shared generated-consumer contract covers nested nullable values, cloning,
@@ -147,7 +147,7 @@ null-prototype special keys, own-data descriptors, key ordering and JSON paths,
 mixed Map/Dictionary signatures, class members, alias recognition and GC. Fresh native/Wasm npm
 consumers run it with the original native source/build directories removed.
 Tested with Dart 3.13.5, Node 24.19.0/26.11.1 and TypeScript 7.0.2. Native execution
-is qualified on macOS arm64 and requires an ABI 6 bundle. The compiler/runtime
+is qualified on macOS arm64 and requires an ABI 7 bundle. The compiler/runtime
 use private experimental SDK APIs; other native platforms remain unqualified.
 
 Non-null structural defaults, generic reference specialization and opaque/shared

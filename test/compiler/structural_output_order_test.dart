@@ -46,11 +46,14 @@ class BadMapIterator extends BadMapLength {
 @NAPI() List<int> unsafeOnly() => [unsafe];
 @NAPI() class RefBase { RefBase(); }
 @NAPI() class RefChild extends RefBase { RefChild(); }
+@NAPI() class RefOther {}
+class _Ambiguous extends RefBase implements RefOther {}
+final _bad = _Ambiguous();
 RefChild? _shared;
 @NAPI() RefChild primeChild() => _shared ??= RefChild();
-@NAPI() (RefBase, List<int>) brandLateList() => (_shared!, BadList());
-@NAPI() (RefBase, Map<String, int>) brandLateMapIterator() => (_shared!, BadMapIterator());
-@NAPI() RefBase brandOnly() => _shared!;
+@NAPI() (RefBase, List<int>) brandLateList() => (_bad, BadList());
+@NAPI() (RefBase, Map<String, int>) brandLateMapIterator() => (_bad, BadMapIterator());
+@NAPI() RefBase brandOnly() => _bad;
 
 class ReadList extends ListBase<int> {
   @override int get length { _reads++; return 1; }
@@ -59,7 +62,7 @@ class ReadList extends ListBase<int> {
   @override void operator []=(int index, int value) => throw UnimplementedError();
 }
 @NAPI() (int, List<int>) snapshotHostFailure() => (unsafe, ReadList());
-@NAPI() (RefBase, List<int>) snapshotBrandFailure() => (_shared!, ReadList());
+@NAPI() (RefBase, List<int>) snapshotBrandFailure() => (_bad, ReadList());
 @NAPI() (Map<double, int>, List<int>) mapCollision(bool throwing) =>
     ({double.nan: 1, double.nan: 2}, throwing ? BadList() : ReadList());
 class DuplicateDictionary extends MapBase<String, List<int>> {

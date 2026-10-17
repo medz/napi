@@ -380,6 +380,12 @@ final class ClassBinding {
   final BindingType? supertype;
   final List<BindingType> interfaces;
   final List<BindingType> mixins;
+
+  /// Resolved ancestor identities, including unselected classes and interfaces.
+  final List<DeclarationId> allSupertypes;
+
+  /// The extends chain, nearest first; interfaces do not select a JS prototype.
+  final List<DeclarationId> superclassChain;
   ClassBinding({
     required this.declaration,
     required this.exportName,
@@ -402,13 +408,17 @@ final class ClassBinding {
     this.supertype,
     Iterable<BindingType> interfaces = const [],
     Iterable<BindingType> mixins = const [],
+    Iterable<DeclarationId> allSupertypes = const [],
+    Iterable<DeclarationId> superclassChain = const [],
   }) : valueFields = Map.unmodifiable(valueFields),
        members = List.unmodifiable(members),
        typeParameters = List.unmodifiable(typeParameters),
        callPath = callPath ?? declaration.name,
        exportSurface = exportSurface ?? declaration.library,
        interfaces = List.unmodifiable(interfaces),
-       mixins = List.unmodifiable(mixins);
+       mixins = List.unmodifiable(mixins),
+       allSupertypes = List.unmodifiable(allSupertypes),
+       superclassChain = List.unmodifiable(superclassChain);
 }
 
 /// Declarations exposed through one entry library, with their original identity.

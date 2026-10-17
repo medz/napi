@@ -549,11 +549,13 @@ String _memberContext(ClassBinding owner, ReferenceMemberShape member) =>
     : '${owner.exportName}.${member.binding.exportName ?? member.binding.declaration.name}';
 
 final class ClassPlan {
+  final ReferenceClassShape shape;
   final ClassBinding binding;
   final MemberCallPlan? constructor;
   final List<MemberCallPlan> members;
-  ClassPlan._(this.binding, this.constructor, Iterable<MemberCallPlan> members)
-    : members = List.unmodifiable(members);
+  ClassPlan._(this.shape, this.constructor, Iterable<MemberCallPlan> members)
+    : binding = shape.binding,
+      members = List.unmodifiable(members);
 }
 
 final class ModulePlan {
@@ -565,6 +567,7 @@ final class ModulePlan {
   final List<ValueConversion> conversions;
   final List<ClassBinding> allClasses;
   final List<ValueClassSchema> valueSchemas;
+  final List<int> referenceClassOrder;
   ModulePlan._(
     this.source,
     Iterable<FunctionPlan> functions,
@@ -573,6 +576,7 @@ final class ModulePlan {
     Iterable<ValueConversion> conversions,
     Iterable<ClassBinding> allClasses,
     Iterable<ValueClassSchema> valueSchemas,
+    this.referenceClassOrder,
   ) : functions = List.unmodifiable(functions),
       classes = List.unmodifiable(classes),
       calls = List.unmodifiable(calls),
@@ -628,7 +632,7 @@ ModulePlan lower(ValidatedModule module) {
       for (final (memberIndex, shape) in shape.members.indexed)
         member(shape, 'napi:class:$index:member:$memberIndex'),
     ];
-    classes.add(ClassPlan._(shape.binding, constructor, members));
+    classes.add(ClassPlan._(shape, constructor, members));
   }
   return ModulePlan._(
     module.bindings.importUri,
@@ -638,5 +642,6 @@ ModulePlan lower(ValidatedModule module) {
     conversions,
     module.bindings.classes,
     module.valueSchemas,
+    referenceClassOrder(module.classes),
   );
 }

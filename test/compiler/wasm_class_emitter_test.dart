@@ -61,12 +61,21 @@ void main() {
   // contract. Source-to-Wasm integration separately exercises actual Dart.
   Future<void> javascript(ModulePlan plan, String check) async {
     final core = StringBuffer('export const history = [];\n');
+    core.writeln('''
+const classify = reference => reference.classId;
+export {classify as 'napi:class:classify'};
+''');
     for (final (index, call) in plan.calls.indexed) {
       final constructor =
           call is MemberCallPlan && call.kind == MemberCallKind.constructor;
+      final classId = call is MemberCallPlan
+          ? plan.classes.indexWhere(
+              (c) => c.binding.declaration == call.owner.declaration,
+            )
+          : -1;
       core.writeln('''
 const call$index = (...args) => {
-  const result = {};
+  const result = {classId: $classId};
   history.push({name: ${jsonEncode(call.coreExportName)}, args, result});
   return ${constructor ? 'result' : 'null'};
 };

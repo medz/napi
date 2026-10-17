@@ -1,3 +1,4 @@
+import '../../analysis/validate.dart';
 import '../../ir/model.dart';
 import '../../lowering/plan.dart';
 import 'values.dart';
@@ -23,7 +24,16 @@ String emitDeclarations(ModulePlan plan) => [
       '  constructor(${emitParameters(constructor.parameters, constructor.inputs)});'
     else
       '  private constructor();',
-    for (final member in binding.members)
+    for (final member in [
+      ...binding.members.where((member) => member.isStatic),
+      for (final property in binding.shape.prototypeProperties)
+        for (final ref in [
+          ?property.method,
+          ?property.getter,
+          ?property.setter,
+        ])
+          plan.classes[ref.classId].members[ref.memberIndex],
+    ])
       switch (member.kind) {
         MemberCallKind.method =>
           '  ${member.isStatic ? 'static ' : ''}${emitMemberName(member.exportName)}(${emitParameters(member.parameters, member.inputs)}): ${member.output?.typescriptType ?? 'void'};',
@@ -35,9 +45,31 @@ String emitDeclarations(ModulePlan plan) => [
           '  static ${emitMemberName(member.exportName)}(${emitParameters(member.parameters, member.inputs)}): ${binding.binding.exportName};',
       },
     '}',
+    ...emitReferenceInheritance(
+      binding.shape,
+      plan.classes.map((binding) => binding.shape).toList(),
+    ),
   ],
   '',
 ].join('\n');
+
+/// Merge only the instance type. `class Child extends Base` would incorrectly
+/// expose inherited static methods and named constructors.
+Iterable<String> emitReferenceInheritance(
+  ReferenceClassShape shape,
+  List<ReferenceClassShape> classes,
+) sync* {
+  final parents = shape.memberships.where((id) => id != shape.classId).toList();
+  final nearest = parents.where(
+    (id) => !parents.any(
+      (other) => other != id && classes[other].memberships.contains(id),
+    ),
+  );
+  if (nearest.isNotEmpty) {
+    yield 'export interface ${shape.binding.exportName} extends '
+        '${nearest.map((id) => classes[id].binding.exportName).join(', ')} {}';
+  }
+}
 
 /// TypeScript parses an unquoted constructor method as a class constructor.
 String emitMemberName(String name) =>

@@ -3,6 +3,7 @@ import {Worker, isMainThread, parentPort, workerData} from 'node:worker_threads'
 import * as api from '@napi/native-fixture';
 import {verifyStructures} from './structural_contract.mjs';
 import {verifyClasses} from './class_contract.mjs';
+import {verifyHierarchy, verifyForeignHierarchy, verifyHierarchyRetention} from './hierarchy_contract.mjs';
 import {verifyReferences, verifyForeignReferences, verifyReferenceRetention} from './reference_contract.mjs';
 import {verifyStructuralReferences, verifyForeignStructuralReferences, verifyStructuralReferenceRetention} from './structural_reference_contract.mjs';
 import {verifyMaps, verifyForeignMaps, verifyMapRetention} from './map_contract.mjs';
@@ -13,6 +14,7 @@ const {Counter, randomValue, executable, createRequire, bindings, globalThis: ex
 function check() {
   assert.deepEqual([createRequire(), bindings(), exportedGlobal(), exportedUrl()], [1, 2, 3, 4]);
   verifyClasses(api);
+  verifyHierarchy(api);
   verifyReferences(api);
   verifyStructuralReferences(api);
   verifyMaps(api);
@@ -28,11 +30,13 @@ if (isMainThread) {
   assert.equal(again.Counter, Counter);
   const independent = await import(import.meta.resolve('@napi/native-fixture') + '?independent');
   verifyForeignReferences(api, independent);
+  verifyForeignHierarchy(api, independent);
   verifyForeignStructuralReferences(api, independent);
   verifyForeignMaps(api, independent);
   verifyForeignDictionaries(api, independent);
   verifyForeignValueClasses(api, independent);
   await verifyReferenceRetention(api);
+  await verifyHierarchyRetention(api);
   await verifyStructuralReferenceRetention(api);
   await verifyMapRetention(api);
   await verifyDictionaryRetention(api);

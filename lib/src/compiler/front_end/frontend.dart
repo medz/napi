@@ -692,7 +692,17 @@ final class _Reader {
       mixins: element.mixins.indexed.map(
         (t) => _type(t.$2, owner: _id(element), path: 'mixin:${t.$1}'),
       ),
+      allSupertypes: element.allSupertypes.map((type) => _id(type.element)),
+      superclassChain: _superclassChain(element),
     );
+  }
+
+  Iterable<DeclarationId> _superclassChain(a.ClassElement element) sync* {
+    var parent = element.supertype;
+    while (parent != null) {
+      yield _id(parent.element);
+      parent = parent.element.supertype;
+    }
   }
 
   List<a.Element> _classMembers(a.ClassElement element) => <a.Element>[

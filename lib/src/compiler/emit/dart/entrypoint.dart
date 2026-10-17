@@ -12,6 +12,32 @@ String emitDart(ModulePlan plan) {
     "${plan.conversions.any(containsDictionary) ? "import 'package:napi/napi.dart' as napi;\nimport 'dart:convert' show jsonEncode;\n" : ''}"
     '$entrypointPrelude\n',
   );
+  if (plan.classes.isNotEmpty) {
+    result.writeln('const _referenceMemberships = <Set<int>>[');
+    for (final binding in plan.classes) {
+      result.writeln('  {${binding.shape.memberships.join(', ')}},');
+    }
+    result.writeln('''
+];
+@pragma('wasm:export', 'napi:class:classify')
+WasmI32 _classifyReference(WasmExternRef reference) {
+  final object = reference.internalize().toObject();
+  var candidate = -1;
+  var ambiguous = false;
+''');
+    for (final classId in plan.referenceClassOrder) {
+      result.writeln('''
+  if (object is target.${plan.classes[classId].binding.callPath}) {
+    if (candidate < 0) {
+      candidate = $classId;
+    } else if (!_referenceMemberships[candidate].contains($classId)) {
+      ambiguous = true;
+    }
+  }
+''');
+    }
+    result.writeln('  return WasmI32.fromInt(ambiguous ? -1 : candidate);\n}');
+  }
   final structural = DartStructuralEmitter();
   final hasStructural = plan.conversions.any(
     (c) =>
