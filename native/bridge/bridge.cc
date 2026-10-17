@@ -1,6 +1,8 @@
-// Generic Node-API bridge for synchronous Dart AOT bindings.
+// Generic Node-API bridge for Dart AOT bindings and owner-thread event delivery.
 #include <node_api.h>
+#include <uv.h>
 #include <algorithm>
+#include <atomic>
 #include <dlfcn.h>
 #include <cstdint>
 #include <cmath>
@@ -51,9 +53,17 @@ struct ReferenceShape {
 enum MapIntrinsic { map_constructor, map_size, map_entries, map_next,
                     map_has, map_set, map_intrinsic_count };
 struct Owner {
+  explicit Owner(napi_env value) : env(value) {}
   napi_env env;
-  NapiDart_Isolate* isolate;
+  NapiDart_Isolate* isolate = nullptr;
   bool closing = false;
+  uv_async_t wakeup = {};
+  bool wakeup_initialized = false;
+  bool pump_scheduled = false;
+  std::atomic<uint64_t> messages{0};
+  napi_ref async_resource = nullptr;
+  napi_async_context async_context = nullptr;
+  napi_async_cleanup_hook_handle cleanup_hook = nullptr;
   Dart_PersistentHandle release_owner = nullptr;
   std::vector<Callback*> callbacks;
   std::vector<Property*> properties;
@@ -83,12 +93,22 @@ static napi_value fail_error(napi_env env, const char* message) {
   return nullptr;
 }
 
+// Only the owner thread adjusts libuv liveness. A queued microtask drain keeps
+// Node alive even when Dart has no live port and never sent a notification.
+static void schedule_pump(Owner* owner) {
+  if (owner->closing || owner->pump_scheduled) return;
+  owner->pump_scheduled = true;
+  uv_ref(reinterpret_cast<uv_handle_t*>(&owner->wakeup));
+  uv_async_send(&owner->wakeup);
+}
+
 struct Scope {
   Owner* owner;
   Owner* previous;
+  bool schedule;
   bool entered = false;
-  explicit Scope(Owner* value, bool report = true)
-      : owner(value), previous(active_owner) {
+  explicit Scope(Owner* value, bool report = true, bool schedule_after = true)
+      : owner(value), previous(active_owner), schedule(schedule_after) {
     char* error = nullptr;
     if (!NapiDart_EnterIsolate(owner->isolate, &error)) {
       if (report) fail(owner->env, error ? error : "Cannot enter Dart isolate");
@@ -111,6 +131,7 @@ struct Scope {
       NapiDart_FreeError(error);
       std::abort();
     }
+    if (!previous && schedule) schedule_pump(owner);
   }
 };
 
@@ -136,6 +157,144 @@ static void drain_releases(Owner* owner) {
 static void defer_release(Owner* owner, Wrapper* wrapper) {
   wrapper->next_release = owner->pending_releases;
   owner->pending_releases = wrapper;
+}
+
+static void notify_message(void* data) {
+  auto owner = static_cast<Owner*>(data);
+  // uv_async coalesces wakeups, but Dart requires one HandleMessage call per
+  // notification. ShutdownIsolate joins notifications before uv_close begins.
+  owner->messages.fetch_add(1, std::memory_order_relaxed);
+  uv_async_send(&owner->wakeup);
+}
+
+static void report_async_error(napi_env env, const std::string& message) {
+  bool pending = false;
+  napi_value exception = nullptr;
+  napi_is_exception_pending(env, &pending);
+  if (pending) {
+    napi_get_and_clear_last_exception(env, &exception);
+  } else if (!message.empty()) {
+    napi_value text;
+    if (napi_create_string_utf8(env, message.data(), message.size(), &text) == napi_ok)
+      napi_create_error(env, nullptr, text, &exception);
+  }
+  // This may invoke an uncaughtException handler and reenter a Dart export.
+  // All Dart entries/scopes must already have ended.
+  if (exception) napi_fatal_exception(env, exception);
+}
+
+static void pump(uv_async_t* wakeup) {
+  auto owner = static_cast<Owner*>(wakeup->data);
+  if (owner->closing) return;
+  auto env = owner->env;
+  owner->pump_scheduled = false;
+  napi_handle_scope handles;
+  if (napi_open_handle_scope(env, &handles) != napi_ok)
+    napi_fatal_error("napi Dart pump", NAPI_AUTO_LENGTH,
+                     "Cannot open Node handle scope", NAPI_AUTO_LENGTH);
+
+  // open_callback_scope deliberately permits a stopping environment. A strict
+  // identity check runs Node's can-call-JS preamble without allocating or
+  // invoking user code, including while a Worker is terminating.
+  napi_value resource;
+  bool same = false;
+  auto status = napi_get_reference_value(env, owner->async_resource, &resource);
+  if (status == napi_ok) status = napi_strict_equals(env, resource, resource, &same);
+  if (status != napi_ok) {
+    uv_unref(reinterpret_cast<uv_handle_t*>(wakeup));
+    // Node-API versions below 10 also return pending_exception for a stopping
+    // environment, without an actual exception to report.
+    bool pending = false;
+    napi_is_exception_pending(env, &pending);
+    if (pending) {
+      schedule_pump(owner);
+      report_async_error(env, {});
+    } else if (status != napi_cannot_run_js && status != napi_closing &&
+               status != napi_pending_exception) {
+      napi_fatal_error("napi Dart pump", NAPI_AUTO_LENGTH,
+                       "Cannot inspect Node async resource", NAPI_AUTO_LENGTH);
+    }
+    napi_close_handle_scope(env, handles);
+    return;
+  }
+  napi_callback_scope callback_scope;
+  if (napi_open_callback_scope(env, resource, owner->async_context,
+                               &callback_scope) != napi_ok) {
+    uv_unref(reinterpret_cast<uv_handle_t*>(wakeup));
+    report_async_error(env, "Cannot open Node callback scope for Dart events");
+    napi_close_handle_scope(env, handles);
+    return;
+  }
+
+  std::string error;
+  bool live = false;
+  bool retry_microtasks = false;
+  const uint64_t queued = owner->messages.exchange(0, std::memory_order_relaxed);
+  uint64_t handled = 0;
+  {
+    Scope scope(owner, true, false);
+    if (scope.entered) {
+      auto drain = [&]() {
+        bool pending = false;
+        napi_is_exception_pending(env, &pending);
+        if (pending) {
+          retry_microtasks = true;
+          return false;
+        }
+        drain_releases(owner);
+        char* failure = nullptr;
+        if (!NapiDart_DrainMicrotasks(owner->isolate, &failure)) {
+          if (error.empty()) error = failure ? failure : "Dart microtask failed";
+          // A throwing microtask reschedules the remaining queue without a VM
+          // notification. Keep one more drain alive after reporting its error.
+          retry_microtasks = true;
+        }
+        NapiDart_FreeError(failure);
+        napi_is_exception_pending(env, &pending);
+        if (pending) retry_microtasks = true;
+        return error.empty() && !pending;
+      };
+      bool ok = drain();
+      // Bound each turn so a self-posting Dart port cannot starve Node timers.
+      while (ok && handled < queued && handled < 64) {
+        auto result = Dart_HandleMessage();
+        ++handled;
+        if (Dart_IsError(result)) error = Dart_GetError(result);
+        // The pinned SDK normally drains inside its port dispatcher. Explicitly
+        // draining also covers error paths and deferred owner-release effects.
+        ok = drain();
+      }
+      live = Dart_HasLivePorts();
+    }
+  }
+  if (handled < queued)
+    owner->messages.fetch_add(queued - handled, std::memory_order_relaxed);
+  if (retry_microtasks || owner->messages.load(std::memory_order_relaxed)) {
+    schedule_pump(owner);
+  } else if (live) {
+    uv_ref(reinterpret_cast<uv_handle_t*>(wakeup));
+  } else if (!live && !owner->pump_scheduled) {
+    uv_unref(reinterpret_cast<uv_handle_t*>(wakeup));
+  }
+  // Update liveness before running JS. Both fatal_exception and callback-scope
+  // close can reenter an export and arrange a newly referenced pump/timer.
+  report_async_error(env, error);
+  napi_close_callback_scope(env, callback_scope);
+  napi_close_handle_scope(env, handles);
+}
+
+static bool initialize_pump(Owner* owner) {
+  uv_loop_t* loop = nullptr;
+  if (napi_get_uv_event_loop(owner->env, &loop) != napi_ok ||
+      uv_async_init(loop, &owner->wakeup, pump) != 0) return false;
+  owner->wakeup_initialized = true;
+  owner->wakeup.data = owner;
+  uv_unref(reinterpret_cast<uv_handle_t*>(&owner->wakeup));
+  napi_value resource, name;
+  return napi_create_object(owner->env, &resource) == napi_ok &&
+      napi_create_reference(owner->env, resource, 1, &owner->async_resource) == napi_ok &&
+      napi_create_string_utf8(owner->env, "napi:Dart", NAPI_AUTO_LENGTH, &name) == napi_ok &&
+      napi_async_init(owner->env, resource, name, &owner->async_context) == napi_ok;
 }
 
 static void finalize(napi_env env, void* data, void*) {
@@ -1048,28 +1207,48 @@ static void destroy(Owner* owner) {
   }
   if (owner->dictionary_create)
     napi_delete_reference(owner->env, owner->dictionary_create);
-  {
-    Scope scope(owner, false);
-    if (!scope.entered) {
-      std::fprintf(stderr, "Cannot enter Dart isolate for cleanup\n");
+  if (owner->isolate) {
+    {
+      Scope scope(owner, false);
+      if (!scope.entered) {
+        std::fprintf(stderr, "Cannot enter Dart isolate for cleanup\n");
+        std::abort();
+      }
+      for (auto callback : owner->callbacks) {
+        Dart_DeletePersistentHandle(callback->closure);
+        delete callback;
+      }
+      for (auto property : owner->properties) delete property;
+      if (owner->release_owner) Dart_DeletePersistentHandle(owner->release_owner);
+    }
+    char* error = nullptr;
+    if (!NapiDart_ShutdownIsolate(&owner->isolate, &error)) {
+      std::fprintf(stderr, "NapiDart_ShutdownIsolate failed: %s\n", error ? error : "unknown error");
+      NapiDart_FreeError(error);
       std::abort();
     }
-    for (auto callback : owner->callbacks) {
-      Dart_DeletePersistentHandle(callback->closure);
-      delete callback;
-    }
-    for (auto property : owner->properties) delete property;
-    if (owner->release_owner) Dart_DeletePersistentHandle(owner->release_owner);
   }
-  char* error = nullptr;
-  if (!NapiDart_ShutdownIsolate(&owner->isolate, &error)) {
-    std::fprintf(stderr, "NapiDart_ShutdownIsolate failed: %s\n", error ? error : "unknown error");
-    NapiDart_FreeError(error);
-    std::abort();
+  if (owner->async_context)
+    napi_async_destroy(owner->env, owner->async_context);
+  if (owner->async_resource)
+    napi_delete_reference(owner->env, owner->async_resource);
+  if (owner->wakeup_initialized) {
+    // The runtime has synchronously stopped all notifications. Queued libuv
+    // wakeups still borrow this Owner, so only the close callback may delete it.
+    uv_close(reinterpret_cast<uv_handle_t*>(&owner->wakeup), [](uv_handle_t* handle) {
+      auto owner = static_cast<Owner*>(handle->data);
+      auto hook = owner->cleanup_hook;
+      delete owner;
+      // Failed loads never registered a hook and need no live napi_env here.
+      if (hook) napi_remove_async_cleanup_hook(hook);
+    });
+  } else {
+    delete owner;
   }
-  delete owner;
 }
-static void cleanup(void* data) { destroy(static_cast<Owner*>(data)); }
+static void cleanup(napi_async_cleanup_hook_handle, void* data) {
+  destroy(static_cast<Owner*>(data));
+}
 
 static bool dart_ok(napi_env env, Dart_Handle handle) {
   if (!Dart_IsError(handle)) return true;
@@ -1377,14 +1556,20 @@ static napi_value load(napi_env env, napi_callback_info info) {
     NapiDart_FreeError(error);
     return result;
   }
-  // This bounded bridge is synchronous: no wakeup callback or scheduler.
-  auto isolate = NapiDart_CreateIsolate(snapshot, nullptr, nullptr, &error);
-  if (!isolate) {
+  auto owner = new Owner(env);
+  if (!initialize_pump(owner)) {
+    destroy(owner);
+    return fail_error(env, "Cannot initialize Dart event pump");
+  }
+  // Notifications may arrive during creation, before isolate is assigned. The
+  // callback only queues work; the Node loop cannot run it until load returns.
+  owner->isolate = NapiDart_CreateIsolate(snapshot, notify_message, owner, &error);
+  if (!owner->isolate) {
     auto result = fail(env, error ? error : "Cannot create Dart isolate");
     NapiDart_FreeError(error);
+    destroy(owner);
     return result;
   }
-  auto owner = new Owner{env, isolate};
   napi_value exports;
   auto status = napi_create_object(env, &exports);
   if (status == napi_ok && argc == 2)
@@ -1395,7 +1580,7 @@ static napi_value load(napi_env env, napi_callback_info info) {
     destroy(owner);
     return fail(env, "Cannot register Dart bindings");
   }
-  if (napi_add_env_cleanup_hook(env, cleanup, owner) != napi_ok) {
+  if (napi_add_async_cleanup_hook(env, cleanup, owner, &owner->cleanup_hook) != napi_ok) {
     destroy(owner);
     return fail(env, "Cannot register isolate cleanup");
   }

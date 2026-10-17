@@ -1,4 +1,5 @@
-// Compiler-private bridge ABI, version 8. Keep generated Dart in lockstep.
+// Compiler-private bridge ABI, version 9. Keep generated Dart in lockstep.
+// Version 9 retains 43 slots and requires owner-thread event-loop integration.
 #pragma once
 #include <node_api.h>
 #include <stdint.h>

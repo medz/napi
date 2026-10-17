@@ -121,7 +121,7 @@ void main() {
       expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
     },
     skip: runtime == null
-        ? 'Set NAPI_TEST_NATIVE_RUNTIME to an ABI8 bundle.'
+        ? 'Set NAPI_TEST_NATIVE_RUNTIME to an ABI9 bundle.'
         : false,
     timeout: const Timeout(Duration(minutes: 2)),
   );

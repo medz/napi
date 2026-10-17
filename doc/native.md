@@ -79,11 +79,12 @@ Weak identity entries and zero-count Node-API references do not root wrappers.
 Environment, live lease and actual selected-class membership are checked before business calls.
 Readonly fields remain readonly and GC does not call business disposal methods.
 
-The private bridge table is ABI 8 (43 slots). Older bundles are rejected before
+The private bridge table is ABI 9 (43 slots). Version 9 requires owner-thread
+event-loop integration; it does not add table slots. Older bundles are rejected before
 copying; maintainers rebuild the bridge/runtime bundle using their existing VM
 cache. Consumer builds still require only the ordinary Dart SDK and that bundle.
 Constructor-target detection preserves custom JS subclass receivers during
-canonical adoption. The new slot registers a composite wrapper creator only
+canonical adoption. The reference-shape slot registers a composite wrapper creator only
 after its observed interface combination passes the shared contract checks.
 Ordinary class callbacks retain the existing path. Member callbacks validate Dart membership instead of V8's
 exact Node-API constructor receiver restriction.
@@ -124,8 +125,22 @@ Each loaded module owns a Dart isolate on its Node environment's thread. Workers
 receive separate isolates. Environment cleanup invalidates wrappers and shuts
 down only its isolates. The process-wide VM and immutable snapshot mappings
 remain resident, including after the last Worker unloads. Different-isolate
-reentry is rejected. Async scheduling, Dart-created child isolates and interrupting
-non-returning synchronous Dart code are not supported by this slice.
+reentry is rejected while Dart is active. Dart-created child isolates and
+interrupting non-returning synchronous Dart code are not supported by this slice.
+
+Synchronous exports can schedule Dart microtasks, Futures, timers and receive-port
+work. The bridge automatically delivers that work on the owning Node thread.
+Microtasks queued by a synchronous export run after the current JavaScript call
+stack, at the bridge's next event-loop checkpoint. Dart microtasks drain between
+Dart messages; their ordering relative to JavaScript microtasks is not a shared
+cross-backend Promise contract. An unresolved Dart Completer alone does not keep
+Node alive; active Dart ports/timers do. Closing the environment cancels delivery
+and releases its isolate without running business cleanup. Unhandled Dart async
+errors are reported through Node's uncaught-exception path.
+
+This scheduling foundation does not expose Future-returning declarations or
+generated resource cleanup yet. Those require their own conversion, retention,
+Promise settlement and error contracts.
 
 The runtime's filename/install-name and bridge expectation encode the pinned
 SDK/configuration and runtime source/input identity. The bridge checks the actual
@@ -144,7 +159,10 @@ builds a separate Dart consumer through the public API, packs and relocates the
 native npm package, removes its original build/source directory, and installs
 offline into a path with spaces and non-ASCII characters. It checks constructors,
 properties, invalid receivers, retained state, GC, normal/terminated Workers,
-Worker-only unload/reload, and TypeScript NodeNext/Bundler resolution. General CI
+Worker-only unload/reload, and TypeScript NodeNext/Bundler resolution. A separate
+generated package exercises Dart microtasks, timers, messages, event-loop
+liveness, async errors and Worker shutdown without exposing Future signatures.
+General CI
 also checks native metadata, emission, AOT compilation and manifest validation;
 the full native execution check requires a maintainer bundle and is run locally.
 
@@ -181,3 +199,29 @@ the native target serves Node-API capability requirements.
 Reproduce with `dart run tool/native_benchmark.dart <bundle> <node24> <node26>`.
 The bounded run writes all raw samples, RSS deltas, artifact sizes and the exact
 runtime manifest to a fresh temporary directory printed by the tool.
+
+### Event-loop integration
+
+The ABI 9 event pump was compared with `7df2fe8` and its ABI 8 bundle on the same
+machine, holding the generated `add`/`Counter` AOT, loader and declaration bytes
+identical to isolate runtime costs. Each Node version ran two
+same-target samples followed by three balanced AB/BA rounds in fresh processes.
+Each sample warmed 20,000 calls, measured 300,000 function/getter/method calls,
+20,000 constructions and 500 event-loop turns with 100 calls per turn.
+
+| Node | Function ns, before → after | Method ns, before → after | Import ms, before → after |
+| --- | ---: | ---: | ---: |
+| 24.19.0 | 903.4 → 910.5 | 764.6 → 754.3 | 3.92 → 3.83 |
+| 26.11.1 | 922.4 → 906.9 | 769.4 → 768.7 | 6.77 → 6.45 |
+
+The Node 24 function median increased 0.78% (about 7 ns), in all six pairs;
+same-target variation reached 6.71%. Node 26's function median decreased 1.68%
+with mixed paired directions. Its constructor median increased 2.30%, while
+same-target variation reached 12.38%. First-import filesystem effects were
+large; these local samples are not a predictable cold-start or zero-regression
+claim. The per-turn medians decreased 9.1–10.3%, without a general speed claim.
+
+The bridge increased by 18,224 bytes; complete artifacts increased from
+6,566,272 to 6,584,496 bytes (+0.28%). The implementation adds one async
+handle/context per module
+and coalesces synchronous calls into one pending drain; it adds no polling loop.

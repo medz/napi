@@ -12,7 +12,7 @@ import 'package:test/test.dart';
 void main() {
   late Directory root;
   late Map<String, Object?> manifest;
-  const identity = 'dart-3.13.5-product-macos-arm64-abi8-fixture';
+  const identity = 'dart-3.13.5-product-macos-arm64-abi9-fixture';
   const runtime = 'libnapi_runtime_$identity.dylib';
   Future<void> save() =>
       File('${root.path}/manifest.json').writeAsString(jsonEncode(manifest));
@@ -39,7 +39,7 @@ void main() {
       'platform': 'macos',
       'architecture': 'arm64',
       'minimumOsVersion': '14.0',
-      'abi': 8,
+      'abi': 9,
       'identity': identity,
       'bridge': 'bridge.node',
       'runtime': runtime,
@@ -81,14 +81,17 @@ void main() {
     },
   );
 
-  test('rejects an older runtime ABI before copying assets', () async {
-    manifest['abi'] = 7;
-    await save();
-    await expectLater(
-      NativeRuntimeBundle.read(root),
-      throwsA(isA<SdkCompatibilityException>()),
-    );
-  });
+  test(
+    'rejects a runtime without event-loop integration before copying',
+    () async {
+      manifest['abi'] = 8;
+      await save();
+      await expectLater(
+        NativeRuntimeBundle.read(root),
+        throwsA(isA<SdkCompatibilityException>()),
+      );
+    },
+  );
 
   test('rejects runtime or bridge changes before and during copying', () async {
     final bundle = await NativeRuntimeBundle.read(root);

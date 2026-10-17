@@ -18,7 +18,7 @@ import tempfile
 
 SDK_VERSION = '3.13.5'
 SDK_REVISION = '04bcd1036cdc799ac6564988f159ee454d42c822'
-ABI = 8
+ABI = 9
 MINIMUM_OS = '14.0'
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -95,6 +95,10 @@ def build(sdk, headers, output, cache):
         raise FileExistsError(f'Output already exists: {output}')
     if not (headers/'node_api.h').is_file():
         raise ValueError('Node headers must contain node_api.h')
+    uv_headers = next((root for root in [headers, headers.parent]
+                       if (root/'uv.h').is_file()), None)
+    if uv_headers is None:
+        raise ValueError('Node headers or their parent must contain libuv uv.h')
     target, compile_target = validate_cache(sdk, cache)
     source_hash = hashlib.sha256(f'napi-abi={ABI};macos-arm64;product;minos=14.0\0'.encode())
     for source in [ROOT/'native/runtime/runtime.cc', ROOT/'native/runtime/runtime.h',
@@ -148,7 +152,8 @@ def build(sdk, headers, output, cache):
         bridge = artifact/'bridge.node'
         run([clang, '-std=c++17', '-O2', '-dynamiclib', '-undefined', 'dynamic_lookup',
              '-isysroot', sysroot, f'-mmacosx-version-min={MINIMUM_OS}',
-             '-I'+str(headers), '-I'+str(sdk/'runtime'), '-I'+str(sdk/'runtime/include'),
+             '-I'+str(headers), '-I'+str(uv_headers),
+             '-I'+str(sdk/'runtime'), '-I'+str(sdk/'runtime/include'),
              '-I'+str(ROOT/'native/runtime'), '-I'+str(stage),
              str(ROOT/'native/bridge/bridge.cc'), str(runtime),
              '-Wl,-install_name,@rpath/bridge.node', '-Wl,-rpath,@loader_path', '-o', str(bridge)])
@@ -180,7 +185,9 @@ def main():
     args = parser.parse_args()
     sdk = args.sdk.resolve(strict=True)
     cache = (args.runtime_build or sdk/'xcodebuild/ProductARM64').resolve(strict=True)
-    manifest = build(sdk, args.node_headers.resolve(strict=True), args.output.absolute(), cache)
+    # Preserve the caller's include-root layout when node/ is a package-manager
+    # symlink and libuv is installed beside it rather than in the same package.
+    manifest = build(sdk, args.node_headers.absolute(), args.output.absolute(), cache)
     print(json.dumps({'output': str(args.output.absolute()), 'identity': manifest['identity'],
                       'files': manifest['files'], 'build': manifest['build']}, indent=2))
 
