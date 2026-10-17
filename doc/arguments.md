@@ -39,7 +39,7 @@ before conversion. Proxy traps can still execute while inspecting an object.
 work independently: `f(undefined, 0)` defaults only the first parameter. Surplus
 JavaScript arguments are ignored; TypeScript declarations expose the declared
 arity. All supplied scalars are validated before business code runs.
-For an explicitly selected opaque parameter, a supplied `undefined` is a payload
+For a generic payload parameter, a supplied `undefined` is a payload
 rather than a positional hole. Optional named opaque inputs remain unsupported;
 see [opaque payloads](opaque.md).
 
@@ -72,7 +72,7 @@ installed packages on both targets verify that `f()` fails while
 Declarations use optional positional parameters and a final typed options object.
 Ordinary optional properties explicitly allow `undefined`, including under
 `exactOptionalPropertyTypes`. Required nullable properties allow `null` and reject
-`undefined` unless explicitly selected as opaque. Optional positional opaque
+`undefined` unless their type is a generic payload. Optional positional opaque
 parameters use finite prefix overloads to preserve their logical payload type;
 required named opaque properties use that type without adding `undefined`.
 

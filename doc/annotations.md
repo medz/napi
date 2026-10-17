@@ -11,7 +11,7 @@ a different class also named `NAPI` does not select anything.
 | --- | --- | --- |
 | Public top-level function | `@NAPI()` | Function, using its Dart name |
 | Public top-level function | `@NAPI(bigint: true)` | Function, mapping all Dart `int` parameters/results to JavaScript `bigint` |
-| Generic public function or ordinary reference class | `@NAPI(opaque: ['T'])` | Explicit storage/forwarding of JS payloads through the selected generic parameters |
+| Generic public function or ordinary reference class | `@NAPI()` | Generic parameters come from the Dart declaration and carry unchanged JS payloads |
 | Public function or class | `@NAPI(name: 'PublicName')` | Declaration, with an explicit export name |
 | Public class | `@NAPI()` | Class and its own public constructors, fields, accessors and methods |
 | Member of an annotated class | `@NAPI(name: 'publicName')` | Override that member's name |
@@ -106,12 +106,13 @@ backend capabilities before creating output: nongeneric top-level functions
 support positional/named parameters and results using `bool`, `String`, `double`,
 `int`, `BigInt`, and their nullable forms, plus recursively nested `List`, `Map`, explicit `Dictionary` and
 record values with supported leaves.
-Explicit `opaque` selections additionally support direct generic payloads and
-matching generic reference classes. All declared parameters must be selected;
-the author promises storage/forwarding without interpreting the private carrier.
+Generic parameters are read directly from the Dart declaration. Supported
+direct generic payloads and matching generic references preserve unchanged JS
+values using a private carrier; business code must follow the storage/forwarding
+contract. No repeated type-parameter list is required.
 See [opaque eligibility, presence and ownership](opaque.md) for supported bounds,
 signature positions and remaining generic combinations. External selections use
-the same `NAPI(opaque: ...)` configuration.
+the same inferred mapping without extra configuration.
 `@NAPI(bigint: true)` selects fixed JavaScript `bigint` representation for every
 Dart `int` parameter/result of that function, including nullable ints and typedefs.
 It does not change other scalar types; Dart `BigInt` always uses JavaScript

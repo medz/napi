@@ -354,6 +354,10 @@ final class _ConversionBuilder {
     this.direction,
     this.opaqueParameters,
   );
+  bool _shadowsBuiltin(String name) =>
+      opaqueParameters.any((p) => p.name == name) ||
+      classes.any((binding) => binding.exportName == name);
+
   ValueConversion convert(BindingType type, String context) {
     if (isOpaqueType(type, opaqueParameters)) {
       return OpaqueConversion(type as TypeParameterType, context);
@@ -365,9 +369,8 @@ final class _ConversionBuilder {
         context,
         type.positional.map(child),
         type.named.map((key, value) => MapEntry(key, child(value))),
-        qualifiedType: opaqueParameters.any(
-          (p) => p.name == 'Record' || p.name == 'PropertyKey',
-        ),
+        qualifiedType:
+            _shadowsBuiltin('Record') || _shadowsBuiltin('PropertyKey'),
       );
     }
     if (isReferenceType(type, classes, opaqueParameters: opaqueParameters)) {
@@ -441,7 +444,7 @@ final class _ConversionBuilder {
           type,
           context,
           child(type.typeArguments.single),
-          qualifiedType: opaqueParameters.any((p) => p.name == 'Array'),
+          qualifiedType: _shadowsBuiltin('Array'),
         );
       }
       if (type.declaration ==

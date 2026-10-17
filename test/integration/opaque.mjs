@@ -84,6 +84,9 @@ async function values(api) {
   assert.deepEqual(api.opaqueRecord(null), {});
   assert.deepEqual(api.opaqueKey(Symbol('key')), {});
   assert.deepEqual(await api.opaqueGlobal({global: true}), new Map([['size', 1]]));
+  assert.deepEqual(new api.Array('payload').numbers(), [1, 2]);
+  assert.deepEqual(new api.Record().empty(), {});
+  assert.equal(await api.futureRouter(router), router);
   assert.throws(() => api.Router(), TypeError);
   assert.throws(() => new api.identity(1), TypeError);
 }

@@ -167,7 +167,7 @@ void main() {
         ParameterKind.optionalNamed,
       ]);
       expect(named.map((p) => p.presence), [
-        ParameterPresence.required,
+        ParameterPresence.opaqueRequired,
         ParameterPresence.required,
         ParameterPresence.optional,
         ParameterPresence.optional,
@@ -280,7 +280,7 @@ void main() {
       expect(classes['InterfaceFlag']!.isInterface, isTrue);
       expect(classes['MixinFlag']!.isMixinClass, isTrue);
       expect(() => validateDeclarations(module), returnsNormally);
-      expect(() => validate(module), throwsA(_diagnostic('NAPI_GENERIC')));
+      expect(() => validate(module), throwsA(_diagnostic('NAPI_TYPE')));
     });
 
     test('discovers annotated class aliases without inherited members', () {

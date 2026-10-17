@@ -48,6 +48,11 @@ const emptyRecord: Record<PropertyKey, never> = api.opaqueRecord(undefined);
 const emptyKey: Record<PropertyKey, never> = api.opaqueKey(null);
 const globalResult: Promise<Map<string, number>> = api.opaqueGlobal(Symbol());
 
+const numbers: number[] = new api.Array('payload').numbers();
+const empty: Record<PropertyKey, never> = new api.Record().empty();
+const futureRouter: Promise<api.Router<string>> = api.futureRouter(router);
+void [numbers, empty, futureRouter];
+
 // @ts-expect-error A required opaque argument may be undefined, but cannot be omitted.
 api.identity();
 // @ts-expect-error Fixed T preserves the declared payload relationship.
@@ -74,7 +79,7 @@ router.value = 42;
 router.value = undefined;
 // @ts-expect-error The private invariant marker rejects structural impostors.
 const fake: api.Router<string> = {};
-// @ts-expect-error Annotation selection order does not reorder declaration parameters.
+// @ts-expect-error The original first declaration parameter remains string.
 pair.first = 42;
 // @ts-expect-error The original second type parameter remains number.
 pair.second = 'wrong';

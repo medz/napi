@@ -33,8 +33,8 @@ Future<void> main() async {
       metadata: {'name': external ? '@napi/opaque-external' : '@napi/opaque-fixture', 'version': '0.0.0'},
       packagesPath: File('.dart_tool/package_config.json').absolute.path,
       external: external ? const ExternalLibrary([
-        ExternalFunction('plainEcho', config: NAPI(opaque: ['T'])),
-        ExternalClass('PlainStore', config: NAPI(opaque: ['T'])),
+        ExternalFunction('plainEcho'),
+        ExternalClass('PlainStore'),
       ]) : null,
       ${native ? 'target: BuildTarget.native,\n      nativeRuntime: Directory(${jsonEncode(nativeRuntime.absolute.path)}),' : ''}
     );

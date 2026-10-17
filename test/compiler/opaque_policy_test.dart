@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:napi/napi.dart';
 import 'package:napi/src/compiler/analysis/validate.dart';
 import 'package:napi/src/compiler/emit/typescript/declarations.dart';
 import 'package:napi/src/compiler/front_end/external.dart';
@@ -27,7 +26,7 @@ void main() {
           .read((await source(text)).uri);
 
   const router = '''
-@NAPI(opaque: ['T'])
+@NAPI()
 class Router<T> {
   Router();
   Router.withValue(T value) : current = value;
@@ -42,9 +41,9 @@ class Router<T> {
   test('selected IDs, presence and carrier types survive both plans', () async {
     final module = await read('''
 $router
-@NAPI(opaque: ['T']) T identity<T>(T value) => value;
-@NAPI(opaque: ['T']) Router<T> forward<T>(Router<T> value) => value;
-@NAPI(opaque: ['T']) Future<int> wait<T>(T value) => Future.value(1);
+@NAPI() T identity<T>(T value) => value;
+@NAPI() Router<T> forward<T>(Router<T> value) => value;
+@NAPI() Future<int> wait<T>(T value) => Future.value(1);
 ''');
     final wasm = lower(validate(module));
     final native = validateNative(module);
@@ -88,20 +87,20 @@ $router
     () async {
       final file = await source('''
 $router
-@NAPI(opaque: ['B', 'A']) class Pair<A, B> {
+@NAPI() class Pair<A, B> {
   Pair(this.first, this.second);
   A first;
   B second;
 }
-@NAPI(opaque: ['T']) T echo<T>(T value) => value;
+@NAPI() T echo<T>(T value) => value;
 ''');
       final annotated = await AnnotationFrontend(packagesPath: _packages)
           .read(file.uri);
       final external = await ExternalFrontend(
         const ExternalLibrary([
-          ExternalClass('Router', config: NAPI(opaque: ['T'])),
-          ExternalClass('Pair', config: NAPI(opaque: ['B', 'A'])),
-          ExternalFunction('echo', config: NAPI(opaque: ['T'])),
+          ExternalClass('Router'),
+          ExternalClass('Pair'),
+          ExternalFunction('echo'),
         ]),
         packagesPath: _packages,
       ).read(file.uri);
@@ -129,7 +128,7 @@ $router
     () async {
       final module = await read('''
 $router
-@NAPI(opaque: ['T']) T? choose<T>([T? first, int index = 7, T? last]) => first;
+@NAPI() T? choose<T>([T? first, int index = 7, T? last]) => first;
 ''');
       final declarations = [
         emitDeclarations(lower(validate(module))),
@@ -175,8 +174,8 @@ $router
     () async {
       final module = await read('''
 typedef Payload<T> = T;
-@NAPI(opaque: ['T']) Payload<T> echo<T extends Object>(Payload<T> value) => value;
-@NAPI(opaque: ['T']) T? nullable<T extends Object?>([T? value = null]) => value;
+@NAPI() Payload<T> echo<T extends Object>(Payload<T> value) => value;
+@NAPI() T? nullable<T extends Object?>([T? value = null]) => value;
 ''');
       final plan = lower(validate(module));
       validateNative(module);
@@ -191,18 +190,18 @@ typedef Payload<T> = T;
 
   test('opaque names preserve built-in TypeScript types in both backends', () async {
     final module = await read('''
-@NAPI(opaque: ['Array']) List<int> array<Array>(Array value) => [1];
-@NAPI(opaque: ['Record']) () record<Record>(Record value) => ();
-@NAPI(opaque: ['PropertyKey']) () keyRecord<PropertyKey>(PropertyKey value) => ();
-@NAPI(opaque: ['globalThis']) Future<Map<String, int>> globals<globalThis>(globalThis value) async => {'x': 1};
-@NAPI(opaque: ['Array', 'Record', 'PropertyKey', 'globalThis'])
+@NAPI() List<int> array<Array>(Array value) => [1];
+@NAPI() () record<Record>(Record value) => ();
+@NAPI() () keyRecord<PropertyKey>(PropertyKey value) => ();
+@NAPI() Future<Map<String, int>> globals<globalThis>(globalThis value) async => {'x': 1};
+@NAPI()
 class Storage<Array, Record, PropertyKey, globalThis> {
   Storage(Array value);
   List<Map<String, ()>> nested() => [];
   Future<Map<String, int>> future(globalThis value) async => {'x': 1};
 }
-@NAPI(name: 'T', opaque: ['U']) class Router<U> { Router(); }
-@NAPI(opaque: ['T']) List<int> ordinary<T>(T value) => [];
+@NAPI(name: 'T') class Router<U> { Router(); }
+@NAPI() List<int> ordinary<T>(T value) => [];
 ''');
     final declarations = {
       'wasm': emitDeclarations(lower(validate(module))),
@@ -275,65 +274,129 @@ void [array, record, keyRecord, future, nested, member];
     }
   });
 
+  test('generic Future references allow static and excluded then members', () async {
+    for (final member in [
+      'static int then() => 0;',
+      '@NAPI(exclude: true) void then() {}',
+      'void other() {}',
+    ]) {
+      final module = await read(
+        '@NAPI() class Box<T> { Box(); $member Future<Box<T>> self() async => this; } '
+        '@NAPI() Future<Box<T>> pending<T>() async => Box<T>();',
+      );
+      expect(() => lower(validate(module)), returnsNormally);
+      expect(() => validateNative(module), returnsNormally);
+    }
+  });
+
+  test('exported generic class names preserve built-in container declarations', () async {
+    final module = await read("""
+@NAPI(name: 'Array') class Storage<T> {
+  Storage(T value);
+  List<int> values() => [1, 2];
+  List<List<int>> nested(List<int> value) => [value];
+}
+@NAPI(name: 'Record') class Empty<T> { Empty(); () empty() => (); }
+@NAPI(name: 'PropertyKey') class Key<T> { Key(); }
+""");
+    final declarations = {
+      'wasm': emitDeclarations(lower(validate(module))),
+      'native': emitNativeDeclarations(validateNative(module)),
+    };
+    for (final entry in declarations.entries) {
+      expect(entry.value, contains('globalThis.Array<number>'));
+      expect(
+        entry.value,
+        contains('globalThis.Record<globalThis.PropertyKey, never>'),
+      );
+      await File('${directory.path}/${entry.key}.d.mts')
+          .writeAsString(entry.value);
+      await File('${directory.path}/${entry.key}-consumer.mts')
+          .writeAsString("""
+import * as api from './${entry.key}.mjs';
+const box = new api.Array('payload');
+const values: number[] = box.values();
+const nested: number[][] = box.nested([1]);
+const empty: Record<PropertyKey, never> = new api.Record().empty();
+// @ts-expect-error Public Array<T> is a bound class, not a JS array.
+const wrong: api.Array<number> = box.values();
+void [values, nested, empty, wrong];
+""");
+    }
+    final tsc =
+        Platform.environment['NAPI_TSC'] ??
+        '${Directory.current.path}/.dart_tool/js/node_modules/typescript/bin/tsc';
+    for (final mode in ['NodeNext', 'Bundler']) {
+      final result = await Process.run(Platform.environment['NODE'] ?? 'node', [
+        tsc,
+        '--ignoreConfig',
+        '--noEmit',
+        '--strict',
+        '--target',
+        'ES2022',
+        '--module',
+        mode == 'NodeNext' ? 'NodeNext' : 'ESNext',
+        '--moduleResolution',
+        mode,
+        for (final backend in declarations.keys)
+          '${directory.path}/$backend-consumer.mts',
+      ]);
+      expect(
+        result.exitCode,
+        0,
+        reason: '$mode: ${result.stdout}${result.stderr}',
+      );
+    }
+  });
+
   final rejected = <String, (String, String)>{
-    'unselected generic': (
-      '@NAPI() T echo<T>(T value) => value;',
-      'NAPI_GENERIC',
+    'generic Future then method': (
+      "@NAPI() class Box<T> { Box(); void then() {} } @NAPI() Future<Box<T>> pending<T>() async => Box<T>();",
+      'NAPI_TYPE',
     ),
-    'partial selection': (
-      "@NAPI(opaque: ['T']) T echo<T, U>(T value) => value;",
-      'NAPI_GENERIC',
+    'generic Future renamed then getter': (
+      "@NAPI() class Box<T> { Box(); @NAPI(name: 'then') T? get value => null; } @NAPI() Future<Box<T>> pending<T>() async => Box<T>();",
+      'NAPI_TYPE',
     ),
-    'duplicate selection': (
-      "@NAPI(opaque: ['T', 'T']) T echo<T>(T value) => value;",
-      'NAPI_SELECTION',
+    'generic Future then field': (
+      "@NAPI() class Box<T> { Box(); T? then; } @NAPI() Future<Box<T>?> pending<T>() async => Box<T>();",
+      'NAPI_TYPE',
     ),
-    'unknown selection': (
-      "@NAPI(opaque: ['U']) T echo<T>(T value) => value;",
-      'NAPI_SELECTION',
-    ),
-    'empty selection': (
-      "@NAPI(opaque: []) int echo(int value) => value;",
-      'NAPI_SELECTION',
-    ),
-    'member selection': (
-      "@NAPI(opaque: ['T']) class Box<T> { Box(); @NAPI(opaque: ['T']) T echo(T value) => value; }",
-      'NAPI_PLACEMENT',
+    'generic member Future then result': (
+      "@NAPI() class Box<T> { Box(); int then() => 0; Future<Box<T>> pending() async => this; }",
+      'NAPI_TYPE',
     ),
     'semantic bound': (
-      "@NAPI(opaque: ['T']) T echo<T extends num>(T value) => value;",
+      "@NAPI() T echo<T extends num>(T value) => value;",
       'NAPI_TYPE',
     ),
     'Function bound': (
-      "@NAPI(opaque: ['T']) T echo<T extends Function>(T value) => value;",
+      "@NAPI() T echo<T extends Function>(T value) => value;",
       'NAPI_TYPE',
     ),
     'cross parameter bound': (
-      "@NAPI(opaque: ['T', 'U']) U echo<T, U extends T>(U value) => value;",
+      "@NAPI() U echo<T, U extends T>(U value) => value;",
       'NAPI_TYPE',
     ),
     'optional named': (
-      "@NAPI(opaque: ['T']) T? echo<T>({T? value}) => value;",
+      "@NAPI() T? echo<T>({T? value}) => value;",
       'NAPI_PRESENCE',
     ),
-    'nested input': (
-      "@NAPI(opaque: ['T']) int echo<T>(List<T> value) => 1;",
-      'NAPI_TYPE',
-    ),
+    'nested input': ("@NAPI() int echo<T>(List<T> value) => 1;", 'NAPI_TYPE'),
     'nested output': (
-      "@NAPI(opaque: ['T']) List<T> echo<T>(T value) => [value];",
+      "@NAPI() List<T> echo<T>(T value) => [value];",
       'NAPI_TYPE',
     ),
     'opaque Future': (
-      "@NAPI(opaque: ['T']) Future<T> echo<T>(T value) => Future.value(value);",
+      "@NAPI() Future<T> echo<T>(T value) => Future.value(value);",
       'NAPI_TYPE',
     ),
     'nullable opaque Future': (
-      "@NAPI(opaque: ['T']) Future<T?> echo<T>(T value) => Future.value(value);",
+      "@NAPI() Future<T?> echo<T>(T value) => Future.value(value);",
       'NAPI_TYPE',
     ),
     'dynamic is not opaque': (
-      "@NAPI(opaque: ['T']) dynamic echo<T>(dynamic value) => value;",
+      "@NAPI() dynamic echo<T>(dynamic value) => value;",
       'NAPI_TYPE',
     ),
     'concrete reference': (
@@ -345,7 +408,7 @@ void [array, record, keyRecord, future, nested, member];
       'NAPI_TYPE',
     ),
     'nullable parameter reference': (
-      "$router @NAPI(opaque: ['T']) Router<T?> echo<T>(Router<T?> value) => value;",
+      "$router @NAPI() Router<T?> echo<T>(Router<T?> value) => value;",
       'NAPI_TYPE',
     ),
     'generic method': (
@@ -357,27 +420,27 @@ void [array, record, keyRecord, future, nested, member];
       'NAPI_GENERIC',
     ),
     'generic resource': (
-      "@NAPI(opaque: ['T'], classPolicy: ClassPolicy.resource, cleanup: 'close') class Resource<T> { Resource(); void close() {} }",
+      "@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close') class Resource<T> { Resource(); void close() {} }",
       'NAPI_GENERIC',
     ),
     'generic value': (
-      "@NAPI(opaque: ['T'], classPolicy: ClassPolicy.value) class Value<T> { Value(this.value); final T value; }",
+      "@NAPI(classPolicy: ClassPolicy.value) class Value<T> { Value(this.value); final T value; }",
       'NAPI_GENERIC',
     ),
     'TypeScript type keyword': (
-      "@NAPI(opaque: ['unknown']) unknown echo<unknown>(unknown value) => value;",
+      "@NAPI() unknown echo<unknown>(unknown value) => value;",
       'NAPI_PARAMETER',
     ),
     'exported class shadows its own parameter': (
-      "@NAPI(name: 'T', opaque: ['T']) class Router<T> { Router(); Router<T> self() => this; }",
+      "@NAPI(name: 'T') class Router<T> { Router(); Router<T> self() => this; }",
       'NAPI_NAME',
     ),
     'referenced export shadows function parameter': (
-      "@NAPI(name: 'T', opaque: ['U']) class Router<U> { Router(); } @NAPI(opaque: ['T']) Router<T> forward<T>(Router<T> value) => value;",
+      "@NAPI(name: 'T') class Router<U> { Router(); } @NAPI() Router<T> forward<T>(Router<T> value) => value;",
       'NAPI_NAME',
     ),
     'nested reference export shadows function parameter': (
-      "@NAPI(name: 'T') class Ordinary { Ordinary(); } @NAPI(opaque: ['T']) List<Ordinary> output<T>(T value) => [];",
+      "@NAPI(name: 'T') class Ordinary { Ordinary(); } @NAPI() List<Ordinary> output<T>(T value) => [];",
       'NAPI_NAME',
     ),
   };

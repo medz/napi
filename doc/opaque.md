@@ -1,10 +1,11 @@
 # Opaque generic payloads
 
-Select generic parameters explicitly when Dart stores and forwards JavaScript
-values without interpreting them:
+Dart already declares generic parameter names and order. Export the declaration
+with the ordinary annotation; supported generic parameters preserve JavaScript
+payloads without interpreting them:
 
 ```dart
-@NAPI(opaque: ['T'])
+@NAPI()
 class Router<T> {
   final Map<String, T> _values = {};
   Router();
@@ -15,7 +16,7 @@ class Router<T> {
   void clear() => _values.clear();
 }
 
-@NAPI(opaque: ['T'])
+@NAPI()
 T identity<T>(T value) => value;
 ```
 
@@ -41,16 +42,17 @@ the separate callback feature.
 
 ## Author contract
 
-`opaque` is an explicit storage/forwarding policy, not general Dart runtime
-specialization. Generated Dart instantiates the declaration with a private
-carrier type. Business code may store, return or remove that carrier. It must
+The default generic binding is a storage/forwarding contract, not general Dart
+runtime specialization. Generated Dart instantiates the declaration with a
+private carrier type. Business code may store, return or remove that carrier. It must
 not use casts, runtime type checks, payload method calls, equality or hash codes
-to interpret the original JS value. A generic signature alone does not prove
-that a declaration follows this rule; the same requirement applies to external
-dependencies selected with `ExternalLibrary` and `NAPI(opaque: ...)`.
+to interpret the original JS value. This is the binding contract for an exported generic declaration, not a
+whole-program proof that its implementation follows the rule. The same
+requirement applies to external dependencies selected with `ExternalLibrary`;
+there is no additional generic configuration.
 
-Select every declared type parameter by its Dart name. The annotation list does
-not change parameter order. Implicit bounds and canonical `Object`/`Object?`
+The generator reads every declared type parameter in Dart declaration order.
+Implicit bounds and canonical `Object`/`Object?`
 bounds accept the carrier. Other bounds fail at build time. Even a JS null or
 undefined payload is a non-null Dart carrier, so an `Object` bound does not
 restrict JS payloads to objects or exclude nullish values.
@@ -109,6 +111,12 @@ generic selected hierarchies, independent generic member methods and generic
 resource/value classes remain unsupported. Concrete or erased specializations
 such as `Router<String>` or raw `Router` are not interchangeable with
 `Router<T>` under this carrier policy. They receive build diagnostics.
+
+`Future<Generic<T>>` is rejected when the selected generic class exposes an
+instance member named `then`, including renamed getters and fields. Such a
+wrapper would be observed or assimilated by the Promise resolver instead of
+reliably becoming its value. Later JS mutations of wrappers retain the broader
+root-thenable limitation documented in [futures.md](futures.md).
 
 `Future<T>` with an opaque result is also unsupported: a genuine JS Promise
 observes and assimilates thenables, which conflicts with unrestricted identity

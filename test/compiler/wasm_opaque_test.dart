@@ -32,7 +32,7 @@ void main() {
     () async {
       final module = await plan('''
 import 'package:napi/napi.dart';
-@NAPI(opaque: ['T'])
+@NAPI()
 class Router<T> {
   Router([this.value]);
   Router.empty() : value = null;
@@ -43,10 +43,10 @@ class Router<T> {
   Router<T> same() => this;
   static int count() => 3;
 }
-@NAPI(opaque: ['T']) T identity<T>(T value) => value;
-@NAPI(opaque: ['T']) T? optional<T>([T? value]) => value;
-@NAPI(opaque: ['T']) Router<T> reference<T>(Router<T> value) => value;
-@NAPI(opaque: ['T']) Future<int> pending<T>(T value) => Future.value(4);
+@NAPI() T identity<T>(T value) => value;
+@NAPI() T? optional<T>([T? value]) => value;
+@NAPI() Router<T> reference<T>(Router<T> value) => value;
+@NAPI() Future<int> pending<T>(T value) => Future.value(4);
 ''');
       final code = emitDart(module);
       expect(code, contains('final WasmExternRef? value;'));
@@ -85,8 +85,8 @@ class Router<T> {
       final code = emitDart(
         await plan('''
 import 'package:napi/napi.dart';
-@NAPI(opaque: ['T']) class Marker<T> { Marker(); }
-@NAPI(opaque: ['T']) int value<T>() => 3;
+@NAPI() class Marker<T> { Marker(); }
+@NAPI() int value<T>() => 3;
 '''),
       );
       expect(code, contains('final class _NapiHostValue'));

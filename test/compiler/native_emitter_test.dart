@@ -155,8 +155,16 @@ import 'package:napi/napi.dart';
       '@NAPI() class Bad { List<Set<int>> bad(List<Set<int>> value) => value; }',
       'NAPI_TYPE',
     ),
-    ('generic function', '@NAPI() T bad<T>(T value) => value;', 'NAPI_GENERIC'),
-    ('generic class', '@NAPI() class Bad<T> {}', 'NAPI_GENERIC'),
+    (
+      'semantic generic function',
+      '@NAPI() T bad<T extends num>(T value) => value;',
+      'NAPI_TYPE',
+    ),
+    (
+      'semantic generic class',
+      '@NAPI() class Bad<T extends num> {}',
+      'NAPI_TYPE',
+    ),
     ('async void', '@NAPI() void bad() async {}', 'NAPI_TYPE'),
     (
       'value constructor missing a mapped field',

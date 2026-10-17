@@ -15,15 +15,13 @@ enum ClassPolicy { reference, value, resource }
 /// uses JavaScript safe-integer `number` values. Dart `BigInt` always uses
 /// JavaScript `bigint`; other scalar types are unaffected. The [bigint] option
 /// is not supported on classes, class members, or excluded declarations.
+/// Generic parameters are read from the Dart declaration. Supported parameters
+/// carry unchanged JavaScript payloads; arbitrary Dart runtime specialization
+/// is not implied by a TypeScript type argument.
 class NAPI {
   final String? name;
   final bool exclude;
   final bool bigint;
-
-  /// Type parameters whose values are stored and forwarded as opaque JS values.
-  /// Select every parameter of an ordinary class or top-level function. This
-  /// chooses a private Dart carrier, not arbitrary Dart runtime specialization.
-  final List<String>? opaque;
 
   /// Class-only policy; omitted classes retain reference semantics.
   final ClassPolicy? classPolicy;
@@ -48,7 +46,6 @@ class NAPI {
     this.name,
     this.exclude = false,
     this.bigint = false,
-    this.opaque,
     this.classPolicy,
     this.cleanup,
     this.valueConstructor,

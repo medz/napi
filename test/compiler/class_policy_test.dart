@@ -163,7 +163,11 @@ class HiddenCleanup {
     for (final binding in module.classes) {
       final single = BindingModule(source: module.source, classes: [binding]);
       expect(() => validateDeclarations(single), returnsNormally);
-      if (const {'Reference', 'Value'}.contains(binding.declaration.name)) {
+      if (const {
+        'Reference',
+        'Value',
+        'Ordinary',
+      }.contains(binding.declaration.name)) {
         expect(() => validate(single), returnsNormally);
         continue;
       }
@@ -175,7 +179,7 @@ class HiddenCleanup {
             'code',
             binding.declaration.name == 'HiddenCleanup'
                 ? 'NAPI_RESOURCE'
-                : 'NAPI_GENERIC',
+                : 'NAPI_TYPE',
           ),
         ),
       );

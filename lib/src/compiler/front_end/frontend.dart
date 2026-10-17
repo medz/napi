@@ -268,38 +268,14 @@ final class _Reader {
   }
 
   void _checkClassOptions(a.Element element, NAPI config) {
-    if (config.opaque case final names?) {
-      final parameters = switch (element) {
-        a.ClassElement() => element.typeParameters,
-        a.TopLevelFunctionElement() => element.typeParameters,
-        _ => null,
-      };
-      if (parameters == null || config.exclude) {
-        _reject(
-          element,
-          'NAPI_PLACEMENT',
-          'opaque is only supported on a class or top-level function.',
-        );
-      }
-      if (names.isEmpty ||
-          names.toSet().length != names.length ||
-          names.contains('_') ||
-          names.any((name) => !parameters.any((p) => p.name == name))) {
-        _reject(
-          element,
-          'NAPI_SELECTION',
-          'opaque must name each declared type parameter exactly once.',
-        );
-      }
-      if (names.length != parameters.length) {
-        _reject(
-          element,
-          'NAPI_GENERIC',
-          'Partial opaque type-parameter selection is not supported.',
-        );
-      }
-      _opaqueParameters.addAll(parameters.map(_id));
-    }
+    // The Dart declaration already names and orders all generic parameters.
+    // Register the default payload mapping before reading members/parameters.
+    final parameters = switch (element) {
+      a.ClassElement() => element.typeParameters,
+      a.TopLevelFunctionElement() => element.typeParameters,
+      _ => const <a.TypeParameterElement>[],
+    };
+    if (!config.exclude) _opaqueParameters.addAll(parameters.map(_id));
     if (element is! a.ClassElement) {
       if (config.classPolicy != null ||
           config.cleanup != null ||
@@ -608,20 +584,6 @@ final class _Reader {
     final name = value.getField('name')?.toStringValue();
     final exclude = value.getField('exclude')?.toBoolValue();
     final bigint = value.getField('bigint')?.toBoolValue();
-    final opaqueValue = value.getField('opaque');
-    final opaqueList = opaqueValue?.toListValue();
-    List<String>? opaque;
-    if (opaqueValue != null && !opaqueValue.isNull) {
-      if (opaqueList == null ||
-          opaqueList.any((v) => v.toStringValue() == null)) {
-        _reject(
-          element,
-          'NAPI_ANNOTATION',
-          'opaque must be a constant list of type-parameter names.',
-        );
-      }
-      opaque = opaqueList.map((v) => v.toStringValue()!).toList();
-    }
     final policyValue = value.getField('classPolicy');
     final policyIndex = policyValue?.getField('index')?.toIntValue();
     final classPolicy =
@@ -688,7 +650,6 @@ final class _Reader {
       name: name,
       exclude: exclude,
       bigint: bigint,
-      opaque: opaque,
       classPolicy: classPolicy,
       cleanup: cleanup,
       valueConstructor: valueConstructor,

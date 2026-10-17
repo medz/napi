@@ -9,7 +9,7 @@ assembly. The experimental macOS arm64 native
 target generates scalar, structural, reference-class, resource and Future AOT bindings against a
 precompiled runtime bundle. Future exports share the [Promise boundary](futures.md),
 including [resource operation leases](resources.md).
-Both targets also generate [explicit opaque storage](opaque.md) with matching
+Both targets also generate [generic payload storage](opaque.md) with matching
 generic TypeScript declarations and actual omission detection.
 Callbacks, streams, shared-buffer lifetimes, other native targets and
 automatic runtime supply remain development work; see [native scope](native.md).

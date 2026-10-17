@@ -10,37 +10,37 @@ List<int> _allocation = [];
 @NAPI()
 int opaqueCalls() => _calls;
 
-@NAPI(opaque: ['T'])
+@NAPI()
 T identity<T>(T value) {
   _calls++;
   return value;
 }
 
-@NAPI(opaque: ['T'])
+@NAPI()
 T? optional<T>([T? value]) {
   _calls++;
   return value;
 }
 
-@NAPI(opaque: ['T'])
+@NAPI()
 T? prefix<T>([T? first, int choose = 7, T? last]) => choose == 7 ? first : last;
 
-@NAPI(opaque: ['Array'])
+@NAPI()
 List<int> opaqueArray<Array>(Array value) => [1, 2];
 
-@NAPI(opaque: ['Record'])
+@NAPI()
 // Deliberate type-name collision exercises generated TypeScript hygiene.
 // ignore: avoid_types_as_parameter_names
 () opaqueRecord<Record>(Record value) => ();
 
-@NAPI(opaque: ['PropertyKey'])
+@NAPI()
 () opaqueKey<PropertyKey>(PropertyKey value) => ();
 
-@NAPI(opaque: ['globalThis'])
+@NAPI()
 Future<Map<String, int>> opaqueGlobal<globalThis>(globalThis value) =>
     Future.value({'size': 1});
 
-@NAPI(opaque: ['T'])
+@NAPI()
 class Router<T> {
   final Map<String, T> _values = {};
   T? value;
@@ -71,10 +71,10 @@ class Router<T> {
   void pin() => _pinned = this;
 }
 
-@NAPI(opaque: ['T'])
+@NAPI()
 Router<T> forwardRouter<T>(Router<T> value) => value;
 
-@NAPI(opaque: ['T'])
+@NAPI()
 Router<T> readoptRouter<T>() => _pinned as Router<T>;
 
 @NAPI()
@@ -83,21 +83,21 @@ int unpinRouter() {
   return 0;
 }
 
-// Annotation order is intentionally different from declaration order.
-@NAPI(opaque: ['Second', 'First'])
+// Generic declaration order defines the public constructor/type relationship.
+@NAPI()
 class Pair<First, Second> {
   First first;
   Second second;
   Pair(this.first, this.second);
 }
 
-@NAPI(opaque: ['T'])
+@NAPI()
 class Bounded<T extends Object> {
   T value;
   Bounded(this.value);
 }
 
-@NAPI(opaque: ['T'])
+@NAPI()
 Future<int> waitOpaque<T>(T value) {
   // No business closure or field retains the payload. The binding owns the
   // accepted input until the returned Future settles.
@@ -117,6 +117,22 @@ int opaquePressure(int seed) {
   _allocation = List<int>.generate(1000000, (index) => index + seed);
   return _allocation.last;
 }
+
+@NAPI(name: 'Array')
+class ArrayStorage<T> {
+  T value;
+  ArrayStorage(this.value);
+  List<int> numbers() => [1, 2];
+}
+
+@NAPI(name: 'Record')
+class EmptyRecord<T> {
+  EmptyRecord();
+  () empty() => ();
+}
+
+@NAPI()
+Future<Router<T>> futureRouter<T>(Router<T> value) => Future.value(value);
 
 // Selected from a second build through the public ExternalLibrary API.
 T plainEcho<T>(T value) => value;

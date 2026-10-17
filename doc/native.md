@@ -134,7 +134,7 @@ Map-key checks. These paths use temporary snapshot storage; output getters are
 read once per occurrence before converting children.
 
 Unsupported shapes fail before output is created: general generic specialization
-beyond explicit opaque storage, non-null
+beyond generic payload storage, non-null
 object defaults, Future inputs/FutureOr, callbacks, streams and cancellation. The same reference
 contract runs on Wasm; see [reference classes](classes.md). A unique most-specific
 selected class owns the canonical wrapper across base/interface views. Instance

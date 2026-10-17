@@ -11,7 +11,7 @@ const _source = '''
 import 'dart:async';
 import 'package:napi/napi.dart';
 
-@NAPI(opaque: ['T'])
+@NAPI()
 class Router<T> {
   Router([this.value]);
   Router.from(T input) : value = input;
@@ -24,18 +24,18 @@ class Router<T> {
   static int count() => 1;
 }
 
-@NAPI(opaque: ['T'])
+@NAPI()
 class Empty<T> {
   Empty();
 }
 
-@NAPI(opaque: ['T']) T echo<T>(T value) => value;
-@NAPI(opaque: ['T']) T? optional<T>([T? value]) => value;
-@NAPI(opaque: ['T']) T named<T>({required T value}) => value;
-@NAPI(opaque: ['T']) T ordered<T>(T value, int requiredSecond) => value;
-@NAPI(opaque: ['T']) Future<int> wait<T>(T value) => Completer<int>().future;
-@NAPI(opaque: ['T']) Router<T> same<T>(Router<T> value) => value;
-@NAPI(opaque: ['A', 'B']) B second<A, B>(A first, B second) => second;
+@NAPI() T echo<T>(T value) => value;
+@NAPI() T? optional<T>([T? value]) => value;
+@NAPI() T named<T>({required T value}) => value;
+@NAPI() T ordered<T>(T value, int requiredSecond) => value;
+@NAPI() Future<int> wait<T>(T value) => Completer<int>().future;
+@NAPI() Router<T> same<T>(Router<T> value) => value;
+@NAPI() B second<A, B>(A first, B second) => second;
 ''';
 
 void main() {
