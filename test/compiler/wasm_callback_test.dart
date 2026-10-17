@@ -79,12 +79,16 @@ class Resource {
     timeout: const Timeout(Duration(minutes: 2)),
   );
 
-  test('ordinary modules have no callback state or exception checks', () async {
+  test('ordinary modules omit user callback adapters', () async {
     final module = await plan('''
 import 'package:napi/napi.dart';
 @NAPI() int increment(int value) => value + 1;
 ''');
-    expect(emitDart(module), isNot(contains('_CallbackThrown')));
+    final code = emitDart(module);
+    // Internal shared allocation needs exact host errors even for scalar APIs.
+    expect(code, contains('_CallbackThrown'));
+    expect(code, isNot(contains('_findCallbackAdapter')));
+    expect(code, isNot(contains('_invokeCallback')));
     expect(emitArgumentCalls(module), isNot(contains('borrowed')));
     expect(emitBoundary(module), isNot(contains('callbackApply')));
   });

@@ -20,6 +20,18 @@ bool isAbortSignalType(BindingType type) =>
     type.typeArguments.isEmpty &&
     type.nullability != TypeNullability.legacy;
 
+final sharedBytesDeclaration = DeclarationId(
+  Uri.parse('package:napi/src/api/shared_bytes.dart'),
+  'SharedBytes',
+  kind: DeclarationKind.classType,
+);
+
+bool isSharedBytesType(BindingType type) =>
+    type is DeclaredType &&
+    type.declaration == sharedBytesDeclaration &&
+    type.typeArguments.isEmpty &&
+    type.nullability != TypeNullability.legacy;
+
 final uint8ListDeclaration = DeclarationId(
   Uri.parse('dart:typed_data'),
   'Uint8List',
@@ -2255,6 +2267,7 @@ bool _isBackendValue(
 ]) {
   if (_isBackendScalar(type) ||
       isBinaryType(type) ||
+      isSharedBytesType(type) ||
       isReferenceType(type, classes)) {
     return true;
   }

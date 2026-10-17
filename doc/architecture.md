@@ -21,7 +21,8 @@ kernel and the existing backend delivery transports. Explicit
 token ownership, reusing the native owner queue without an ABI change.
 Both generate [independent byte snapshots](binary.md) for `Uint8List` and
 `ByteBuffer`, including existing structural, Future and Stream conversions.
-Shared-buffer lifetimes, other native targets and
+Explicit [shared byte views](shared-bytes.md) preserve host storage with current
+window checks, weak adapter identity and bulk operations. Other native targets and
 automatic runtime supply remain development work; see [native scope](native.md).
 
 ## Public contract

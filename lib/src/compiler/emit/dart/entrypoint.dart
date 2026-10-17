@@ -19,17 +19,14 @@ String emitDart(ModulePlan plan) {
   final asyncCallbacks = callbacks.values.any(
     (callback) => callback.returnsFuture,
   );
-  final rawErrors = callbacks.isNotEmpty || signals;
-  final prelude = rawErrors
-      ? withCallbackErrors(entrypointPrelude)
-      : entrypointPrelude;
+  final prelude = withCallbackErrors(entrypointPrelude);
   final source = jsonEncode(plan.source.toString()).replaceAll(r'$', r'\$');
   final result = StringBuffer(
     "import $source as target;\n"
     "${asyncCallbacks || streams ? "import 'dart:async';\n" : ''}"
-    "${binary ? "import 'dart:typed_data' as typed_data;\n" : ''}"
-    "${resources || streams || signals ? "import 'package:napi/runtime.dart';\n" : ''}"
-    "${signals || plan.conversions.any(containsDictionary) ? "import 'package:napi/napi.dart' as napi;\n" : ''}"
+    "import 'dart:typed_data' as typed_data;\n"
+    "import 'package:napi/runtime.dart';\n"
+    "import 'package:napi/napi.dart' as napi;\n"
     "${plan.conversions.any(containsDictionary) ? "import 'dart:convert' show jsonEncode;\n" : ''}"
     '$prelude\n',
   );
@@ -40,17 +37,14 @@ String emitDart(ModulePlan plan) {
     result.writeln(opaqueEntrypointPrelude);
   }
   if (plan.calls.any((call) => call.returnsFuture) || streams) {
-    result.writeln(
-      rawErrors
-          ? withCallbackErrors(futureEntrypointPrelude)
-          : futureEntrypointPrelude,
-    );
+    result.writeln(withCallbackErrors(futureEntrypointPrelude));
   }
   if (streams) result.writeln(streamEntrypointPrelude);
   if (binary) result.writeln(binaryEntrypointPrelude);
   if (callbacks.isNotEmpty) result.writeln(callbackEntrypointPrelude);
+  if (callbacks.isEmpty) result.writeln(callbackErrorEntrypointPrelude);
+  result.writeln(sharedBytesEntrypointPrelude);
   if (signals) {
-    if (callbacks.isEmpty) result.writeln(callbackErrorEntrypointPrelude);
     result.writeln(cancellationEntrypointPrelude);
   }
   if (asyncCallbacks) result.writeln(asyncCallbackEntrypointPrelude);
@@ -105,6 +99,7 @@ WasmExternRef _referenceViews(WasmExternRef reference) {
       plan.conversions.any(
         (c) =>
             c is BinaryConversion ||
+            c is SharedBytesConversion ||
             c is ListConversion ||
             c is RecordConversion ||
             c is MapConversion ||
@@ -141,6 +136,7 @@ WasmExternRef _referenceViews(WasmExternRef reference) {
         for (var i = 0; i < parameters.length; i++) ...[if (_optional(parameters[i])) 'WasmI32 d$i', 'WasmExternRef? p$i'],
       ].join(', ')}) {',
     );
+    result.writeln('  _ensureSharedBytesAllocator();');
     // Raw externrefs are validated before Dart can erase undefined into null.
     for (var i = 0; i < parameters.length; i++) {
       final conversion = call.inputs[i];
@@ -478,6 +474,7 @@ void _emitResourceCall(
       for (final (i, parameter) in call.parameters.indexed) ...[if (_optional(parameter)) 'WasmI32 d$i', 'WasmExternRef? p$i'],
     ].join(', ')}) {',
   );
+  result.writeln('  _ensureSharedBytesAllocator();');
   result.writeln(
     '  final operation = prepared.internalize().toObject() as ResourceOperation;',
   );

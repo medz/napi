@@ -38,7 +38,8 @@ import 'package:napi/napi.dart';
   test('function-only loaders have no class callable work', () {
     final loader = emitNativeLoader(['add']);
     expect(loader, isNot(contains(r'$napiCallable')));
-    expect(loader, isNot(contains(r'$napiCallback')));
+    expect(loader, contains(r'$napiAllocateSharedBytes'));
+    expect(loader, isNot(contains(r'$napiObserveCallbackPromise')));
     expect(loader, contains(r'export {$napi0 as add}'));
   });
 
@@ -46,7 +47,7 @@ import 'package:napi/napi.dart';
     final loader = emitNativeLoader([], hasCallbacks: true);
     expect(loader, contains(r'$napiCallbackHelper'));
     expect(loader, isNot(contains(r'$napiObserveCallbackPromise')));
-    expect(loader, isNot(contains('node:util')));
+    expect(loader, contains('node:util'));
   });
 
   test(
