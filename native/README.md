@@ -12,8 +12,13 @@ Other profiles fail explicitly.
 
 Prerequisites are an existing checkout of that exact SDK with its dependencies,
 a prepared Product VM build cache, Xcode command-line tools, Python 3, and local
-Node headers. Nothing here downloads or bootstraps the SDK/toolchain. A bare SDK
+Node and libuv headers. Nothing here downloads or bootstraps the SDK/toolchain. A bare SDK
 checkout alone is insufficient.
+The builder looks for `uv.h` alongside the Node headers, then in their parent
+directory for installations that separate Node and libuv headers. Missing
+headers fail explicitly. The current macOS profile uses system Apple clang and
+local Node/libuv headers; runtime behavior is validated separately on Node 24
+and Node 26, including fresh packages, workers and teardown.
 
 To prepare a cache, copy `native/runtime/` into the SDK as `runtime/napi/` in a
 checkout where that directory does not already exist. Do not overwrite an
@@ -52,7 +57,7 @@ untouched. Node headers affect the reusable bridge, not individual businesses.
 The flat bundle contains `bridge.node`, the identity-qualified runtime dylib,
 `DART_LICENSE`, `DART_AUTHORS`, `NAPI_LICENSE`, and `manifest.json`.
 The manifest has `format: 1`, `sdkVersion`, `sdkRevision`, `platform: "macos"`,
-`architecture: "arm64"`, `minimumOsVersion: "14.0"`, `abi: 8`, `identity`,
+`architecture: "arm64"`, `minimumOsVersion: "14.0"`, `abi: 9`, `identity`,
 `bridge`, `runtime`, and `files` mapping the five payload names to SHA-256 hashes.
 Its `build` evidence records the cache arguments hash, combined input-object
 digest/count, and runtime/ABI source hash. It contains no local SDK paths.
@@ -120,20 +125,45 @@ and does not retain this callback-scoped handle across calls.
 
 Every Node environment owns its isolates and persistent handles. Cross-owner
 receivers and different-isolate reentry are rejected; GC during active callbacks defers
-owner release until a safe outer boundary. Environment cleanup invalidates wrappers, deletes persistent
-handles while entered, exits, and shuts down only its own isolate. Matching
+owner release until a safe outer boundary. Each owner automatically initializes
+one libuv async handle. VM notifications only increment an atomic message count
+and wake the Node thread; coalesced libuv wakeups cannot discard Dart messages.
+Each turn handles at most 64 notifications, draining microtasks before messages
+and after each message. The outermost Dart call also schedules a drain, because
+pure microtasks do not send VM notifications. Repeated synchronous calls in one
+turn share that scheduled drain; consumers do not initialize a scheduler.
+
+A scheduled drain keeps Node alive until it runs. Afterward, live Dart ports or
+remaining notifications keep the async handle referenced; an unresolved Future
+alone does not. Timers and ports use the pinned Dart runtime's existing event
+handler. No polling thread or replacement timer implementation is introduced.
+Node handle/callback scopes contain each pump, with Dart fully exited before
+Node callback-scope close can run JS microtasks and reenter another owner.
+Uncaught Dart event errors are reported as Node errors through
+`napi_fatal_exception`; a throwing microtask schedules another drain for its
+remaining queue. Normal Node uncaught-exception behavior applies.
+
+An async environment cleanup hook invalidates wrappers, deletes persistent
+handles while entered, exits, and shuts down only its own isolate. Shutdown
+stops in-flight notifications before `uv_close`; queued wakeups retain their
+owner until the close callback releases it and completes the cleanup hook.
+Failed loads use the same shutdown/close sequence even before a cleanup hook
+has been registered. Matching
 runtime images stay resident with a retained `RTLD_NODELETE` handle because
 there is no process-global VM shutdown. This protects worker-only unload/reload.
 
 The ABI/runtime are coupled to private experimental Dart SDK internals:
-embedder initialization, core-library setup and microtask draining. Async Node
-scheduling, Dart-created child isolates, non-returning Dart interruption,
+embedder initialization, core-library setup and microtask draining. Future-returning
+export generation, asynchronous resource cleanup, Dart-created child isolates,
+non-returning Dart interruption,
 cross-identity VM sharing and other platforms are outside this implementation.
 Their acceptance remains open. `DART_LICENSE` and `DART_AUTHORS` retain the
 upstream SDK license/attribution; original bridge code uses the package license.
 
 Slot 41 compares actual `new.target` with the captured selected constructor; it
-performs no mutable JavaScript property lookup. The compiler-private ABI is 8.
+performs no mutable JavaScript property lookup. The compiler-private ABI is 9:
+the table still has 43 slots, and the version now requires automatic event
+scheduling and async environment cleanup. Older synchronous bundles are rejected.
 
 Slot 42 registers a composite selected-interface shape through the generated
 loader's private resolver. Only type IDs and a creator function are retained;

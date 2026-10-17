@@ -3,8 +3,9 @@
 The shared Dart runtime provides `ResourceControl` through
 `package:napi/runtime.dart`. This is the state kernel for #124, not generated
 resource support. Both backends still diagnose resource bindings; generated
-cleanup APIs, argument conversion, native scheduling and cross-backend consumer
-conformance remain to be implemented. Ordinary reference classes do not use this
+cleanup APIs, argument conversion and async settlement still need cross-backend
+consumer conformance. The native event pump is covered separately in
+[native bindings](native.md). Ordinary reference classes do not use this
 control and do not gain a `dispose` method.
 
 ## Ownership and aliases
@@ -96,6 +97,6 @@ dart test test/runtime/resources_test.dart
 dart test --platform node --compiler dart2wasm test/runtime/resources_test.dart
 ```
 
-This kernel was tested with Dart 3.13.5 and Node 24.19.0. The Wasm test uses the
+This kernel was tested with Dart 3.13.5 and Node 24.19.0/26.11.1. The Wasm test uses the
 SDK's standard test runner loader; it does not validate the binding compiler's
 resource emission or native Node-API event-loop integration.
