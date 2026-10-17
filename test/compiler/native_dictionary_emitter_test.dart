@@ -155,7 +155,10 @@ void main() {
         reader.source,
         contains(r"final childPath = '$path[${jsonEncode(key)}]';"),
       );
-      expect(writer.source, contains('final entries = <(String, int?)>[];'));
+      expect(
+        writer.source,
+        contains('final entries = List<Object?>.filled(length * 2, null);'),
+      );
       expect(writer.source, contains('final keys = <String>{};'));
       expect(writer.source, contains('if (length > 10000 - state.work)'));
       expect(writer.source, contains('if (length < 0 || length > 0xffffffff)'));

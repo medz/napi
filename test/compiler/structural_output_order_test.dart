@@ -94,6 +94,16 @@ class Cycle {
   Cycle? next;
 }
 @NAPI() Cycle cycleOutput() { final value = Cycle(); value.next = value; return value; }
+
+@NAPI() List<int?> nullableList() => [1, null];
+@NAPI() Map<int?, RefBase?> nullableMap() => {null: null};
+@NAPI() Dictionary<int?> nullableDictionary() => Dictionary({'a': null, 'b': 1});
+@NAPI() (int?, RefBase?) nullableRecord() => (null, null);
+@NAPI() (List<int>, int) recordLeafBudget() => (List.filled(9998, 1), 2);
+@NAPI() (Map<int?, RefBase?>, List<int>) mapLeafBudget(int length) =>
+    ({null: null}, List.filled(length, 1));
+@NAPI() (Dictionary<int?>, List<int>) dictionaryLeafBudget(int length) =>
+    (Dictionary({'a': null, 'b': null}), List.filled(length, 1));
 ''';
 
 const _checks = r'''import assert from 'node:assert/strict';
@@ -157,6 +167,21 @@ const cycle = [];
 cycle.push(cycle);
 fails(() => api.echoLists(cycle), error => error instanceof TypeError && error.message.includes('cyclic structural value'), 0);
 fails(() => api.cycleOutput(), error => error instanceof TypeError && error.message.includes('cyclic structural value'), 0);
+assert.deepEqual(api.nullableList(), [1, null]);
+assert.equal(api.nullableMap().get(null), null);
+assert.equal(api.nullableMap().size, 1);
+const dictionary = api.nullableDictionary();
+assert.equal(Object.getPrototypeOf(dictionary), null);
+assert.deepEqual({...dictionary}, {a: null, b: 1});
+assert.deepEqual(api.nullableRecord(), {$1: null, $2: null});
+fails(() => api.recordLeafBudget(), error => error instanceof RangeError &&
+  error.message === 'recordLeafBudget result.$2: structural work limit (10000) exceeded', 0);
+assert.equal(api.mapLeafBudget(9995).$2.length, 9995);
+fails(() => api.mapLeafBudget(9996), error => error instanceof RangeError &&
+  error.message === 'mapLeafBudget result.$2: structural work limit (10000) exceeded', 0);
+assert.equal(api.dictionaryLeafBudget(9995).$2.length, 9995);
+fails(() => api.dictionaryLeafBudget(9996), error => error instanceof RangeError &&
+  error.message === 'dictionaryLeafBudget result.$2: structural work limit (10000) exceeded', 0);
 console.log('structural-output-order-ok');
 ''';
 

@@ -136,12 +136,11 @@ void main() {
     expect(dart, contains("\$path: Map length changed during iteration"));
     expect(dart, contains('if (length < 0 || length > 0xffffffff)'));
     expect(dart, contains('final iterator = value.entries.iterator;'));
-    expect(dart, contains('entries.add((entry.key, entry.value));'));
+    expect(dart, contains('entries[2 * i] = key;'));
+    expect(dart, contains('entries[2 * i + 1] = child;'));
     expect(
       dart,
-      contains(
-        "if (iterator.moveNext()) throw NapiTypeError('\$path: Map length changed during iteration');\n    return <Object?>[",
-      ),
+      contains('final entries = List<Object?>.filled(length * 2, null);'),
     );
     expect(
       RegExp(
