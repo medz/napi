@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import '../analysis/reference_views.dart' show hasCompositeReferenceViews;
 import '../emit/dart/entrypoint.dart' show renderDartDefault;
 import '../ir/model.dart';
 import '../lowering/plan.dart'
@@ -21,6 +22,9 @@ String _quote(String value) => jsonEncode(value).replaceAll(r'$', r'\$');
 
 /// Generate business-specific Dart only. The Node-API bridge stays generic.
 String emitNativeDart(NativeModulePlan plan) {
+  final hasCompositeViews = hasCompositeReferenceViews([
+    for (final binding in plan.classes) binding.shape,
+  ]);
   final hasStructures = plan.calls.any(
     (call) => [...call.inputs, if (call.output != null) call.output!].any(
       (value) =>
@@ -51,7 +55,7 @@ import ${_quote(plan.bindings.importUri.toString())} as target;
 late final NapiApi _api;
 @pragma('vm:entry-point')
 List<Object?> napiBindings(int apiTableAddress, int tableCount) {
-  _api = NapiApi(apiTableAddress, tableCount${plan.classes.isEmpty ? '' : ', referenceClass: _referenceClass, classMemberships: _referenceMemberships'});
+  _api = NapiApi(apiTableAddress, tableCount${plan.classes.isEmpty ? '' : ', referenceClass: _referenceClass, classMemberships: _referenceMemberships'}${hasCompositeViews ? ', referenceViews: _referenceViews' : ''});
   return [
 ''');
   for (final function in plan.functions) {
@@ -93,7 +97,7 @@ void main() {}
         '''  if (value is target.${plan.classes[index].binding.callPath}) {
     if (canonical == null) { canonical = $index; }
     else if (!_referenceMemberships[canonical].contains($index)) {
-      throw NapiTypeError('\$path: no unique most-specific selected class');
+      return -1;
     }
   }''',
       );
@@ -101,6 +105,15 @@ void main() {}
     code.writeln('''  if (canonical == null) throw NapiTypeError('\$path: no unique most-specific selected class');
   return canonical;
 }''');
+    if (hasCompositeViews) {
+      code.writeln('List<int> _referenceViews(Object value) => [');
+      for (final binding in plan.classes) {
+        code.writeln(
+          '  if (value is target.${binding.binding.callPath}) ${binding.shape.classId},',
+        );
+      }
+      code.writeln('];');
+    }
   }
   for (final call in plan.calls) {
     final parameters = call.parameters;

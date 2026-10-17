@@ -3,6 +3,7 @@ import 'package:napi/napi.dart';
 import 'classes.dart';
 export 'dictionaries.dart';
 export 'reference_hierarchy.dart';
+export 'reference_views.dart';
 
 int _constructions = 0;
 int _calls = 0;

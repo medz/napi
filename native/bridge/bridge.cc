@@ -1,5 +1,6 @@
 // Generic Node-API bridge for synchronous Dart AOT bindings.
 #include <node_api.h>
+#include <algorithm>
 #include <dlfcn.h>
 #include <cstdint>
 #include <cmath>
@@ -43,6 +44,10 @@ struct Adoption {
   int64_t id;
   bool consumed = false;
 };
+struct ReferenceShape {
+  std::vector<uint32_t> views;
+  napi_ref creator;
+};
 enum MapIntrinsic { map_constructor, map_size, map_entries, map_next,
                     map_has, map_set, map_intrinsic_count };
 struct Owner {
@@ -53,6 +58,9 @@ struct Owner {
   std::vector<Callback*> callbacks;
   std::vector<Property*> properties;
   std::vector<napi_ref> constructors;
+  napi_ref reference_resolver = nullptr;
+  std::map<uint32_t, ReferenceShape> reference_shapes;
+  bool resolving_reference_shape = false;
   std::set<Wrapper*> wrappers;
   std::map<int64_t, Wrapper*> references;
   Wrapper* pending_releases = nullptr;
@@ -229,9 +237,23 @@ static napi_status reference_create(napi_env env, uint32_t class_id,
   *result = nullptr;
   auto owner = active_owner;
   if (!owner || owner->closing || owner->env != env || id <= 0 ||
-      class_id >= owner->constructors.size() || owner->adoption) {
+      owner->adoption) {
     fail(env, "Invalid native reference creation");
     return napi_invalid_arg;
+  }
+  if (class_id >= owner->constructors.size()) {
+    auto shape = owner->reference_shapes.find(class_id);
+    if (shape == owner->reference_shapes.end()) {
+      fail(env, "Unknown native reference shape");
+      return napi_invalid_arg;
+    }
+    napi_value creator, receiver;
+    auto status = napi_get_reference_value(env, shape->second.creator, &creator);
+    if (status == napi_ok) status = napi_get_undefined(env, &receiver);
+    if (status == napi_ok)
+      status = napi_call_function(env, receiver, creator, 0, nullptr, result);
+    if (status == napi_ok) status = bridge_wrap(env, *result, id);
+    return status;
   }
   napi_value constructor;
   auto status = napi_get_reference_value(env, owner->constructors[class_id], &constructor);
@@ -826,6 +848,77 @@ static napi_status is_constructor_target(napi_env env, napi_callback_info info,
   return status == napi_ok ? napi_strict_equals(env, target, original, result) : status;
 }
 
+static napi_status register_reference_shape(napi_env env, uint32_t shape_id,
+    const uint32_t* views, size_t count, napi_value context) {
+  auto owner = active_owner;
+  if (!owner || owner->closing || owner->env != env ||
+      !owner->reference_resolver || owner->resolving_reference_shape ||
+      !views || count < 2 ||
+      count > owner->constructors.size() ||
+      shape_id < owner->constructors.size()) {
+    fail(env, "Invalid native reference shape");
+    return napi_invalid_arg;
+  }
+  for (size_t i = 0; i < count; ++i) {
+    if (views[i] >= owner->constructors.size() || (i && views[i - 1] >= views[i])) {
+      fail(env, "Invalid native reference views");
+      return napi_invalid_arg;
+    }
+  }
+  auto found = owner->reference_shapes.find(shape_id);
+  if (found != owner->reference_shapes.end()) {
+    if (found->second.views.size() == count &&
+        std::equal(found->second.views.begin(), found->second.views.end(), views))
+      return napi_ok;
+    fail(env, "Native reference shape ID is already registered");
+    return napi_invalid_arg;
+  }
+  if (shape_id != owner->constructors.size() + owner->reference_shapes.size()) {
+    fail(env, "Invalid native reference shape ID");
+    return napi_invalid_arg;
+  }
+  owner->resolving_reference_shape = true;
+  struct ResetResolution {
+    Owner* owner;
+    ~ResetResolution() { owner->resolving_reference_shape = false; }
+  } reset{owner};
+  napi_ref retained = nullptr;
+  try {
+    std::vector<uint32_t> selected(views, views + count);
+    napi_value resolver = nullptr, receiver = nullptr, ids = nullptr, creator = nullptr;
+    auto status = napi_get_reference_value(env, owner->reference_resolver, &resolver);
+    if (status == napi_ok) status = napi_get_undefined(env, &receiver);
+    if (status == napi_ok) status = napi_create_array_with_length(env, count, &ids);
+    for (size_t i = 0; status == napi_ok && i < count; ++i) {
+      napi_value key, value;
+      const auto index = std::to_string(i);
+      status = napi_create_string_utf8(env, index.data(), index.size(), &key);
+      if (status == napi_ok) status = napi_create_uint32(env, views[i], &value);
+      if (status == napi_ok) status = define_own_value(env, ids, key, value);
+    }
+    napi_value args[] = {ids, context};
+    if (status == napi_ok)
+      status = napi_call_function(env, receiver, resolver, 2, args, &creator);
+    if (status != napi_ok) return status;
+    napi_valuetype type;
+    status = napi_typeof(env, creator, &type);
+    if (status != napi_ok) return status;
+    if (type != napi_function) {
+      fail(env, "Native reference resolver must return a creator");
+      return napi_invalid_arg;
+    }
+    status = napi_create_reference(env, creator, 1, &retained);
+    if (status != napi_ok) return status;
+    owner->reference_shapes.emplace(shape_id,
+        ReferenceShape{std::move(selected), retained});
+    return napi_ok;
+  } catch (const std::bad_alloc&) {
+    if (retained) napi_delete_reference(env, retained);
+    fail_error(env, "Cannot retain native reference shape");
+    return napi_generic_failure;
+  }
+}
+
 static void* api_table[] = {
     reinterpret_cast<void*>(&napi_get_cb_info),
     reinterpret_cast<void*>(&napi_typeof),
@@ -869,6 +962,7 @@ static void* api_table[] = {
     reinterpret_cast<void*>(&create_dictionary),
     reinterpret_cast<void*>(&read_optional_own_value),
     reinterpret_cast<void*>(&is_constructor_target),
+    reinterpret_cast<void*>(&register_reference_shape),
 };
 static_assert(sizeof(api_table) / sizeof(*api_table) == bridge_api_count);
 
@@ -945,6 +1039,10 @@ static void destroy(Owner* owner) {
   for (auto constructor : owner->constructors) {
     if (constructor) napi_delete_reference(owner->env, constructor);
   }
+  for (const auto& shape : owner->reference_shapes)
+    napi_delete_reference(owner->env, shape.second.creator);
+  if (owner->reference_resolver)
+    napi_delete_reference(owner->env, owner->reference_resolver);
   for (auto function : owner->maps) {
     if (function) napi_delete_reference(owner->env, function);
   }
@@ -1246,10 +1344,16 @@ static void initialize_runtime() {
 static napi_value load(napi_env env, napi_callback_info info) {
   if (active_owner)
     return fail(env, "Cannot load a Dart isolate reentrantly");
-  size_t argc = 2;
-  napi_value args[2];
+  size_t argc = 3;
+  napi_value args[3];
   if (napi_get_cb_info(env, info, &argc, args, nullptr, nullptr) != napi_ok ||
-      argc != 1) return fail(env, "load expects one absolute snapshot path");
+      (argc != 1 && argc != 2))
+    return fail(env, "load expects an absolute snapshot path and optional private resolver");
+  if (argc == 2) {
+    napi_valuetype type;
+    if (napi_typeof(env, args[1], &type) != napi_ok || type != napi_function)
+      return fail(env, "Native reference resolver must be a function");
+  }
   size_t size;
   if (napi_get_value_string_utf8(env, args[0], nullptr, 0, &size) != napi_ok)
     return fail(env, "Snapshot path must be a string");
@@ -1283,6 +1387,8 @@ static napi_value load(napi_env env, napi_callback_info info) {
   auto owner = new Owner{env, isolate};
   napi_value exports;
   auto status = napi_create_object(env, &exports);
+  if (status == napi_ok && argc == 2)
+    status = napi_create_reference(env, args[1], 1, &owner->reference_resolver);
   if (status != napi_ok || capture_maps(owner) != napi_ok ||
       capture_dictionary(owner) != napi_ok ||
       !register_bindings(owner, exports)) {

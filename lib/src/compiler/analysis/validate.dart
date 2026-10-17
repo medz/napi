@@ -1137,7 +1137,7 @@ List<ReferenceClassShape> _referenceHierarchy(
         final compatible = closest
             .where(
               (candidate) => matching.every(
-                (ref) => _referenceMemberAccepts(
+                (ref) => referenceMemberAccepts(
                   member(candidate),
                   member(ref),
                   ids,
@@ -1185,7 +1185,9 @@ List<ReferenceClassShape> _referenceHierarchy(
   return List.unmodifiable(shapes);
 }
 
-bool _referenceMemberAccepts(
+/// Whether one selected callback covers another selected conversion contract.
+/// Declaration-owned defaults are checked separately when composing views.
+bool referenceMemberAccepts(
   ReferenceMemberShape implementation,
   ReferenceMemberShape contract,
   Map<DeclarationId, int> ids,

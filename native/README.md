@@ -52,7 +52,7 @@ untouched. Node headers affect the reusable bridge, not individual businesses.
 The flat bundle contains `bridge.node`, the identity-qualified runtime dylib,
 `DART_LICENSE`, `DART_AUTHORS`, `NAPI_LICENSE`, and `manifest.json`.
 The manifest has `format: 1`, `sdkVersion`, `sdkRevision`, `platform: "macos"`,
-`architecture: "arm64"`, `minimumOsVersion: "14.0"`, `abi: 6`, `identity`,
+`architecture: "arm64"`, `minimumOsVersion: "14.0"`, `abi: 8`, `identity`,
 `bridge`, `runtime`, and `files` mapping the five payload names to SHA-256 hashes.
 Its `build` evidence records the cache arguments hash, combined input-object
 digest/count, and runtime/ABI source hash. It contains no local SDK paths.
@@ -78,7 +78,7 @@ operations initialize, load immutable canonical AOT snapshots, create/enter/exit
 isolates, drain microtasks, free errors and shut down one isolate. Public Dart C
 APIs provide scopes, values, invocation and persistent handles while entered.
 
-`bridge/abi.h` fixes the 42-slot compiler-private table and binding metadata.
+`bridge/abi.h` fixes the 43-slot compiler-private table and binding metadata.
 `napiBindings(address, count)` must validate that count before reading the table.
 Functions/classes retain actual JS call presence and `new` behavior. Getter and
 setter closures share one JS property descriptor but remain distinct callbacks.
@@ -133,4 +133,11 @@ Their acceptance remains open. `DART_LICENSE` and `DART_AUTHORS` retain the
 upstream SDK license/attribution; original bridge code uses the package license.
 
 Slot 41 compares actual `new.target` with the captured selected constructor; it
-performs no mutable JavaScript property lookup. The compiler-private ABI is 7.
+performs no mutable JavaScript property lookup. The compiler-private ABI is 8.
+
+Slot 42 registers a composite selected-interface shape through the generated
+loader's private resolver. Only type IDs and a creator function are retained;
+no business objects enter this metadata cache. Slot 29 reuses that creator for
+a neutral plain wrapper, then attaches the ordinary weak native lease. Custom
+`new.target` keeps its receiver prototype. Resolver references are released on
+Owner teardown; failed registration publishes neither a Dart nor C shape.

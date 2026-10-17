@@ -22,6 +22,19 @@ typedef _Create = Int32 Function(
   Int64,
   Pointer<Pointer<Void>>,
 );
+typedef _String = Int32 Function(
+  Pointer<Void>,
+  Pointer<Uint16>,
+  Size,
+  Pointer<Pointer<Void>>,
+);
+typedef _Register = Int32 Function(
+  Pointer<Void>,
+  Uint32,
+  Pointer<Uint32>,
+  Size,
+  Pointer<Void>,
+);
 
 final _libc = DynamicLibrary.process();
 final _calloc = _libc.lookupFunction<_CallocNative, _Calloc>('calloc');
@@ -31,14 +44,17 @@ final _free = _libc.lookupFunction<_FreeNative, _Free>('free');
 // cache expiry/finalizer ordering; real Node weak references and teardown are
 // covered by the generated native integration contract.
 final class _Table {
-  final table = _calloc(42, sizeOf<Pointer<Void>>()).cast<Pointer<Void>>();
+  final table = _calloc(43, sizeOf<Pointer<Void>>()).cast<Pointer<Void>>();
   final byLease = <int, int>{};
   final byPointer = <int, int>{};
   final creations = <(int, int)>[];
+  final registrations = <(int, List<int>, String)>[];
+  final strings = <int, String>{};
   var nextPointer = 1000;
   var lastLease = 0;
   var failWrap = false;
   var failCreate = false;
+  var failRegistration = false;
   var originalConstructorTarget = true;
   var targetChecks = 0;
   late final NativeCallable<_Target> target;
@@ -46,11 +62,14 @@ final class _Table {
   late final NativeCallable<_Unwrap> unwrap;
   late final NativeCallable<_Value> value;
   late final NativeCallable<_Create> create;
+  late final NativeCallable<_String> string;
+  late final NativeCallable<_Register> register;
   late final NapiApi api;
   final env = Pointer<Void>.fromAddress(1);
 
   _Table({
     int Function(Object, String)? referenceClass,
+    List<int> Function(Object)? referenceViews,
     List<Set<int>> classMemberships = const [],
   }) {
     if (table == nullptr) throw StateError('Cannot allocate test table');
@@ -102,6 +121,35 @@ final class _Table {
       out.value = originalConstructorTarget;
       return 0;
     }, exceptionalReturn: 1);
+    string = NativeCallable<_String>.isolateLocal((
+      Pointer<Void> env,
+      Pointer<Uint16> data,
+      int length,
+      Pointer<Pointer<Void>> out,
+    ) {
+      final pointer = ++nextPointer;
+      strings[pointer] = String.fromCharCodes([
+        for (var i = 0; i < length; i++) data[i],
+      ]);
+      out.value = Pointer.fromAddress(pointer);
+      return 0;
+    }, exceptionalReturn: 1);
+    register = NativeCallable<_Register>.isolateLocal((
+      Pointer<Void> env,
+      int shape,
+      Pointer<Uint32> views,
+      int count,
+      Pointer<Void> context,
+    ) {
+      registrations.add((
+        shape,
+        [for (var i = 0; i < count; i++) views[i]],
+        strings[context.address]!,
+      ));
+      return failRegistration ? 1 : 0;
+    }, exceptionalReturn: 1);
+    table[9] = string.nativeFunction.cast();
+    table[42] = register.nativeFunction.cast();
     table[41] = target.nativeFunction.cast();
     table[14] = wrap.nativeFunction.cast();
     table[15] = unwrap.nativeFunction.cast();
@@ -109,8 +157,9 @@ final class _Table {
     table[29] = create.nativeFunction.cast();
     api = NapiApi(
       table.address,
-      42,
+      43,
       referenceClass: referenceClass,
+      referenceViews: referenceViews,
       classMemberships: classMemberships,
     );
   }
@@ -129,6 +178,8 @@ final class _Table {
   }
 
   void close() {
+    register.close();
+    string.close();
     target.close();
     create.close();
     value.close();
@@ -327,6 +378,142 @@ void main() {
     expect(bridge.creations, hasLength(2));
   });
 
+  test('static classification never enters composite registration', () {
+    final table = _Table(
+      referenceClass: (_, _) => 0,
+      referenceViews: (_) => throw StateError('must stay cold'),
+      classMemberships: const [
+        {0},
+        {1},
+      ],
+    );
+    addTearDown(table.close);
+    table.api.referenceResult(table.env, Object(), 0, 'static');
+    expect(table.registrations, isEmpty);
+    expect(table.creations.single.$1, 0);
+  });
+
+  test(
+    'composite shapes register sorted metadata once and accept every view',
+    () {
+      final table = _Table(
+        referenceClass: (_, _) => -1,
+        referenceViews: (_) => [1, 0, 1],
+        classMemberships: const [
+          {0},
+          {1},
+        ],
+      );
+      addTearDown(table.close);
+      final object = Object();
+      const path = 'result.\u0000\ud800';
+      final first = table.api.referenceResult(table.env, object, 0, path);
+      expect(table.api.referenceResult(table.env, object, 1, 'again'), first);
+      table.api.referenceResult(table.env, Object(), 1, 'another object');
+      expect(table.registrations, hasLength(1));
+      expect(table.registrations.single.$1, 2);
+      expect(table.registrations.single.$2, [0, 1]);
+      expect(table.registrations.single.$3, path);
+      expect(table.creations.map((entry) => entry.$1), [2, 2]);
+      for (final view in [0, 1]) {
+        expect(
+          table.api.ownerValue(
+            table.env,
+            Pointer.fromAddress(first),
+            'input',
+            view,
+          ),
+          same(object),
+        );
+      }
+    },
+  );
+
+  test('failed registration publishes no shape or lease and can retry', () {
+    final table = _Table(
+      referenceClass: (_, _) => -1,
+      referenceViews: (_) => [0, 1],
+      classMemberships: const [
+        {0},
+        {1},
+      ],
+    );
+    addTearDown(table.close);
+    final object = Object();
+    table.failRegistration = true;
+    expect(
+      () => table.api.referenceResult(table.env, object, 0, 'bad'),
+      throwsStateError,
+    );
+    expect(table.creations, isEmpty);
+    table.failRegistration = false;
+    final pointer = table.api.referenceResult(table.env, object, 1, 'valid');
+    expect(table.registrations.map((entry) => entry.$1), [2, 2]);
+    expect(table.creations.single.$1, 2);
+    expect(
+      table.api.ownerValue(table.env, Pointer.fromAddress(pointer), 'input', 0),
+      same(object),
+    );
+  });
+
+  test('composite new.target, expiry and rollback keep shared identity', () {
+    final table = _Table(
+      referenceClass: (_, _) => -1,
+      referenceViews: (_) => [0, 1],
+      classMemberships: const [
+        {0},
+        {1},
+      ],
+    );
+    addTearDown(table.close);
+    final original = table.api.wrap(table.call(90), Object(), 0, 'factory');
+    expect(original, isNot(90));
+    expect(table.creations.single.$1, 2);
+    table.originalConstructorTarget = false;
+    final customObject = Object();
+    expect(table.api.wrap(table.call(91), customObject, 0, 'custom'), 91);
+    expect(table.api.wrap(table.call(92), customObject, 1, 'existing'), 91);
+    expect(table.targetChecks, 2);
+    final object = Object();
+    final pending = <(Object, int)>[];
+    final tentative = table.api.referenceResult(
+      table.env,
+      object,
+      0,
+      'output',
+      pending,
+    );
+    final oldLease = table.byPointer[tentative]!;
+    table.api.rollbackReferences(pending);
+    final replacement = table.api.referenceResult(
+      table.env,
+      object,
+      1,
+      'retry',
+    );
+    table.api.rollbackReferences(pending);
+    table.api.releaseOwner(oldLease);
+    final lease = table.byPointer[replacement]!;
+    table.expire(lease);
+    final readopted = table.api.referenceResult(
+      table.env,
+      object,
+      0,
+      'readopt',
+    );
+    table.api.releaseOwner(lease);
+    expect(
+      table.api.ownerValue(
+        table.env,
+        Pointer.fromAddress(readopted),
+        'view',
+        1,
+      ),
+      same(object),
+    );
+    expect(table.registrations, hasLength(1));
+  });
+
   test('late old-lease release cannot remove a replacement wrapper', () {
     final object = Object();
     var pointer = bridge.api.referenceResult(bridge.env, object, 1, 'initial');
@@ -434,5 +621,6 @@ void main() {
     expect(() => NapiApi(bridge.table.address, 35), throwsStateError);
     expect(() => NapiApi(bridge.table.address, 38), throwsStateError);
     expect(() => NapiApi(bridge.table.address, 41), throwsStateError);
+    expect(() => NapiApi(bridge.table.address, 42), throwsStateError);
   });
 }

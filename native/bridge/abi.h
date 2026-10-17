@@ -1,4 +1,4 @@
-// Compiler-private bridge ABI, version 7. Keep generated Dart in lockstep.
+// Compiler-private bridge ABI, version 8. Keep generated Dart in lockstep.
 #pragma once
 #include <node_api.h>
 #include <stdint.h>
@@ -71,7 +71,8 @@ enum BridgeApiSlot {
   bridge_create_dictionary = 39,
   bridge_read_optional_own_value = 40,
   bridge_is_constructor_target = 41,
-  bridge_api_count = 42,
+  bridge_register_reference_shape = 42,
+  bridge_api_count = 43,
 };
 typedef napi_status (*BridgeOwnerWrap)(napi_env, napi_value self, int64_t ownerId);
 typedef int64_t (*BridgeOwnerUnwrap)(napi_env, napi_value self);
@@ -82,8 +83,9 @@ typedef napi_status (*BridgeReadOptions)(
 // ordinary handles in the current Node callback scope, not owning napi_refs.
 typedef napi_status (*BridgeReferenceValue)(
     napi_env, int64_t ownerId, napi_value* result);
-// Creates a genuine instance using the captured constructor, without executing
-// the Dart business constructor. The new lease is already retained by Dart.
+// Creates a static instance using the captured constructor, or a neutral plain
+// wrapper using a registered composite creator. No Dart business constructor is
+// executed. The new lease is already retained by Dart.
 typedef napi_status (*BridgeReferenceCreate)(
     napi_env, uint32_t classId, int64_t ownerId, napi_value* result);
 // Node-local operations only: no schema traversal, persistent refs or C state.
@@ -127,3 +129,10 @@ typedef BridgeReadOwnValue BridgeReadOptionalOwnValue;
 // property lookup or user callback participates; false for an ordinary call.
 typedef napi_status (*BridgeIsConstructorTarget)(
     napi_env, napi_callback_info, uint32_t classId, bool* result);
+
+// Register a metadata-only composite shape using the loader's private resolver.
+// IDs are sorted selected class IDs. Dynamic shape IDs start after the selected
+// classes. Resolution errors keep their original contextful JS exception.
+typedef napi_status (*BridgeRegisterReferenceShape)(
+    napi_env, uint32_t shapeId, const uint32_t* viewIds, size_t count,
+    napi_value context);
