@@ -79,9 +79,9 @@ Weak identity entries and zero-count Node-API references do not root wrappers.
 Environment, live lease and actual selected-class membership are checked before business calls.
 Readonly fields remain readonly and GC does not call business disposal methods.
 
-The private bridge table is ABI 11 (46 slots). It adds canonical resource cleanup
-Promises and resource-lease settlement observation to ABI 10's Future delivery;
-ABI 9 supplied owner-thread event-loop integration. Older bundles are rejected before
+The private bridge table is ABI 12 (49 slots). It adds owned JS values to ABI 11's
+canonical resource cleanup Promises and resource-lease settlement observation;
+ABI 10 supplied Future delivery and ABI 9 supplied owner-thread event-loop integration. Older bundles are rejected before
 copying; maintainers rebuild the bridge/runtime bundle using their existing VM
 cache. Consumer builds still require only the ordinary Dart SDK and that bundle.
 Constructor-target detection preserves custom JS subclass receivers during
@@ -89,6 +89,28 @@ canonical adoption. The reference-shape slot registers a composite wrapper creat
 after its observed interface combination passes the shared contract checks.
 Ordinary class callbacks retain the existing path. Member callbacks validate Dart membership instead of V8's
 exact Node-API constructor receiver restriction.
+
+The compiler-private owned-value carrier retains any JS value without reflection
+or coercion, including explicit `undefined`, `null`, symbols and functions. Its
+token belongs to one native isolate owner; a borrowed handle lasts only for the
+current callback scope. A lazily created Dart core Finalizer runs through the
+existing owner-thread event pump and releases unreachable acyclic carriers.
+It is bound to the root Zone so a business Zone cannot intercept that release.
+Explicit release is idempotent, and environment teardown deletes remaining
+references without invoking JS or business cleanup. Cross-heap cycles require
+an explicit ownership break as described in the [architecture](architecture.md).
+This is an internal primitive; generated opaque generics and callbacks remain
+unimplemented. It adds no release queue or process-global reference registry.
+
+The private carrier has a separate handwritten ABI fixture compiled to real
+Dart AOT, packed and installed outside its original source directory. Twelve
+fresh-process scenarios cover 19 payload categories with exact identity and no
+payload traps, Dart-only roots, replacement/removal, wrapper collection and
+readoption, explicit cycle breaking, hostile Zones, owner isolation, timer
+release, natural exit and normal/terminated Workers. These are internal
+lifecycle checks, not evidence of generated opaque API support. They run in
+`dart run tool/native_verify.dart <bundle>` on Node 24.19.0 and 26.11.1 with the
+same pinned macOS arm64 SDK/runtime profile as the generated conformance suite.
 
 List/Map/Dictionary/record functions and class members share Wasm's [structural conversion](structural.md)
 contract, including nullable containers, cloned outputs, own-data fields, bounded
@@ -286,3 +308,25 @@ regression is established. Raw paired samples and artifacts are retained under
 `.dart_tool/evidence/resource-bindings/cost/` in the development checkout.
 These synchronous measurements exclude active resource leases and Promise-hook
 cost; see [resource measurement scope](resources.md#settlement-observer-cost).
+
+### Owned values and synchronous modules
+
+ABI 12 was compared with the preserved ABI 11 sample using the same synchronous
+`add`/`Counter` source and A/A plus three balanced AB/BA rounds. AOT was regenerated
+for the table length. Complete artifacts grow from 6,587,844 to 6,588,276 bytes
+(+432 bytes, 0.007%), all in the bridge. AOT/runtime sizes and loader/declaration
+bytes are unchanged. The owner has an empty map until a value is retained;
+unused modules do not initialize the Dart Finalizer or its FFI functions.
+
+| Node | Function ns, before → after | Getter ns, before → after | Method ns, before → after |
+| --- | ---: | ---: | ---: |
+| 24.19.0 | 920.7 → 937.5 | 774.9 → 785.7 | 785.1 → 782.9 |
+| 26.11.1 | 918.6 → 917.5 | 770.7 → 762.8 | 775.2 → 767.8 |
+
+Call medians changed from -1.03% to +1.82%, with mixed paired directions and
+same-target variation up to 8.84%. Constructor medians decreased 2.02%/3.26%,
+while same-target variation reached 19.23%. These local samples establish
+neither a speed improvement nor zero regression. They exclude active owned-value
+allocation, retrieval and finalization throughput. Raw samples and artifact
+hashes are retained under `.dart_tool/evidence/20261017-owned-host-values/cost/`
+in the development checkout.

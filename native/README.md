@@ -57,7 +57,7 @@ untouched. Node headers affect the reusable bridge, not individual businesses.
 The flat bundle contains `bridge.node`, the identity-qualified runtime dylib,
 `DART_LICENSE`, `DART_AUTHORS`, `NAPI_LICENSE`, and `manifest.json`.
 The manifest has `format: 1`, `sdkVersion`, `sdkRevision`, `platform: "macos"`,
-`architecture: "arm64"`, `minimumOsVersion: "14.0"`, `abi: 9`, `identity`,
+`architecture: "arm64"`, `minimumOsVersion: "14.0"`, `abi: 12`, `identity`,
 `bridge`, `runtime`, and `files` mapping the five payload names to SHA-256 hashes.
 Its `build` evidence records the cache arguments hash, combined input-object
 digest/count, and runtime/ABI source hash. It contains no local SDK paths.
@@ -83,7 +83,7 @@ operations initialize, load immutable canonical AOT snapshots, create/enter/exit
 isolates, drain microtasks, free errors and shut down one isolate. Public Dart C
 APIs provide scopes, values, invocation and persistent handles while entered.
 
-`bridge/abi.h` fixes the 46-slot compiler-private table and binding metadata.
+`bridge/abi.h` fixes the 49-slot compiler-private table and binding metadata.
 `napiBindings(address, count)` must validate that count before reading the table.
 Functions/classes retain actual JS call presence and `new` behavior. Getter and
 setter closures share one JS property descriptor but remain distinct callbacks.
@@ -160,8 +160,8 @@ Their acceptance remains open. `DART_LICENSE` and `DART_AUTHORS` retain the
 upstream SDK license/attribution; original bridge code uses the package license.
 
 Slot 41 compares actual `new.target` with the captured selected constructor; it
-performs no mutable JavaScript property lookup. The compiler-private ABI is 11
-with 46 slots. It retains the owner-thread event scheduling and async environment
+performs no mutable JavaScript property lookup. The compiler-private ABI is 12
+with 49 slots. It retains the owner-thread event scheduling and async environment
 cleanup introduced by ABI 9. Older bundles are rejected before copying.
 
 Slot 42 registers a composite selected-interface shape through the generated
@@ -211,3 +211,20 @@ release after resolver delivery without installing the hook. Idle observers stop
 receiving notifications. A separate finalizable callback sentinel is invalidated
 before Owner teardown, so a late acknowledgement cannot dereference a freed
 Owner. See [resource semantics and host limits](../doc/resources.md).
+
+Slots 46–48 own, borrow and release a persistent host value. An owner-local map
+stores a strong Node-API reference to a private holder's own data property.
+The holder supports every JS value even on Node-API versions that cannot retain
+all primitives directly; no payload property, conversion or callback is read.
+Tokens are never reused, and the Dart carrier checks its originating NapiApi
+before borrowing a value. Returned handles remain scoped to the current callback.
+
+The carrier attaches a core Dart Finalizer lazily, in Zone.root. Unlike a native
+GC callback, this finalizer runs as an ordinary event through the existing Node
+owner-thread pump, so it can delete the reference directly. Explicit release
+detaches it and is idempotent. Teardown deletes all remaining map entries even
+when finalizers were never dispatched, without JS or business cleanup. There is
+no additional release queue or global registry. Strong cycles across the two
+heaps need an author-directed ownership break; see the
+[public ownership contract](../doc/architecture.md#public-contract).
+These private operations do not enable generated opaque or callback exports.

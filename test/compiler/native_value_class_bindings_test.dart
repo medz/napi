@@ -40,7 +40,7 @@ void main() {
   var result = 0;
   var failure = 0;
   setUp(() {
-    table = calloc(46, sizeOf<Pointer<Void>>()).cast();
+    table = calloc(49, sizeOf<Pointer<Void>>()).cast();
     strings.clear();
     calls.clear();
     result = 0;
@@ -83,7 +83,7 @@ void main() {
     table[1] = type.nativeFunction.cast();
     table[9] = string.nativeFunction.cast();
     table[40] = read.nativeFunction.cast();
-    api = NapiApi(table.address, 46);
+    api = NapiApi(table.address, 49);
   });
   tearDown(() {
     read.close();
