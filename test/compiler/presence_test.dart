@@ -132,22 +132,29 @@ const _private = 6 * 7;
   test(
     'many named defaults produce one linear call rather than combinations',
     () {
-      final plan = lower(
-        validate(
-          _module([
-            for (var i = 0; i < 40; i++)
-              ParameterBinding(
-                'value$i',
-                const SafeIntType(),
-                kind: ParameterKind.optionalNamed,
-                defaultValue: ScalarDefault(i),
-              ),
-          ]),
+      String generate(int count) => emitDart(
+        lower(
+          validate(
+            _module([
+              for (var i = 0; i < count; i++)
+                ParameterBinding(
+                  'value$i',
+                  const SafeIntType(),
+                  kind: ParameterKind.optionalNamed,
+                  defaultValue: ScalarDefault(i),
+                ),
+            ]),
+          ),
         ),
       );
-      final dart = emitDart(plan);
+      final dart = generate(40);
+      final fixedSize = generate(0).length;
+      final halfGrowth = generate(20).length - fixedSize;
+      final fullGrowth = dart.length - fixedSize;
       expect('value = target.run('.allMatches(dart), hasLength(1));
-      expect(dart.length, lessThan(15000));
+      // Runtime bootstrap is fixed overhead, independent of parameter count.
+      expect(fullGrowth, lessThan(15000));
+      expect(fullGrowth, lessThan(halfGrowth * 2.2));
       expect(dart, contains('value39: a39'));
     },
   );
