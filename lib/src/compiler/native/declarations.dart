@@ -1,5 +1,5 @@
 import '../emit/typescript/declarations.dart'
-    show emitMemberName, emitParameters, emitReferenceInheritance;
+    show emitMemberName, emitParameters, emitReferenceInheritance, emitResult;
 import '../ir/model.dart';
 import '../emit/typescript/values.dart';
 import 'plan.dart';
@@ -21,7 +21,10 @@ String emitNativeDeclarations(NativeModulePlan plan) {
   );
   for (final function in plan.functions) {
     final parameters = emitParameters(function.parameters, function.inputs);
-    final result = function.output?.typescriptType ?? 'void';
+    final result = emitResult(
+      function.output,
+      returnsFuture: function.returnsFuture,
+    );
     if (function.parameters.any(
       (p) => p.kind != ParameterKind.requiredPositional,
     )) {
@@ -54,7 +57,7 @@ String emitNativeDeclarations(NativeModulePlan plan) {
       final prefix = call.isStatic ? 'static ' : '';
       final name = emitMemberName(call.exportName);
       final parameters = emitParameters(call.parameters, call.inputs);
-      final result = call.output?.typescriptType ?? 'void';
+      final result = emitResult(call.output, returnsFuture: call.returnsFuture);
       switch (call.kind) {
         case NativeCallKind.method:
           code.writeln('  $prefix$name($parameters): $result;');

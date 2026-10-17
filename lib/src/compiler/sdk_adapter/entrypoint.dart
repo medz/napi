@@ -31,3 +31,53 @@ WasmExternRef? _normalizeError(Object error) {
 // Direct exports are library calls. Application main must never be invoked.
 void main() => throw StateError('napi library entrypoint main was invoked');
 ''';
+
+/// Future payload conversion is invoked under the host's exception handler so
+/// JS boundary failures retain their original value instead of Dart boxing.
+const futureEntrypointPrelude = r'''
+@pragma('wasm:import', 'napi.retainPromise')
+external void _retainPromise(WasmExternRef capability, WasmExternRef roots);
+@pragma('wasm:import', 'napi.completePromise')
+external void _completePromise(WasmExternRef capability, WasmExternRef? convert);
+@pragma('wasm:import', 'napi.failPromise')
+external void _failPromise(WasmExternRef capability, WasmExternRef message, WasmExternRef stack);
+@pragma('wasm:import', 'napi.throwFutureError')
+external WasmExternRef? _throwFutureError(WasmExternRef message, WasmExternRef stack);
+
+String _futureErrorMessage(Object error) {
+  try { return error.toString(); }
+  catch (_) { return 'Dart operation failed (error description unavailable)'; }
+}
+
+String _stackMessage(StackTrace stack) {
+  try { return stack.toString(); }
+  catch (_) { return 'Dart stack trace unavailable'; }
+}
+
+void _failFuture(WasmExternRef capability, Object error, StackTrace stack, String context) {
+  // Discard the private Wasm void result with a statement, not an arrow return.
+  _failPromise(capability, externRefForJSAny('$context: ${_futureErrorMessage(error)}'.toJS)!, externRefForJSAny(_stackMessage(stack).toJS)!);
+}
+
+WasmExternRef? _normalizeFutureError(Object error, StackTrace stack, String context) =>
+    _throwFutureError(externRefForJSAny('$context: ${_futureErrorMessage(error)}'.toJS)!, externRefForJSAny(_stackMessage(stack).toJS)!);
+
+// Private Wasm reference types require isNull rather than a Dart ?. cast.
+JSAny? _futureJSValue(WasmExternRef? value) => value.isNull ? null : value!.toJS;
+
+void _observeFuture<T>(Future<T> future, WasmExternRef capability, String context, JSAny? Function(T)? convert) {
+  var delivered = false;
+  void fail(Object error, StackTrace stack) {
+    if (delivered) return;
+    delivered = true;
+    _failFuture(capability, error, stack, context);
+  }
+  try {
+    future.then<void>((value) {
+      if (delivered) return;
+      delivered = true;
+      _completePromise(capability, convert == null ? null : externRefForJSAny((() => convert(value)).toJS));
+    }, onError: fail);
+  } catch (error, stack) { fail(error, stack); }
+}
+''';

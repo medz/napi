@@ -63,13 +63,60 @@ ${[for (final e in structures.entries)
 export function readBigInt(value) { return value.toString(); }
 export function writeBigInt(value, context) { return checked(BigInt(value), context); }
 export function throwDartError(message) { throw new Error(message); }
-${structures.isEmpty ? '' : structuralPolicy}
+${plan.calls.any((call) => call.returnsFuture) ? '$futurePolicy\n' : ''}${structures.isEmpty ? '' : structuralPolicy}
 ${conversions.any(_containsMap) ? mapStructuralPolicy : ''}
 ${conversions.any(containsDictionary) ? dictionaryStructuralPolicy : ''}
 ${structures.values.map((s) => s.source).join('\n')}
 ${plan.classes.isNotEmpty || plan.functions.any((f) => f.representation == ExportRepresentation.callableGlobal) ? argumentPolicy : ''}
 ''';
 }
+
+/// Private capabilities keep conversion and JS exception handling in JS. Their
+/// raw Dart roots last through resolver handoff, including then-getter reentry.
+const futurePolicy = r'''
+const capturedPromise = globalThis.Promise;
+export function createPromise(wrap = null) {
+  let resolve, reject;
+  const promise = new capturedPromise((accept, fail) => { resolve = accept; reject = fail; });
+  return {promise, resolve, reject, wrap, roots: null, done: false};
+}
+export function retainPromise(capability, roots) { capability.roots = roots; }
+function releasePromise(capability) {
+  capability.roots = null;
+  capability.wrap = null;
+  capability.resolve = null;
+  capability.reject = null;
+}
+export function rejectPromise(capability, error) {
+  if (capability.done) return;
+  capability.done = true;
+  try { capability.reject(error); }
+  finally { releasePromise(capability); }
+}
+function dartFutureError(message, stack) {
+  const error = new Error(message);
+  Object.defineProperty(error, 'dartStack', {value: stack, writable: true, enumerable: true, configurable: true});
+  return error;
+}
+export function failPromise(capability, message, stack) {
+  rejectPromise(capability, dartFutureError(message, stack));
+}
+export function throwFutureError(message, stack) {
+  throw dartFutureError(message, stack);
+}
+export function completePromise(capability, convert) {
+  if (capability.done) return;
+  capability.done = true;
+  try {
+    const value = convert === null ? undefined : convert();
+    capability.resolve(capability.wrap === null ? value : capability.wrap(value));
+  } catch (error) {
+    capability.reject(error);
+  } finally {
+    releasePromise(capability);
+  }
+}
+''';
 
 bool _containsMap(ValueConversion value) =>
     conversionGraph([value]).any((c) => c is MapConversion);

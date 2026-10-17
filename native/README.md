@@ -83,7 +83,7 @@ operations initialize, load immutable canonical AOT snapshots, create/enter/exit
 isolates, drain microtasks, free errors and shut down one isolate. Public Dart C
 APIs provide scopes, values, invocation and persistent handles while entered.
 
-`bridge/abi.h` fixes the 43-slot compiler-private table and binding metadata.
+`bridge/abi.h` fixes the 44-slot compiler-private table and binding metadata.
 `napiBindings(address, count)` must validate that count before reading the table.
 Functions/classes retain actual JS call presence and `new` behavior. Getter and
 setter closures share one JS property descriptor but remain distinct callbacks.
@@ -153,17 +153,17 @@ runtime images stay resident with a retained `RTLD_NODELETE` handle because
 there is no process-global VM shutdown. This protects worker-only unload/reload.
 
 The ABI/runtime are coupled to private experimental Dart SDK internals:
-embedder initialization, core-library setup and microtask draining. Future-returning
-export generation, asynchronous resource cleanup, Dart-created child isolates,
+embedder initialization, core-library setup and microtask draining. Generated
+resource cleanup and complete operation leases, Dart-created child isolates,
 non-returning Dart interruption,
 cross-identity VM sharing and other platforms are outside this implementation.
 Their acceptance remains open. `DART_LICENSE` and `DART_AUTHORS` retain the
 upstream SDK license/attribution; original bridge code uses the package license.
 
 Slot 41 compares actual `new.target` with the captured selected constructor; it
-performs no mutable JavaScript property lookup. The compiler-private ABI is 9:
-the table still has 43 slots, and the version now requires automatic event
-scheduling and async environment cleanup. Older synchronous bundles are rejected.
+performs no mutable JavaScript property lookup. The compiler-private ABI is 10
+with 44 slots. It retains the owner-thread event scheduling and async environment
+cleanup introduced by ABI 9. Older bundles are rejected before copying.
 
 Slot 42 registers a composite selected-interface shape through the generated
 loader's private resolver. Only type IDs and a creator function are retained;
@@ -171,3 +171,14 @@ no business objects enter this metadata cache. Slot 29 reuses that creator for
 a neutral plain wrapper, then attaches the ordinary weak native lease. Custom
 `new.target` keeps its receiver prototype. Resolver references are released on
 Owner teardown; failed registration publishes neither a Dart nor C shape.
+
+Slot 43 queues one Promise settlement by owner-local token. Future callback
+metadata appends a true flag and its Dart callback receives that token as a third
+argument. Before entering Dart, the bridge creates a genuine Promise using the
+loader's captured constructor and holds its private capability with an ordinary
+Node-API reference. Conversion writes the payload into that capability; it never
+keeps a callback-scoped handle across a Dart Future. The event pump calls the
+resolver after leaving Dart, then acknowledges release of retained Dart
+arguments/receiver roots. Teardown drops capability references without invoking
+JavaScript. Sync-only modules do not install the factory or retain the Dart
+Future entrypoint. See [Future contracts and remaining limits](../doc/futures.md).

@@ -6,8 +6,9 @@ and Wasm targets. This is the target architecture. The current compiler generate
 Wasm scalar and structural functions with positional and named parameters,
 reference classes with direct class values and weak wrapper identity, external selections, and fresh npm
 assembly. The experimental macOS arm64 native
-target generates synchronous scalar, structural and reference-class AOT bindings against a
-precompiled runtime bundle. Complete classes/lifetimes, other native targets and
+target generates scalar, structural, reference-class and Future AOT bindings against a
+precompiled runtime bundle. Ordinary Future exports share the [Promise boundary](futures.md).
+Complete resource/async lifetimes, other native targets and
 automatic runtime supply remain development work; see [native scope](native.md).
 
 ## Public contract

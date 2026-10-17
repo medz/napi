@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
 
@@ -17,6 +18,14 @@ typedef _CallbackInfo = int Function(
   Pointer<Pointer<Void>>,
   Pointer<Pointer<Void>>,
 );
+typedef _QueuePromiseNative = Int32 Function(
+  Pointer<Void>,
+  Int64,
+  Pointer<Void>,
+  Bool,
+);
+typedef _QueuePromise = int Function(Pointer<Void>, int, Pointer<Void>, bool);
+
 typedef _TypeNative = Int32 Function(
   Pointer<Void>,
   Pointer<Void>,
@@ -395,7 +404,14 @@ final class _ReferenceLease {
   const _ReferenceLease(this.id, this.classId);
 }
 
-/// Private synchronous Node-API table used by generated AOT entrypoints.
+// This record owns Dart values, never borrowed Node handles or callback info.
+// C acknowledges after calling the JS resolver, which can reenter Dart.
+final class _PendingFuture {
+  List<Object?> roots = const [];
+  bool claimed = false;
+}
+
+/// Private Node-API table used by generated AOT entrypoints.
 /// Every temporary native buffer is scoped to one call; no global scratch state.
 final class NapiApi {
   final Pointer<Pointer<Void>> _table;
@@ -409,8 +425,8 @@ final class NapiApi {
     this.referenceViews,
     this.classMemberships = const [],
   }) : _table = Pointer.fromAddress(address) {
-    if (address == 0 || tableCount != 43) {
-      throw StateError('Incompatible native bridge ABI (expected 43 slots).');
+    if (address == 0 || tableCount != 44) {
+      throw StateError('Incompatible native bridge ABI (expected 44 slots).');
     }
   }
   late final _CallbackInfo _callbackInfo = _table[0]
@@ -527,6 +543,10 @@ final class NapiApi {
   late final _RegisterReferenceShape _registerReferenceShape = _table[42]
       .cast<NativeFunction<_RegisterReferenceShapeNative>>()
       .asFunction<_RegisterReferenceShape>();
+  late final _QueuePromise _queuePromise = _table[43]
+      .cast<NativeFunction<_QueuePromiseNative>>()
+      .asFunction<_QueuePromise>();
+  late final _futures = <int, _PendingFuture>{};
   // Only an attached JS lease retains its Dart value. The identity cache's
   // weak keys and primitive records cannot keep either heap alive by themselves.
   final _owners = <int, Object>{};
@@ -1200,14 +1220,97 @@ final class NapiApi {
     }
   }
 
-  int fail(int envAddress, Object error) {
+  void beginFuture(int token) => _futures[token] = _PendingFuture();
+
+  void retainFuture(int token, List<Object?> values) {
+    _futures[token]!.roots = values;
+  }
+
+  void releaseFuture(int token) => _futures.remove(token);
+
+  void completeFuture<T>(
+    int envAddress,
+    int token,
+    Future<T> future,
+    int Function(T) convert,
+    String context,
+  ) {
+    future.then<void>(
+      (value) {
+        final pending = _futures[token];
+        if (pending == null || pending.claimed) return;
+        // Claim before conversion: user-defined collection getters can reenter
+        // even a custom Future's completion callback during traversal.
+        pending.claimed = true;
+        try {
+          final result = convert(value);
+          _check(
+            _queuePromise(
+              Pointer.fromAddress(envAddress),
+              token,
+              Pointer.fromAddress(result),
+              false,
+            ),
+          );
+        } catch (error, stack) {
+          _rejectFuture(envAddress, token, error, stack, context);
+        }
+      },
+      onError: (Object error, StackTrace stack) {
+        rejectFuture(envAddress, token, error, stack, context);
+      },
+    );
+  }
+
+  void rejectFuture(
+    int envAddress,
+    int token,
+    Object error,
+    StackTrace stack,
+    String context,
+  ) {
+    final pending = _futures[token];
+    if (pending == null || pending.claimed) return;
+    pending.claimed = true;
+    _rejectFuture(envAddress, token, error, stack, context);
+  }
+
+  void _rejectFuture(
+    int envAddress,
+    int token,
+    Object error,
+    StackTrace stack,
+    String context,
+  ) {
     final env = Pointer<Void>.fromAddress(envAddress);
-    if (_hasPending(env)) return 0;
+    var value = 0;
+    if (!_hasPending(env)) {
+      try {
+        value = _errorValue(env, error, stack: stack, context: context);
+      } catch (_) {
+        // Slot 43 preserves a pending JS exception, or creates a fixed fallback
+        // if formatting/allocation failed without leaving one.
+      }
+    }
+    _check(_queuePromise(env, token, Pointer.fromAddress(value), true));
+  }
+
+  int _errorValue(
+    Pointer<Void> env,
+    Object error, {
+    StackTrace? stack,
+    String? context,
+  }) {
     String message;
     try {
       message = error.toString();
     } catch (_) {
       message = 'Dart operation failed (error description unavailable)';
+    }
+    if (context != null &&
+        error is! NapiTypeError &&
+        error is! NapiRangeError) {
+      message = '$context: $message';
     }
     final text = Pointer<Void>.fromAddress(stringResult(env, message));
     final create = error is NapiRangeError
@@ -1215,10 +1318,28 @@ final class NapiApi {
         : error is NapiTypeError
         ? _createTypeError
         : _createError;
-    final exception = Pointer<Void>.fromAddress(
-      _result((out) => create(env, nullptr, text, out)),
-    );
-    _check(_throw(env, exception));
+    final exception = _result((out) => create(env, nullptr, text, out));
+    if (stack != null) {
+      String description;
+      try {
+        description = stack.toString();
+      } catch (_) {
+        description = 'Dart stack trace unavailable';
+      }
+      defineOwnValue(
+        env,
+        exception,
+        'dartStack',
+        stringResult(env, description),
+      );
+    }
+    return exception;
+  }
+
+  int fail(int envAddress, Object error) {
+    final env = Pointer<Void>.fromAddress(envAddress);
+    if (_hasPending(env)) return 0;
+    _check(_throw(env, Pointer.fromAddress(_errorValue(env, error))));
     return 0;
   }
 }
