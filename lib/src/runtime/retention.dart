@@ -1,13 +1,17 @@
-/// A future resource/callback engine lends an operation a reachability lease.
+/// Keeps an accepted operation's owner reachable and usable until release.
 ///
-/// Acquiring a lease keeps its owner usable until release. Release is idempotent.
-/// This interface defines the boundary only: it does not implement disposal,
-/// cancellation, shared memory, callbacks, or resource ownership.
+/// Release is idempotent. Adapters release in `finally`, after their operation's
+/// last use, including result conversion or asynchronous settlement. A lease
+/// does not cancel work or imply that an owner requires explicit cleanup.
 abstract interface class OperationLease {
   bool get isReleased;
   void release();
 }
 
+/// Accepts an operation or throws before the operation starts.
+///
+/// Resource controls reject new operations once disposal starts. Other owners
+/// may implement retention without a disposal lifecycle.
 abstract interface class OperationOwner {
   OperationLease retainOperation();
 }
