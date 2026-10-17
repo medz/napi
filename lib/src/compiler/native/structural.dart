@@ -37,8 +37,10 @@ final class NativeStructuralEmitter {
 
   String read(ValueConversion conversion) {
     if (!containsValueClass(conversion) &&
-        !conversionGraph([conversion])
-            .any((value) => value is BinaryConversion)) {
+        !conversionGraph([conversion]).any(
+          (value) =>
+              value is BinaryConversion || value is SharedBytesConversion,
+        )) {
       return _read(conversion);
     }
     final normalize = _normalize(conversion);
@@ -96,6 +98,8 @@ final class NativeStructuralEmitter {
         throw StateError(
           'Signal, callback and opaque structural leaves are unsupported',
         );
+      case SharedBytesConversion():
+        _code.writeln('  return _api.sharedBytes(env, value, path);');
       case BinaryConversion():
         _code.writeln(
           '  return _api.binary(env, value, ${conversion.kind.index}, path) as ${conversion.dartType};',
@@ -229,7 +233,9 @@ final class NativeStructuralEmitter {
           '  final snapshot = typed_data.Uint8List.fromList(bytes);\n'
           '  return snapshot${conversion.kind == BinaryKind.byteBuffer ? '.buffer' : ''};',
         );
-      case ScalarConversion() || ReferenceConversion():
+      case ScalarConversion() ||
+          ReferenceConversion() ||
+          SharedBytesConversion():
         _code.writeln('  return value;');
       case ListConversion(:final element):
         _code.writeln(
@@ -376,6 +382,10 @@ final class NativeStructuralEmitter {
         throw StateError(
           'Signal, callback and opaque structural leaves are unsupported',
         );
+      case SharedBytesConversion():
+        _code.writeln(
+          '  return _api.sharedBytesResult(env, value as napi.SharedBytes, path);',
+        );
       case BinaryConversion():
         _code.writeln(
           '  return _api.binaryResult(env, value!, ${conversion.kind.index}, path);',
@@ -450,7 +460,10 @@ final class NativeStructuralEmitter {
     ValueClassConversion() => [
       for (final field in value.fields) field.conversion,
     ],
-    ScalarConversion() || ReferenceConversion() || BinaryConversion() => [],
+    ScalarConversion() ||
+    ReferenceConversion() ||
+    BinaryConversion() ||
+    SharedBytesConversion() => [],
     AbortSignalConversion() ||
     CallbackConversion() ||
     OpaqueConversion() => throw StateError(
@@ -465,7 +478,8 @@ final class NativeStructuralEmitter {
     if (previous != null) return previous;
     if (conversion is ScalarConversion ||
         conversion is ReferenceConversion ||
-        conversion is BinaryConversion) {
+        conversion is BinaryConversion ||
+        conversion is SharedBytesConversion) {
       return _normalizers[conversion] = _read(conversion);
     }
     final name = '_normalizeNativeStructure${_next++}';
@@ -591,7 +605,10 @@ final class NativeStructuralEmitter {
         _code.writeln(
           '    return result;\n  } finally { state.active.removeLast(); }',
         );
-      case ScalarConversion() || ReferenceConversion() || BinaryConversion():
+      case ScalarConversion() ||
+          ReferenceConversion() ||
+          BinaryConversion() ||
+          SharedBytesConversion():
         throw StateError('Scalar/reference normalization uses strict readers');
     }
     _code.writeln('}');
@@ -611,7 +628,8 @@ final class NativeStructuralEmitter {
     _code.writeln('${conversion.dartType} $name(Object? value, String path) {');
     if (conversion is ScalarConversion ||
         conversion is ReferenceConversion ||
-        conversion is BinaryConversion) {
+        conversion is BinaryConversion ||
+        conversion is SharedBytesConversion) {
       _code.writeln('  return value as ${conversion.dartType};\n}');
       return name;
     }
@@ -687,7 +705,10 @@ final class NativeStructuralEmitter {
         _code.writeln(
           '  return target.${conversion.classBinding.callPath}$suffix($arguments);',
         );
-      case ScalarConversion() || ReferenceConversion() || BinaryConversion():
+      case ScalarConversion() ||
+          ReferenceConversion() ||
+          BinaryConversion() ||
+          SharedBytesConversion():
         throw StateError('Scalar/reference materialization is a typed cast');
     }
     _code.writeln('}');

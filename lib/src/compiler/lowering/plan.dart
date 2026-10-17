@@ -58,6 +58,18 @@ final class BinaryConversion extends ValueConversion {
       (nullable ? ' | null' : '');
 }
 
+/// An explicit live host byte window; ordinary binary types remain snapshots.
+final class SharedBytesConversion extends ValueConversion {
+  SharedBytesConversion(super.type, super.context);
+  @override
+  String get dartType => 'napi.SharedBytes${nullable ? '?' : ''}';
+  @override
+  String get jsType => 'object';
+  @override
+  String get typescriptType =>
+      'globalThis.Uint8Array<globalThis.ArrayBuffer>${nullable ? ' | null' : ''}';
+}
+
 /// An explicit cancellation input. Each backend retains the host signal while
 /// its Dart adapter is reachable; accepting it does not cancel ordinary work.
 final class AbortSignalConversion extends ValueConversion {
@@ -358,6 +370,7 @@ Iterable<ValueConversion> conversionGraph(
       CallbackConversion() => [...node.inputs, ?node.output],
       ScalarConversion() ||
       BinaryConversion() ||
+      SharedBytesConversion() ||
       ReferenceConversion() ||
       AbortSignalConversion() ||
       OpaqueConversion() => <ValueConversion>[],
@@ -489,6 +502,7 @@ final class _ConversionBuilder {
       classes.any((binding) => binding.exportName == name);
 
   ValueConversion convert(BindingType type, String context) {
+    if (isSharedBytesType(type)) return SharedBytesConversion(type, context);
     if (isBinaryType(type)) {
       return BinaryConversion(type as DeclaredType, context);
     }

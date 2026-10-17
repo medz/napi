@@ -54,6 +54,86 @@ JSAny _copyBinary(typed_data.Uint8List value, String path, int kind) {
 }
 ''';
 
+/// Installed on first generated entry, including modules without a shared
+/// signature. The host cache holds only a weak reference to each Dart adapter.
+const sharedBytesEntrypointPrelude = r'''
+@pragma('wasm:import', 'napi.createSharedBytes')
+external WasmExternRef _createSharedBytes(WasmExternRef value);
+@pragma('wasm:import', 'napi.allocateSharedBytes')
+external WasmExternRef _allocateSharedBytes(WasmExternRef length, WasmI32 staging);
+@pragma('wasm:import', 'napi.sharedBytesCall')
+external WasmExternRef _sharedBytesCall(WasmExternRef control, WasmI32 op, WasmExternRef? a, WasmExternRef? b, WasmExternRef? c, WasmExternRef? d);
+@pragma('wasm:import', 'napi.sharedBytesTypeError')
+external WasmExternRef _sharedBytesTypeError();
+@pragma('wasm:import', 'napi.sharedBytesRaw')
+external WasmExternRef _sharedBytesRaw(WasmExternRef control);
+@pragma('wasm:import', 'napi.sharedBytesThrew')
+external WasmI32 _sharedBytesThrew(WasmExternRef envelope);
+@pragma('wasm:import', 'napi.sharedBytesValue')
+external WasmExternRef? _sharedBytesValue(WasmExternRef envelope);
+@pragma('wasm:import', 'napi.findSharedBytes')
+external WasmExternRef? _findSharedBytes(WasmExternRef value);
+@pragma('wasm:import', 'napi.cacheSharedBytes')
+external void _cacheSharedBytes(WasmExternRef value, WasmExternRef adapter);
+
+WasmExternRef _sharedNumber(int value) => externRefForJSAny(value.toJS)!;
+WasmExternRef? _sharedResult(WasmExternRef envelope) {
+  if (_sharedBytesThrew(envelope).toIntSigned() != 0) throw _CallbackThrown(envelope);
+  return _sharedBytesValue(envelope);
+}
+bool _sharedAllocatorInstalled = false;
+void _ensureSharedBytesAllocator() {
+  if (_sharedAllocatorInstalled) return;
+  installSharedBytesAllocator((length) => _sharedBytes(_sharedResult(
+    _allocateSharedBytes(_sharedNumber(length), WasmI32.fromInt(0)))!));
+  _sharedAllocatorInstalled = true;
+}
+napi.SharedBytes _sharedBytes(WasmExternRef value) {
+  final cached = _findSharedBytes(value);
+  if (!cached.isNull) return cached!.internalize().toObject() as _SharedBytes;
+  final adapter = _SharedBytes(_sharedResult(_createSharedBytes(value))!);
+  _cacheSharedBytes(value, WasmAnyRef.fromObject(adapter).externalize());
+  return adapter;
+}
+JSAny _writeSharedBytes(napi.SharedBytes value) {
+  if (value is! _SharedBytes) throw _CallbackThrown(_sharedBytesTypeError());
+  return _sharedBytesRaw(value.control!).toJS;
+}
+final class _SharedBytes implements napi.SharedBytes {
+  final WasmExternRef? control;
+  _SharedBytes(WasmExternRef control) : control = control;
+  // Use typed extern nulls, including omitted arguments: Dart null literals
+  // can be specialized into the wrong Wasm reference hierarchy in SDK 3.13.5.
+  WasmExternRef? invoke(int op, WasmExternRef? a, WasmExternRef? b, WasmExternRef? c, WasmExternRef? d) =>
+      _sharedResult(_sharedBytesCall(control!, WasmI32.fromInt(op), a, b, c, d));
+  @override
+  int get length => (invoke(0, WasmExternRef.nullRef, WasmExternRef.nullRef, WasmExternRef.nullRef, WasmExternRef.nullRef)!.toJS as JSNumber).toDartInt;
+  @override
+  int operator [](int index) => (invoke(1, _sharedNumber(index), WasmExternRef.nullRef, WasmExternRef.nullRef, WasmExternRef.nullRef)!.toJS as JSNumber).toDartInt;
+  @override
+  void operator []=(int index, int value) { invoke(2, _sharedNumber(index), _sharedNumber(value), WasmExternRef.nullRef, WasmExternRef.nullRef); }
+  @override
+  napi.SharedBytes subview(int start, [int? end]) =>
+      _sharedBytes(invoke(4, _sharedNumber(start), end == null ? WasmExternRef.nullRef : _sharedNumber(end), WasmExternRef.nullRef, WasmExternRef.nullRef)!);
+  @override
+  typed_data.Uint8List toUint8List([int start = 0, int? end]) =>
+      (invoke(5, _sharedNumber(start), end == null ? WasmExternRef.nullRef : _sharedNumber(end), WasmExternRef.nullRef, WasmExternRef.nullRef)!.toJS as JSUint8Array).toDart;
+  @override
+  void write(typed_data.Uint8List source, {int offset = 0}) {
+    final length = source.lengthInBytes;
+    final staging = _sharedResult(_allocateSharedBytes(_sharedNumber(length), WasmI32.fromInt(1)))!;
+    final destination = (staging.toJS as JSUint8Array).toDart;
+    for (var i = 0; i < length; i++) { destination[i] = source[i]; }
+    invoke(6, staging, _sharedNumber(offset), WasmExternRef.nullRef, WasmExternRef.nullRef);
+  }
+  @override
+  void copyFrom(napi.SharedBytes source, {int sourceOffset = 0, int targetOffset = 0, int? length}) {
+    if (source is! _SharedBytes) throw _CallbackThrown(_sharedBytesTypeError());
+    invoke(7, source.control, _sharedNumber(sourceOffset), _sharedNumber(targetOffset), length == null ? WasmExternRef.nullRef : _sharedNumber(length));
+  }
+}
+''';
+
 /// A non-null Dart object keeps raw JS null and undefined distinct from Dart
 /// absence. WasmGC traces the externref directly without inspecting its value.
 const opaqueEntrypointPrelude = r'''
@@ -147,8 +227,8 @@ const asyncCallbackEntrypointPrelude = r'''
 external WasmExternRef? _startCallback(WasmExternRef callback, WasmExternRef arguments, WasmI32 context, WasmExternRef deliver, WasmExternRef roots);
 ''';
 
-/// Only callback modules need the private exception branch. Successful calls
-/// and all emitted code of ordinary modules retain their existing path.
+/// Preserve exact host errors from callbacks, cancellation and shared bytes.
+/// Shared allocation may be used internally even without a shared signature.
 String withCallbackErrors(String source) => source
     .replaceFirst(
       'WasmExternRef? _normalizeError(Object error) {\n',

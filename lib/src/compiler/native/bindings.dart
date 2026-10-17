@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:ffi';
 import 'dart:typed_data';
 
+import '../../api/shared_bytes.dart';
 import '../../runtime/cancellation.dart';
 import '../../runtime/resources.dart';
 import '../../runtime/retention.dart';
@@ -657,6 +658,173 @@ final class _NativeCallbackCacheEntry {
     : adapter = WeakReference(value);
 }
 
+// The adapter owns its host control by ordinary Dart reachability. No pointer
+// into the backing store survives a host call; transfer/resize is checked there.
+final class _NativeSharedBytes implements SharedBytes {
+  final NapiApi _api;
+  final Pointer<Void> _env;
+  final NativeHostValue _control;
+  _NativeSharedBytes(this._api, this._env, this._control);
+
+  T _command<T>(
+    int operation,
+    int argc,
+    int? first,
+    int? second,
+    T Function(Pointer<Void>, Pointer<Void>) read,
+  ) => _api._invokeCallback(
+    _env,
+    nullptr,
+    argc + 1,
+    (env, out) {
+      out[0] = Pointer.fromAddress(
+        _api.integerResult(env, operation, 'operation'),
+      );
+      if (argc > 0) {
+        out[1] = Pointer.fromAddress(
+          first == null
+              ? _api.nullResult(env)
+              : _api.integerResult(env, first, 'SharedBytes argument'),
+        );
+      }
+      if (argc > 1) {
+        out[2] = Pointer.fromAddress(
+          second == null
+              ? _api.nullResult(env)
+              : _api.integerResult(env, second, 'SharedBytes argument'),
+        );
+      }
+    },
+    read,
+    owned: _control,
+  );
+
+  @override
+  int get length => _command(
+    0,
+    0,
+    null,
+    null,
+    (env, value) => _api.integer(env, value, 'SharedBytes.length'),
+  );
+
+  @override
+  int operator [](int index) => _command(
+    1,
+    1,
+    index,
+    null,
+    (env, value) => _api.integer(env, value, 'SharedBytes byte'),
+  );
+
+  @override
+  void operator []=(int index, int byte) =>
+      _command<void>(2, 2, index, byte, (_, _) {});
+
+  @override
+  SharedBytes subview(int start, [int? end]) => _command(
+    4,
+    2,
+    start,
+    end,
+    (env, value) => _api.sharedBytes(env, value, 'SharedBytes.subview'),
+  );
+
+  @override
+  Uint8List toUint8List([int start = 0, int? end]) =>
+      _command(4, 2, start, end, (env, value) {
+        final result = _api._readBinary(env, value, 0);
+        if (result == null) {
+          throw _api._callbackError(
+            env,
+            StateError('SharedBytes snapshot failed'),
+          );
+        }
+        return result as Uint8List;
+      });
+
+  @override
+  void write(Uint8List source, {int offset = 0}) => _api._invokeCallback<void>(
+    _env,
+    nullptr,
+    3,
+    (env, out) {
+      out[0] = Pointer.fromAddress(_api.integerResult(env, 6, 'operation'));
+      out[1] = Pointer.fromAddress(
+        _api.binaryResult(env, source, 0, 'SharedBytes.write source'),
+      );
+      out[2] = Pointer.fromAddress(
+        _api.integerResult(env, offset, 'SharedBytes.write offset'),
+      );
+    },
+    (_, _) {},
+    owned: _control,
+  );
+
+  @override
+  void copyFrom(
+    SharedBytes source, {
+    int sourceOffset = 0,
+    int targetOffset = 0,
+    int? length,
+  }) {
+    if (source is! _NativeSharedBytes ||
+        !identical(source._api, _api) ||
+        source._env != _env) {
+      throw NapiTypeError(
+        'SharedBytes.copyFrom source belongs to a different owner',
+      );
+    }
+    _api._invokeCallback<void>(
+      _env,
+      nullptr,
+      5,
+      (env, out) {
+        out[0] = Pointer.fromAddress(_api.integerResult(env, 7, 'operation'));
+        _api._borrowHostValue(env, source._control, out + 1);
+        out[2] = Pointer.fromAddress(
+          _api.integerResult(
+            env,
+            sourceOffset,
+            'SharedBytes.copyFrom sourceOffset',
+          ),
+        );
+        out[3] = Pointer.fromAddress(
+          _api.integerResult(
+            env,
+            targetOffset,
+            'SharedBytes.copyFrom targetOffset',
+          ),
+        );
+        out[4] = Pointer.fromAddress(
+          length == null
+              ? _api.nullResult(env)
+              : _api.integerResult(env, length, 'SharedBytes.copyFrom length'),
+        );
+      },
+      (_, _) {},
+      owned: _control,
+    );
+  }
+
+  int _raw() {
+    // Preserve the result across the nested callback scope, then borrow into the
+    // caller's scope. Never return a handle from the already-closed inner scope.
+    final value = _command(3, 0, null, null, _api.ownHostValue);
+    try {
+      return _api.hostValue(_env, value).address;
+    } finally {
+      value.release();
+    }
+  }
+}
+
+final class _NativeSharedBytesEntry {
+  final WeakReference<_NativeSharedBytes> target;
+  _NativeSharedBytesEntry(_NativeSharedBytes value)
+    : target = WeakReference(value);
+}
+
 /// Private Node-API table used by generated AOT entrypoints.
 /// Every temporary native buffer is scoped to one call; no global scratch state.
 final class NapiApi {
@@ -664,6 +832,7 @@ final class NapiApi {
   final int Function(Object, String)? referenceClass;
   final List<int> Function(Object)? referenceViews;
   final List<Set<int>> classMemberships;
+  Pointer<Void>? _sharedEnv;
   NapiApi(
     int address,
     int tableCount, {
@@ -876,6 +1045,78 @@ final class NapiApi {
       throw _callbackError(env, StateError('$path: native binary copy failed'));
     }
     return result;
+  }
+
+  late final _sharedBytes = <int, _NativeSharedBytesEntry>{};
+  late final _sharedBytesFinalizer = Zone.root.run(
+    () => Finalizer<(int, _NativeSharedBytesEntry)>((token) {
+      // A dead adapter can be replaced before its finalizer runs.
+      if (identical(_sharedBytes[token.$1], token.$2)) {
+        _sharedBytes.remove(token.$1);
+      }
+    }),
+  );
+
+  /// Installed once by every generated entrypoint, including scalar-only APIs.
+  SharedBytes allocateSharedBytes(int length) {
+    final env = _sharedEnv;
+    if (env == null) {
+      throw StateError(
+        'SharedBytes allocator has no active module environment',
+      );
+    }
+    if (length < 0 || length > 0x7fffffff) {
+      throw NapiRangeError(
+        'SharedBytes allocation length must be 0..2147483647',
+      );
+    }
+    return _invokeCallback(env, _getCallbackHelper(env, 0), 2, (env, out) {
+      out[0] = Pointer.fromAddress(
+        integerResult(env, length, 'SharedBytes length'),
+      );
+      out[1] = Pointer.fromAddress(integerResult(env, 3, 'operation'));
+    }, (env, value) => sharedBytes(env, value, 'SharedBytes.allocate'));
+  }
+
+  SharedBytes sharedBytes(Pointer<Void> env, Pointer<Void> value, String path) {
+    if (typeOf(env, value) != 6) {
+      throw NapiTypeError('$path: expected Uint8Array');
+    }
+    final identity = _hostIdentity(env, value);
+    final previous = _sharedBytes[identity]?.target.target;
+    if (previous != null) {
+      previous.length; // Validate the original view's current window again.
+      return previous;
+    }
+    final control = _invokeCallback(env, _getCallbackHelper(env, 0), 3, (
+      env,
+      out,
+    ) {
+      out[0] = value;
+      out[1] = Pointer.fromAddress(integerResult(env, 2, 'operation'));
+      out[2] = Pointer.fromAddress(stringResult(env, path));
+    }, ownHostValue);
+    try {
+      final bytes = _NativeSharedBytes(this, env, control);
+      final entry = _NativeSharedBytesEntry(bytes);
+      _sharedBytes[identity] = entry;
+      _sharedBytesFinalizer.attach(bytes, (identity, entry));
+      return bytes;
+    } catch (_) {
+      control.release();
+      rethrow;
+    }
+  }
+
+  int sharedBytesResult(Pointer<Void> env, SharedBytes value, String path) {
+    if (value is! _NativeSharedBytes ||
+        !identical(value._api, this) ||
+        value._env != env) {
+      throw NapiTypeError(
+        '$path: expected a SharedBytes value from this module',
+      );
+    }
+    return value._raw();
   }
 
   late final _callbackAdapters =
@@ -1158,6 +1399,9 @@ final class NapiApi {
       final actual = count.value;
       count.value = capacity;
       _check(_callbackInfo(env, info, count, arguments, self, nullptr));
+      // The isolate has one owner. Bootstrap has no host allocation; every
+      // later byte operation still passes the bridge's active-owner checks.
+      _sharedEnv ??= env;
       return NapiCall(env, info, self.value, [
         for (var i = 0; i < capacity; i++) arguments[i],
       ], actual);

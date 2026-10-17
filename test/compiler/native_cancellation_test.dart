@@ -79,7 +79,8 @@ class Resource {
   test('signal-only loader installs owner delivery lazily', () {
     final ordinary = emitNativeLoader(['state']);
     expect(ordinary, isNot(contains('AbortSignal')));
-    expect(ordinary, isNot(contains('CallbackHelper')));
+    expect(ordinary, contains(r'$napiSharedBytesControl'));
+    expect(ordinary, isNot(contains('target => deliver')));
     final signal = emitNativeLoader(['state'], hasSignals: true);
     expect(signal, contains('callback === null'));
     expect(signal, contains('target => deliver(target, false, undefined)'));

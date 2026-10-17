@@ -6,6 +6,7 @@ import '../emit/js/binary.dart';
 import '../emit/js/cancellation.dart';
 import '../emit/js/reference_views.dart';
 import '../emit/js/settlement.dart';
+import '../emit/js/shared_bytes.dart';
 import 'plan.dart';
 
 /// Public export names are aliases, never local loader bindings.
@@ -22,7 +23,8 @@ String emitNativeLoader(
   final hasResources = classes.any((binding) => binding.shape.cleanup != null);
   final shapes = [for (final binding in classes) binding.shape];
   final hasCompositeViews = hasCompositeReferenceViews(shapes);
-  final hasCallbackHelper = hasCallbacks || hasSignals || hasBinary;
+  // Allocation is available inside ordinary Dart business functions even when
+  // no exported signature mentions SharedBytes. The helper itself stays lazy.
   final code = StringBuffer('''
 import {createRequire} from 'node:module';
 import {fileURLToPath} from 'node:url';
@@ -58,29 +60,35 @@ function $napiCreatePromise() {
   }
   if (hasSignals) code.write(cancellationPolicy);
   if (hasBinary) code.write(binaryPolicy);
-  if (hasCallbackHelper) {
-    if (hasAsyncCallbacks) {
-      code.write(callbackPromisePolicy);
-    }
-    code.writeln(r'''const $napiCallbackWeakMap = WeakMap;
+  code.write(sharedBytesPolicy);
+  if (hasAsyncCallbacks) {
+    code.write(callbackPromisePolicy);
+  }
+  code.writeln(r'''const $napiCallbackWeakMap = WeakMap;
 const $napiCallbackGet = WeakMap.prototype.get;
 const $napiCallbackSet = WeakMap.prototype.set;
 ''');
-    if (!hasAsyncCallbacks) {
-      code.writeln(r'const $napiCallbackApply = Reflect.apply;');
-    }
-    code.writeln(r'''function $napiCallbackHelper(kind, deliver) {
+  if (!hasAsyncCallbacks) {
+    code.writeln(r'const $napiCallbackApply = Reflect.apply;');
+  }
+  code.writeln(r'''function $napiCallbackHelper(kind, deliver) {
   if (kind === 0) {
     const functions = new $napiCallbackWeakMap();
     let next = 0;
     return function identify(callback, kind, nullable, path) {
 ''');
-    if (hasBinary) {
-      code.writeln(
-        r'      if (arguments.length === 4) return $napiBinaryView(callback, kind, nullable, path);',
-      );
-    }
-    code.writeln(r'''      let id = $napiCallbackApply($napiCallbackGet, functions, [callback]);
+  if (hasBinary) {
+    code.writeln(
+      r'      if (arguments.length === 4) return $napiBinaryView(callback, kind, nullable, path);',
+    );
+  }
+  code.writeln(r'''      if (arguments.length === 2 && kind === 3) {
+        return $napiAllocateSharedBytes(callback);
+      }
+      if (arguments.length === 3 && kind === 2) {
+        return $napiSharedBytesControl(callback, nullable);
+      }''');
+  code.writeln(r'''      let id = $napiCallbackApply($napiCallbackGet, functions, [callback]);
       if (id === undefined) {
         if (next === 9007199254740991) throw new RangeError('Native callback identity space exhausted');
         id = ++next;
@@ -90,12 +98,10 @@ const $napiCallbackSet = WeakMap.prototype.set;
     };
   }
 ''');
-    if (hasAsyncCallbacks || hasSignals) {
-      code.writeln(
-        r'''  return function observe(callback, token, ...args) {''',
-      );
-      if (hasSignals) {
-        code.writeln(r'''    if (callback === null) {
+  if (hasAsyncCallbacks || hasSignals) {
+    code.writeln(r'''  return function observe(callback, token, ...args) {''');
+    if (hasSignals) {
+      code.writeln(r'''    if (callback === null) {
       $napiCheckAbortSignal(token, false, args[0]);
       const signal = $napiCreateSignalCompanion(token,
         target => deliver(target, false, undefined));
@@ -109,41 +115,31 @@ const $napiCallbackSet = WeakMap.prototype.set;
         }
       };
     }''');
-      }
-      if (hasAsyncCallbacks) {
-        code.writeln(r'''
+    }
+    if (hasAsyncCallbacks) {
+      code.writeln(r'''
     const value = $napiCallbackApply(callback, undefined, args);
     $napiObserveCallbackPromise(value,
       value => deliver(token, false, value),
       error => deliver(token, true, error));
 ''');
-      } else {
-        code.writeln(
-          "    throw new Error('Async callbacks were not generated');",
-        );
-      }
-      code.writeln('  };\n}');
     } else {
       code.writeln(
-        "  throw new Error('Async callbacks were not generated');\n}",
+        "    throw new Error('Async callbacks were not generated');",
       );
     }
+    code.writeln('  };\n}');
+  } else {
+    code.writeln("  throw new Error('Async callbacks were not generated');\n}");
   }
-  final factories = hasCallbackHelper
-      ? [
-          hasCompositeViews ? r'$napiResolveReferenceShape' : 'null',
-          hasFutures ? r'$napiCreatePromise' : 'null',
-          hasResources ? r'$napiCreateSettlementObserver' : 'null',
-          r'$napiCallbackHelper',
-        ]
-      : [
-          if (hasCompositeViews || hasFutures)
-            hasCompositeViews ? r'$napiResolveReferenceShape' : 'null',
-          if (hasFutures) r'$napiCreatePromise',
-          if (hasResources) r'$napiCreateSettlementObserver',
-        ];
+  final factories = [
+    hasCompositeViews ? r'$napiResolveReferenceShape' : 'null',
+    hasFutures ? r'$napiCreatePromise' : 'null',
+    hasResources ? r'$napiCreateSettlementObserver' : 'null',
+    r'$napiCallbackHelper',
+  ];
   code.writeln(
-    "const bindings = require('./bridge.node').load(fileURLToPath(new URL('./module.aot', import.meta.url))${factories.isEmpty ? '' : ', ${factories.join(', ')}'});",
+    "const bindings = require('./bridge.node').load(fileURLToPath(new URL('./module.aot', import.meta.url)), ${factories.join(', ')});",
   );
   if (streamClassName != null ||
       classes.any((binding) => binding.members.isNotEmpty)) {

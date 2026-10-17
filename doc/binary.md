@@ -112,9 +112,7 @@ The qualified toolchain remains Dart 3.13.5, Node 24.19.0/26.11.1 and TypeScript
 7.0.2. Native uses the documented macOS arm64 runtime profile. Both backends
 retain their existing compiler/runtime coupling and host limits.
 
-Explicit live shared views remain a separate requirement in
-[#127](https://github.com/medz/napi/issues/127) and
-[#111](https://github.com/medz/napi/issues/111). Retaining a JS object does not
-prevent its ArrayBuffer from being detached; native raw-pointer lifetime and
-WasmGC storage cannot be treated as interchangeable. A future explicit shared
-path must prove aliasing and safe invalidation rather than silently copying.
+Use [SharedBytes](shared-bytes.md) for explicit live shared views. Its checked
+adapter preserves host storage and handles later detachment/resizing without
+retaining native pointers. Ordinary Uint8List and ByteBuffer keep the snapshot
+contract above.

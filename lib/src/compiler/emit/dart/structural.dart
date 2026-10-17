@@ -29,6 +29,7 @@ final class DartStructuralEmitter {
       ],
       ScalarConversion() ||
       BinaryConversion() ||
+      SharedBytesConversion() ||
       ReferenceConversion() ||
       OpaqueConversion() ||
       AbortSignalConversion() ||
@@ -61,6 +62,12 @@ final class DartStructuralEmitter {
       case ScalarConversion():
         _code.writeln(
           '  return ${output ? _writeScalar(conversion) : _readScalar(conversion, bigintText: bigintText)};',
+        );
+      case SharedBytesConversion():
+        _code.writeln(
+          output
+              ? '  return _writeSharedBytes(value);'
+              : '  return _sharedBytes(externRefForJSAny(value!)!);',
         );
       case BinaryConversion(:final kind):
         if (output) {

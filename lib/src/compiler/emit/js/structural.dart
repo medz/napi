@@ -15,6 +15,9 @@ final class BoundaryLeafAdapter implements StructuralLeafAdapter {
   const BoundaryLeafAdapter({this.resources = false, this.bigintText = false});
   @override
   String read(ValueConversion leaf, String value, String path) {
+    if (leaf is SharedBytesConversion) {
+      return '\$napiReadSharedBytes($value, ${leaf.nullable}, $path)';
+    }
     if (leaf is BinaryConversion) {
       return '\$napiCopyBinary($value, ${leaf.kind.index}, ${leaf.nullable}, $path, true)';
     }
@@ -29,6 +32,9 @@ final class BoundaryLeafAdapter implements StructuralLeafAdapter {
 
   @override
   String write(ValueConversion leaf, String value, String path) {
+    if (leaf is SharedBytesConversion) {
+      return '\$napiReadSharedBytes($value, ${leaf.nullable}, $path)';
+    }
     if (leaf is BinaryConversion) {
       return '\$napiAdoptBinary($value, ${leaf.kind.index}, ${leaf.nullable}, $path)';
     }
@@ -79,6 +85,7 @@ StructuralBoundary emitStructuralBoundary(
       ],
       ScalarConversion() ||
       BinaryConversion() ||
+      SharedBytesConversion() ||
       ReferenceConversion() ||
       OpaqueConversion() ||
       AbortSignalConversion() ||
@@ -95,7 +102,10 @@ StructuralBoundary emitStructuralBoundary(
         throw StateError('Nested callback conversion is not supported.');
       case AbortSignalConversion():
         throw StateError('Nested AbortSignal conversion is not supported.');
-      case ReferenceConversion() || ScalarConversion() || BinaryConversion():
+      case ReferenceConversion() ||
+          ScalarConversion() ||
+          BinaryConversion() ||
+          SharedBytesConversion():
         code.writeln(
           '  return ${output ? leafAdapter.write(node, 'value', 'path') : leafAdapter.read(node, 'value', 'path')};',
         );

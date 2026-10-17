@@ -17,6 +17,7 @@ import '../lowering/plan.dart'
         ReferenceConversion,
         ScalarConversion,
         ScalarKind,
+        SharedBytesConversion,
         ValueClassConversion,
         ValueConversion,
         containsDictionary,
@@ -34,6 +35,7 @@ String _quote(String value) => jsonEncode(value).replaceAll(r'$', r'\$');
 String emitNativeDart(NativeModulePlan plan) {
   final hasStreams = plan.hasStreams;
   final hasBinary = plan.hasBinary;
+  final hasSharedBytesTypes = plan.hasSharedBytesTypes;
   final hasFutures = hasStreams || plan.calls.any((call) => call.returnsFuture);
   final hasCallbacks = plan.calls.any(
     (call) => call.inputs.any((value) => value is CallbackConversion),
@@ -83,13 +85,11 @@ String emitNativeDart(NativeModulePlan plan) {
   if (hasBinary) {
     code.writeln("import 'dart:typed_data' as typed_data;");
   }
-  if (hasResources || hasStreams) {
-    code.writeln("import 'package:napi/runtime.dart';");
-  }
+  code.writeln("import 'package:napi/runtime.dart';");
   if (hasDictionary) {
     code.writeln("import 'dart:convert' show jsonEncode;");
   }
-  if (hasDictionary || hasSignals) {
+  if (hasDictionary || hasSignals || hasSharedBytesTypes) {
     code.writeln("import 'package:napi/napi.dart' as napi;");
   }
   if (hasStructures ||
@@ -97,7 +97,8 @@ String emitNativeDart(NativeModulePlan plan) {
       hasOpaque ||
       hasCallbacks ||
       hasSignals ||
-      hasBinary) {
+      hasBinary ||
+      hasSharedBytesTypes) {
     code.writeln("import 'dart:ffi';");
   }
   code.write('''
@@ -108,6 +109,7 @@ ${hasOpaque ? 'typedef _NapiHostValue = NativeHostValue;\n\n' : ''}late final Na
 @pragma('vm:entry-point')
 List<Object?> napiBindings(int apiTableAddress, int tableCount) {
   _api = NapiApi(apiTableAddress, tableCount${plan.classes.isEmpty && !hasStreams ? '' : ', referenceClass: _referenceClass, classMemberships: _referenceMemberships'}${hasCompositeViews ? ', referenceViews: _referenceViews' : ''});
+  installSharedBytesAllocator(_api.allocateSharedBytes);
   return [
 ''');
   for (final function in plan.functions) {
@@ -397,6 +399,10 @@ ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int toke
         code.writeln(
           '    a$index = _api.binary(call.env, raw$index, ${conversion.kind.index}, $path${conversion.nullable ? ', nullable: true' : ''}) as ${conversion.dartType};',
         );
+      } else if (conversion is SharedBytesConversion) {
+        code.writeln(
+          '    a$index = ${conversion.nullable ? '_api.isNull(call.env, raw$index) ? null : ' : ''}_api.sharedBytes(call.env, raw$index, $path);',
+        );
       } else if (conversion is ScalarConversion) {
         final converted =
             '_api.${nativeScalarReader(conversion)}(call.env, raw$index, $path)';
@@ -647,6 +653,7 @@ void _writeResult(
       (output is ReferenceConversion ||
           output is ScalarConversion ||
           output is BinaryConversion ||
+          output is SharedBytesConversion ||
           output is OpaqueConversion)) {
     code.writeln('    if (value == null) return _api.nullResult($env);');
   }
@@ -659,6 +666,10 @@ void _writeResult(
   } else if (output is BinaryConversion) {
     code.writeln(
       '    return _api.binaryResult($env, value, ${output.kind.index}, ${_quote(output.context)});',
+    );
+  } else if (output is SharedBytesConversion) {
+    code.writeln(
+      '    return _api.sharedBytesResult($env, value, ${_quote(output.context)});',
     );
   } else if (output is ScalarConversion) {
     final context = output.kind == ScalarKind.integer && !output.usesBigInt

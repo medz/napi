@@ -7,6 +7,7 @@ import 'callbacks.dart';
 import 'cancellation.dart';
 import 'structural.dart';
 import 'settlement.dart';
+import 'shared_bytes.dart';
 import 'streams.dart';
 
 String emitBoundary(ModulePlan plan) {
@@ -14,6 +15,10 @@ String emitBoundary(ModulePlan plan) {
   final resources = plan.resourcePolicies.isNotEmpty;
   final streams = plan.calls.any((call) => call.returnsStream);
   final signals = conversions.any((c) => c is AbortSignalConversion);
+  final sharedBytes = {
+    for (final (index, conversion) in conversions.indexed)
+      if (conversion is SharedBytesConversion) index: conversion,
+  };
   final binaries = {
     for (final (index, conversion) in conversions.indexed)
       if (conversion is BinaryConversion) index: conversion,
@@ -46,6 +51,8 @@ String emitBoundary(ModulePlan plan) {
   };
   return '''// Generated JS imports for the Wasm boundary, not a consumer entry.
 ${plan.classes.isEmpty ? '' : "import {readReference, writeReference} from './references.mjs';"}
+$sharedBytesPolicy
+$wasmSharedBytesPolicy
 ${signals ? '$cancellationPolicy\n$wasmCancellationPolicy' : ''}
 ${hasBinary ? '$binaryPolicy\n$wasmBinaryPolicy' : ''}
 ${resources ? '$settlementObserver\n' : ''}const policies = ${jsonEncode(policies)};
@@ -67,6 +74,7 @@ function checkedScalar(value, policy, path) {
 function checked(value, context) { return checkedScalar(value, policies[context], policies[context].context); }
 export function readValue(value, context${resources ? ', operation = null' : ''}) {
   switch (context) {
+${[for (final e in sharedBytes.entries) '    case ${e.key}: return \$napiReadSharedBytes(value, ${e.value.nullable}, ${jsonEncode(e.value.context)});'].join('\n')}
 ${[for (final e in binaries.entries) '    case ${e.key}: return \$napiCopyBinary(value, ${e.value.kind.index}, ${e.value.nullable}, ${jsonEncode(e.value.context)}, true);'].join('\n')}
 ${[for (final e in structures.entries)
     if (e.value.read != null) '    case ${e.key}: return ${e.value.read}(value, ${jsonEncode(conversions[e.key].context)}, {work: 0, active: new Set()${resources ? ', operation' : ''}}, 0);'].join('\n')}
@@ -75,6 +83,7 @@ ${[for (final e in structures.entries)
 }
 export function writeValue(value, context) {
   switch (context) {
+${[for (final e in sharedBytes.entries) '    case ${e.key}: return \$napiReadSharedBytes(value, ${e.value.nullable}, ${jsonEncode(e.value.context)});'].join('\n')}
 ${[for (final e in binaries.entries) '    case ${e.key}: return \$napiAdoptBinary(value, ${e.value.kind.index}, ${e.value.nullable}, ${jsonEncode(e.value.context)});'].join('\n')}
 ${[for (final e in structures.entries)
     if (e.value.write != null) '    case ${e.key}: {\n      const state = {work: 0, active: new Set(), pending: null};\n      try { return ${e.value.write}(value, ${jsonEncode(conversions[e.key].context)}, state, 0); }\n      catch (error) { if (state.pending !== null) { for (const undo of state.pending) undo(); } throw error; }\n    }'].join('\n')}
@@ -87,14 +96,14 @@ export function readBigInt(value) { return value.toString(); }
 export function writeBigInt(value, context) { return checked(BigInt(value), context); }
 export function throwDartError(message) { throw new Error(message); }
 ${plan.calls.any((call) => call.returnsFuture) || streams ? '${emitFuturePolicy(resources: resources, streams: streams)}\n' : ''}${resources ? resourcePolicy : ''}${streams ? streamBoundaryPolicy(references: plan.classes.isNotEmpty) : ''}${structures.isEmpty && callbacks.isEmpty
-      ? hasBinary
+      ? hasBinary || sharedBytes.isNotEmpty
             ? structuralErrorPolicy
             : ''
       : structuralPolicy}
 ${conversions.any(_containsMap) ? mapStructuralPolicy : ''}
 ${conversions.any(containsDictionary) ? dictionaryStructuralPolicy : ''}
 ${structures.values.map((s) => s.source).join('\n')}${callbacks.isEmpty ? '' : '\n${_emitCallbacks(callbacks)}'}
-${callbacks.isNotEmpty || signals ? _emitCallbackErrors(futures: plan.calls.any((call) => call.returnsFuture) || streams) : ''}
+${_emitCallbackErrors(futures: plan.calls.any((call) => call.returnsFuture) || streams)}
 ${plan.classes.isNotEmpty || plan.functions.any((f) => f.representation == ExportRepresentation.callableGlobal) ? argumentPolicy : ''}
 ''';
 }
