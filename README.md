@@ -34,6 +34,7 @@ See [the architecture and delivery plan](doc/architecture.md) and
 - A pinned Dart SDK adapter and linker producing actual Wasm named exports
 - Generated reference classes, named/factory constructors and weak wrapper identity on both targets
 - Generic payload storage with identity, nullish presence and shared TypeScript relationships
+- Finite concrete class aliases with real Dart type arguments, nested substitutions and distinct typed handles
 - Structural value classes with explicit constructors, recursive fields and direction-specific TypeScript
 - Future-returning functions/methods/getters, including generic payloads, with standard Promise resolution and shared error conversion
 - Resource cleanup with shared state, stable completion identity and operation leases through Promise settlement
@@ -57,7 +58,8 @@ specialization and replacement builds remain work in
 [#114](https://github.com/medz/napi/issues/114). See [annotation syntax and scope](doc/annotations.md) and the
 [scalar conversion contract](doc/scalars.md), [argument presence and defaults](doc/arguments.md),
 [structural values](doc/structural.md), [binary snapshots](doc/binary.md), [value classes](doc/values.md),
-[reference classes](doc/classes.md), [opaque payloads](doc/opaque.md), [resource cleanup](doc/resources.md),
+[reference classes](doc/classes.md), [opaque payloads](doc/opaque.md),
+[concrete class aliases](doc/concrete-generics.md), [resource cleanup](doc/resources.md),
 [Future exports](doc/futures.md), [callbacks](doc/callbacks.md), [streams](doc/streams.md),
 [explicit cancellation](doc/cancellation.md), and
 [npm package assembly](doc/packaging.md).

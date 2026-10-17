@@ -176,7 +176,11 @@ void main() {
     expect(types, contains('static ["constructor"](): Shared;'));
     expect(
       types,
-      contains('export declare class FactoryOnly {\n  private constructor();'),
+      matches(
+        RegExp(
+          r'export declare class FactoryOnly \{[^}]*private constructor\(\);',
+        ),
+      ),
     );
     expect(types, contains('static named(box: Box): FactoryOnly;'));
   });

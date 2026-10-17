@@ -369,7 +369,19 @@ final class InheritedInstanceMember {
 }
 
 final class ClassBinding {
+  /// Original class identity, including for a selected concrete type alias.
   final DeclarationId declaration;
+
+  /// The public alias selected for this binding, when it differs from the class.
+  final DeclarationId? selectionDeclaration;
+
+  /// Resolved concrete class type. Alias spelling is not runtime type identity.
+  /// A descriptive instance does not imply executable backend support.
+  final DeclaredType? instantiatedType;
+
+  /// Selected strict Dart supertypes of this concrete instance, with the same
+  /// original class. These choose one invariant runtime view, not JS ancestors.
+  final List<DeclaredType> concreteSupertypes;
 
   /// Explicit boundary intent; no runtime representation is implied.
   final ClassPolicy classPolicy;
@@ -409,6 +421,9 @@ final class ClassBinding {
     required this.declaration,
     required this.exportName,
     required this.source,
+    this.selectionDeclaration,
+    this.instantiatedType,
+    Iterable<DeclaredType> concreteSupertypes = const [],
     this.classPolicy = ClassPolicy.reference,
     this.cleanup,
     this.valueConstructor,
@@ -430,7 +445,8 @@ final class ClassBinding {
     Iterable<BindingType> mixins = const [],
     Iterable<DeclarationId> allSupertypes = const [],
     Iterable<DeclarationId> superclassChain = const [],
-  }) : valueFields = Map.unmodifiable(valueFields),
+  }) : concreteSupertypes = List.unmodifiable(concreteSupertypes),
+       valueFields = Map.unmodifiable(valueFields),
        members = List.unmodifiable(members),
        inheritedInstanceMembers = List.unmodifiable(inheritedInstanceMembers),
        typeParameters = List.unmodifiable(typeParameters),

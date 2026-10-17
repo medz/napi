@@ -57,6 +57,9 @@ String emitNativeDeclarations(NativeModulePlan plan) {
     if (binding.binding.typeParameters.isNotEmpty) {
       code.writeln('  ${emitOpaquePhantom(binding.binding.typeParameters)}');
     }
+    code.writeln(
+      '  private readonly \$napiReference${binding.shape.classId}: void;',
+    );
     if (binding.hasPublicConstructor) {
       for (final parameters in emitParameterVariants(
         binding.constructor.parameters,

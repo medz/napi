@@ -446,7 +446,41 @@ ValidatedDeclarations validateDeclarations(BindingModule module) {
     _checkType(function.result, function.source);
   }
   for (final binding in module.classes) {
-    checkExport(binding.declaration, binding.exportName, binding.source);
+    final selection = binding.selectionDeclaration;
+    final instance = binding.instantiatedType;
+    if ((selection == null) != (instance == null) ||
+        (selection != null && selection.kind != DeclarationKind.typedefType) ||
+        (instance != null &&
+            (instance.declaration != binding.declaration ||
+                instance.semantics != ValueSemantics.reference ||
+                instance.nullability != TypeNullability.nonNullable ||
+                binding.typeParameters.isNotEmpty))) {
+      throw BindingDiagnostic(
+        'NAPI_DECLARATION',
+        'A concrete alias must identify its selected typedef and original non-null class instance.',
+        binding.source,
+      );
+    }
+    checkExport(
+      binding.selectionDeclaration ?? binding.declaration,
+      binding.exportName,
+      binding.source,
+    );
+    if (binding.instantiatedType case final type?) {
+      _checkType(type, binding.source);
+    }
+    for (final type in binding.concreteSupertypes) {
+      if (instance == null ||
+          type.declaration != binding.declaration ||
+          type.nullability != TypeNullability.nonNullable) {
+        throw BindingDiagnostic(
+          'NAPI_DECLARATION',
+          'Concrete supertypes must describe instances of the same original class.',
+          binding.source,
+        );
+      }
+      _checkType(type, binding.source);
+    }
     _checkTypeParameters(binding.typeParameters, binding.source);
     if (binding.supertype case final type?) {
       _checkType(type, binding.source);
@@ -779,8 +813,67 @@ ValidatedModule validate(BindingModule module) {
   return ValidatedModule._(declarations.bindings, classes, values);
 }
 
+void _validateConcreteSelections(BindingModule module) {
+  final concrete = module.classes.where(
+    (binding) => binding.instantiatedType != null,
+  );
+  for (final binding in concrete) {
+    final type = binding.instantiatedType!;
+    if (binding.classPolicy != ClassPolicy.reference ||
+        !_closedConcreteType(type)) {
+      throw BindingDiagnostic(
+        'NAPI_GENERIC',
+        'Concrete aliases require a closed class type and the reference policy.',
+        binding.source,
+      );
+    }
+    for (final other in module.classes) {
+      if (identical(binding, other) ||
+          other.declaration != binding.declaration) {
+        continue;
+      }
+      if (other.instantiatedType == null) {
+        throw BindingDiagnostic(
+          'NAPI_GENERIC',
+          'Select either the open class or its concrete aliases, not both.',
+          binding.source,
+        );
+      }
+      if (referenceClassMatches(other, type)) {
+        throw BindingDiagnostic(
+          'NAPI_GENERIC',
+          'Select one export for each canonical concrete class instance.',
+          binding.source,
+        );
+      }
+    }
+  }
+}
+
+bool _closedConcreteType(BindingType type) =>
+    type.nullability != TypeNullability.legacy &&
+    switch (type) {
+      DynamicType() || TypeParameterType() => false,
+      DeclaredType(:final typeArguments) => typeArguments.every(
+        _closedConcreteType,
+      ),
+      RecordTypeBinding(:final positional, :final named) =>
+        positional.every(_closedConcreteType) &&
+            named.values.every(_closedConcreteType),
+      FunctionTypeBinding(
+        :final typeParameters,
+        :final parameters,
+        :final result,
+      ) =>
+        typeParameters.isEmpty &&
+            parameters.every((p) => _closedConcreteType(p.type)) &&
+            _closedConcreteType(result),
+      _ => true,
+    };
+
 /// Shared reference-class call contracts, without target ABI choices.
 List<ReferenceClassShape> validateReferenceClasses(BindingModule module) {
+  _validateConcreteSelections(module);
   final result = <ReferenceClassShape>[];
   for (final binding in module.classes.where(
     (c) => c.classPolicy != ClassPolicy.value,
@@ -1038,6 +1131,10 @@ List<ReferenceClassShape> _referenceHierarchy(
   final ids = {
     for (final shape in classes) shape.binding.declaration: shape.classId,
   };
+  final concreteDeclarations = {
+    for (final shape in classes)
+      if (shape.binding.instantiatedType != null) shape.binding.declaration,
+  };
   final memberships = <int, Set<int>>{};
   final visiting = <int>{};
   Set<int> ancestors(int id) {
@@ -1061,7 +1158,9 @@ List<ReferenceClassShape> _referenceHierarchy(
     };
     for (final declaration in declarations) {
       if (ids[declaration] case final parent?) {
-        if (binding.typeParameters.isNotEmpty ||
+        if (binding.instantiatedType != null ||
+            classes[parent].binding.instantiatedType != null ||
+            binding.typeParameters.isNotEmpty ||
             classes[parent].binding.typeParameters.isNotEmpty) {
           throw BindingDiagnostic(
             'NAPI_GENERIC',
@@ -1253,6 +1352,7 @@ List<ReferenceClassShape> _referenceHierarchy(
                   member(ref),
                   ids,
                   memberships,
+                  concreteDeclarations: concreteDeclarations,
                 ),
               ),
             )
@@ -1302,10 +1402,11 @@ bool referenceMemberAccepts(
   ReferenceMemberShape implementation,
   ReferenceMemberShape contract,
   Map<DeclarationId, int> ids,
-  Map<int, Set<int>> memberships,
-) {
+  Map<int, Set<int>> memberships, {
+  Set<DeclarationId> concreteDeclarations = const {},
+}) {
   bool subtype(BindingType child, BindingType parent) =>
-      _referenceSubtype(child, parent, ids, memberships);
+      _referenceSubtype(child, parent, ids, memberships, concreteDeclarations);
   final output = implementation.result;
   final requiredOutput = contract.result;
   if (implementation.isCleanup != contract.isCleanup ||
@@ -1375,6 +1476,7 @@ bool _referenceSubtype(
   BindingType parent,
   Map<DeclarationId, int> ids,
   Map<int, Set<int>> memberships,
+  Set<DeclarationId> concreteDeclarations,
 ) {
   if (child.nullability == TypeNullability.nullable &&
       parent.nullability != TypeNullability.nullable) {
@@ -1393,10 +1495,22 @@ bool _referenceSubtype(
           final other = parent.parameters[entry.$1];
           return entry.$2.kind == ParameterKind.requiredPositional &&
               other.kind == ParameterKind.requiredPositional &&
-              _referenceSubtype(other.type, entry.$2.type, ids, memberships);
+              _referenceSubtype(
+                other.type,
+                entry.$2.type,
+                ids,
+                memberships,
+                concreteDeclarations,
+              );
         }) &&
         (parent.result is VoidType ||
-            _referenceSubtype(child.result, parent.result, ids, memberships));
+            _referenceSubtype(
+              child.result,
+              parent.result,
+              ids,
+              memberships,
+              concreteDeclarations,
+            ));
   }
   if (child is DeclaredType && parent is DeclaredType) {
     if (child.declaration != parent.declaration) {
@@ -1406,6 +1520,13 @@ bool _referenceSubtype(
           parentId != null &&
           memberships[childId]!.contains(parentId);
     }
+    if (concreteDeclarations.contains(child.declaration)) {
+      return child.typeArguments.length == parent.typeArguments.length &&
+          child.typeArguments.indexed.every(
+            (entry) =>
+                _sameCanonicalType(entry.$2, parent.typeArguments[entry.$1]),
+          );
+    }
     return child.typeArguments.length == parent.typeArguments.length &&
         child.typeArguments.indexed.every(
           (entry) => _referenceSubtype(
@@ -1413,6 +1534,7 @@ bool _referenceSubtype(
             parent.typeArguments[entry.$1],
             ids,
             memberships,
+            concreteDeclarations,
           ),
         );
   }
@@ -1425,6 +1547,7 @@ bool _referenceSubtype(
             parent.positional[entry.$1],
             ids,
             memberships,
+            concreteDeclarations,
           ),
         ) &&
         child.named.entries.every(
@@ -1435,6 +1558,7 @@ bool _referenceSubtype(
                 parent.named[entry.key]!,
                 ids,
                 memberships,
+                concreteDeclarations,
               ),
         );
   }
@@ -1590,6 +1714,65 @@ bool isOpaqueType(BindingType type, Set<DeclarationId> parameters) =>
     type.nullability != TypeNullability.legacy &&
     parameters.contains(type.declaration);
 
+/// Match the canonical Dart instance, ignoring typedef spelling and the use
+/// site's outer nullability. Concrete aliases are invariant boundary views.
+bool referenceClassMatches(ClassBinding binding, DeclaredType type) {
+  if (binding.declaration != type.declaration) return false;
+  final concrete = binding.instantiatedType;
+  if (concrete == null) {
+    return binding.typeParameters.length == type.typeArguments.length;
+  }
+  return concrete.typeArguments.length == type.typeArguments.length &&
+      concrete.typeArguments.indexed.every(
+        (entry) => _sameCanonicalType(entry.$2, type.typeArguments[entry.$1]),
+      );
+}
+
+bool _sameCanonicalType(BindingType left, BindingType right) {
+  if (left.nullability != right.nullability) return false;
+  return switch ((left, right)) {
+    (SafeIntType(), SafeIntType()) ||
+    (DynamicType(), DynamicType()) ||
+    (VoidType(), VoidType()) ||
+    (NeverType(), NeverType()) => true,
+    (TypeParameterType a, TypeParameterType b) =>
+      a.declaration == b.declaration,
+    (DeclaredType a, DeclaredType b) =>
+      a.declaration == b.declaration &&
+          a.typeArguments.length == b.typeArguments.length &&
+          a.typeArguments.indexed.every(
+            (entry) => _sameCanonicalType(entry.$2, b.typeArguments[entry.$1]),
+          ),
+    (RecordTypeBinding a, RecordTypeBinding b) =>
+      a.positional.length == b.positional.length &&
+          a.named.length == b.named.length &&
+          a.positional.indexed.every(
+            (entry) => _sameCanonicalType(entry.$2, b.positional[entry.$1]),
+          ) &&
+          a.named.entries.every(
+            (entry) =>
+                b.named.containsKey(entry.key) &&
+                _sameCanonicalType(entry.value, b.named[entry.key]!),
+          ),
+    (FunctionTypeBinding a, FunctionTypeBinding b) =>
+      a.typeParameters.isEmpty &&
+          b.typeParameters.isEmpty &&
+          _sameCanonicalType(a.result, b.result) &&
+          a.parameters.length == b.parameters.length &&
+          a.parameters.indexed.every((entry) {
+            final other = b.parameters[entry.$1];
+            return entry.$2.kind == other.kind &&
+                (!const {
+                      ParameterKind.requiredNamed,
+                      ParameterKind.optionalNamed,
+                    }.contains(entry.$2.kind) ||
+                    entry.$2.name == other.name) &&
+                _sameCanonicalType(entry.$2.type, other.type);
+          }),
+    _ => false,
+  };
+}
+
 /// Only direct references to selected public classes have a runtime mapping.
 bool isReferenceType(
   BindingType type,
@@ -1602,17 +1785,15 @@ bool isReferenceType(
     classes.any(
       (binding) =>
           binding.classPolicy != ClassPolicy.value &&
-          binding.declaration == type.declaration &&
-          (binding.typeParameters.isEmpty
-              ? type.typeArguments.isEmpty
-              : binding.typeParameters.every((p) => p.opaque) &&
-                    type.typeArguments.length ==
-                        binding.typeParameters.length &&
-                    type.typeArguments.every(
-                      (t) =>
-                          t.nullability == TypeNullability.nonNullable &&
-                          isOpaqueType(t, opaqueParameters),
-                    )),
+          referenceClassMatches(binding, type) &&
+          (binding.instantiatedType != null ||
+              binding.typeParameters.isEmpty ||
+              binding.typeParameters.every((p) => p.opaque) &&
+                  type.typeArguments.every(
+                    (t) =>
+                        t.nullability == TypeNullability.nonNullable &&
+                        isOpaqueType(t, opaqueParameters),
+                  )),
     );
 
 /// Scalar/structural values and selected reference leaves share one capability
@@ -1796,13 +1977,16 @@ void _validateOpaqueReferenceNames(
   if (type is DeclaredType) {
     for (final binding in classes) {
       if (binding.classPolicy != ClassPolicy.value &&
-          binding.declaration == type.declaration &&
-          parameters.any((p) => p.name == binding.exportName)) {
-        throw BindingDiagnostic(
-          'NAPI_NAME',
-          'Opaque type parameters must not shadow the referenced exported class name ${binding.exportName}.',
-          source,
-        );
+          referenceClassMatches(binding, type)) {
+        if (parameters.any((p) => p.name == binding.exportName)) {
+          throw BindingDiagnostic(
+            'NAPI_NAME',
+            'Opaque type parameters must not shadow the referenced exported class name ${binding.exportName}.',
+            source,
+          );
+        }
+        // Concrete aliases emit their selected name without type arguments.
+        if (binding.instantiatedType != null) return;
       }
     }
   }

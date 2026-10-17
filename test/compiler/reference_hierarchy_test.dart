@@ -490,8 +490,10 @@ class _Implementation extends Wide implements Narrow {
     final declarations = emitDeclarations(plan);
     expect(
       declarations,
-      contains(
-        'export declare class Selected {\n  constructor();\n  item(): Small;\n}',
+      matches(
+        RegExp(
+          r'export declare class Selected \{[^}]*constructor\(\);\s+item\(\): Small;\s+\}',
+        ),
       ),
     );
     File('${directory.path}/module.d.mts').writeAsStringSync(declarations);

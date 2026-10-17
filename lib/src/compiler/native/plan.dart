@@ -269,13 +269,14 @@ NativeModulePlan validateNative(BindingModule module) {
       },
       parameters: selected.parameters,
       result: selected.kind == ReferenceMemberKind.constructor && !constructor
-          ? DeclaredType(
-              binding.declaration,
-              ValueSemantics.reference,
-              typeArguments: binding.typeParameters.map(
-                (p) => TypeParameterType(p.declaration),
-              ),
-            )
+          ? binding.instantiatedType ??
+                DeclaredType(
+                  binding.declaration,
+                  ValueSemantics.reference,
+                  typeArguments: binding.typeParameters.map(
+                    (p) => TypeParameterType(p.declaration),
+                  ),
+                )
           : selected.result,
       source: selected.binding.source,
       owner: binding,

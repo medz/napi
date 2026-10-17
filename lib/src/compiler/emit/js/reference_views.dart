@@ -10,6 +10,7 @@ String emitCompositeReferencePrototypes(
   String Function(ReferenceMemberRef) member,
 ) {
   final contracts = referenceViewContracts(classes);
+  final concreteGroups = concreteReferenceGroups(classes);
   String operation(ReferenceMemberRef? ref) =>
       ref == null ? 'null' : '[${contracts.ids[ref]}, ${member(ref)}]';
   final code = StringBuffer();
@@ -39,9 +40,25 @@ String emitCompositeReferencePrototypes(
   code.writeln(
     'const \$napiViewAccepts = [${contracts.accepts.map((ids) => ids.isEmpty ? 'null' : 'new Set(${jsonEncode(ids.toList())})').join(', ')}];',
   );
+  if (concreteGroups.isNotEmpty) {
+    code.writeln('const \$napiConcreteGroups = ${jsonEncode(concreteGroups)};');
+  }
   code.write(r'''const $napiCompositePrototypes = new Map();
 function $napiCompositePrototype(viewIds, context) {
-  const maximal = new Set(viewIds);
+''');
+  if (concreteGroups.isNotEmpty) {
+    code.write(r'''  for (const group of $napiConcreteGroups) {
+    let matched = false;
+    for (const id of group) {
+      if (viewIds.includes(id)) {
+        if (matched) throw new TypeError(context + ': ambiguous concrete type arguments');
+        matched = true;
+      }
+    }
+  }
+''');
+  }
+  code.write(r'''  const maximal = new Set(viewIds);
   for (const id of viewIds) {
     for (const ancestor of $napiViewMemberships[id]) {
       if (ancestor !== id) maximal.delete(ancestor);

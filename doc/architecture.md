@@ -11,6 +11,8 @@ precompiled runtime bundle. Future exports share the [Promise boundary](futures.
 including [resource operation leases](resources.md).
 Both targets also generate [generic payload storage](opaque.md) with matching
 generic TypeScript declarations and actual omission detection.
+[Concrete class aliases](concrete-generics.md) select real Dart instantiations
+with resolved member substitutions and invariant selected JavaScript handles.
 Both also generate [retained and async callbacks](callbacks.md), with shared
 scalar/List/record conversions, weak adapter identity and exact JS failures.
 Both generate [Stream async iterators](streams.md) with a shared subscription
