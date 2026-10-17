@@ -8,6 +8,18 @@ final dictionaryDeclaration = DeclarationId(
   kind: DeclarationKind.extensionType,
 );
 
+final abortSignalDeclaration = DeclarationId(
+  Uri.parse('package:napi/src/api/cancellation.dart'),
+  'AbortSignal',
+  kind: DeclarationKind.classType,
+);
+
+bool isAbortSignalType(BindingType type) =>
+    type is DeclaredType &&
+    type.declaration == abortSignalDeclaration &&
+    type.typeArguments.isEmpty &&
+    type.nullability != TypeNullability.legacy;
+
 final class BindingDiagnostic implements Exception {
   final String code;
   final String message;
@@ -1591,7 +1603,20 @@ void validateValueType(
   ValueDirection direction = ValueDirection.output,
   Set<DeclarationId> opaqueParameters = const {},
   bool allowCallback = false,
+  bool allowAbortSignal = false,
 }) {
+  if (allowAbortSignal &&
+      direction == ValueDirection.input &&
+      isAbortSignalType(type)) {
+    return;
+  }
+  if (_containsAbortSignal(type)) {
+    throw BindingDiagnostic(
+      'NAPI_CANCELLATION',
+      'AbortSignal requires a direct input; signal outputs, containers and callback payloads are not supported.',
+      source,
+    );
+  }
   if (allowCallback &&
       direction == ValueDirection.input &&
       type is FunctionTypeBinding) {
@@ -1636,6 +1661,21 @@ void validateValueType(
     );
   }
 }
+
+bool _containsAbortSignal(BindingType type) => switch (type) {
+  DeclaredType() =>
+    type.declaration == abortSignalDeclaration ||
+        type.typeArguments.any(_containsAbortSignal),
+  RecordTypeBinding() =>
+    type.positional.any(_containsAbortSignal) ||
+        type.named.values.any(_containsAbortSignal),
+  FunctionTypeBinding() =>
+    _containsAbortSignal(type.result) ||
+        type.parameters.any(
+          (parameter) => _containsAbortSignal(parameter.type),
+        ),
+  _ => false,
+};
 
 bool _containsCallback(BindingType type) => switch (type) {
   FunctionTypeBinding() => true,
@@ -1829,6 +1869,7 @@ void validateCallParameters(
         direction: ValueDirection.input,
         opaqueParameters: opaqueParameters,
         allowCallback: true,
+        allowAbortSignal: true,
       );
     } else if (!opaque &&
         !_isBackendScalar(parameter.type) &&

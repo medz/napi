@@ -14,7 +14,10 @@ generic TypeScript declarations and actual omission detection.
 Both also generate [retained and async callbacks](callbacks.md), with shared
 scalar/List/record conversions, weak adapter identity and exact JS failures.
 Both generate [Stream async iterators](streams.md) with a shared subscription
-kernel and the existing backend delivery transports. Shared-buffer lifetimes, other native targets and
+kernel and the existing backend delivery transports. Explicit
+[AbortSignal inputs](cancellation.md) share cooperative cancellation and retained
+token ownership, reusing the native owner queue without an ABI change.
+Shared-buffer lifetimes, other native targets and
 automatic runtime supply remain development work; see [native scope](native.md).
 
 ## Public contract

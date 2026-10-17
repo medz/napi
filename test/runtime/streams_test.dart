@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:napi/napi.dart';
 import 'package:napi/runtime.dart';
 import 'package:test/test.dart';
 
@@ -7,6 +8,7 @@ NapiStream<T, _Box<T>> _binding<T>(
   Stream<T> source, {
   List<Object?> roots = const [],
   ResourceOperation? operation,
+  List<AbortSignal> signals = const [],
   void Function(_Box<T>)? release,
   bool publish = true,
 }) {
@@ -16,6 +18,7 @@ NapiStream<T, _Box<T>> _binding<T>(
     releaseSnapshot: release,
     roots: roots,
     operation: operation,
+    signals: signals,
   );
   if (publish) state.finishCreation(true);
   return state;
@@ -652,6 +655,270 @@ void main() {
       error.release();
     },
   );
+
+  test(
+    'abort before first read never subscribes and reports one exact reason',
+    () async {
+      var listens = 0;
+      final source = StreamController<int>(onListen: () => listens++);
+      final signal = _Signal()..abort();
+      final state = _binding(source.stream, signals: [signal]);
+      final failed = await state.next();
+      expect(listens, 0);
+      expect(failed.error, same(signal.reason));
+      failed.release();
+      final done = await state.next();
+      expect(done.kind, StreamDeliveryKind.done);
+      done.release();
+      (await state.return_()).release();
+    },
+  );
+
+  test(
+    'failed signal attachment removes earlier listeners and releases inputs',
+    () async {
+      final control = ResourceControl.forObject(Object());
+      final operation = ResourceOperation()..retain(control);
+      final first = _Signal(), second = _Signal();
+      final failure = StateError('arm');
+      second.onArm = () => throw failure;
+      var listened = false;
+      final source = StreamController<int>(onListen: () => listened = true);
+      expect(
+        () => _binding(
+          source.stream,
+          operation: operation,
+          signals: [first, second],
+        ),
+        throwsA(same(failure)),
+      );
+      var cleaned = false;
+      await control.dispose(() => cleaned = true);
+      expect(cleaned, isTrue);
+      expect(listened, isFalse);
+      expect(first.disarms, 1);
+      expect(second.disarms, 1);
+    },
+  );
+
+  test(
+    'fresh abort before next prevents listening before owner notification',
+    () async {
+      var listens = 0;
+      final source = StreamController<int>(onListen: () => listens++);
+      final signal = _Signal();
+      final state = _binding(source.stream, signals: [signal]);
+      signal.requested = true;
+      final error = await state.next();
+      expect(error.error, same(signal.reason));
+      expect(listens, 0);
+      error.release();
+      signal.notifyAbort();
+      final done = await state.next();
+      expect(done.kind, StreamDeliveryKind.done);
+      done.release();
+      expect(signal.disarms, 1);
+    },
+  );
+
+  test(
+    'fresh abort rejects a queued value but preserves accepted delivery',
+    () async {
+      final source = StreamController<int>.broadcast(sync: true);
+      final signal = _Signal();
+      final dropped = <int>[];
+      final state = _binding(
+        source.stream,
+        signals: [signal],
+        release: (box) => dropped.add(box.value),
+      );
+      final first = state.next();
+      source.add(1);
+      source.add(2);
+      final accepted = await first;
+      signal.requested = true;
+      final failed = state.next();
+      expect(dropped, [2]);
+      expect(accepted.value!.value, 1);
+      accepted.release();
+      final error = await failed;
+      expect(error.error, same(signal.reason));
+      error.release();
+      expect(dropped, [2, 1]);
+      signal.notifyAbort();
+      final done = await state.next();
+      expect(done.kind, StreamDeliveryKind.done);
+      done.release();
+      await source.close();
+    },
+  );
+
+  test('abort discards only queued items and waits for cancellation and accepted ACK', () async {
+    final gate = Completer<void>();
+    var cancels = 0;
+    late void Function(int) send;
+    final source = _Stream<int>((data, error, done) {
+      send = data;
+      return _Subscription(
+        onCancel: () {
+          cancels++;
+          return gate.future;
+        },
+      );
+    });
+    final signal = _Signal();
+    final dropped = <int>[];
+    final state = _binding(
+      source,
+      signals: [signal, signal],
+      roots: [Object()],
+      release: (box) => dropped.add(box.value),
+    );
+    final read = state.next();
+    send(1);
+    send(2);
+    final accepted = await read;
+    signal.abort();
+    await _turns();
+    expect(cancels, 1);
+    expect(dropped, [2]);
+    final failed = state.next();
+    var completed = false;
+    failed.then((_) => completed = true);
+    await _turns();
+    expect(completed, isFalse);
+    gate.complete();
+    await _turns();
+    expect(completed, isFalse);
+    expect(state.retainedInputs, isNotEmpty);
+    accepted.release();
+    final error = await failed;
+    expect(error.error, same(signal.reason));
+    expect(state.retainedInputs, isNotEmpty);
+    error.release();
+    expect(dropped, [2, 1]);
+    expect(state.retainedInputs, isEmpty);
+    final done = await state.next();
+    expect(done.kind, StreamDeliveryKind.done);
+    done.release();
+    expect(signal.disarms, 1);
+  });
+
+  test(
+    'return wins a later abort and leaves business registrations intact',
+    () async {
+      final signal = _Signal();
+      var notifications = 0;
+      signal.onAbort(() => notifications++);
+      final source = StreamController<int>();
+      final state = _binding(source.stream, signals: [signal]);
+      final returned = state.return_();
+      signal.abort();
+      (await returned).release();
+      await _turns();
+      expect(notifications, 1);
+      final done = await state.next();
+      expect(done.kind, StreamDeliveryKind.done);
+      done.release();
+    },
+  );
+
+  test(
+    'a prior source error wins and removes the queued abort notification',
+    () async {
+      final source = StreamController<int>(sync: true);
+      final signal = _Signal();
+      final state = _binding(source.stream, signals: [signal]);
+      final read = state.next();
+      signal.abort();
+      final sourceError = StateError('source observed first');
+      // The host request is queued; this source failure is observed first.
+      source.addError(sourceError);
+      final error = await read;
+      expect(error.error, same(sourceError));
+      error.release();
+      await _turns();
+      final done = await state.next();
+      expect(done.kind, StreamDeliveryKind.done);
+      done.release();
+      expect(signal.disarms, 1);
+      await source.close();
+    },
+  );
+
+  test('natural completion detaches only its binding registration', () async {
+    final source = StreamController<int>(sync: true);
+    final signal = _Signal();
+    var notifications = 0;
+    signal.onAbort(() => notifications++);
+    final state = _binding(source.stream, signals: [signal]);
+    final read = state.next();
+    await source.close();
+    (await read).release();
+    expect(signal.disarms, 0);
+    signal.abort();
+    await _turns();
+    expect(notifications, 1);
+    expect(signal.disarms, 1);
+  });
+
+  test(
+    'abort reason and owner close cancellation failure keep distinct outcomes',
+    () async {
+      final control = ResourceControl.forObject(Object());
+      final operation = ResourceOperation()..retain(control);
+      final cancellation = Completer<void>();
+      final cancelError = StateError('cancel');
+      final source = StreamController<int>(onCancel: () => cancellation.future);
+      final signal = _Signal();
+      final state = _binding(
+        source.stream,
+        operation: operation,
+        signals: [signal],
+      );
+      final read = state.next();
+      signal.abort();
+      await _turns();
+      var cleanups = 0;
+      final closed = control.dispose(() => cleanups++);
+      final closeFailure = expectLater(closed, throwsA(same(cancelError)));
+      cancellation.completeError(cancelError);
+      final error = await read;
+      expect(error.error, same(signal.reason));
+      expect(cleanups, 0);
+      error.release();
+      await closeFailure;
+      expect(cleanups, 1);
+      final returned = await state.return_();
+      expect(returned.error, same(cancelError));
+      returned.release();
+      await source.close();
+    },
+  );
+}
+
+final class _Signal extends NapiAbortSignal {
+  bool requested = false;
+  int disarms = 0;
+  final Object reason = StateError('abort');
+  void Function()? onArm;
+
+  void abort() {
+    requested = true;
+    notifyAbort();
+  }
+
+  @override
+  bool get aborted => requested;
+  @override
+  void throwIfAborted() {
+    if (requested) throw reason;
+  }
+
+  @override
+  void armAbort() => onArm?.call();
+  @override
+  void disarmAbort() => disarms++;
 }
 
 final class _Box<T> {

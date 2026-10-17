@@ -6,6 +6,7 @@ import '../emit/dart/entrypoint.dart' show renderDartDefault;
 import '../ir/model.dart';
 import '../lowering/plan.dart'
     show
+        AbortSignalConversion,
         CallbackConversion,
         DictionaryConversion,
         ListConversion,
@@ -38,6 +39,9 @@ String emitNativeDart(NativeModulePlan plan) {
     (call) => call.inputs.any(
       (value) => value is CallbackConversion && value.returnsFuture,
     ),
+  );
+  final hasSignals = plan.calls.any(
+    (call) => call.inputs.any((value) => value is AbortSignalConversion),
   );
   final hasOpaque =
       plan.classes.any(
@@ -78,9 +82,11 @@ String emitNativeDart(NativeModulePlan plan) {
   }
   if (hasDictionary) {
     code.writeln("import 'dart:convert' show jsonEncode;");
+  }
+  if (hasDictionary || hasSignals) {
     code.writeln("import 'package:napi/napi.dart' as napi;");
   }
-  if (hasStructures || hasFutures || hasOpaque || hasCallbacks) {
+  if (hasStructures || hasFutures || hasOpaque || hasCallbacks || hasSignals) {
     code.writeln("import 'dart:ffi';");
   }
   code.write('''
@@ -124,7 +130,7 @@ List<Object?> napiBindings(int apiTableAddress, int tableCount) {
 }
 @pragma('vm:entry-point')
 void releaseOwner(int id) => _api.releaseOwner(id);
-${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int token) => _api.releaseFuture(token);\n" : ''}${hasAsyncCallbacks ? "@pragma('vm:entry-point')\nFunction? acceptCallback(int env, int token, bool rejected, int value) => _api.acceptCallback(env, token, rejected, value);\n" : ''}void main() {}
+${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int token) => _api.releaseFuture(token);\n" : ''}${hasAsyncCallbacks || hasSignals ? "@pragma('vm:entry-point')\nObject? acceptCallback(int env, int token, bool rejected, int value) => _api.acceptCallback(env, token, rejected, value);\n" : ''}void main() {}
 ''');
   if (plan.classes.isNotEmpty || hasStreams) {
     if (hasResources) {
@@ -191,6 +197,9 @@ ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int toke
     final hasCallbackInputs = call.inputs.any(
       (value) => value is CallbackConversion,
     );
+    final hasSignalInputs = call.inputs.any(
+      (value) => value is AbortSignalConversion,
+    );
     final positionalCount = parameters.where((p) => !_named(p)).length;
     final named = parameters.where(_named).toList();
     final capacity = positionalCount + (named.isEmpty ? 0 : 1);
@@ -198,6 +207,7 @@ ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int toke
         !retainsResources &&
         !hasOpaqueInputs &&
         !hasCallbackInputs &&
+        !hasSignalInputs &&
         !call.returnsFuture &&
         !call.returnsStream &&
         call.function != null &&
@@ -257,6 +267,7 @@ ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int toke
         (retainsResources ||
             hasOpaqueInputs ||
             hasCallbackInputs ||
+            hasSignalInputs ||
             call.returnsFuture ||
             call.returnsStream ||
             call.inputs.any(containsValueClass));
@@ -367,6 +378,10 @@ ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int toke
         code.writeln('    a$index = _api.ownHostValue(call.env, raw$index);');
       } else if (conversion is CallbackConversion) {
         _readCallback(code, conversion, index, structures, hasResources);
+      } else if (conversion is AbortSignalConversion) {
+        code.writeln(
+          '    a$index = ${conversion.nullable ? '_api.isNull(call.env, raw$index) ? null : ' : ''}_api.abortSignal(call.env, raw$index, $path);',
+        );
       } else if (conversion is ScalarConversion) {
         final converted =
             '_api.${nativeScalarReader(conversion)}(call.env, raw$index, $path)';
@@ -416,6 +431,11 @@ ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int toke
     };
     if (call.returnsFuture) {
       if (call.isCleanup) {
+        if (hasSignalInputs) {
+          code.writeln('    if (control.state == ResourceState.open) {');
+          _checkSignals(code, call);
+          code.writeln('    }');
+        }
         code.writeln('''    final (promise, first) = _api.bindCleanupFuture(envAddress, token, control);
     if (!first) return promise;''');
       }
@@ -423,6 +443,7 @@ ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int toke
         '    _api.retainFuture(token, [${[if (call.owner != null && !call.isStatic) 'object', for (var i = 0; i < parameters.length; i++) 'a$i'].join(', ')}]${retainsResources && call.output != null && call.output is! ScalarConversion ? ', observeEnv: envAddress' : ''});',
       );
       code.writeln('    final env = Pointer<Void>.fromAddress(envAddress);');
+      if (!call.isCleanup) _checkSignals(code, call);
       code.writeln(
         '    _api.completeFuture(envAddress, token, ${call.isCleanup ? 'control.dispose(() => $invocation)' : invocation}, (value) {',
       );
@@ -434,6 +455,7 @@ ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int toke
         '    return 0;\n  }\n}',
       );
     } else {
+      _checkSignals(code, call);
       if (call.returnsStream) {
         code.writeln('    final stream = $invocation;');
         code.writeln('    final streamEnv = call.env;');
@@ -442,7 +464,8 @@ ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int toke
         );
         _writeResult(code, call.output, structures, 'streamEnv');
         code.writeln(
-          '    }), releaseSnapshot: (value) => value.release(), roots: [${[if (hasReceiver) 'object', for (var i = 0; i < parameters.length; i++) 'a$i'].join(', ')}]${retainsResources ? ', operation: operation' : ''});',
+          '    }), releaseSnapshot: (value) => value.release(), roots: [${[if (hasReceiver) 'object', for (var i = 0; i < parameters.length; i++) 'a$i'].join(', ')}]${retainsResources ? ', operation: operation' : ''}${hasSignalInputs ? ', signals: [${[for (final (i, input) in call.inputs.indexed)
+                  if (input is AbortSignalConversion) '${input.nullable ? 'if (a$i != null) ' : ''}a$i'].join(', ')}]' : ''});',
         );
         if (retainsResources) {
           code.writeln('    operationTransferred = true;');
@@ -522,6 +545,14 @@ ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int toke
     code.write(structures.source);
   }
   return code.toString();
+}
+
+void _checkSignals(StringBuffer code, NativeCallPlan call) {
+  for (final (index, input) in call.inputs.indexed) {
+    if (input is AbortSignalConversion) {
+      code.writeln('    a$index${input.nullable ? '?' : ''}.throwIfAborted();');
+    }
+  }
 }
 
 void _readCallback(

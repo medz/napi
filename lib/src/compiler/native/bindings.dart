@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
 
+import '../../runtime/cancellation.dart';
 import '../../runtime/resources.dart';
 import '../../runtime/retention.dart';
 
@@ -509,6 +510,76 @@ final class _NativeJsException implements Exception {
   _NativeJsException(this.value);
 }
 
+// The source signal owns only a weak host listener. Ordinary Dart reachability
+// owns this control and its source; waiting for abort never creates a strong
+// pending callback entry.
+final class _NativeAbortSignal extends NapiAbortSignal {
+  final NapiApi _api;
+  final Pointer<Void> _env;
+  final NativeHostValue _control;
+  late final _NativeSignalEntry _entry;
+  _NativeAbortSignal(this._api, this._env, this._control);
+
+  T _command<T>(
+    int operation,
+    T Function(Pointer<Void>, Pointer<Void>) read, [
+    int token = 0,
+  ]) => _api._invokeCallback(
+    _env,
+    nullptr,
+    2,
+    (env, arguments) {
+      arguments[0] = Pointer.fromAddress(
+        _api.integerResult(env, operation, 'signal operation'),
+      );
+      arguments[1] = Pointer.fromAddress(
+        _api.integerResult(env, token, 'signal token'),
+      );
+    },
+    read,
+    owned: _control,
+  );
+
+  @override
+  bool get aborted =>
+      _command(0, (env, value) => _api.boolean(env, value, 'signal.aborted'));
+
+  @override
+  void throwIfAborted() => _command<void>(1, (_, _) {});
+
+  @override
+  void armAbort() {
+    final token = _api._nextCallback++;
+    if (token > 9007199254740991) {
+      throw StateError('Native callback token space exhausted');
+    }
+    _entry.delivery = token;
+    (_api._signalDeliveries ??= {})[token] = _entry;
+    try {
+      _command<void>(2, (_, _) {}, token);
+    } catch (_) {
+      _api._signalDeliveries!.remove(token);
+      _entry.delivery = 0;
+      rethrow;
+    }
+  }
+
+  @override
+  void disarmAbort() {
+    _api._signalDeliveries?.remove(_entry.delivery);
+    _entry.delivery = 0;
+    _command<void>(3, (_, _) {});
+  }
+}
+
+final class _NativeSignalEntry {
+  final int identity;
+  final WeakReference<_NativeAbortSignal> target;
+  int delivery = 0;
+  _NativeSignalEntry(this.identity, _NativeAbortSignal signal)
+    : target = WeakReference(signal);
+}
+
 // The typed adapter owns this handle by ordinary Dart reachability. The weak
 // identity cache never owns the adapter or the JavaScript function.
 final class NativeCallback {
@@ -758,6 +829,62 @@ final class NapiApi {
   var _nextCallbackAdapter = 0;
   var _nextCallback = 1;
   late final _pendingCallbacks = <int, _NativeCallbackPending>{};
+  late final _signals = <int, _NativeSignalEntry>{};
+  Map<int, _NativeSignalEntry>? _signalDeliveries;
+  late final _signalFinalizer = Zone.root.run(
+    () => Finalizer<_NativeSignalEntry>((entry) {
+      if (identical(_signals[entry.identity], entry)) {
+        _signals.remove(entry.identity);
+      }
+      if (identical(_signalDeliveries?[entry.delivery], entry)) {
+        _signalDeliveries!.remove(entry.delivery);
+      }
+    }),
+  );
+
+  NapiAbortSignal abortSignal(
+    Pointer<Void> env,
+    Pointer<Void> value,
+    String path,
+  ) {
+    if (typeOf(env, value) != 6) {
+      throw NapiTypeError('$path: expected AbortSignal');
+    }
+    final identity = _hostIdentity(env, value);
+    final previous = _signals[identity]?.target.target;
+    if (previous != null) return previous;
+    final control = _invokeCallback(env, _getCallbackHelper(env, 1), 3, (
+      env,
+      arguments,
+    ) {
+      arguments[0] = Pointer.fromAddress(nullResult(env));
+      arguments[1] = value;
+      arguments[2] = Pointer.fromAddress(stringResult(env, path));
+    }, ownHostValue);
+    try {
+      final signal = _NativeAbortSignal(this, env, control);
+      final entry = _NativeSignalEntry(identity, signal);
+      signal._entry = entry;
+      _signals[identity] = entry;
+      _signalFinalizer.attach(signal, entry);
+      return signal;
+    } catch (_) {
+      control.release();
+      rethrow;
+    }
+  }
+
+  int _hostIdentity(Pointer<Void> env, Pointer<Void> value) {
+    final out = _allocate<Int64>(1, sizeOf<Int64>());
+    try {
+      _check(_callbackIdentity(env, value, out));
+      return out.value;
+    } catch (error, stack) {
+      Error.throwWithStackTrace(_callbackError(env, error), stack);
+    } finally {
+      _free(out.cast());
+    }
+  }
 
   void checkCallback(Pointer<Void> env, Pointer<Void> value, String path) {
     if (typeOf(env, value) != 7) {
@@ -774,16 +901,7 @@ final class NapiApi {
     bool prechecked = false,
   }) {
     if (!prechecked) checkCallback(env, value, path);
-    final int identity;
-    final out = _allocate<Int64>(1, sizeOf<Int64>());
-    try {
-      _check(_callbackIdentity(env, value, out));
-      identity = out.value;
-    } catch (error, stack) {
-      Error.throwWithStackTrace(_callbackError(env, error), stack);
-    } finally {
-      _free(out.cast());
-    }
+    final identity = _hostIdentity(env, value);
     // Signatures are bounded by this module's declarations. Separate integer
     // keys avoid allocating a tuple on every cache hit.
     final entries = _callbackAdapters[signature] ??= {};
@@ -807,18 +925,27 @@ final class NapiApi {
   }
 
   /// Owner-pump entry only; no borrowed handle escapes this synchronous drain.
-  Function? acceptCallback(
+  Object? acceptCallback(
     int envAddress,
     int token,
     bool rejected,
     int valueAddress,
   ) {
-    final entry = _pendingCallbacks.remove(token);
-    if (entry == null) return null;
     final env = Pointer<Void>.fromAddress(envAddress);
     if (_hostEnv != env) {
       throw StateError('Callback completed in a different environment');
     }
+    final signalEntry = _signalDeliveries?.remove(token);
+    if (signalEntry != null) {
+      signalEntry.delivery = 0;
+      final signal = signalEntry.target.target;
+      signal?.notifyAbort();
+      // Return the live token through the C handle scope, just like the typed
+      // adapter below. The weak queue does not become a persistent Dart root.
+      return signal;
+    }
+    final entry = _pendingCallbacks.remove(token);
+    if (entry == null) return null;
     entry.complete(env, Pointer<Void>.fromAddress(valueAddress), rejected);
     // Return the typed adapter through the native root entrypoint so AOT cannot
     // discard this root as a write-only field. The Dart API handle keeps it

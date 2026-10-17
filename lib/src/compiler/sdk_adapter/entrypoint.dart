@@ -43,7 +43,8 @@ final class _NapiHostValue {
 
 /// Cached adapters retain their JS function while reachable from Dart. Exception
 /// envelopes have a separate traced lifetime across catch/save/rethrow calls.
-const callbackEntrypointPrelude = r'''
+const callbackEntrypointPrelude =
+    r'''
 @pragma('wasm:import', 'napi.findCallbackAdapter')
 external WasmExternRef? _findCallbackAdapter(WasmExternRef callback, WasmExternRef signature);
 @pragma('wasm:import', 'napi.cacheCallbackAdapter')
@@ -54,16 +55,68 @@ external WasmExternRef _invokeCallback(WasmExternRef callback, WasmExternRef arg
 external WasmI32 _callbackThrew(WasmExternRef envelope);
 @pragma('wasm:import', 'napi.callbackValue')
 external WasmExternRef? _callbackValue(WasmExternRef envelope);
+@pragma('wasm:import', 'napi.callbackStructureError')
+external WasmExternRef _callbackStructureError(WasmExternRef path, WasmExternRef message, WasmI32 range);
+''' +
+    callbackErrorEntrypointPrelude;
+
+/// Exact host failures also carry AbortSignal reasons, including raw undefined.
+const callbackErrorEntrypointPrelude = r'''
 @pragma('wasm:import', 'napi.throwCallbackError')
 external WasmExternRef? _throwCallbackError(WasmExternRef envelope);
 @pragma('wasm:import', 'napi.rejectCallbackPromise')
 external void _rejectCallbackPromise(WasmExternRef capability, WasmExternRef envelope);
-@pragma('wasm:import', 'napi.callbackStructureError')
-external WasmExternRef _callbackStructureError(WasmExternRef path, WasmExternRef message, WasmI32 range);
 
 final class _CallbackThrown implements Exception {
   final WasmExternRef envelope;
   _CallbackThrown(this.envelope);
+}
+''';
+
+const cancellationEntrypointPrelude = r'''
+@pragma('wasm:import', 'napi.abortSignalTarget')
+external WasmExternRef? _abortSignalTarget(WasmExternRef companion);
+@pragma('wasm:import', 'napi.bindAbortSignal')
+external void _bindAbortSignal(WasmExternRef companion, WasmExternRef token);
+@pragma('wasm:import', 'napi.abortSignalAborted')
+external WasmI32 _abortSignalAborted(WasmExternRef companion);
+@pragma('wasm:import', 'napi.abortSignalReason')
+external WasmExternRef _abortSignalReason(WasmExternRef companion);
+@pragma('wasm:import', 'napi.armAbortSignal')
+external WasmExternRef? _armAbortSignal(WasmExternRef companion);
+@pragma('wasm:import', 'napi.detachAbortSignal')
+external void _detachAbortSignal(WasmExternRef companion);
+
+@pragma('wasm:export', 'napi:signal:notify')
+void _notifyAbortSignal(WasmExternRef reference) {
+  (reference.internalize().toObject() as _NapiAbortSignal).notifyAbort();
+}
+
+final class _NapiAbortSignal extends NapiAbortSignal {
+  // Dart 3.13.5 emits an invalid empty constant for non-null externref storage
+  // on this interface implementation. Admission still supplies a non-null host.
+  final WasmExternRef? companion;
+  _NapiAbortSignal(WasmExternRef companion) : companion = companion;
+  @override
+  bool get aborted => _abortSignalAborted(companion!).toIntSigned() != 0;
+  @override
+  void throwIfAborted() {
+    if (aborted) throw _CallbackThrown(_abortSignalReason(companion!));
+  }
+  @override
+  void armAbort() {
+    final failure = _armAbortSignal(companion!);
+    if (!failure.isNull) throw _CallbackThrown(failure!);
+  }
+  @override
+  void disarmAbort() { _detachAbortSignal(companion!); }
+}
+napi.AbortSignal _abortSignal(WasmExternRef companion) {
+  final cached = _abortSignalTarget(companion);
+  if (!cached.isNull) return cached!.internalize().toObject() as _NapiAbortSignal;
+  final token = _NapiAbortSignal(companion);
+  _bindAbortSignal(companion, WasmAnyRef.fromObject(token).externalize());
+  return token;
 }
 ''';
 

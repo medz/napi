@@ -3,6 +3,7 @@ import 'dart:convert';
 import '../../lowering/plan.dart';
 import 'arguments.dart';
 import 'callbacks.dart';
+import 'cancellation.dart';
 import 'structural.dart';
 import 'settlement.dart';
 import 'streams.dart';
@@ -11,6 +12,7 @@ String emitBoundary(ModulePlan plan) {
   final conversions = plan.conversions;
   final resources = plan.resourcePolicies.isNotEmpty;
   final streams = plan.calls.any((call) => call.returnsStream);
+  final signals = conversions.any((c) => c is AbortSignalConversion);
   final policies = [
     for (final c in conversions)
       if (c is ScalarConversion) scalarPolicy(c) else null,
@@ -37,6 +39,7 @@ String emitBoundary(ModulePlan plan) {
   };
   return '''// Generated JS imports for the Wasm boundary, not a consumer entry.
 ${plan.classes.isEmpty ? '' : "import {readReference, writeReference} from './references.mjs';"}
+${signals ? '$cancellationPolicy\n$wasmCancellationPolicy' : ''}
 ${resources ? '$settlementObserver\n' : ''}const policies = ${jsonEncode(policies)};
 function checkedScalar(value, policy, path) {
   if (value === null && policy.nullable) return null;
@@ -76,15 +79,13 @@ export function throwDartError(message) { throw new Error(message); }
 ${plan.calls.any((call) => call.returnsFuture) || streams ? '${emitFuturePolicy(resources: resources, streams: streams)}\n' : ''}${resources ? resourcePolicy : ''}${streams ? streamBoundaryPolicy(references: plan.classes.isNotEmpty) : ''}${structures.isEmpty && callbacks.isEmpty ? '' : structuralPolicy}
 ${conversions.any(_containsMap) ? mapStructuralPolicy : ''}
 ${conversions.any(containsDictionary) ? dictionaryStructuralPolicy : ''}
-${structures.values.map((s) => s.source).join('\n')}${callbacks.isEmpty ? '' : '\n${_emitCallbacks(callbacks, futures: plan.calls.any((call) => call.returnsFuture) || streams)}'}
+${structures.values.map((s) => s.source).join('\n')}${callbacks.isEmpty ? '' : '\n${_emitCallbacks(callbacks)}'}
+${callbacks.isNotEmpty || signals ? _emitCallbackErrors(futures: plan.calls.any((call) => call.returnsFuture) || streams) : ''}
 ${plan.classes.isNotEmpty || plan.functions.any((f) => f.representation == ExportRepresentation.callableGlobal) ? argumentPolicy : ''}
 ''';
 }
 
-String _emitCallbacks(
-  Map<int, CallbackConversion> callbacks, {
-  required bool futures,
-}) {
+String _emitCallbacks(Map<int, CallbackConversion> callbacks) {
   final asynchronous = callbacks.values.any(
     (callback) => callback.returnsFuture,
   );
@@ -118,7 +119,6 @@ export function cacheCallbackAdapter(callback, signature, adapter) {
 }
 export function callbackThrew(envelope) { return envelope.threw ? 1 : 0; }
 export function callbackValue(envelope) { return envelope.value; }
-export function throwCallbackError(envelope) { throw envelope.value; }
 export function callbackStructureError(path, message, range) {
   return {threw: true, value: range ? new RangeError(path + ': ' + message) : new TypeError(path + ': ' + message)};
 }
@@ -217,13 +217,14 @@ $asynchronousCases      default: throw new Error('Unknown async callback convers
   }
 }''');
   }
-  if (futures) {
-    source.writeln(
-      'export function rejectCallbackPromise(capability, envelope) { rejectPromise(capability, envelope.value); }',
-    );
-  }
   return source.toString();
 }
+
+String _emitCallbackErrors({required bool futures}) =>
+    '''
+export function throwCallbackError(envelope) { throw envelope.value; }
+${futures ? 'export function rejectCallbackPromise(capability, envelope) { rejectPromise(capability, envelope.value); }' : ''}
+''';
 
 /// Private capabilities keep conversion and JS exception handling in JS. Their
 /// raw Dart roots last through resolver handoff, including then-getter reentry.

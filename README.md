@@ -38,6 +38,7 @@ See [the architecture and delivery plan](doc/architecture.md) and
 - Resource cleanup with shared state, stable completion identity and operation leases through Promise settlement
 - Typed callbacks with scalar/List/record conversions, weak adapter identity, retained ownership and Promise results
 - Stream async iterators with FIFO reads, bounded snapshots, cancellation and resource cleanup integration
+- Explicit AbortSignal inputs with cooperative Future cancellation and once-only Stream subscription cancellation
 - Direct imports, installed package resolution, artifact inspection, and strict TypeScript tests
 - Fresh Wasm and native npm assembly with explicit assets and atomic publication
 - Shared scalar/default/class consumer contracts for Wasm and native
@@ -56,7 +57,8 @@ specialization and replacement builds remain work in
 [scalar conversion contract](doc/scalars.md), [argument presence and defaults](doc/arguments.md),
 [structural values](doc/structural.md), [value classes](doc/values.md),
 [reference classes](doc/classes.md), [opaque payloads](doc/opaque.md), [resource cleanup](doc/resources.md),
-[Future exports](doc/futures.md), [callbacks](doc/callbacks.md), [streams](doc/streams.md), and
+[Future exports](doc/futures.md), [callbacks](doc/callbacks.md), [streams](doc/streams.md),
+[explicit cancellation](doc/cancellation.md), and
 [npm package assembly](doc/packaging.md).
 Annotated sources import `package:napi/napi.dart`; separate Dart VM build scripts
 use `buildPackage` from `package:napi/build.dart` for a fresh npm package, or

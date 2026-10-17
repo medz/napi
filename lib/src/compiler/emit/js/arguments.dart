@@ -53,7 +53,7 @@ String emitArgumentCalls(ModulePlan plan) {
   );
   final result = StringBuffer('''// Generated private callable dependency.
 import * as core from './core.wasm';
-import {useDefault, readOptions${plan.calls.any((call) => call.returnsFuture) || streams ? ', createPromise, rejectPromise' : ''}${streams ? ', retainPromise' : ''}${plan.resourcePolicies.isNotEmpty ? ', createResourceCall, finishResourceCall, retainResourceReference' : ''}${plan.conversions.any((c) => c is CallbackConversion) ? ', checkCallback' : ''}} from './boundary.mjs';
+import {useDefault, readOptions${plan.calls.any((call) => call.returnsFuture) || streams ? ', createPromise, rejectPromise' : ''}${streams ? ', retainPromise' : ''}${plan.resourcePolicies.isNotEmpty ? ', createResourceCall, finishResourceCall, retainResourceReference' : ''}${plan.conversions.any((c) => c is CallbackConversion) ? ', checkCallback' : ''}${plan.conversions.any((c) => c is AbortSignalConversion) ? ', prepareAbortSignal' : ''}} from './boundary.mjs';
 ''');
   if (streams) result.writeln(streamFacadePolicy);
   if (plan.classes.isNotEmpty) {
@@ -393,8 +393,10 @@ String _arguments(
   }
   String reference(int i) =>
       '${_optional(parameters[i]) ? 'd$i ? null : ' : ''}${retainReferences ? 'retainResourceReference(capability, ' : ''}unwrap${(call.inputs[i] as ReferenceConversion).classId}(p$i, ${jsonEncode(call.inputs[i].context)}, ${call.inputs[i].nullable})${retainReferences ? ')' : ''}';
-  final callbacks = call.inputs.any((c) => c is CallbackConversion);
-  if (callbacks) {
+  final directInputs = call.inputs.any(
+    (c) => c is CallbackConversion || c is AbortSignalConversion,
+  );
+  if (directInputs) {
     // Match Native: complete presence and direct-reference admission before
     // binding callbacks, then enter Dart's per-parameter value conversion.
     for (final (i, conversion) in call.inputs.indexed) {
@@ -407,6 +409,10 @@ String _arguments(
         result.writeln(
           '${indent}const callback$i = ${_optional(parameters[i]) ? 'd$i ? null : ' : ''}checkCallback(p$i, ${conversion.nullable}, ${jsonEncode(conversion.context)});',
         );
+      } else if (conversion is AbortSignalConversion) {
+        result.writeln(
+          '${indent}const signal$i = ${_optional(parameters[i]) ? 'd$i ? null : ' : ''}prepareAbortSignal(p$i, ${conversion.nullable}, ${jsonEncode(conversion.context)}, core["napi:signal:notify"]);',
+        );
       }
     }
   }
@@ -414,11 +420,13 @@ String _arguments(
     for (final (i, p) in parameters.indexed) ...[
       if (_optional(p)) 'd$i ? 1 : 0',
       call.inputs[i] is ReferenceConversion
-          ? callbacks
+          ? directInputs
                 ? 'reference$i'
                 : reference(i)
           : call.inputs[i] is CallbackConversion
           ? 'callback$i'
+          : call.inputs[i] is AbortSignalConversion
+          ? 'signal$i'
           : 'p$i',
     ],
   ].join(', ');

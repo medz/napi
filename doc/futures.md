@@ -119,8 +119,9 @@ original object as the fulfillment value of a root thenable.
 Future/Promise inputs, `FutureOr`, nullable outer Futures, nested Future payloads,
 `async void`, synchronous generators and still-unsupported payload types produce
 build diagnostics. `async* Stream<T>` uses the separate [stream adapter](streams.md).
-[Callbacks](callbacks.md), shared buffers and general cancellation have their
-own contracts and remaining requirements.
+[Callbacks](callbacks.md) and [explicit cancellation](cancellation.md) have their
+own contracts. An AbortSignal input never settles a business Future early;
+shared buffers retain separate requirements.
 
 ## Validation scope
 

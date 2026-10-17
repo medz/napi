@@ -101,8 +101,9 @@ Optional/named parameters inside a callback, generic callback signatures,
 callback outputs, nested callbacks, nullable outer Future results, FutureOr,
 and callback payloads containing bound instances, opaque values, Maps or value
 classes still receive diagnostics. [Stream exports](streams.md) retain input
-callbacks through subscription completion; general cancellation remains separate
-work. A generic payload that happens to be a JS function stays an opaque
+callbacks through subscription completion. [Explicit cancellation](cancellation.md)
+never revokes a retained callback or cancels a JavaScript Promise returned by it.
+A generic payload that happens to be a JS function stays an opaque
 value; it is never inferred to be a callback.
 
 ## Verification

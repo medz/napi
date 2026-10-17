@@ -41,7 +41,7 @@ class Resource {
       expect(generated, contains('callback.invoke<void>'));
       expect(generated, contains('callback.invokeFuture<int>'));
       expect(generated, isNot(contains('NativeBorrowFrame')));
-      expect(generated, contains('Function? acceptCallback('));
+      expect(generated, contains('Object? acceptCallback('));
       expect(
         generated,
         contains('late final Future<int> Function(int) adapter'),

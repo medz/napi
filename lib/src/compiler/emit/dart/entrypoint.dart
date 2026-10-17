@@ -9,6 +9,7 @@ import 'structural.dart';
 String emitDart(ModulePlan plan) {
   final resources = plan.resourcePolicies.isNotEmpty;
   final streams = plan.calls.any((call) => call.returnsStream);
+  final signals = plan.conversions.any((c) => c is AbortSignalConversion);
   final callbacks = {
     for (final (index, conversion) in plan.conversions.indexed)
       if (conversion is CallbackConversion) index: conversion,
@@ -16,15 +17,17 @@ String emitDart(ModulePlan plan) {
   final asyncCallbacks = callbacks.values.any(
     (callback) => callback.returnsFuture,
   );
-  final prelude = callbacks.isEmpty
-      ? entrypointPrelude
-      : withCallbackErrors(entrypointPrelude);
+  final rawErrors = callbacks.isNotEmpty || signals;
+  final prelude = rawErrors
+      ? withCallbackErrors(entrypointPrelude)
+      : entrypointPrelude;
   final source = jsonEncode(plan.source.toString()).replaceAll(r'$', r'\$');
   final result = StringBuffer(
     "import $source as target;\n"
     "${asyncCallbacks || streams ? "import 'dart:async';\n" : ''}"
-    "${resources || streams ? "import 'package:napi/runtime.dart';\n" : ''}"
-    "${plan.conversions.any(containsDictionary) ? "import 'package:napi/napi.dart' as napi;\nimport 'dart:convert' show jsonEncode;\n" : ''}"
+    "${resources || streams || signals ? "import 'package:napi/runtime.dart';\n" : ''}"
+    "${signals || plan.conversions.any(containsDictionary) ? "import 'package:napi/napi.dart' as napi;\n" : ''}"
+    "${plan.conversions.any(containsDictionary) ? "import 'dart:convert' show jsonEncode;\n" : ''}"
     '$prelude\n',
   );
   if (plan.classes.any((c) => c.binding.typeParameters.any((p) => p.opaque)) ||
@@ -35,13 +38,17 @@ String emitDart(ModulePlan plan) {
   }
   if (plan.calls.any((call) => call.returnsFuture) || streams) {
     result.writeln(
-      callbacks.isEmpty
-          ? futureEntrypointPrelude
-          : withCallbackErrors(futureEntrypointPrelude),
+      rawErrors
+          ? withCallbackErrors(futureEntrypointPrelude)
+          : futureEntrypointPrelude,
     );
   }
   if (streams) result.writeln(streamEntrypointPrelude);
   if (callbacks.isNotEmpty) result.writeln(callbackEntrypointPrelude);
+  if (signals) {
+    if (callbacks.isEmpty) result.writeln(callbackErrorEntrypointPrelude);
+    result.writeln(cancellationEntrypointPrelude);
+  }
   if (asyncCallbacks) result.writeln(asyncCallbackEntrypointPrelude);
   if (resources) {
     result.writeln(resourceEntrypointPrelude);
@@ -144,6 +151,10 @@ WasmExternRef _referenceViews(WasmExternRef reference) {
         result.writeln(
           '  a$i = ${conversion.nullable ? 'p$i.isNull ? null : ' : ''}_callback${call.inputContexts[i]}(p$i!);',
         );
+      } else if (conversion is AbortSignalConversion) {
+        result.writeln(
+          '  a$i = ${conversion.nullable ? 'p$i.isNull ? null : ' : ''}_abortSignal(p$i!);',
+        );
       } else if (conversion is OpaqueConversion) {
         result.writeln('  a$i = _NapiHostValue(p$i);');
       } else if (conversion is ReferenceConversion) {
@@ -191,6 +202,7 @@ WasmExternRef _referenceViews(WasmExternRef reference) {
       result.writeln('  ${output.dartType} value;');
     }
     result.writeln('  try {');
+    _checkAbortSignals(result, call);
     if (instance) {
       final owner = call.owner;
       result.writeln(
@@ -286,7 +298,19 @@ String _streamStateExpression(
     'value, snapshot: _snapshotStream$index, '
     'releaseSnapshot: (snapshot) => snapshot.release(), '
     'roots: <Object?>[${[if (instance) 'object', for (var i = 0; i < call.parameters.length; i++) 'a$i'].join(', ')}]'
+    '${call.inputs.any((c) => c is AbortSignalConversion) ? ', signals: <napi.AbortSignal>[${[for (final (i, c) in call.inputs.indexed)
+            if (c is AbortSignalConversion) '${c.nullable ? 'if (a$i != null) ' : ''}a$i'].join(', ')}]' : ''}'
     '${resource ? ', operation: operation' : ''})).externalize()';
+
+void _checkAbortSignals(StringBuffer result, CallPlan call) {
+  for (final (i, conversion) in call.inputs.indexed) {
+    if (conversion is AbortSignalConversion) {
+      result.writeln(
+        '    a$i${conversion.nullable ? '?' : ''}.throwIfAborted();',
+      );
+    }
+  }
+}
 
 void _emitStreamSnapshot(
   StringBuffer result,
@@ -470,6 +494,10 @@ void _emitResourceCall(
       result.writeln(
         '  a$i = ${conversion.nullable ? 'p$i.isNull ? null : ' : ''}_callback${call.inputContexts[i]}(p$i!);',
       );
+    } else if (conversion is AbortSignalConversion) {
+      result.writeln(
+        '  a$i = ${conversion.nullable ? 'p$i.isNull ? null : ' : ''}_abortSignal(p$i!);',
+      );
     } else if (conversion is OpaqueConversion) {
       result.writeln('  a$i = _NapiHostValue(p$i);');
     } else if (conversion is ReferenceConversion) {
@@ -500,6 +528,13 @@ void _emitResourceCall(
     if (_optional(parameter)) result.writeln('  }');
   }
   if (cleanup) {
+    if (call.inputs.any((c) => c is AbortSignalConversion)) {
+      result.writeln('  if (control!.state == ResourceState.open) {');
+      result.writeln('  try {');
+      _checkAbortSignals(result, call);
+      catchDartError();
+      result.writeln('  }');
+    }
     result.writeln(
       '  if (_bindCleanup(capability, WasmAnyRef.fromObject(control!).externalize()).toIntSigned() == 0) return;',
     );
@@ -522,6 +557,7 @@ void _emitResourceCall(
   final invocation = _invocation(call);
   final invoke = cleanup ? 'control.dispose(() => $invocation)' : invocation;
   result.writeln('  try {');
+  if (!cleanup) _checkAbortSignals(result, call);
   result.writeln(
     '    ${call.returnsFuture || call.returnsStream || constructor || output != null ? 'value = ' : ''}$invoke;',
   );

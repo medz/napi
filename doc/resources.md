@@ -134,7 +134,9 @@ operation-lifetime integration. Streams transfer the original call leases and
 notify subscriptions when an owner closes. Cleanup waits for cancellation and
 accepted delivery acknowledgements. Business cleanup errors take priority over
 cancellation errors; otherwise the first cancellation error in registration order
-is forwarded. Shared-buffer views and general cancellation remain separate work.
+is forwarded. [Explicit cancellation](cancellation.md) can request a Stream's
+subscription cancellation; ordinary Futures retain their leases until actual
+completion. Shared-buffer views remain separate work.
 
 ## Settlement observer cost
 

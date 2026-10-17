@@ -84,6 +84,11 @@ cleanup runs once. Its error has priority; if cleanup succeeds, the first stream
 cancellation error in registration order rejects the owner's close Promise.
 Factory, listen and cancellation reentry cannot bypass those leases.
 
+An explicit [AbortSignal input](cancellation.md) also connects to the owned
+subscription. Abort shares the return/close cancellation path, discards unpaired
+items and rejects one read with its exact reason after cancellation and earlier
+delivery acknowledgements. Earlier terminal states retain their outcome.
+
 The facade and pending deliveries own their state without a permanent strong
 stream registry. Completed streams release retained inputs. Dropping an iterator
 does not promise deterministic cancellation or arbitrary cross-heap cycle
