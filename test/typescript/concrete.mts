@@ -47,3 +47,31 @@ new api.BatchCell([new Map([['bad', 'wrong']])]);
 // @ts-expect-error Ordinary constructor retains scalar requirements.
 new api.IntCell('7');
 void [same, named, adopted, number, self, nested, asyncNumber, asyncCell, stream, list, map, pair, batch, returnedLeaf, directCell, selected, wrong];
+
+const session = new api.IntSession(1, 7);
+const decimalSession = new api.DoubleSession(2, 1.5);
+const nullableSession = new api.NullableSession(3, null);
+const sessionCopy: api.IntSession = api.IntSession.from(4, 8);
+const sessionSelf: api.IntSession = session.self();
+const sessionValue: Promise<number> = session.futureValue();
+const heldSession: Promise<number> = api.holdSessions([session], 1);
+const resourceStream: AsyncIterableIterator<number> = session.watch(2);
+const closeSession: Promise<void> = session.close(undefined, () => {});
+const closeNullable: Promise<void> = nullableSession.shutdown({fail: false});
+const closeVoid: Promise<void> = new api.VoidSession(4).close();
+const ordinaryClose: void = nullableSession.close();
+// @ts-expect-error Different concrete resources retain distinct handle identities.
+api.echoSession(decimalSession);
+// @ts-expect-error Covariance does not grant the narrower resource handle.
+api.echoSession(nullableSession);
+// @ts-expect-error Concrete resource type arguments are already fixed.
+new api.IntSession<string>(5, 'value');
+// @ts-expect-error Concrete integer payload is not a string.
+new api.IntSession(5, 'value');
+// @ts-expect-error Resource identity remains checked within structural inputs.
+api.holdSessions([decimalSession], 1);
+// @ts-expect-error Required nullable resource value is not optional.
+new api.NullableSession(6);
+// @ts-expect-error Required nullable resource value does not accept undefined.
+new api.NullableSession(6, undefined);
+void [sessionCopy, sessionSelf, sessionValue, heldSession, resourceStream, closeSession, closeNullable, closeVoid, ordinaryClose];

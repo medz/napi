@@ -151,7 +151,7 @@ ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int toke
   int? policy;''');
       for (final entry in policies.entries) {
         code.writeln(
-          '''  if (value is ${dartReferenceClassType(plan.classes[entry.key].binding)}) {
+          '''  if (${dartReferenceClassTest(plan.classes[entry.key].binding, plan.classes.map((c) => c.binding), object: 'value')}) {
     if (policy != null && policy != ${entry.value}) throw NapiTypeError('Resource has incompatible cleanup policies');
     policy = ${entry.value};
   }''',

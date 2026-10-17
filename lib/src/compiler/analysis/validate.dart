@@ -831,11 +831,11 @@ void _validateConcreteSelections(BindingModule module) {
   );
   for (final binding in concrete) {
     final type = binding.instantiatedType!;
-    if (binding.classPolicy != ClassPolicy.reference ||
+    if (binding.classPolicy == ClassPolicy.value ||
         !_closedConcreteType(type)) {
       throw BindingDiagnostic(
         'NAPI_GENERIC',
-        'Concrete aliases require a closed class type and the reference policy.',
+        'Concrete aliases require a closed class type and the reference or resource policy.',
         binding.source,
       );
     }
