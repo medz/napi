@@ -1,3 +1,4 @@
+import '../ir/model.dart';
 import 'validate.dart';
 
 /// A total selected hierarchy has exactly one class at every membership depth.
@@ -22,6 +23,10 @@ ReferenceViewContracts referenceViewContracts(
   final memberships = {
     for (final shape in classes) shape.classId: shape.memberships,
   };
+  final concreteDeclarations = {
+    for (final shape in classes)
+      if (shape.binding.instantiatedType != null) shape.binding.declaration,
+  };
   ReferenceMemberShape member(ReferenceMemberRef ref) =>
       classes[ref.classId].members[ref.memberIndex];
   bool accepts(ReferenceMemberRef actual, ReferenceMemberRef expected) =>
@@ -30,6 +35,7 @@ ReferenceViewContracts referenceViewContracts(
         member(expected),
         declarations,
         memberships,
+        concreteDeclarations: concreteDeclarations,
       ) &&
       referenceMemberDefaultsAccept(member(actual), member(expected));
   final groups = <(String, String, String, ReferenceMemberKind), List<int>>{};
@@ -80,4 +86,19 @@ ReferenceViewContracts referenceViewContracts(
     Map.unmodifiable(ids),
     List.unmodifiable(coverage.map(Set<int>.unmodifiable)),
   );
+}
+
+/// Concrete aliases remain invariant handles even when Dart's type arguments
+/// overlap. The runtime may compose unrelated interface views, but cannot
+/// combine two instantiations of the same original class.
+List<List<int>> concreteReferenceGroups(List<ReferenceClassShape> classes) {
+  final groups = <DeclarationId, List<int>>{};
+  for (final shape in classes) {
+    if (shape.binding.instantiatedType != null) {
+      groups
+          .putIfAbsent(shape.binding.declaration, () => [])
+          .add(shape.classId);
+    }
+  }
+  return groups.values.where((group) => group.length > 1).toList();
 }

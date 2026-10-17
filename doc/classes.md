@@ -195,3 +195,13 @@ case had both positive and negative paired changes, and A/A noise reached
 5.41%. This does not establish a speed advantage or zero regression. These
 measurements cover existing concrete-class calls, not first-exposure cost or
 scaling of large composite interface sets.
+
+
+## TypeScript reference identity
+
+Reference class declarations carry a private, declaration-only marker for each
+selected class. Structurally identical classes and lookalike object literals do
+not satisfy each other's handle types. The marker adds no JavaScript property.
+Instance-only inheritance declarations also inherit the ancestor markers, so
+selected children remain assignable to their selected bases and interfaces.
+Structural value classes retain their ordinary structural TypeScript types.

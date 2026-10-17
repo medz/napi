@@ -158,6 +158,22 @@ String dartOpaqueTypeArguments(List<TypeParameterBinding> parameters) =>
 String dartReferenceClassType(ClassBinding binding) =>
     'target.${binding.callPath}${dartOpaqueTypeArguments(binding.typeParameters)}';
 
+/// Prefer a stricter selected specialization without granting its covariant
+/// supertypes writable JS views. Unselected subclasses still match by `is`.
+String dartReferenceClassTest(
+  ClassBinding binding,
+  Iterable<ClassBinding> classes, {
+  String object = 'object',
+}) => [
+  '$object is ${dartReferenceClassType(binding)}',
+  if (binding.instantiatedType != null)
+    for (final other in classes)
+      if (other.concreteSupertypes.any(
+        (type) => referenceClassMatches(binding, type),
+      ))
+        '$object is! ${dartReferenceClassType(other)}',
+].join(' && ');
+
 /// One fixed policy drives Dart, JavaScript and TypeScript scalar generation.
 final class ScalarConversion extends ValueConversion {
   final ScalarKind kind;
@@ -209,7 +225,9 @@ final class ReferenceConversion extends ValueConversion {
     super.context, {
     required this.classBinding,
     required this.classId,
-  }) : typeArguments = type.typeArguments;
+  }) : typeArguments = classBinding.instantiatedType == null
+           ? type.typeArguments
+           : const [];
   @override
   String get dartType =>
       '${dartReferenceClassType(classBinding)}${nullable ? '?' : ''}';
@@ -527,7 +545,7 @@ final class _ConversionBuilder {
           .where((c) => c.classPolicy != ClassPolicy.value)
           .toList();
       final index = references.indexWhere(
-        (c) => c.declaration == (type as DeclaredType).declaration,
+        (c) => referenceClassMatches(c, type as DeclaredType),
       );
       return ReferenceConversion(
         type as DeclaredType,

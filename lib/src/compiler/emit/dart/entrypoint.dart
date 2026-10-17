@@ -74,7 +74,7 @@ ${resources ? '  try { _resourceControl(object); } catch (error) { _normalizeRes
 ''');
     for (final classId in plan.referenceClassOrder) {
       result.writeln('''
-  if (object is ${dartReferenceClassType(plan.classes[classId].binding)}) {
+  if (${dartReferenceClassTest(plan.classes[classId].binding, plan.classes.map((c) => c.binding))}) {
     if (candidate < 0) {
       candidate = $classId;
     } else if (${candidates[classId].map((id) => 'candidate != $id').join(' && ')}) {
@@ -93,7 +93,7 @@ WasmExternRef _referenceViews(WasmExternRef reference) {
 ''');
       for (final (id, binding) in plan.classes.indexed) {
         result.writeln(
-          '    if (object is ${dartReferenceClassType(binding.binding)}) $id.toJS,',
+          '    if (${dartReferenceClassTest(binding.binding, plan.classes.map((c) => c.binding))}) $id.toJS,',
         );
       }
       result.writeln('  ].toJS)!;\n}');

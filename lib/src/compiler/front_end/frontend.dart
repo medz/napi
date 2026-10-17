@@ -148,7 +148,9 @@ final class _Reader {
   final Uri? importUri;
   final a.ClassElement? annotationClass;
   final _externalConfigs = <a.Element, NAPI>{};
+  final _aliasMemberConfigs = <a.TypeAliasElement, Map<a.Element, NAPI>>{};
   final _selectedClasses = <a.ClassElement>{};
+  final _selectedConcreteTypes = <a.TypeAliasElement, a.InterfaceType>{};
   final _libraries = <a.LibraryElement, ResolvedLibraryResult>{};
   final _documentation = <a.Element, String>{};
   final _typeParameterIds = <a.TypeParameterElement, DeclarationId>{};
@@ -194,7 +196,9 @@ final class _Reader {
       }
       if ((selection is ExternalFunction &&
               element is! a.TopLevelFunctionElement) ||
-          (selection is ExternalClass && element is! a.ClassElement)) {
+          (selection is ExternalClass &&
+              element is! a.ClassElement &&
+              element is! a.TypeAliasElement)) {
         _reject(
           element,
           'NAPI_SELECTION',
@@ -205,6 +209,14 @@ final class _Reader {
       if (selection is ExternalClass && element is a.ClassElement) {
         _selectMembers(element, selection);
         _selectedClasses.add(element);
+      } else if (selection is ExternalClass && element is a.TypeAliasElement) {
+        final type = _concreteAliasType(element);
+        _selectedConcreteTypes[element] = type;
+        final owner = type.element as a.ClassElement;
+        final configs = <a.Element, NAPI>{};
+        _selectMembers(owner, selection, configs: configs);
+        _aliasMemberConfigs[element] = configs;
+        _selectedClasses.add(owner);
       }
       selected.add((selection, element));
     }
@@ -218,6 +230,10 @@ final class _Reader {
         functions.add(_function(element, selection.name, selection.config));
       } else if (element is a.ClassElement) {
         classes.add(_class(element, selection.name, selection.config));
+      } else if (element is a.TypeAliasElement) {
+        final origin = _concreteAliasType(element).element.library;
+        if (origin.uri.scheme != 'dart') await _load(origin);
+        classes.add(_classAlias(element, selection.name, selection.config));
       }
     }
     final module = BindingModule(
@@ -234,8 +250,10 @@ final class _Reader {
     a.Element element,
     NAPI config, {
     required bool member,
+    Map<a.Element, NAPI>? configs,
   }) {
-    if (_externalConfigs.containsKey(element)) {
+    final selections = configs ?? _externalConfigs;
+    if (selections.containsKey(element)) {
       _reject(
         element,
         'NAPI_DUPLICATE',
@@ -264,7 +282,7 @@ final class _Reader {
       );
     }
     _checkClassOptions(element, config);
-    _externalConfigs[element] = config;
+    selections[element] = config;
   }
 
   void _checkClassOptions(a.Element element, NAPI config) {
@@ -276,7 +294,7 @@ final class _Reader {
       _ => const <a.TypeParameterElement>[],
     };
     if (!config.exclude) _opaqueParameters.addAll(parameters.map(_id));
-    if (element is! a.ClassElement) {
+    if (element is! a.ClassElement && element is! a.TypeAliasElement) {
       if (config.classPolicy != null ||
           config.cleanup != null ||
           config.valueConstructor != null ||
@@ -413,7 +431,11 @@ final class _Reader {
     return _id(matches.single);
   }
 
-  void _selectMembers(a.ClassElement owner, ExternalClass selection) {
+  void _selectMembers(
+    a.ClassElement owner,
+    ExternalClass selection, {
+    Map<a.Element, NAPI>? configs,
+  }) {
     final members = _classMembers(owner);
     for (final member in selection.members) {
       final matches = members
@@ -441,12 +463,16 @@ final class _Reader {
           'An external member selection must be public.',
         );
       }
-      _setExternalConfig(element, member.config, member: true);
+      _setExternalConfig(
+        element,
+        member.config,
+        member: true,
+        configs: configs,
+      );
     }
   }
 
   Future<BindingModule> read(ResolvedLibraryResult root) async {
-    await _load(root.element, result: root);
     final candidates = root.element.exportNamespace.definedNames2.entries
         .where((e) => e.value is! a.MultiplyDefinedElement)
         .toList();
@@ -461,6 +487,17 @@ final class _Reader {
           .whereType<a.ClassElement>()
           .where((element) => _config(element) != null),
     );
+    for (final candidate in candidates) {
+      final element = candidate.value;
+      if (element is a.TypeAliasElement && _config(element) != null) {
+        final type = element.aliasedType;
+        if (type is a.InterfaceType && type.element is a.ClassElement) {
+          _selectedClasses.add(type.element as a.ClassElement);
+          _selectedConcreteTypes[element] = type;
+        }
+      }
+    }
+    await _load(root.element, result: root);
     for (final candidate in candidates) {
       final element = candidate.value;
       if (!seen.add(element)) continue;
@@ -478,11 +515,15 @@ final class _Reader {
         functions.add(_function(element, candidate.key, config));
       } else if (element is a.ClassElement) {
         classes.add(_class(element, candidate.key, config));
+      } else if (element is a.TypeAliasElement) {
+        final origin = _concreteAliasType(element).element.library;
+        if (origin.uri.scheme != 'dart') await _load(origin);
+        classes.add(_classAlias(element, candidate.key, config));
       } else {
         _reject(
           element,
           'NAPI_PLACEMENT',
-          '@NAPI() selects functions and classes.',
+          '@NAPI() selects functions, classes and concrete class aliases.',
         );
       }
     }
@@ -679,23 +720,120 @@ final class _Reader {
     bigint: config.bigint,
   );
 
-  ClassBinding _class(a.ClassElement element, String path, NAPI config) {
-    final members = _classMembers(element);
+  a.InterfaceType _concreteAliasType(a.TypeAliasElement alias) {
+    final type = alias.aliasedType;
+    if (alias.typeParameters.isNotEmpty ||
+        type is! a.InterfaceType ||
+        type.element is! a.ClassElement ||
+        type.nullabilitySuffix != NullabilitySuffix.none) {
+      _reject(
+        alias,
+        'NAPI_GENERIC',
+        'Select a non-generic, non-null alias of a concrete class type.',
+      );
+    }
+    if (_type(type).semantics != ValueSemantics.reference) {
+      _reject(
+        alias,
+        'NAPI_PLACEMENT',
+        'A concrete class alias must select a reference class, not a scalar or container type.',
+      );
+    }
+    return type;
+  }
+
+  ClassBinding _classAlias(a.TypeAliasElement alias, String path, NAPI config) {
+    final type = _concreteAliasType(alias);
+    if (config.classPolicy != null &&
+        config.classPolicy != ClassPolicy.reference) {
+      _reject(
+        alias,
+        'NAPI_GENERIC',
+        'Concrete aliases require the reference class policy.',
+      );
+    }
+    final types = type.element.library.typeSystem;
+    if (_selectedConcreteTypes.values.any(
+      (other) =>
+          other.element == type.element &&
+          other != type &&
+          types.isSubtypeOf(type, other) &&
+          types.isSubtypeOf(other, type),
+    )) {
+      _reject(
+        alias,
+        'NAPI_GENERIC',
+        'Selected concrete aliases must be distinguishable by Dart type tests.',
+      );
+    }
+    return _class(
+      type.element as a.ClassElement,
+      path,
+      config,
+      alias: alias,
+      instantiatedType: type,
+      memberConfigs: _aliasMemberConfigs[alias],
+    );
+  }
+
+  ClassBinding _class(
+    a.ClassElement element,
+    String path,
+    NAPI config, {
+    a.TypeAliasElement? alias,
+    a.InterfaceType? instantiatedType,
+    Map<a.Element, NAPI>? memberConfigs,
+  }) {
+    final type = instantiatedType ?? element.thisType;
+    final selected = alias ?? element;
+    final members = instantiatedType == null
+        ? _classMembers(element)
+        : _instantiatedMembers(instantiatedType);
     return ClassBinding(
       declaration: _id(element),
+      selectionDeclaration: alias == null ? null : _id(alias),
+      instantiatedType: instantiatedType == null
+          ? null
+          : _type(instantiatedType, owner: _id(alias!), path: 'instantiation')
+                as DeclaredType,
+      concreteSupertypes: instantiatedType == null
+          ? const []
+          : _selectedConcreteTypes.values
+                .where(
+                  (other) =>
+                      other.element == element &&
+                      element.library.typeSystem.isSubtypeOf(
+                        instantiatedType,
+                        other,
+                      ) &&
+                      !element.library.typeSystem.isSubtypeOf(
+                        other,
+                        instantiatedType,
+                      ),
+                )
+                .map((other) => _type(other) as DeclaredType),
       exportName: config.name ?? path,
-      source: _source(element),
+      source: _source(selected),
       classPolicy: config.classPolicy ?? ClassPolicy.reference,
-      cleanup: _cleanup(element, config),
-      valueConstructor: _valueConstructor(element, config),
-      valueFields: _valueFields(element, config),
+      cleanup: alias == null ? _cleanup(element, config) : null,
+      valueConstructor: alias == null
+          ? _valueConstructor(element, config)
+          : null,
+      valueFields: alias == null ? _valueFields(element, config) : const {},
       exportSurface: entry,
       callPath: path,
-      documentation: element.documentationComment ?? _documentation[element],
-      typeParameters: element.typeParameters.map(_typeParameter),
-      members: members.where((e) => e.isPublic).map(_member),
+      documentation: selected.documentationComment ?? _documentation[selected],
+      typeParameters: alias == null
+          ? element.typeParameters.map(_typeParameter)
+          : const [],
+      members: members
+          .where((e) => e.isPublic)
+          .map((member) => _member(member, configs: memberConfigs)),
       inheritedInstanceMembers: config.classPolicy != ClassPolicy.value
-          ? _inheritedInstanceMembers(element)
+          ? _inheritedInstanceMembers(
+              element,
+              instantiatedType: instantiatedType,
+            )
           : const [],
       isAbstract: element.isAbstract,
       isSealed: element.isSealed,
@@ -703,33 +841,35 @@ final class _Reader {
       isInterface: element.isInterface,
       isFinal: element.isFinal,
       isMixinClass: element.isMixinClass,
-      supertype: element.supertype == null
+      supertype: type.superclass == null
           ? null
-          : _type(element.supertype!, owner: _id(element), path: 'supertype'),
-      interfaces: element.interfaces.indexed.map(
+          : _type(type.superclass!, owner: _id(element), path: 'supertype'),
+      interfaces: type.interfaces.indexed.map(
         (t) => _type(t.$2, owner: _id(element), path: 'interface:${t.$1}'),
       ),
-      mixins: element.mixins.indexed.map(
+      mixins: type.mixins.indexed.map(
         (t) => _type(t.$2, owner: _id(element), path: 'mixin:${t.$1}'),
       ),
-      allSupertypes: element.allSupertypes.map((type) => _id(type.element)),
-      superclassChain: _superclassChain(element),
+      allSupertypes: type.allSupertypes.map((type) => _id(type.element)),
+      superclassChain: _superclassChain(type),
     );
   }
 
-  Iterable<DeclarationId> _superclassChain(a.ClassElement element) sync* {
-    var parent = element.supertype;
+  Iterable<DeclarationId> _superclassChain(a.InterfaceType type) sync* {
+    var parent = type.superclass;
     while (parent != null) {
       yield _id(parent.element);
-      parent = parent.element.supertype;
+      parent = parent.superclass;
     }
   }
 
   Iterable<InheritedInstanceMember> _inheritedInstanceMembers(
-    a.ClassElement element,
-  ) sync* {
+    a.ClassElement element, {
+    a.InterfaceType? instantiatedType,
+  }) sync* {
+    final ownerType = instantiatedType ?? element.thisType;
     final actualMembers = <(MemberKind, String), a.ExecutableElement?>{};
-    for (final type in element.allSupertypes) {
+    for (final type in ownerType.allSupertypes) {
       final ancestor = type.element;
       if (!_selectedClasses.contains(ancestor) ||
           _config(ancestor)?.classPolicy == ClassPolicy.value) {
@@ -750,17 +890,17 @@ final class _Reader {
         final actual = actualMembers.putIfAbsent(
           (kind, name),
           () => switch (kind) {
-            MemberKind.method => element.thisType.lookUpMethod(
+            MemberKind.method => ownerType.lookUpMethod(
               name,
               element.library,
               concrete: true,
             ),
-            MemberKind.getter => element.thisType.lookUpGetter(
+            MemberKind.getter => ownerType.lookUpGetter(
               name,
               element.library,
               concrete: true,
             ),
-            MemberKind.setter => element.thisType.lookUpSetter(
+            MemberKind.setter => ownerType.lookUpSetter(
               name,
               element.library,
               concrete: true,
@@ -793,6 +933,16 @@ final class _Reader {
     ...element.setters.where((e) => !e.isOriginVariable),
   ]..sort((x, y) => x.firstFragment.offset.compareTo(y.firstFragment.offset));
 
+  List<a.Element> _instantiatedMembers(a.InterfaceType type) => <a.Element>[
+    ...type.constructors,
+    ...type.getters
+        .where((getter) => getter.isOriginVariable)
+        .map((getter) => getter.variable),
+    ...type.methods,
+    ...type.getters.where((getter) => !getter.isOriginVariable),
+    ...type.setters.where((setter) => !setter.isOriginVariable),
+  ]..sort((x, y) => x.firstFragment.offset.compareTo(y.firstFragment.offset));
+
   MemberKind _memberKind(a.Element element) => switch (element) {
     a.ConstructorElement() => MemberKind.constructor,
     a.MethodElement() => MemberKind.method,
@@ -806,9 +956,11 @@ final class _Reader {
       ? element.variable.baseElement
       : element.baseElement;
 
-  MemberBinding _member(a.Element element) {
+  MemberBinding _member(a.Element element, {Map<a.Element, NAPI>? configs}) {
     final declaration = _memberDeclaration(element);
-    final config = _config(declaration);
+    final config = configs == null
+        ? _config(declaration)
+        : configs[declaration];
     final kind = _memberKind(element);
     final executable = element is a.ExecutableElement ? element : null;
     final field = element is a.FieldElement ? element : null;
@@ -1118,6 +1270,7 @@ final class _AnnotationVisitor extends RecursiveAstVisitor<void> {
     a.Element? element;
     if (parent is ClassDeclaration) element = parent.declaredFragment?.element;
     if (parent is ClassTypeAlias) element = parent.declaredFragment?.element;
+    if (parent is GenericTypeAlias) element = parent.declaredFragment?.element;
     if (parent is FunctionDeclaration && parent.parent is CompilationUnit) {
       element = parent.declaredFragment?.element;
     }
@@ -1145,7 +1298,7 @@ final class _AnnotationVisitor extends RecursiveAstVisitor<void> {
     if (element == null) {
       reject(
         'NAPI_PLACEMENT',
-        'Place @NAPI() on a top-level function, class, or single class member.',
+        'Place @NAPI() on a top-level function, class, concrete class alias, or single class member.',
       );
     }
     final config = reader._config(element);
@@ -1161,7 +1314,9 @@ final class _AnnotationVisitor extends RecursiveAstVisitor<void> {
               }.contains(argument.name.lexeme),
         ) ??
         false;
-    if (hasClassOption && element is! a.ClassElement) {
+    if (hasClassOption &&
+        element is! a.ClassElement &&
+        element is! a.TypeAliasElement) {
       reject(
         'NAPI_PLACEMENT',
         'classPolicy, cleanup and value construction options are only valid on a class.',
@@ -1187,14 +1342,16 @@ final class _AnnotationVisitor extends RecursiveAstVisitor<void> {
       reject('NAPI_VISIBILITY', 'An annotated declaration must be public.');
     }
     if (element.enclosingElement case final a.ClassElement owner) {
-      if (reader._config(owner) == null) {
+      if (reader._config(owner) == null &&
+          !reader._selectedClasses.contains(owner)) {
         reject(
           'NAPI_SELECTION',
           'A member annotation requires @NAPI() on its owning class.',
         );
       }
     } else if (element is! a.TopLevelFunctionElement &&
-        element is! a.ClassElement) {
+        element is! a.ClassElement &&
+        element is! a.TypeAliasElement) {
       reject('NAPI_PLACEMENT', 'Member annotations require an owning class.');
     } else if (config?.exclude == true) {
       reject('NAPI_PLACEMENT', 'exclude is only valid on a class member.');

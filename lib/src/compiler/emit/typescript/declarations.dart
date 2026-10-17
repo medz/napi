@@ -31,6 +31,7 @@ String emitDeclarations(ModulePlan plan) => [
     'export declare class ${binding.binding.exportName}${emitTypeParameters(binding.binding.typeParameters, invariant: true)} {',
     if (binding.binding.typeParameters.isNotEmpty)
       '  ${emitOpaquePhantom(binding.binding.typeParameters)}',
+    '  private readonly \$napiReference${binding.shape.classId}: void;',
     if (binding.constructor case final constructor?)
       for (final parameters in emitParameterVariants(
         constructor.parameters,

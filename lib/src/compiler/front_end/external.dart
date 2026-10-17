@@ -31,7 +31,10 @@ final class ExternalFunction extends ExternalDeclaration {
   });
 }
 
-/// Select a class and its own public members, with optional member overrides.
+/// Select a class or concrete class alias and its own public members.
+///
+/// Overrides on aliases belong to that selection; another alias of the same
+/// original class retains its independently selected member configuration.
 ///
 /// Member selections use declaration kinds so a getter and setter with the
 /// same name can be configured independently. Unlisted public members retain

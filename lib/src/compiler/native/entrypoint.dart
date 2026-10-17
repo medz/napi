@@ -23,7 +23,8 @@ import '../lowering/plan.dart'
         containsValueClass,
         conversionGraph,
         dartOpaqueTypeArguments,
-        dartReferenceClassType;
+        dartReferenceClassType,
+        dartReferenceClassTest;
 import 'plan.dart';
 import 'structural.dart';
 
@@ -171,7 +172,7 @@ ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int toke
   int? canonical;''');
     for (final index in plan.referenceClassOrder) {
       code.writeln(
-        '''  if (value is ${dartReferenceClassType(plan.classes[index].binding)}) {
+        '''  if (${dartReferenceClassTest(plan.classes[index].binding, plan.classes.map((c) => c.binding), object: 'value')}) {
     if (canonical == null) { canonical = $index; }
     else if (!_referenceMemberships[canonical].contains($index)) {
       return -1;
@@ -186,7 +187,7 @@ ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int toke
       code.writeln('List<int> _referenceViews(Object value) => [');
       for (final binding in plan.classes) {
         code.writeln(
-          '  if (value is ${dartReferenceClassType(binding.binding)}) ${binding.shape.classId},',
+          '  if (${dartReferenceClassTest(binding.binding, plan.classes.map((c) => c.binding), object: 'value')}) ${binding.shape.classId},',
         );
       }
       code.writeln('];');
