@@ -11,6 +11,8 @@ const projected: View = echoHierarchyView(child);
 const number: number = child.defaults(undefined, 9);
 const inherited: number = child.named({amount: undefined});
 const self: Base = child.self();
+const childRun: number = child.run();
+const baseRun: void = base.run();
 const named: Base = Base.child(3);
 const envelope: {base: Base; view: View} = hierarchyEnvelope({base: child, view: child});
 const getter = new HierarchyGetter(2);
@@ -24,7 +26,7 @@ writable.value = 3;
 const readonly: HierarchyReadonly = writable;
 const read: number = writable.value;
 const factory: HierarchyFactory = new HierarchyFactoryChild();
-void [base, view, identity, projected, number, inherited, self, named, envelope,
+void [base, view, identity, projected, number, inherited, self, childRun, baseRun, named, envelope,
   getterResult, setterResult, readonly, read, factory];
 // @ts-expect-error static methods do not inherit
 Child.baseOnly();

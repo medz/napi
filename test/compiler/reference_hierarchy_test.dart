@@ -289,6 +289,10 @@ new ReadOnly().value = 4;
   @override void accept(covariant Small value) {}
 }
 ''',
+    'getter void output is not a method result discard': '''
+@NAPI() class Base { void get value {} }
+@NAPI() class Child extends Base { @override int get value => 1; }
+''',
   }.entries) {
     test('rejects inherited contract conflict: ${conflict.key}', () async {
       final module = await read(
@@ -334,6 +338,72 @@ import 'package:napi/napi.dart';
       expect(validateNative(module).classes, hasLength(4));
     },
   );
+
+  test('a derived method may return a value under a void base contract', () async {
+    final module = await read('''
+import 'package:napi/napi.dart';
+@NAPI() class Base { void run() {} }
+@NAPI() class Child extends Base { @override int run() => 42; }
+''');
+    final wasm = lower(validate(module));
+    final native = validateNative(module);
+    for (final (name, expected) in [('Base', null), ('Child', 'number')]) {
+      expect(
+        wasm.classes
+            .singleWhere((c) => c.binding.exportName == name)
+            .members
+            .single
+            .output
+            ?.typescriptType,
+        expected,
+      );
+      expect(
+        native.classes
+            .singleWhere((c) => c.binding.exportName == name)
+            .members
+            .single
+            .output
+            ?.typescriptType,
+        expected,
+      );
+    }
+    for (final entry in {
+      'wasm': emitDeclarations(wasm),
+      'native': emitNativeDeclarations(native),
+    }.entries) {
+      File('${directory.path}/${entry.key}.d.mts')
+          .writeAsStringSync(entry.value);
+      File('${directory.path}/${entry.key}.consumer.mts').writeAsStringSync('''
+import {Base, Child} from './${entry.key}.mjs';
+const child = new Child();
+const base: Base = child;
+const value: number = child.run();
+const discarded: void = base.run();
+const borrowed: void = Base.prototype.run.call(child);
+// @ts-expect-error The base binding retains its void result contract.
+const invalid: number = Base.prototype.run.call(child);
+''');
+      for (final mode in ['NodeNext', 'Bundler']) {
+        final result = await Process.run(Platform.environment['NODE'] ?? 'node', [
+          '${Directory.current.path}/.dart_tool/js/node_modules/typescript/bin/tsc',
+          '--strict',
+          '--noEmit',
+          '--target',
+          'ES2022',
+          '--moduleResolution',
+          mode,
+          '--module',
+          mode == 'NodeNext' ? 'NodeNext' : 'ESNext',
+          '${directory.path}/${entry.key}.consumer.mts',
+        ]);
+        expect(
+          result.exitCode,
+          0,
+          reason: '${entry.key}/$mode: ${result.stdout}${result.stderr}',
+        );
+      }
+    }
+  });
 
   test('a common selected child precedes both unrelated ancestors', () async {
     final module = await read('''

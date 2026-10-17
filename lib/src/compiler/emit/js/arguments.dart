@@ -51,12 +51,22 @@ import {useDefault, readOptions} from './boundary.mjs';
   if (plan.classes.isNotEmpty) {
     result.writeln("import {registerReference} from './references.mjs';");
     result.writeln(r'''const wrappers = new WeakMap();
-const owners = new WeakMap();
+class Receiver {
+  constructor(receiver) { return receiver; }
+}
+class Owner extends Receiver {
+  #entry;
+  constructor(receiver, entry) { super(receiver); this.#entry = entry; }
+  static get(value) {
+    if (value === null || (typeof value !== 'object' && typeof value !== 'function')) return undefined;
+    return #entry in value ? value.#entry : undefined;
+  }
+}
 const adopt = Symbol();
 function unwrap(value, classId, context, nullable) {
   if (value === null && nullable) return null;
-  const owner = owners.get(value);
-  if (owner === undefined || !memberships[owner.classId].has(classId)) {
+  const owner = Owner.get(value);
+  if (owner === undefined || (owner.classId !== classId && !memberships[owner.classId].has(classId))) {
     throw new TypeError(context + ': expected a local ' + classNames[classId]);
   }
   return owner.reference;
@@ -65,7 +75,7 @@ function intern(reference, expectedId, context, pending, receiver, newTarget) {
   const previous = wrappers.get(reference);
   const classId = previous === undefined ? core['napi:class:classify'](reference) : previous.classId;
   if (classId < 0) throw new TypeError(context + ': no unique most-specific selected class');
-  if (!memberships[classId].has(expectedId)) {
+  if (classId !== expectedId && !memberships[classId].has(expectedId)) {
     throw new TypeError(context + ': expected a local ' + classNames[expectedId]);
   }
   if (previous !== undefined) {
@@ -74,8 +84,8 @@ function intern(reference, expectedId, context, pending, receiver, newTarget) {
   }
   const wrapper = receiver !== undefined && (newTarget !== constructors[expectedId] || classId === expectedId)
     ? receiver : new constructors[classId](adopt);
-  owners.set(wrapper, {reference, classId});
-  const entry = {classId, wrapper: new WeakRef(wrapper)};
+  const entry = {reference, classId, wrapper: new WeakRef(wrapper)};
+  new Owner(wrapper, entry);
   wrappers.set(reference, entry);
   if (previous === undefined && pending !== undefined) {
     pending.add(() => { if (wrappers.get(reference) === entry) wrappers.delete(reference); });

@@ -353,6 +353,19 @@ final class MemberBinding {
 
 enum ValueDirection { input, output }
 
+/// An actual inherited implementation checked against one selected contract.
+/// Dart subtype evidence is resolved before analyzer types leave the frontend.
+final class InheritedInstanceMember {
+  final MemberBinding member;
+  final DeclarationId contract;
+  final bool isCompatible;
+  const InheritedInstanceMember({
+    required this.member,
+    required this.contract,
+    required this.isCompatible,
+  });
+}
+
 final class ClassBinding {
   final DeclarationId declaration;
 
@@ -368,6 +381,10 @@ final class ClassBinding {
   final SourceLocation source;
   final String? documentation;
   final List<MemberBinding> members;
+
+  /// Effective inherited implementations of selected ancestor instance members.
+  /// Diagnostic metadata only: these do not add exports or change defaults.
+  final List<InheritedInstanceMember> inheritedInstanceMembers;
   final List<TypeParameterBinding> typeParameters;
   final String callPath;
   final Uri exportSurface;
@@ -395,6 +412,7 @@ final class ClassBinding {
     this.valueConstructor,
     Map<String, DeclarationId> valueFields = const {},
     Iterable<MemberBinding> members = const [],
+    Iterable<InheritedInstanceMember> inheritedInstanceMembers = const [],
     Iterable<TypeParameterBinding> typeParameters = const [],
     this.documentation,
     String? callPath,
@@ -412,6 +430,7 @@ final class ClassBinding {
     Iterable<DeclarationId> superclassChain = const [],
   }) : valueFields = Map.unmodifiable(valueFields),
        members = List.unmodifiable(members),
+       inheritedInstanceMembers = List.unmodifiable(inheritedInstanceMembers),
        typeParameters = List.unmodifiable(typeParameters),
        callPath = callPath ?? declaration.name,
        exportSurface = exportSurface ?? declaration.library,

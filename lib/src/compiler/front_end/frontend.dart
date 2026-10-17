@@ -148,6 +148,7 @@ final class _Reader {
   final Uri? importUri;
   final a.ClassElement? annotationClass;
   final _externalConfigs = <a.Element, NAPI>{};
+  final _selectedClasses = <a.ClassElement>{};
   final _libraries = <a.LibraryElement, ResolvedLibraryResult>{};
   final _documentation = <a.Element, String>{};
   final _typeParameterIds = <a.TypeParameterElement, DeclarationId>{};
@@ -202,6 +203,7 @@ final class _Reader {
       _setExternalConfig(element, selection.config, member: false);
       if (selection is ExternalClass && element is a.ClassElement) {
         _selectMembers(element, selection);
+        _selectedClasses.add(element);
       }
       selected.add((selection, element));
     }
@@ -444,6 +446,12 @@ final class _Reader {
     final functions = <FunctionBinding>[];
     final classes = <ClassBinding>[];
     final seen = <a.Element>{};
+    _selectedClasses.addAll(
+      candidates
+          .map((e) => e.value)
+          .whereType<a.ClassElement>()
+          .where((element) => _config(element) != null),
+    );
     for (final candidate in candidates) {
       final element = candidate.value;
       if (!seen.add(element)) continue;
@@ -677,6 +685,10 @@ final class _Reader {
       documentation: element.documentationComment ?? _documentation[element],
       typeParameters: element.typeParameters.map(_typeParameter),
       members: members.where((e) => e.isPublic).map(_member),
+      inheritedInstanceMembers:
+          (config.classPolicy ?? ClassPolicy.reference) == ClassPolicy.reference
+          ? _inheritedInstanceMembers(element)
+          : const [],
       isAbstract: element.isAbstract,
       isSealed: element.isSealed,
       isBase: element.isBase,
@@ -705,6 +717,67 @@ final class _Reader {
     }
   }
 
+  Iterable<InheritedInstanceMember> _inheritedInstanceMembers(
+    a.ClassElement element,
+  ) sync* {
+    final actualMembers = <(MemberKind, String), a.ExecutableElement?>{};
+    for (final type in element.allSupertypes) {
+      final ancestor = type.element;
+      if (!_selectedClasses.contains(ancestor) ||
+          (_config(ancestor)?.classPolicy ?? ClassPolicy.reference) !=
+              ClassPolicy.reference) {
+        continue;
+      }
+      for (final contract in [
+        ...type.methods,
+        ...type.getters,
+        ...type.setters,
+      ]) {
+        if (!contract.isPublic ||
+            contract.isStatic ||
+            _config(_memberDeclaration(contract))?.exclude == true) {
+          continue;
+        }
+        final kind = _memberKind(contract);
+        final name = contract.name!;
+        final actual = actualMembers.putIfAbsent(
+          (kind, name),
+          () => switch (kind) {
+            MemberKind.method => element.thisType.lookUpMethod(
+              name,
+              element.library,
+              concrete: true,
+            ),
+            MemberKind.getter => element.thisType.lookUpGetter(
+              name,
+              element.library,
+              concrete: true,
+            ),
+            MemberKind.setter => element.thisType.lookUpSetter(
+              name,
+              element.library,
+              concrete: true,
+            ),
+            _ => null,
+          },
+        );
+        if (actual == null ||
+            actual.enclosingElement == element ||
+            actual.baseElement == contract.baseElement) {
+          continue;
+        }
+        yield InheritedInstanceMember(
+          member: _member(actual),
+          contract: _id(_memberDeclaration(contract)),
+          isCompatible: element.library.typeSystem.isSubtypeOf(
+            actual.type,
+            contract.type,
+          ),
+        );
+      }
+    }
+  }
+
   List<a.Element> _classMembers(a.ClassElement element) => <a.Element>[
     ...element.constructors,
     ...element.fields.where((e) => !e.isOriginGetterSetter),
@@ -721,8 +794,14 @@ final class _Reader {
     _ => MemberKind.field,
   };
 
+  a.Element _memberDeclaration(a.Element element) =>
+      element is a.PropertyAccessorElement && element.isOriginVariable
+      ? element.variable.baseElement
+      : element.baseElement;
+
   MemberBinding _member(a.Element element) {
-    final config = _config(element);
+    final declaration = _memberDeclaration(element);
+    final config = _config(declaration);
     final kind = _memberKind(element);
     final executable = element is a.ExecutableElement ? element : null;
     final field = element is a.FieldElement ? element : null;
@@ -730,7 +809,7 @@ final class _Reader {
     final node = _node(element);
     return MemberBinding(
       declaration: _id(element),
-      source: _source(element),
+      source: _source(declaration),
       kind: kind,
       selection: config?.exclude == true
           ? MemberSelection.excluded

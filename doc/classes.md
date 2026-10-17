@@ -88,7 +88,11 @@ and named constructors do not inherit. TypeScript describes these instance
 relationships without adding inherited static members.
 
 An explicitly excluded override, incompatible rename, conversion or call mapping
-that breaks a selected ancestor's contract produces a build diagnostic. Defaults
+that breaks a selected ancestor's contract produces a build diagnostic. Known
+inherited implementations in unselected intermediate classes are checked too;
+a covariant parameter narrowing cannot bypass the selected ancestor's input
+contract. A method overriding a void method can expose its own return value,
+while explicitly borrowing the base method still returns `undefined`. Defaults
 belong to the selected declaration: a child's own override uses its selected
 defaults, while explicitly borrowing a base method uses the base defaults.
 An unselected private override can have different Dart defaults; the generated
@@ -126,3 +130,16 @@ and normal/terminated Workers. The shared class contract is also run by
 `tool/native_verify.dart`.
 Tested with Dart 3.13.5, Node 24.19.0/26.11.1 and TypeScript 7.0.2; native execution
 is currently qualified only on macOS arm64.
+
+Frozen old/new single-class measurements on these Node versions used separate
+A/A samples and three balanced AB/BA rounds. The canonical implementation added
+1,989 bytes (1.70%) to the small Wasm package, including 251 bytes of core Wasm;
+the native package grew 1,886 bytes. Wasm getter medians rose from 19.435 to
+20.562 ns on Node 24 and 18.891 to 19.693 ns on Node 26, consistently slower in
+paired samples. Other Wasm call changes ranged from -15.03% to +5.24%; native
+changes ranged from -1.06% to +2.29%. These are local observations, not a general
+speed or no-regression claim. Constructor A/A noise reached about 25%; its
+200,000 allocations occurred in one JS turn, so WeakRef retention and measured
+RSS do not establish long-term memory bounds. Large class hierarchies were not
+benchmarked. The ordinary callback path reuses the cached canonical class;
+first-exposure work grows with the selected class set.

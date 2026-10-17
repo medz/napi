@@ -19,6 +19,7 @@ class HierarchyBase {
   set value(int value) => _value = value;
   int defaults([int first = 1, int second = 2]) => first * 100 + second;
   int named({int amount = 3}) => amount;
+  void run() {}
   HierarchyBase self() => this;
   static String baseOnly() => 'base';
 }
@@ -44,6 +45,8 @@ class HierarchyChild extends _HierarchyMiddle implements HierarchyView {
   int defaults([int first = 7, int second = 8]) => first * 100 + second;
   @override
   int view() => value;
+  @override
+  int run() => 42;
   static String childOnly() => 'child';
 }
 

@@ -34,6 +34,8 @@ export function verifyHierarchy(api) {
     assert.equal(value.named(), 3);
     assert.equal(value.named({amount: undefined}), 3);
     assert.equal(value.named({amount: 9}), 9);
+    assert.equal(value.run(), 42);
+    assert.equal(Base.prototype.run.call(value), undefined);
   }
   assert.equal(Base.baseOnly(), 'base');
   assert.equal(Child.childOnly(), 'child');

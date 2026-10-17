@@ -13,12 +13,13 @@ String emitDart(ModulePlan plan) {
     '$entrypointPrelude\n',
   );
   if (plan.classes.isNotEmpty) {
-    result.writeln('const _referenceMemberships = <Set<int>>[');
+    final candidates = [for (final _ in plan.classes) <int>[]];
     for (final binding in plan.classes) {
-      result.writeln('  {${binding.shape.memberships.join(', ')}},');
+      for (final id in binding.shape.memberships) {
+        candidates[id].add(binding.shape.classId);
+      }
     }
     result.writeln('''
-];
 @pragma('wasm:export', 'napi:class:classify')
 WasmI32 _classifyReference(WasmExternRef reference) {
   final object = reference.internalize().toObject();
@@ -30,7 +31,7 @@ WasmI32 _classifyReference(WasmExternRef reference) {
   if (object is target.${plan.classes[classId].binding.callPath}) {
     if (candidate < 0) {
       candidate = $classId;
-    } else if (!_referenceMemberships[candidate].contains($classId)) {
+    } else if (${candidates[classId].map((id) => 'candidate != $id').join(' && ')}) {
       ambiguous = true;
     }
   }

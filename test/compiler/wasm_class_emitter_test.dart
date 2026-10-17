@@ -169,8 +169,11 @@ for (const options of [null, [], {unknown: 1}, {}, {amount: undefined},
 }
 const foreign = new IndependentCounter();
 const other = new Other(4);
+const revoked = Proxy.revocable(one, {});
+revoked.revoke();
 const receivers = [{}, Object.create(Counter.prototype), other, foreign,
-  new Proxy(one, {}), Reflect.construct(Object, [], Counter), null, undefined];
+  new Proxy(one, {}), revoked.proxy, Reflect.construct(Object, [], Counter),
+  null, undefined, 1, false, 'text', Symbol('brand'), () => {}];
 const beforeBrands = history.length;
 for (const receiver of receivers) {
   assert.throws(() => Counter.prototype.named.call(receiver, {get amount() { reads++; }}), TypeError);

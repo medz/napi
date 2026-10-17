@@ -1057,6 +1057,44 @@ List<ReferenceClassShape> _referenceHierarchy(
         }
       }
     }
+    for (final inheritedMember in shape.binding.inheritedInstanceMembers) {
+      final actual = inheritedMember.member;
+      for (final refs in candidates.values) {
+        for (final ref in refs) {
+          final contract = member(ref);
+          if (contract.binding.declaration != inheritedMember.contract ||
+              contract.kind.name != actual.kind.name) {
+            continue;
+          }
+          if (actual.selection == MemberSelection.excluded) {
+            reject(
+              'Inherited implementation ${actual.declaration.name} is excluded '
+              'but is required by a selected ancestor.',
+              actual.source,
+            );
+          }
+          if (actual.hasExplicitExportName &&
+              actual.exportName != contract.exportName) {
+            reject(
+              'Inherited implementation ${actual.declaration.name} renames '
+              'selected ancestor export ${contract.exportName}.',
+              actual.source,
+            );
+          }
+          final actualVoid = actual.result is VoidType;
+          final contractVoid = contract.result == null;
+          if (!inheritedMember.isCompatible ||
+              (contract.kind != ReferenceMemberKind.method &&
+                  actualVoid != contractVoid)) {
+            reject(
+              'Inherited implementation ${actual.declaration.name} has an '
+              'incompatible parameter or result type for a selected ancestor.',
+              actual.source,
+            );
+          }
+        }
+      }
+    }
     final properties = <String, ReferencePropertyShape>{};
     for (final entry in candidates.entries) {
       final refs = entry.value;
@@ -1157,8 +1195,13 @@ bool _referenceMemberAccepts(
       _referenceSubtype(child, parent, ids, memberships);
   final output = implementation.result;
   final requiredOutput = contract.result;
-  if ((output == null) != (requiredOutput == null) ||
-      (output != null && !subtype(output, requiredOutput!))) {
+  // A void method contract discards its result. The derived binding retains
+  // its own conversion, while explicitly borrowing the base still returns void.
+  final discardsResult =
+      contract.kind == ReferenceMemberKind.method && requiredOutput == null;
+  if (!discardsResult &&
+      ((output == null) != (requiredOutput == null) ||
+          (output != null && !subtype(output, requiredOutput!)))) {
     return false;
   }
   bool positional(ParameterBinding p) =>
