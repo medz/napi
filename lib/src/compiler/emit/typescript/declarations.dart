@@ -14,14 +14,25 @@ String emitDeclarations(ModulePlan plan) => [
   '// Generated declarations for the actual Wasm module.',
   '// Use allowArbitraryExtensions for relative .wasm imports.',
   for (final function in plan.functions)
-    if (function.representation == ExportRepresentation.callableGlobal)
-      'export declare const ${function.binding.exportName}: (${emitParameters(function.binding.parameters, function.inputs)}) => ${emitResult(function.output, returnsFuture: function.returnsFuture)};'
-    else
-      'export declare function ${function.binding.exportName}(${emitParameters(function.binding.parameters, function.inputs)}): ${emitResult(function.output, returnsFuture: function.returnsFuture)};',
+    ...emitFunctionDeclarations(
+      function.binding.exportName,
+      function.parameters,
+      function.inputs,
+      function.output,
+      function.binding.typeParameters,
+      returnsFuture: function.returnsFuture,
+      callable: function.representation == ExportRepresentation.callableGlobal,
+    ),
   for (final binding in plan.classes) ...[
-    'export declare class ${binding.binding.exportName} {',
+    'export declare class ${binding.binding.exportName}${emitTypeParameters(binding.binding.typeParameters, invariant: true)} {',
+    if (binding.binding.typeParameters.isNotEmpty)
+      '  ${emitOpaquePhantom(binding.binding.typeParameters)}',
     if (binding.constructor case final constructor?)
-      '  constructor(${emitParameters(constructor.parameters, constructor.inputs)});'
+      for (final parameters in emitParameterVariants(
+        constructor.parameters,
+        constructor.inputs,
+      ))
+        '  constructor($parameters);'
     else
       '  private constructor();',
     for (final member in [
@@ -34,16 +45,20 @@ String emitDeclarations(ModulePlan plan) => [
         ])
           plan.classes[ref.classId].members[ref.memberIndex],
     ])
-      switch (member.kind) {
-        MemberCallKind.method =>
-          '  ${member.isStatic ? 'static ' : ''}${emitMemberName(member.exportName)}(${emitParameters(member.parameters, member.inputs)}): ${emitResult(member.output, returnsFuture: member.returnsFuture)};',
-        MemberCallKind.getter =>
-          '  ${member.isStatic ? 'static ' : ''}get ${emitMemberName(member.exportName)}(): ${emitResult(member.output, returnsFuture: member.returnsFuture)};',
-        MemberCallKind.setter =>
-          '  ${member.isStatic ? 'static ' : ''}set ${emitMemberName(member.exportName)}(${emitParameters(member.parameters, member.inputs)});',
-        MemberCallKind.constructor =>
-          '  static ${emitMemberName(member.exportName)}(${emitParameters(member.parameters, member.inputs)}): ${binding.binding.exportName};',
-      },
+      for (final parameters in emitParameterVariants(
+        member.parameters,
+        member.inputs,
+      ))
+        switch (member.kind) {
+          MemberCallKind.method =>
+            '  ${member.isStatic ? 'static ' : ''}${emitMemberName(member.exportName)}($parameters): ${emitResult(member.output, returnsFuture: member.returnsFuture)};',
+          MemberCallKind.getter =>
+            '  ${member.isStatic ? 'static ' : ''}get ${emitMemberName(member.exportName)}(): ${emitResult(member.output, returnsFuture: member.returnsFuture)};',
+          MemberCallKind.setter =>
+            '  ${member.isStatic ? 'static ' : ''}set ${emitMemberName(member.exportName)}($parameters);',
+          MemberCallKind.constructor =>
+            '  static ${emitMemberName(member.exportName)}${emitTypeParameters(binding.binding.typeParameters)}($parameters): ${binding.binding.exportName}${emitLogicalTypeArguments(binding.binding.typeParameters)};',
+        },
     '}',
     ...emitReferenceInheritance(
       binding.shape,
@@ -52,6 +67,71 @@ String emitDeclarations(ModulePlan plan) => [
   ],
   '',
 ].join('\n');
+
+String emitTypeParameters(
+  List<TypeParameterBinding> parameters, {
+  bool invariant = false,
+}) => parameters.isEmpty
+    ? ''
+    : '<${parameters.map((p) => '${invariant ? 'in out ' : ''}${p.declaration.name} = unknown').join(', ')}>';
+
+String emitLogicalTypeArguments(List<TypeParameterBinding> parameters) =>
+    parameters.isEmpty
+    ? ''
+    : '<${parameters.map((p) => p.declaration.name).join(', ')}>';
+
+String emitOpaquePhantom(List<TypeParameterBinding> parameters) {
+  final tuple = '[${parameters.map((p) => p.declaration.name).join(', ')}]';
+  return 'private readonly \$napiOpaque: (types: $tuple) => $tuple;';
+}
+
+Iterable<String> emitFunctionDeclarations(
+  String name,
+  List<ParameterBinding> parameters,
+  List<ValueConversion> inputs,
+  ValueConversion? output,
+  List<TypeParameterBinding> types, {
+  required bool returnsFuture,
+  required bool callable,
+}) sync* {
+  final variants = emitParameterVariants(parameters, inputs).toList();
+  final generics = emitTypeParameters(types);
+  final result = emitResult(output, returnsFuture: returnsFuture);
+  if (callable && variants.length > 1) {
+    yield 'export declare const $name: {';
+    for (final parameters in variants) {
+      yield '  $generics($parameters): $result;';
+    }
+    yield '};';
+  } else {
+    for (final parameters in variants) {
+      yield callable
+          ? 'export declare const $name: $generics($parameters) => $result;'
+          : 'export declare function $name$generics($parameters): $result;';
+    }
+  }
+}
+
+/// Opaque optional positions distinguish omission from supplied undefined.
+Iterable<String> emitParameterVariants(
+  List<ParameterBinding> parameters,
+  List<ValueConversion> inputs,
+) sync* {
+  if (!parameters.any((p) => p.presence == ParameterPresence.opaqueOptional)) {
+    yield emitParameters(parameters, inputs);
+    return;
+  }
+  final firstOptional = parameters.indexWhere(
+    (p) => p.kind == ParameterKind.optionalPositional,
+  );
+  for (var length = firstOptional; length <= parameters.length; length++) {
+    yield emitParameters(
+      parameters.take(length).toList(),
+      inputs.take(length).toList(),
+      suppliedOptionals: true,
+    );
+  }
+}
 
 /// Completion changes the result container, never the payload conversion.
 String emitResult(ValueConversion? output, {required bool returnsFuture}) {
@@ -83,8 +163,9 @@ String emitMemberName(String name) =>
 
 String emitParameters(
   List<ParameterBinding> parameters,
-  List<ValueConversion> inputs,
-) {
+  List<ValueConversion> inputs, {
+  bool suppliedOptionals = false,
+}) {
   final positional = parameters.indexed.where(
     (entry) =>
         entry.$2.kind == ParameterKind.requiredPositional ||
@@ -109,7 +190,13 @@ String emitParameters(
       } while (!used.add(name));
     }
     final optional = parameter.kind == ParameterKind.optionalPositional;
-    result.add('$name${optional ? '?' : ''}: ${inputs[index].typescriptType}');
+    final explicitUndefined =
+        suppliedOptionals &&
+        optional &&
+        parameter.presence == ParameterPresence.optional;
+    result.add(
+      '$name${optional && !suppliedOptionals ? '?' : ''}: ${inputs[index].typescriptType}${explicitUndefined ? ' | undefined' : ''}',
+    );
   }
   if (named.isNotEmpty) {
     var name = 'options';

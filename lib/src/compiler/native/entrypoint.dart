@@ -9,6 +9,7 @@ import '../lowering/plan.dart'
         DictionaryConversion,
         ListConversion,
         MapConversion,
+        OpaqueConversion,
         RecordConversion,
         ReferenceConversion,
         ScalarConversion,
@@ -17,7 +18,9 @@ import '../lowering/plan.dart'
         ValueConversion,
         containsDictionary,
         containsValueClass,
-        conversionGraph;
+        conversionGraph,
+        dartOpaqueTypeArguments,
+        dartReferenceClassType;
 import 'plan.dart';
 import 'structural.dart';
 
@@ -26,6 +29,13 @@ String _quote(String value) => jsonEncode(value).replaceAll(r'$', r'\$');
 /// Generate business-specific Dart only. The Node-API bridge stays generic.
 String emitNativeDart(NativeModulePlan plan) {
   final hasFutures = plan.calls.any((call) => call.returnsFuture);
+  final hasOpaque =
+      plan.classes.any(
+        (binding) => binding.binding.typeParameters.any((type) => type.opaque),
+      ) ||
+      plan.functions.any(
+        (call) => call.function!.typeParameters.any((type) => type.opaque),
+      );
   final policies = resourcePolicies([
     for (final binding in plan.classes) binding.shape,
   ]);
@@ -56,14 +66,14 @@ String emitNativeDart(NativeModulePlan plan) {
     code.writeln("import 'dart:convert' show jsonEncode;");
     code.writeln("import 'package:napi/napi.dart' as napi;");
   }
-  if (hasStructures || hasFutures) {
+  if (hasStructures || hasFutures || hasOpaque) {
     code.writeln("import 'dart:ffi';");
   }
   code.write('''
 import 'package:napi/src/compiler/native/bindings.dart';
 import ${_quote(plan.bindings.importUri.toString())} as target;
 
-late final NapiApi _api;
+${hasOpaque ? 'typedef _NapiHostValue = NativeHostValue;\n\n' : ''}late final NapiApi _api;
 @pragma('vm:entry-point')
 List<Object?> napiBindings(int apiTableAddress, int tableCount) {
   _api = NapiApi(apiTableAddress, tableCount${plan.classes.isEmpty ? '' : ', referenceClass: _referenceClass, classMemberships: _referenceMemberships'}${hasCompositeViews ? ', referenceViews: _referenceViews' : ''});
@@ -101,7 +111,7 @@ ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int toke
   int? policy;''');
       for (final entry in policies.entries) {
         code.writeln(
-          '''  if (value is target.${plan.classes[entry.key].binding.callPath}) {
+          '''  if (value is ${dartReferenceClassType(plan.classes[entry.key].binding)}) {
     if (policy != null && policy != ${entry.value}) throw NapiTypeError('Resource has incompatible cleanup policies');
     policy = ${entry.value};
   }''',
@@ -122,7 +132,7 @@ ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int toke
   int? canonical;''');
     for (final index in plan.referenceClassOrder) {
       code.writeln(
-        '''  if (value is target.${plan.classes[index].binding.callPath}) {
+        '''  if (value is ${dartReferenceClassType(plan.classes[index].binding)}) {
     if (canonical == null) { canonical = $index; }
     else if (!_referenceMemberships[canonical].contains($index)) {
       return -1;
@@ -137,7 +147,7 @@ ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int toke
       code.writeln('List<int> _referenceViews(Object value) => [');
       for (final binding in plan.classes) {
         code.writeln(
-          '  if (value is target.${binding.binding.callPath}) ${binding.shape.classId},',
+          '  if (value is ${dartReferenceClassType(binding.binding)}) ${binding.shape.classId},',
         );
       }
       code.writeln('];');
@@ -152,11 +162,15 @@ ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int toke
             conversionGraph(call.inputs)
                 .any((value) => value is ReferenceConversion));
     final parameters = call.parameters;
+    final hasOpaqueInputs = call.inputs.any(
+      (value) => value is OpaqueConversion,
+    );
     final positionalCount = parameters.where((p) => !_named(p)).length;
     final named = parameters.where(_named).toList();
     final capacity = positionalCount + (named.isEmpty ? 0 : 1);
     final rawStructuralArguments =
         !retainsResources &&
+        !hasOpaqueInputs &&
         !call.returnsFuture &&
         call.function != null &&
         parameters.every((p) => p.kind == ParameterKind.requiredPositional) &&
@@ -192,7 +206,7 @@ ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int toke
         '    final object = _api.ownerValue(call.env, call.self, ${_quote(call.context)}, ${call.classId});',
       );
       code.writeln(
-        '    if (object is! target.${call.owner!.callPath}) throw NapiTypeError(${_quote('${call.context}: invalid native receiver')});',
+        '    if (object is! ${dartReferenceClassType(call.owner!)}) throw NapiTypeError(${_quote('${call.context}: invalid native receiver')});',
       );
       if (call.isCleanup) {
         code.writeln('''    final control = _resourceControl(object)!;
@@ -210,6 +224,7 @@ ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int toke
     final preflight =
         !rawStructuralArguments &&
         (retainsResources ||
+            hasOpaqueInputs ||
             call.returnsFuture ||
             call.inputs.any(containsValueClass));
     if (preflight) {
@@ -221,7 +236,10 @@ ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int toke
         final namedIndex = option;
         if (isNamed) option++;
         if (_optional(parameter)) {
-          final defaulted = isNamed
+          final defaulted =
+              parameter.presence == ParameterPresence.opaqueOptional
+              ? '$index >= call.argumentCount'
+              : isNamed
               ? '_api.defaultOption(call.env, options, $namedIndex)'
               : '_api.omittedOrUndefined(call, $index)';
           final value = isNamed
@@ -232,9 +250,7 @@ ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int toke
             '    final raw$index = default$index ? nullptr : $value;',
           );
         } else {
-          final value = isNamed
-              ? '_api.requiredOption(call.env, options, $namedIndex, $path)'
-              : '_api.requiredArgument(call, $index, $path)';
+          final value = _requiredValue(parameter, index, namedIndex, path);
           code.writeln('    final raw$index = $value;');
         }
       }
@@ -276,9 +292,7 @@ ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int toke
           'Pointer<Void>.fromAddress(_api.undefinedResult(call.env))';
       final raw = structural && rawStructuralArguments
           ? '(call.argumentCount > $index ? call.arguments[$index] : $undefined)'
-          : isNamed
-          ? '_api.requiredOption(call.env, options, $option, $path)'
-          : '_api.requiredArgument(call, $index, $path)';
+          : _requiredValue(parameter, index, option, path);
       if (preflight && conversion is ReferenceConversion) {
         code.writeln(
           '    final ${conversion.dartType} a$index = reference$index;',
@@ -289,6 +303,8 @@ ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int toke
       if (_optional(parameter)) {
         final defaulted = preflight
             ? 'default$index'
+            : parameter.presence == ParameterPresence.opaqueOptional
+            ? '$index >= call.argumentCount'
             : isNamed
             ? '_api.defaultOption(call.env, options, $option)'
             : '_api.omittedOrUndefined(call, $index)';
@@ -299,6 +315,8 @@ ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int toke
       if (!preflight) code.writeln('    final raw$index = $raw;');
       if (conversion is ReferenceConversion) {
         _readReference(code, conversion, index, 'a$index', retainsResources);
+      } else if (conversion is OpaqueConversion) {
+        code.writeln('    a$index = _api.ownHostValue(call.env, raw$index);');
       } else if (conversion is ScalarConversion) {
         final converted =
             '_api.${nativeScalarReader(conversion)}(call.env, raw$index, $path)';
@@ -329,7 +347,9 @@ ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int toke
     ].join(', ');
     final receiver = call.owner == null
         ? 'target'
-        : call.isStatic || call.isConstructor
+        : call.member?.kind == MemberKind.constructor || call.isConstructor
+        ? dartReferenceClassType(call.owner!)
+        : call.isStatic
         ? 'target.${call.owner!.callPath}'
         : 'object';
     final path =
@@ -337,7 +357,8 @@ ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int toke
         call.member?.callPath ??
         call.member?.declaration.name;
     final invocation = switch (call.kind) {
-      NativeCallKind.function => 'target.$path($arguments)',
+      NativeCallKind.function =>
+        'target.$path${dartOpaqueTypeArguments(call.function!.typeParameters)}($arguments)',
       NativeCallKind.constructor => '$receiver($arguments)',
       NativeCallKind.method => '$receiver.$path($arguments)',
       NativeCallKind.getter => '$receiver.$path',
@@ -407,13 +428,17 @@ void _writeResult(
     return;
   }
   if (output.nullable &&
-      (output is ReferenceConversion || output is ScalarConversion)) {
+      (output is ReferenceConversion ||
+          output is ScalarConversion ||
+          output is OpaqueConversion)) {
     code.writeln('    if (value == null) return _api.nullResult($env);');
   }
   if (output is ReferenceConversion) {
     code.writeln(
       '    return _api.referenceResult($env, value, ${output.classId}, ${_quote(output.context)});',
     );
+  } else if (output is OpaqueConversion) {
+    code.writeln('    return _api.hostValue($env, value).address;');
   } else if (output is ScalarConversion) {
     final context = output.kind == ScalarKind.integer && !output.usesBigInt
         ? ', ${_quote(output.context)}'
@@ -457,13 +482,32 @@ void _readReference(
     '    final object$index = _api.ownerValue(call.env, raw$index, ${_quote(conversion.context)}, ${conversion.classId});',
   );
   code.writeln(
-    '    if (object$index is! target.${conversion.classBinding.callPath}) throw NapiTypeError(${_quote('${conversion.context}: expected ${conversion.classBinding.exportName}')});',
+    '    if (object$index is! ${dartReferenceClassType(conversion.classBinding)}) throw NapiTypeError(${_quote('${conversion.context}: expected ${conversion.classBinding.exportName}')});',
   );
   code.writeln('    $destination = object$index;');
   if (retainsResources) {
     code.writeln('    operation.retain(_resourceControl(object$index));');
   }
   if (conversion.nullable) code.writeln('    }');
+}
+
+String _requiredValue(
+  ParameterBinding parameter,
+  int index,
+  int option,
+  String path,
+) {
+  final opaque =
+      parameter.presence == ParameterPresence.opaqueRequired ||
+      parameter.presence == ParameterPresence.opaqueOptional;
+  if (_named(parameter)) {
+    return opaque
+        ? '_api.presentOption(options, $option, $path)'
+        : '_api.requiredOption(call.env, options, $option, $path)';
+  }
+  return opaque
+      ? '_api.presentArgument(call, $index, $path)'
+      : '_api.requiredArgument(call, $index, $path)';
 }
 
 bool _named(ParameterBinding p) =>

@@ -152,6 +152,7 @@ final class _Reader {
   final _libraries = <a.LibraryElement, ResolvedLibraryResult>{};
   final _documentation = <a.Element, String>{};
   final _typeParameterIds = <a.TypeParameterElement, DeclarationId>{};
+  final _opaqueParameters = <DeclarationId>{};
   _Reader(this.entry, this.annotationClass, {this.importUri});
 
   Future<BindingModule> readExternal(
@@ -267,6 +268,38 @@ final class _Reader {
   }
 
   void _checkClassOptions(a.Element element, NAPI config) {
+    if (config.opaque case final names?) {
+      final parameters = switch (element) {
+        a.ClassElement() => element.typeParameters,
+        a.TopLevelFunctionElement() => element.typeParameters,
+        _ => null,
+      };
+      if (parameters == null || config.exclude) {
+        _reject(
+          element,
+          'NAPI_PLACEMENT',
+          'opaque is only supported on a class or top-level function.',
+        );
+      }
+      if (names.isEmpty ||
+          names.toSet().length != names.length ||
+          names.contains('_') ||
+          names.any((name) => !parameters.any((p) => p.name == name))) {
+        _reject(
+          element,
+          'NAPI_SELECTION',
+          'opaque must name each declared type parameter exactly once.',
+        );
+      }
+      if (names.length != parameters.length) {
+        _reject(
+          element,
+          'NAPI_GENERIC',
+          'Partial opaque type-parameter selection is not supported.',
+        );
+      }
+      _opaqueParameters.addAll(parameters.map(_id));
+    }
     if (element is! a.ClassElement) {
       if (config.classPolicy != null ||
           config.cleanup != null ||
@@ -575,6 +608,20 @@ final class _Reader {
     final name = value.getField('name')?.toStringValue();
     final exclude = value.getField('exclude')?.toBoolValue();
     final bigint = value.getField('bigint')?.toBoolValue();
+    final opaqueValue = value.getField('opaque');
+    final opaqueList = opaqueValue?.toListValue();
+    List<String>? opaque;
+    if (opaqueValue != null && !opaqueValue.isNull) {
+      if (opaqueList == null ||
+          opaqueList.any((v) => v.toStringValue() == null)) {
+        _reject(
+          element,
+          'NAPI_ANNOTATION',
+          'opaque must be a constant list of type-parameter names.',
+        );
+      }
+      opaque = opaqueList.map((v) => v.toStringValue()!).toList();
+    }
     final policyValue = value.getField('classPolicy');
     final policyIndex = policyValue?.getField('index')?.toIntValue();
     final classPolicy =
@@ -641,6 +688,7 @@ final class _Reader {
       name: name,
       exclude: exclude,
       bigint: bigint,
+      opaque: opaque,
       classPolicy: classPolicy,
       cleanup: cleanup,
       valueConstructor: valueConstructor,
@@ -855,27 +903,38 @@ final class _Reader {
     a.FormalParameterElement element, {
     DeclarationId? owner,
     String path = 'parameter',
-  }) => ParameterBinding(
-    element.name ?? '',
-    _type(element.type, owner: owner, path: path),
-    kind: element.isRequiredNamed
-        ? ParameterKind.requiredNamed
-        : element.isOptionalNamed
-        ? ParameterKind.optionalNamed
-        : element.isOptionalPositional
-        ? ParameterKind.optionalPositional
-        : ParameterKind.requiredPositional,
-    defaultSource: element.defaultValueCode,
-    defaultValue: _scalarDefault(element),
-    hasDefault: element.hasDefaultValue,
-    source: element.firstFragment.libraryFragment == null
-        ? null
-        : _source(element),
-    documentation: element.documentationComment ?? _documentation[element],
-    isInitializingFormal: element is a.FieldFormalParameterElement,
-    isSuperFormal: element is a.SuperFormalParameterElement,
-    isCovariant: element.isCovariant,
-  );
+  }) {
+    final type = _type(element.type, owner: owner, path: path);
+    final opaque =
+        type is TypeParameterType &&
+        _opaqueParameters.contains(type.declaration);
+    return ParameterBinding(
+      element.name ?? '',
+      type,
+      presence: opaque
+          ? (element.isOptionalPositional || element.isOptionalNamed
+                ? ParameterPresence.opaqueOptional
+                : ParameterPresence.opaqueRequired)
+          : null,
+      kind: element.isRequiredNamed
+          ? ParameterKind.requiredNamed
+          : element.isOptionalNamed
+          ? ParameterKind.optionalNamed
+          : element.isOptionalPositional
+          ? ParameterKind.optionalPositional
+          : ParameterKind.requiredPositional,
+      defaultSource: element.defaultValueCode,
+      defaultValue: _scalarDefault(element),
+      hasDefault: element.hasDefaultValue,
+      source: element.firstFragment.libraryFragment == null
+          ? null
+          : _source(element),
+      documentation: element.documentationComment ?? _documentation[element],
+      isInitializingFormal: element is a.FieldFormalParameterElement,
+      isSuperFormal: element is a.SuperFormalParameterElement,
+      isCovariant: element.isCovariant,
+    );
+  }
 
   ScalarDefault? _scalarDefault(a.FormalParameterElement element) {
     if (!element.hasDefaultValue) return null;
@@ -893,6 +952,7 @@ final class _Reader {
   TypeParameterBinding _typeParameter(a.TypeParameterElement element) =>
       TypeParameterBinding(
         declaration: _id(element),
+        opaque: _opaqueParameters.contains(_id(element)),
         source: element.firstFragment.libraryFragment == null
             ? null
             : _source(element),

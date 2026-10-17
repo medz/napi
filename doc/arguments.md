@@ -32,13 +32,16 @@ before conversion. Proxy traps can still execute while inspecting an object.
 | --- | --- | --- | --- |
 | Required scalar, including nullable | TypeError | TypeError | Accepted only if nullable |
 | Optional scalar | Dart default | Dart default | Accepted only if nullable |
-| Required opaque policy hook | TypeError | Supplied value | Supplied value |
-| Optional opaque policy hook | Dart default | Supplied value | Supplied value |
+| Required opaque parameter | TypeError | Supplied value | Supplied value |
+| Optional positional opaque parameter | Dart default | Supplied value | Supplied value |
 
 `false`, `0`, `-0`, `0n` and `''` remain supplied values. Optional positional holes
 work independently: `f(undefined, 0)` defaults only the first parameter. Surplus
 JavaScript arguments are ignored; TypeScript declarations expose the declared
 arity. All supplied scalars are validated before business code runs.
+For an explicitly selected opaque parameter, a supplied `undefined` is a payload
+rather than a positional hole. Optional named opaque inputs remain unsupported;
+see [opaque payloads](opaque.md).
 
 The frontend evaluates defaults in their declaring library. Generated Dart uses
 typed scalar literals, preserving private/imported constant expressions, exact
@@ -57,18 +60,21 @@ dynamic invocation or combinations of named-argument branches.
 
 Presence-sensitive functions are immutable externref globals containing JS arrow
 functions. They capture actual argc and own-property presence before calling a
-private Dart core export. Required positional functions remain native Wasm
+private Dart core export. Required positional scalar/structural functions remain native Wasm
 function exports, even in the same public module. Consumers import both forms
 directly from `.wasm`; neither function form is constructible. This implementation
-requires no consumer initialization. The shared presence-policy hook is also exercised by the
-real `.wasm` opaque fixture, where `f()` and `f(undefined)` have different results.
-Opaque storage itself remains #125. The native backend must implement the same
-call semantics through Node-API; that work remains open in #118 and #144.
+requires no consumer initialization. Generated opaque functions use the presence
+path even when all parameters are required. Native callbacks capture Node-API
+argument counts and own-property presence before creating carriers. Fresh
+installed packages on both targets verify that `f()` fails while
+`f(undefined)` preserves the supplied payload.
 
 Declarations use optional positional parameters and a final typed options object.
-Optional properties explicitly allow `undefined`, including under
+Ordinary optional properties explicitly allow `undefined`, including under
 `exactOptionalPropertyTypes`. Required nullable properties allow `null` and reject
-`undefined`.
+`undefined` unless explicitly selected as opaque. Optional positional opaque
+parameters use finite prefix overloads to preserve their logical payload type;
+required named opaque properties use that type without adding `undefined`.
 
 Verified with Dart 3.13.5 stable, Node 26.11.1 and TypeScript 7.0.2; CI also tests
 Node 24.19.0. Dart Wasm interop remains experimental.

@@ -32,6 +32,15 @@ WasmExternRef? _normalizeError(Object error) {
 void main() => throw StateError('napi library entrypoint main was invoked');
 ''';
 
+/// A non-null Dart object keeps raw JS null and undefined distinct from Dart
+/// absence. WasmGC traces the externref directly without inspecting its value.
+const opaqueEntrypointPrelude = r'''
+final class _NapiHostValue {
+  final WasmExternRef? value;
+  _NapiHostValue(this.value);
+}
+''';
+
 /// Future payload conversion is invoked under the host's exception handler so
 /// JS boundary failures retain their original value instead of Dart boxing.
 const futureEntrypointPrelude = r'''

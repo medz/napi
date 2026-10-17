@@ -20,6 +20,11 @@ class NAPI {
   final bool exclude;
   final bool bigint;
 
+  /// Type parameters whose values are stored and forwarded as opaque JS values.
+  /// Select every parameter of an ordinary class or top-level function. This
+  /// chooses a private Dart carrier, not arbitrary Dart runtime specialization.
+  final List<String>? opaque;
+
   /// Class-only policy; omitted classes retain reference semantics.
   final ClassPolicy? classPolicy;
 
@@ -43,6 +48,7 @@ class NAPI {
     this.name,
     this.exclude = false,
     this.bigint = false,
+    this.opaque,
     this.classPolicy,
     this.cleanup,
     this.valueConstructor,

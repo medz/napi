@@ -80,12 +80,14 @@ final class NativeStructuralEmitter {
       _code.writeln('  if (_api.isNull(env, value)) return null;');
     }
     switch (conversion) {
+      case OpaqueConversion():
+        throw StateError('Opaque structural leaves are unsupported');
       case ReferenceConversion():
         _code.writeln(
           '  final object = _api.ownerValue(env, value, path, ${conversion.classId});',
         );
         _code.writeln(
-          "  if (object is! target.${conversion.classBinding.callPath}) throw NapiTypeError('\$path: expected ${conversion.classBinding.exportName}');",
+          "  if (object is! ${dartReferenceClassType(conversion.classBinding)}) throw NapiTypeError('\$path: expected ${conversion.classBinding.exportName}');",
         );
         if (hasResources) {
           _code.writeln('  state.operation?.retain(_resourceControl(object));');
@@ -193,6 +195,8 @@ final class NativeStructuralEmitter {
     _code.writeln('  state.visit(path);');
     if (conversion.nullable) _code.writeln('  if (value == null) return null;');
     switch (conversion) {
+      case OpaqueConversion():
+        throw StateError('Opaque structural leaves are unsupported');
       case ScalarConversion() || ReferenceConversion():
         _code.writeln('  return value;');
       case ListConversion(:final element):
@@ -334,6 +338,8 @@ final class NativeStructuralEmitter {
       _code.writeln('  if (value == null) return _api.nullResult(env);');
     }
     switch (conversion) {
+      case OpaqueConversion():
+        throw StateError('Opaque structural leaves are unsupported');
       case ScalarConversion():
         final type = conversion.nullable
             ? conversion.dartType.substring(0, conversion.dartType.length - 1)
@@ -405,6 +411,9 @@ final class NativeStructuralEmitter {
       for (final field in value.fields) field.conversion,
     ],
     ScalarConversion() || ReferenceConversion() => [],
+    OpaqueConversion() => throw StateError(
+      'Opaque structural leaves are unsupported',
+    ),
   };
 
   // Only value-containing input roots use this path. Raw validation snapshots
@@ -428,6 +437,8 @@ final class NativeStructuralEmitter {
       _code.writeln('  if (_api.isNull(env, value)) return null;');
     }
     switch (conversion) {
+      case OpaqueConversion():
+        throw StateError('Opaque structural leaves are unsupported');
       case ListConversion():
         _code.writeln(
           '''  final length = _api.inspectShape(env, value, true, const [], path, 10000 - state.work, depth, state.contains(env, value));
@@ -557,6 +568,8 @@ final class NativeStructuralEmitter {
     if (conversion.nullable) _code.writeln('  if (value == null) return null;');
     _code.writeln('  final items = value as List<Object?>;');
     switch (conversion) {
+      case OpaqueConversion():
+        throw StateError('Opaque structural leaves are unsupported');
       case ListConversion(:final element):
         _code.writeln('''  final result = <${element.dartType}>[];
   for (var i = 0; i < items.length; i++) {

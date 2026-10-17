@@ -227,4 +227,5 @@ when finalizers were never dispatched, without JS or business cleanup. There is
 no additional release queue or global registry. Strong cycles across the two
 heaps need an author-directed ownership break; see the
 [public ownership contract](../doc/architecture.md#public-contract).
-These private operations do not enable generated opaque or callback exports.
+Generated opaque storage uses these private operations. Callback invocation
+requires its separate generated binding engine.

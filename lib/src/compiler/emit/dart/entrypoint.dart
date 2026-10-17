@@ -15,6 +15,12 @@ String emitDart(ModulePlan plan) {
     "${plan.conversions.any(containsDictionary) ? "import 'package:napi/napi.dart' as napi;\nimport 'dart:convert' show jsonEncode;\n" : ''}"
     '$entrypointPrelude\n',
   );
+  if (plan.classes.any((c) => c.binding.typeParameters.any((p) => p.opaque)) ||
+      plan.functions.any(
+        (f) => f.binding.typeParameters.any((p) => p.opaque),
+      )) {
+    result.writeln(opaqueEntrypointPrelude);
+  }
   if (plan.calls.any((call) => call.returnsFuture)) {
     result.writeln(futureEntrypointPrelude);
   }
@@ -38,7 +44,7 @@ ${resources ? '  try { _resourceControl(object); } catch (error) { _normalizeRes
 ''');
     for (final classId in plan.referenceClassOrder) {
       result.writeln('''
-  if (object is target.${plan.classes[classId].binding.callPath}) {
+  if (object is ${dartReferenceClassType(plan.classes[classId].binding)}) {
     if (candidate < 0) {
       candidate = $classId;
     } else if (${candidates[classId].map((id) => 'candidate != $id').join(' && ')}) {
@@ -57,7 +63,7 @@ WasmExternRef _referenceViews(WasmExternRef reference) {
 ''');
       for (final (id, binding) in plan.classes.indexed) {
         result.writeln(
-          '    if (object is target.${binding.binding.callPath}) $id.toJS,',
+          '    if (object is ${dartReferenceClassType(binding.binding)}) $id.toJS,',
         );
       }
       result.writeln('  ].toJS)!;\n}');
@@ -108,7 +114,9 @@ WasmExternRef _referenceViews(WasmExternRef reference) {
         );
         result.writeln('  } else {');
       }
-      if (conversion is ReferenceConversion) {
+      if (conversion is OpaqueConversion) {
+        result.writeln('  a$i = _NapiHostValue(p$i);');
+      } else if (conversion is ReferenceConversion) {
         result.writeln(
           '  a$i = ${conversion.nullable ? 'p$i.isNull ? null : ' : ''}p$i!.internalize().toObject() as ${conversion.dartType};',
         );
@@ -154,7 +162,7 @@ WasmExternRef _referenceViews(WasmExternRef reference) {
     if (instance) {
       final owner = call.owner;
       result.writeln(
-        '    final object = reference.internalize().toObject() as target.${owner.callPath};',
+        '    final object = reference.internalize().toObject() as ${dartReferenceClassType(owner)};',
       );
     }
     final invocation = _invocation(call);
@@ -200,7 +208,9 @@ WasmExternRef _referenceViews(WasmExternRef reference) {
       result.writeln('  if (value == null) return WasmExternRef.nullRef;');
     }
     final context = call.outputContext!;
-    if (output is ReferenceConversion) {
+    if (output is OpaqueConversion) {
+      result.writeln('  return value.value;\n}');
+    } else if (output is ReferenceConversion) {
       result.writeln('  return WasmAnyRef.fromObject(value).externalize();\n}');
     } else if (output case final ScalarConversion scalar) {
       result.writeln('  return ${_write(scalar, context)};\n}');
@@ -230,7 +240,7 @@ void _emitResourceControl(StringBuffer result, ModulePlan plan) {
   result.writeln('  var policy = -1;');
   for (final entry in plan.resourcePolicies.entries) {
     result.writeln(
-      '''  if (value is target.${plan.classes[entry.key].binding.callPath}) {
+      '''  if (value is ${dartReferenceClassType(plan.classes[entry.key].binding)}) {
     if (policy >= 0 && policy != ${entry.value}) throw const _ResourcePolicyViolation();
     policy = ${entry.value};
   }''',
@@ -281,7 +291,7 @@ void _emitResourceCall(
   );
   if (instance) {
     result.writeln(
-      '  final object = reference.internalize().toObject() as target.${member.owner.callPath};',
+      '  final object = reference.internalize().toObject() as ${dartReferenceClassType(member.owner)};',
     );
     if (cleanup) result.writeln('  final control = _resourceControl(object);');
   }
@@ -293,7 +303,9 @@ void _emitResourceCall(
         '  if (d$i.toIntSigned() != 0) {\n    a$i = ${renderDartDefault(parameter, conversion)};\n  } else {',
       );
     }
-    if (conversion is ReferenceConversion) {
+    if (conversion is OpaqueConversion) {
+      result.writeln('  a$i = _NapiHostValue(p$i);');
+    } else if (conversion is ReferenceConversion) {
       result.writeln(
         '  a$i = ${conversion.nullable ? 'p$i.isNull ? null : ' : ''}p$i!.internalize().toObject() as ${conversion.dartType};',
       );
@@ -334,7 +346,7 @@ void _emitResourceCall(
     );
     result.writeln('  final Future<${output?.dartType ?? 'void'}> value;');
   } else if (constructor) {
-    result.writeln('  final target.${member!.owner.callPath} value;');
+    result.writeln('  final ${dartReferenceClassType(member!.owner)} value;');
   } else if (output != null) {
     result.writeln('  final ${output.dartType} value;');
   }
@@ -381,7 +393,9 @@ void _emitResourceOutput(
   if (output.nullable) {
     result.writeln('${indent}if (value == null) return WasmExternRef.nullRef;');
   }
-  if (output is ReferenceConversion) {
+  if (output is OpaqueConversion) {
+    result.writeln('${indent}return value.value;');
+  } else if (output is ReferenceConversion) {
     result.writeln(
       '${indent}return WasmAnyRef.fromObject(value).externalize();',
     );
@@ -414,10 +428,12 @@ String _invocation(CallPlan call) {
       '${_named(parameter) ? '${parameter.name}: ' : ''}a$index',
   ].join(', ');
   if (call is FunctionPlan) {
-    return 'target.${call.binding.callPath}($arguments)';
+    return 'target.${call.binding.callPath}${dartOpaqueTypeArguments(call.binding.typeParameters)}($arguments)';
   }
   final member = call as MemberCallPlan;
-  final receiver = member.isStatic || member.kind == MemberCallKind.constructor
+  final receiver = member.kind == MemberCallKind.constructor
+      ? dartReferenceClassType(member.owner)
+      : member.isStatic
       ? 'target.${member.owner.callPath}'
       : 'object';
   final path = member.binding.callPath ?? member.binding.declaration.name;

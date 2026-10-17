@@ -176,12 +176,14 @@ final class TypeAliasBinding {
 
 final class TypeParameterBinding {
   final DeclarationId declaration;
+  final bool opaque;
   final SourceLocation? source;
   final BindingType? bound;
   final BindingType? defaultType;
   final String? documentation;
   const TypeParameterBinding({
     required this.declaration,
+    this.opaque = false,
     this.source,
     this.bound,
     this.defaultType,

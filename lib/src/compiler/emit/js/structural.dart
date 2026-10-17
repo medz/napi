@@ -64,13 +64,17 @@ StructuralBoundary emitStructuralBoundary(
       ValueClassConversion() => [
         for (final field in node.fields) field.conversion,
       ],
-      ScalarConversion() || ReferenceConversion() => <ValueConversion>[],
+      ScalarConversion() ||
+      ReferenceConversion() ||
+      OpaqueConversion() => <ValueConversion>[],
     };
     final converters = [for (final child in children) emit(child, output)];
     code.writeln('function $name(value, path, state, depth) {');
     code.writeln('  visitStructure(state, path);');
     if (node.nullable) code.writeln('  if (value === null) return null;');
     switch (node) {
+      case OpaqueConversion():
+        throw StateError('Opaque structural conversion is not supported.');
       case ReferenceConversion() || ScalarConversion():
         code.writeln(
           '  return ${output ? leafAdapter.write(node, 'value', 'path') : leafAdapter.read(node, 'value', 'path')};',

@@ -237,7 +237,11 @@ function intern(reference, expectedId, context, pending, receiver, newTarget) {
         );
       }
       if (member.kind == MemberCallKind.setter) {
-        result.writeln('    const args = [value];');
+        result.writeln(
+          member.inputs.single is OpaqueConversion
+              ? '    const args = arguments.length === 0 ? [] : [value];'
+              : '    const args = [value];',
+        );
       }
       final arguments = _arguments(
         result,
