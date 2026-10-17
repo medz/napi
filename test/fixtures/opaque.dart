@@ -39,6 +39,52 @@ Future<T> futureDelayed<T>(T value, int milliseconds) =>
 T? prefix<T>([T? first, int choose = 7, T? last]) => choose == 7 ? first : last;
 
 @NAPI()
+T? named<T>(int marker, {T? first, T? second, int choose = 7}) {
+  _calls++;
+  return marker == choose ? first : second;
+}
+
+@NAPI()
+T? mixedRequired<T>({required T first, T? second, int choose = 7}) {
+  _calls++;
+  return choose == 7 ? first : second;
+}
+
+@NAPI()
+Future<T?> futureNamed<T>(int marker, {T? first, T? second, int choose = 7}) =>
+    Future.value(named(marker, first: first, second: second, choose: choose));
+
+@NAPI()
+class NamedStore<T> {
+  T? first;
+  T? second;
+  int marker = 7;
+
+  NamedStore({this.first, this.second}) {
+    _calls++;
+  }
+  NamedStore.withMarker(this.marker, {this.first, this.second}) {
+    _calls++;
+  }
+
+  T? select(int marker, {T? first, T? second, int choose = 7}) =>
+      named(marker, first: first, second: second, choose: choose);
+  Future<T?> futureSelect(int marker, {T? first, T? second, int choose = 7}) =>
+      futureNamed(marker, first: first, second: second, choose: choose);
+  void clear() {
+    first = null;
+    second = null;
+  }
+}
+
+@NAPI()
+Future<int> waitNamed<T>({T? first, T? second}) {
+  // The bridge retains both supplied payloads; this Future captures neither.
+  _pending = Completer<int>();
+  return _pending!.future;
+}
+
+@NAPI()
 List<int> opaqueArray<Array>(Array value) => [1, 2];
 
 @NAPI()

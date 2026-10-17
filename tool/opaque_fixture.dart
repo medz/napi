@@ -35,6 +35,14 @@ Future<void> main() async {
       external: external ? const ExternalLibrary([
         ExternalFunction('plainEcho'),
         ExternalFunction('plainFuture'),
+        ExternalFunction('named'),
+        ExternalFunction('mixedRequired'),
+        ExternalFunction('futureNamed'),
+        ExternalFunction('waitNamed'),
+        ExternalFunction('opaqueCalls'),
+        ExternalFunction('completeOpaque'),
+        ExternalFunction('opaquePressure'),
+        ExternalClass('NamedStore'),
         ExternalClass('PlainStore'),
         ExternalClass('SetterThenBox'),
       ]) : null,
@@ -78,15 +86,22 @@ Future<void> main() async {
   ], cwd: consumer.path);
   await File('test/integration/opaque.mjs').copy('${consumer.path}/test.mjs');
   final declarations = await File('test/typescript/opaque.mts').readAsString();
-  await File('${consumer.path}/consumer.mts').writeAsString(
-    declarations.replaceAll('/BACKEND', native ? '/native' : '/module.wasm'),
-  );
   await run('node', ['--expose-gc', 'test.mjs'], cwd: consumer.path);
   final tsc =
       Platform.environment['NAPI_TSC'] ??
       '${Directory.current.path}/.dart_tool/js/node_modules/typescript/bin/tsc';
   for (final mode in ['NodeNext', 'Bundler']) {
     for (final exact in ['true', 'false']) {
+      await File('${consumer.path}/consumer.mts').writeAsString(
+        declarations
+            .replaceAll('/BACKEND', native ? '/native' : '/module.wasm')
+            .replaceAll(
+              '// @exact-optional-error',
+              exact == 'true'
+                  ? '// @ts-expect-error Explicit undefined requires undefined in T.'
+                  : '// Relaxed optional properties also admit explicit undefined.',
+            ),
+      );
       for (final strictFunctions in ['true', 'false']) {
         await run('node', [
           File(tsc).absolute.path,

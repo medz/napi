@@ -1764,12 +1764,6 @@ void validateCallParameters(
         parameter.kind == ParameterKind.optionalPositional ||
         parameter.kind == ParameterKind.optionalNamed;
     final opaque = isOpaqueType(parameter.type, opaqueParameters);
-    if (opaque && parameter.kind == ParameterKind.optionalNamed) {
-      reject(
-        'NAPI_PRESENCE',
-        'Optional named opaque parameters cannot preserve the TypeScript payload relationship; use a required named or optional positional parameter.',
-      );
-    }
     if (parameter.presence !=
         (opaque
             ? (optional

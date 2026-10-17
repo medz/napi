@@ -131,7 +131,11 @@ Iterable<String> emitParameterVariants(
   List<ParameterBinding> parameters,
   List<ValueConversion> inputs,
 ) sync* {
-  if (!parameters.any((p) => p.presence == ParameterPresence.opaqueOptional)) {
+  if (!parameters.any(
+    (p) =>
+        p.kind == ParameterKind.optionalPositional &&
+        p.presence == ParameterPresence.opaqueOptional,
+  )) {
     yield emitParameters(parameters, inputs);
     return;
   }
@@ -318,7 +322,7 @@ String emitParameters(
     );
     final properties = [
       for (final (index, parameter) in named)
-        '${parameter.name}${parameter.kind == ParameterKind.optionalNamed ? '?' : ''}: ${inputs[index].typescriptType}${parameter.kind == ParameterKind.optionalNamed ? ' | undefined' : ''}',
+        '${parameter.name}${parameter.kind == ParameterKind.optionalNamed ? '?' : ''}: ${inputs[index].typescriptType}${parameter.kind == ParameterKind.optionalNamed && parameter.presence == ParameterPresence.optional ? ' | undefined' : ''}',
     ].join('; ');
     result.add('$name${required ? '' : '?'}: { $properties }');
   }
