@@ -30,6 +30,7 @@ final class DartStructuralEmitter {
       ScalarConversion() ||
       ReferenceConversion() ||
       OpaqueConversion() ||
+      AbortSignalConversion() ||
       CallbackConversion() => <ValueConversion>[],
     };
     final functions = [
@@ -48,6 +49,8 @@ final class DartStructuralEmitter {
         throw StateError('Opaque structural conversion is not supported.');
       case CallbackConversion():
         throw StateError('Nested callback conversion is not supported.');
+      case AbortSignalConversion():
+        throw StateError('Nested AbortSignal conversion is not supported.');
       case ReferenceConversion():
         _code.writeln(
           output

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:collection';
 
+import '../api/cancellation.dart';
 import 'resources.dart';
 import 'retention.dart';
 
@@ -62,6 +63,7 @@ final class NapiStream<T, S extends Object> {
     this._releaseSnapshot,
     required List<Object?> roots,
     ResourceOperation? operation,
+    List<AbortSignal> signals = const [],
     this.capacity = 64,
   }) : _source = source,
        retainedInputs = List<Object?>.of(roots),
@@ -73,6 +75,14 @@ final class NapiStream<T, S extends Object> {
       onError: (Object error, StackTrace stack) => _didCancel(error, stack),
     );
     operation?.attachStream(this, _closeStream);
+    if (signals.isNotEmpty && !_terminated) {
+      try {
+        _attachSignals(signals);
+      } catch (_) {
+        finishCreation(false);
+        rethrow;
+      }
+    }
   }
 
   final int capacity;
@@ -82,6 +92,8 @@ final class NapiStream<T, S extends Object> {
   /// The same list is exposed to traced host roots and cleared at final release.
   final List<Object?> retainedInputs;
   ResourceOperation? _operation;
+  List<AbortSignal>? _signals;
+  List<void Function()>? _abortListeners;
   Stream<T>? _source;
   StreamSubscription<T>? _subscription;
   final _items = ListQueue<_StreamItem<S>>();
@@ -110,6 +122,54 @@ final class NapiStream<T, S extends Object> {
   static Future<void> _closeStream(Object value) =>
       (value as NapiStream<dynamic, Object>)._requestClose();
 
+  void _attachSignals(List<AbortSignal> signals) {
+    _signals = signals;
+    final removers = _abortListeners = <void Function()>[];
+    final target = WeakReference<NapiStream<dynamic, Object>>(this);
+    for (final signal in signals) {
+      if (_terminated) break;
+      final remove = signal.onAbort(_abortListener(target, signal));
+      if (_terminated) {
+        remove();
+      } else {
+        removers.add(remove);
+        if (signal.aborted) _abort(signal);
+      }
+    }
+  }
+
+  void _checkSignals() {
+    final signals = _signals;
+    if (signals == null) return;
+    for (final signal in signals) {
+      if (signal.aborted) {
+        _abort(signal);
+        return;
+      }
+    }
+  }
+
+  void _abort(AbortSignal signal) {
+    if (_terminated) return;
+    try {
+      signal.throwIfAborted();
+    } catch (error, stack) {
+      _error = error;
+      _stack = stack;
+      _requestClose();
+    }
+  }
+
+  void _detachSignals() {
+    _signals = null;
+    final removers = _abortListeners;
+    if (removers == null) return;
+    _abortListeners = null;
+    for (final remove in removers) {
+      remove();
+    }
+  }
+
   /// Ends the synchronous factory/adoption phase, including its failure path.
   void finishCreation(bool published) {
     if (!_creating) return;
@@ -119,6 +179,8 @@ final class NapiStream<T, S extends Object> {
   }
 
   Future<StreamDelivery<S>> next() {
+    // Host state can change before an owner-queued notification reaches Dart.
+    _checkSignals();
     final read = Completer<StreamDelivery<S>>();
     _reads.add(read);
     _advance();
@@ -140,6 +202,7 @@ final class NapiStream<T, S extends Object> {
   Future<void> _requestClose() {
     _closing = true;
     _terminated = true;
+    _detachSignals();
     _discardItems();
     _advance();
     return _cancelled.future;
@@ -155,7 +218,8 @@ final class NapiStream<T, S extends Object> {
       do {
         _again = false;
         if (!_creating && !_started && !_terminated && _reads.isNotEmpty) {
-          _listen();
+          _checkSignals();
+          if (!_terminated) _listen();
         }
         if (_terminated && !_sourceDone) _cancel();
         while (_reads.isNotEmpty) {
@@ -170,6 +234,7 @@ final class NapiStream<T, S extends Object> {
             );
           } else if (_terminated && (!_closing || _cancelSettled)) {
             if (_error != null) {
+              if (_closing && _deliveries != 0) break;
               _deliver(
                 _reads.removeFirst(),
                 StreamDeliveryKind.error,
@@ -268,12 +333,14 @@ final class NapiStream<T, S extends Object> {
     _terminated = true;
     _error = error;
     _stack = stack;
+    _detachSignals();
     _again = true;
   }
 
   void _onDone() {
     if (_terminated) return;
     _terminated = true;
+    _detachSignals();
     _sourceDone = true;
     _source = null;
     _subscription = null;
@@ -384,3 +451,10 @@ final class _StreamItem<S extends Object> {
   bool ready = false;
   S? value;
 }
+
+// A live token owns only this weak stream target, never the factory's context.
+void Function() _abortListener(
+  WeakReference<NapiStream<dynamic, Object>> target,
+  AbortSignal signal,
+) =>
+    () => target.target?._abort(signal);

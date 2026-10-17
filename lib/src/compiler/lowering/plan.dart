@@ -31,6 +31,19 @@ sealed class ValueConversion {
   String get typescriptType;
 }
 
+/// An explicit cancellation input. Each backend retains the host signal while
+/// its Dart adapter is reachable; accepting it does not cancel ordinary work.
+final class AbortSignalConversion extends ValueConversion {
+  AbortSignalConversion(super.type, super.context);
+  @override
+  String get dartType => 'napi.AbortSignal${nullable ? '?' : ''}';
+  @override
+  String get jsType => 'object';
+  @override
+  String get typescriptType =>
+      'globalThis.AbortSignal${nullable ? ' | null' : ''}';
+}
+
 /// A selected logical payload. Backend carriers retain the original JS value.
 final class OpaqueConversion extends ValueConversion {
   final DeclarationId parameter;
@@ -300,6 +313,7 @@ Iterable<ValueConversion> conversionGraph(
       CallbackConversion() => [...node.inputs, ?node.output],
       ScalarConversion() ||
       ReferenceConversion() ||
+      AbortSignalConversion() ||
       OpaqueConversion() => <ValueConversion>[],
     });
   }
@@ -429,6 +443,9 @@ final class _ConversionBuilder {
       classes.any((binding) => binding.exportName == name);
 
   ValueConversion convert(BindingType type, String context) {
+    if (isAbortSignalType(type)) {
+      return AbortSignalConversion(type, context);
+    }
     if (isOpaqueType(type, opaqueParameters)) {
       return OpaqueConversion(type as TypeParameterType, context);
     }
@@ -588,6 +605,7 @@ final class FunctionPlan implements CallPlan {
           returnsStream ||
           inputs.any((c) => c is OpaqueConversion) ||
           inputs.any((c) => c is CallbackConversion) ||
+          inputs.any((c) => c is AbortSignalConversion) ||
           output is OpaqueConversion ||
           parameters.any((p) => p.kind != ParameterKind.requiredPositional) ||
           inputs.any((c) => c is ReferenceConversion) ||

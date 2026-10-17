@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import '../analysis/reference_views.dart' show hasCompositeReferenceViews;
 import '../emit/js/callbacks.dart';
+import '../emit/js/cancellation.dart';
 import '../emit/js/reference_views.dart';
 import '../emit/js/settlement.dart';
 import 'plan.dart';
@@ -13,11 +14,13 @@ String emitNativeLoader(
   bool hasFutures = false,
   bool hasCallbacks = false,
   bool hasAsyncCallbacks = false,
+  bool hasSignals = false,
   String? streamClassName,
 }) {
   final hasResources = classes.any((binding) => binding.shape.cleanup != null);
   final shapes = [for (final binding in classes) binding.shape];
   final hasCompositeViews = hasCompositeReferenceViews(shapes);
+  final hasCallbackHelper = hasCallbacks || hasSignals;
   final code = StringBuffer('''
 import {createRequire} from 'node:module';
 import {fileURLToPath} from 'node:url';
@@ -51,7 +54,8 @@ function $napiCreatePromise() {
       ),
     );
   }
-  if (hasCallbacks) {
+  if (hasSignals) code.write(cancellationPolicy);
+  if (hasCallbackHelper) {
     if (hasAsyncCallbacks) {
       code.write(callbackPromisePolicy);
     }
@@ -77,21 +81,46 @@ const $napiCallbackSet = WeakMap.prototype.set;
     };
   }
 ''');
-    if (hasAsyncCallbacks) {
-      code.writeln(r'''  return function observe(callback, token, ...args) {
+    if (hasAsyncCallbacks || hasSignals) {
+      code.writeln(
+        r'''  return function observe(callback, token, ...args) {''',
+      );
+      if (hasSignals) {
+        code.writeln(r'''    if (callback === null) {
+      $napiCheckAbortSignal(token, false, args[0]);
+      const signal = $napiCreateSignalCompanion(token,
+        target => deliver(target, false, undefined));
+      return function control(operation, target) {
+        switch (operation) {
+          case 0: return signal.aborted();
+          case 1: if (signal.aborted()) throw signal.reason(); return;
+          case 2: signal.arm(target); return;
+          case 3: signal.detach(); return;
+          default: throw new Error('Unknown private signal operation');
+        }
+      };
+    }''');
+      }
+      if (hasAsyncCallbacks) {
+        code.writeln(r'''
     const value = $napiCallbackApply(callback, undefined, args);
     $napiObserveCallbackPromise(value,
       value => deliver(token, false, value),
       error => deliver(token, true, error));
-  };
-}''');
+''');
+      } else {
+        code.writeln(
+          "    throw new Error('Async callbacks were not generated');",
+        );
+      }
+      code.writeln('  };\n}');
     } else {
       code.writeln(
         "  throw new Error('Async callbacks were not generated');\n}",
       );
     }
   }
-  final factories = hasCallbacks
+  final factories = hasCallbackHelper
       ? [
           hasCompositeViews ? r'$napiResolveReferenceShape' : 'null',
           hasFutures ? r'$napiCreatePromise' : 'null',

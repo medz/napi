@@ -74,6 +74,7 @@ StructuralBoundary emitStructuralBoundary(
       ScalarConversion() ||
       ReferenceConversion() ||
       OpaqueConversion() ||
+      AbortSignalConversion() ||
       CallbackConversion() => <ValueConversion>[],
     };
     final converters = [for (final child in children) emit(child, output)];
@@ -85,6 +86,8 @@ StructuralBoundary emitStructuralBoundary(
         throw StateError('Opaque structural conversion is not supported.');
       case CallbackConversion():
         throw StateError('Nested callback conversion is not supported.');
+      case AbortSignalConversion():
+        throw StateError('Nested AbortSignal conversion is not supported.');
       case ReferenceConversion() || ScalarConversion():
         code.writeln(
           '  return ${output ? leafAdapter.write(node, 'value', 'path') : leafAdapter.read(node, 'value', 'path')};',

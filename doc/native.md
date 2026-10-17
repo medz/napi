@@ -146,7 +146,10 @@ catch/rethrow; per-invocation handles close after conversion and execution.
 
 Unsupported shapes fail before output is created: general generic specialization
 beyond generic payload storage, non-null
-object defaults, general Future inputs/FutureOr and general cancellation. Callback outputs, optional/named callback parameters and callback
+object defaults and general Future inputs/FutureOr. Direct
+[AbortSignal inputs](cancellation.md) support cooperative Future cancellation and
+owned Stream subscription cancellation; signal outputs and nested signals remain
+unsupported. Callback outputs, optional/named callback parameters and callback
 payloads beyond supported scalars/Lists/records also remain unsupported. The same reference
 contract runs on Wasm; see [reference classes](classes.md). A unique most-specific
 selected class owns the canonical wrapper across base/interface views. Instance

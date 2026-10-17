@@ -1,7 +1,8 @@
 import 'dart:io';
 
 import '../compiler/ir/model.dart';
-import '../compiler/lowering/plan.dart' show CallbackConversion;
+import '../compiler/lowering/plan.dart'
+    show AbortSignalConversion, CallbackConversion;
 import '../compiler/native/plan.dart';
 import '../compiler/native/entrypoint.dart';
 import '../compiler/native/declarations.dart';
@@ -61,6 +62,9 @@ Future<BuiltModule> buildNativeModule({
           (call) => call.inputs.any(
             (input) => input is CallbackConversion && input.returnsFuture,
           ),
+        ),
+        hasSignals: plan.calls.any(
+          (call) => call.inputs.any((input) => input is AbortSignalConversion),
         ),
       ),
     );
