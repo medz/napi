@@ -134,7 +134,8 @@ wrong-class and foreign-runtime leaves fail at their precise field/index path.
 Dropping the wrapper while Dart retains a container permits collection; returning
 the object later adopts a new wrapper without executing its constructor again.
 The canonical membership and lifetime rules in [reference classes](classes.md) apply
-equally inside containers. Opaque values and shared buffers remain unsupported.
+equally inside containers. [SharedBytes](shared-bytes.md) leaves retain their live
+shared views inside structural values. Opaque leaves remain unsupported.
 
 The shared generated-consumer contract covers nested nullable values, cloning,
 strict leaves, descriptor failures, cycles, depth/work boundaries, recovery,
@@ -150,7 +151,7 @@ Tested with Dart 3.13.5, Node 24.19.0/26.11.1 and TypeScript 7.0.2. Native execu
 is qualified on macOS arm64 and requires an ABI 15 bundle. The compiler/runtime
 use private experimental SDK APIs; other native platforms remain unqualified.
 
-Non-null structural defaults, generic reference specialization and opaque/shared
+Non-null structural defaults, remaining generic reference specialization and opaque
 leaves remain separate work. Failed input conversion does not invoke the exported business method, reference
 constructor or setter. Explicit [value-class constructors](values.md) execute
 during input materialization after raw validation; domain failures may retain

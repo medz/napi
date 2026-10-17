@@ -290,7 +290,7 @@ void _observeFuture<T>(Future<T> future, WasmExternRef capability, String contex
       delivered = true;
       // The void converter delivers its raw externref with _resolvePromiseValue
       // under the host's exception handler. JSAny would erase JS undefined.
-      _completePromise(capability, convert == null ? null : externRefForJSAny((() { convert(value); }).toJS));
+      _completePromise(capability, convert == null ? WasmExternRef.nullRef : externRefForJSAny((() { convert(value); }).toJS));
     }, onError: fail);
   } catch (error, stack) { fail(error, stack); }
 }

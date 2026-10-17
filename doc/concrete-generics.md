@@ -62,14 +62,36 @@ still match a selected alias, and its Dart covariant write checks still apply. I
 class, conversion fails rather than constructing an ambiguous wrapper. Distinct
 ordinary interface views retain their existing composition rules.
 
+## Resource aliases
+
+Concrete aliases can select the existing resource policy:
+
+```dart
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+typedef IntSession = Session<int>;
+```
+
+The external equivalent is `ExternalClass('IntSession', config:
+NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close'))`. Cleanup names an own
+public method on the original class. Its signature is checked after concrete
+substitution; `Future<T>` is a valid cleanup result when the selected `T` is
+`void`. Both synchronous and asynchronous cleanup expose `Promise<void>`.
+
+Resource aliases preserve the [resource lifecycle](resources.md): one cleanup
+completion per object, rejected new operations after closing starts, and leases
+for accepted Future and Stream work. A selected wider covariant alias does not
+contribute a second cleanup policy to a narrower selected instance. Different
+aliases may choose different cleanup methods; classification and cleanup use the
+same most-specific selected view. No cleanup runs automatically during GC.
+
 ## Current scope
 
-This slice covers non-null, closed aliases of ordinary reference classes.
+This slice covers non-null, closed aliases of reference and resource classes.
 Arguments containing `dynamic` or generic function types remain diagnosed even
 when Dart considers the surrounding alias closed. It preserves existing [open opaque generics](opaque.md). Selecting an open class and
 one of its concrete aliases together, multiple aliases for the same canonical
 specialization, mutually assignable but indistinguishable selections such as
-`Marker<void>` with `Marker<Object?>`, concrete value/resource aliases and selected
+`Marker<void>` with `Marker<Object?>`, concrete value aliases and selected
 generic hierarchies
 remain diagnosed. Generic functions and methods that require real type arguments
 remain separate work in [#126](https://github.com/medz/napi/issues/126).

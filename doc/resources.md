@@ -36,6 +36,11 @@ may have to wait for accepted operations. The normal parameter, default,
 presence and structural conversion rules apply. An excluded cleanup method,
 unsupported result or unsupported generic signature produces a build diagnostic.
 
+[Concrete class aliases](concrete-generics.md#resource-aliases) may use the same
+resource policy. The alias fixes the real Dart type arguments before cleanup and
+other member signatures are checked. Open opaque generic resource classes remain
+unsupported.
+
 ## State and cleanup
 
 | State | New receiver/input operation | Valid cleanup call |

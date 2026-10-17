@@ -744,12 +744,11 @@ final class _Reader {
 
   ClassBinding _classAlias(a.TypeAliasElement alias, String path, NAPI config) {
     final type = _concreteAliasType(alias);
-    if (config.classPolicy != null &&
-        config.classPolicy != ClassPolicy.reference) {
+    if (config.classPolicy == ClassPolicy.value) {
       _reject(
         alias,
         'NAPI_GENERIC',
-        'Concrete aliases require the reference class policy.',
+        'Concrete value aliases are not implemented.',
       );
     }
     final types = type.element.library.typeSystem;
@@ -815,7 +814,7 @@ final class _Reader {
       exportName: config.name ?? path,
       source: _source(selected),
       classPolicy: config.classPolicy ?? ClassPolicy.reference,
-      cleanup: alias == null ? _cleanup(element, config) : null,
+      cleanup: _cleanup(element, config),
       valueConstructor: alias == null
           ? _valueConstructor(element, config)
           : null,

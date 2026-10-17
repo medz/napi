@@ -426,7 +426,7 @@ void _emitResourceControl(StringBuffer result, ModulePlan plan) {
   result.writeln('  var policy = -1;');
   for (final entry in plan.resourcePolicies.entries) {
     result.writeln(
-      '''  if (value is ${dartReferenceClassType(plan.classes[entry.key].binding)}) {
+      '''  if (${dartReferenceClassTest(plan.classes[entry.key].binding, plan.classes.map((c) => c.binding), object: 'value')}) {
     if (policy >= 0 && policy != ${entry.value}) throw const _ResourcePolicyViolation();
     policy = ${entry.value};
   }''',
