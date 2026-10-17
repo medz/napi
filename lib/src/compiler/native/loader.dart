@@ -13,6 +13,7 @@ String emitNativeLoader(
   bool hasFutures = false,
   bool hasCallbacks = false,
   bool hasAsyncCallbacks = false,
+  String? streamClassName,
 }) {
   final hasResources = classes.any((binding) => binding.shape.cleanup != null);
   final shapes = [for (final binding in classes) binding.shape];
@@ -106,7 +107,8 @@ const $napiCallbackSet = WeakMap.prototype.set;
   code.writeln(
     "const bindings = require('./bridge.node').load(fileURLToPath(new URL('./module.aot', import.meta.url))${factories.isEmpty ? '' : ', ${factories.join(', ')}'});",
   );
-  if (classes.any((binding) => binding.members.isNotEmpty)) {
+  if (streamClassName != null ||
+      classes.any((binding) => binding.members.isNotEmpty)) {
     code.writeln(r'''const $napiApply = Reflect.apply;
 function $napiCallable(target, name, kind) {
   const descriptor = Object.getOwnPropertyDescriptor(target, name);
@@ -138,6 +140,20 @@ function $napiCallable(target, name, kind) {
         );
       }
     }
+  }
+  if (streamClassName != null) {
+    final privateName = jsonEncode(streamClassName);
+    code.writeln(
+      """const \$napiStreamPrototype = bindings[$privateName].prototype;
+\$napiCallable(\$napiStreamPrototype, 'next', 'value');
+\$napiCallable(\$napiStreamPrototype, 'return', 'value');
+Object.defineProperty(\$napiStreamPrototype, Symbol.asyncIterator, {
+  value: {[Symbol.asyncIterator]() { return this; }}[Symbol.asyncIterator],
+  writable: true, configurable: true,
+});
+delete bindings[$privateName];
+""",
+    );
   }
   // Capture the original concise callback functions before installing effective
   // inherited/interface descriptors, so defaults remain owned by the source.

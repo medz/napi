@@ -29,7 +29,8 @@ String _quote(String value) => jsonEncode(value).replaceAll(r'$', r'\$');
 
 /// Generate business-specific Dart only. The Node-API bridge stays generic.
 String emitNativeDart(NativeModulePlan plan) {
-  final hasFutures = plan.calls.any((call) => call.returnsFuture);
+  final hasStreams = plan.hasStreams;
+  final hasFutures = hasStreams || plan.calls.any((call) => call.returnsFuture);
   final hasCallbacks = plan.calls.any(
     (call) => call.inputs.any((value) => value is CallbackConversion),
   );
@@ -72,7 +73,9 @@ String emitNativeDart(NativeModulePlan plan) {
   );
   final structures = NativeStructuralEmitter(hasResources: hasResources);
   final code = StringBuffer();
-  if (hasResources) code.writeln("import 'package:napi/runtime.dart';");
+  if (hasResources || hasStreams) {
+    code.writeln("import 'package:napi/runtime.dart';");
+  }
   if (hasDictionary) {
     code.writeln("import 'dart:convert' show jsonEncode;");
     code.writeln("import 'package:napi/napi.dart' as napi;");
@@ -87,7 +90,7 @@ import ${_quote(plan.bindings.importUri.toString())} as target;
 ${hasOpaque ? 'typedef _NapiHostValue = NativeHostValue;\n\n' : ''}late final NapiApi _api;
 @pragma('vm:entry-point')
 List<Object?> napiBindings(int apiTableAddress, int tableCount) {
-  _api = NapiApi(apiTableAddress, tableCount${plan.classes.isEmpty ? '' : ', referenceClass: _referenceClass, classMemberships: _referenceMemberships'}${hasCompositeViews ? ', referenceViews: _referenceViews' : ''});
+  _api = NapiApi(apiTableAddress, tableCount${plan.classes.isEmpty && !hasStreams ? '' : ', referenceClass: _referenceClass, classMemberships: _referenceMemberships'}${hasCompositeViews ? ', referenceViews: _referenceViews' : ''});
   return [
 ''');
   for (final function in plan.functions) {
@@ -110,13 +113,20 @@ List<Object?> napiBindings(int apiTableAddress, int tableCount) {
     }
     code.writeln('    ], ${binding.constructor.javascriptArity}],');
   }
+  if (hasStreams) {
+    code.writeln(
+      "    ['class', ${_quote(plan.streamClassName)}, _streamConstructor, ["
+      "['method', 'next', _streamNext, 0, true], "
+      "['method', 'return', _streamReturn, 0, true]], 0],",
+    );
+  }
   code.writeln('''  ];
 }
 @pragma('vm:entry-point')
 void releaseOwner(int id) => _api.releaseOwner(id);
 ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int token) => _api.releaseFuture(token);\n" : ''}${hasAsyncCallbacks ? "@pragma('vm:entry-point')\nFunction? acceptCallback(int env, int token, bool rejected, int value) => _api.acceptCallback(env, token, rejected, value);\n" : ''}void main() {}
 ''');
-  if (plan.classes.isNotEmpty) {
+  if (plan.classes.isNotEmpty || hasStreams) {
     if (hasResources) {
       code.writeln('''ResourceControl? _resourceControl(Object value) {
   int? policy;''');
@@ -137,8 +147,10 @@ ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int toke
     for (final binding in plan.classes) {
       code.writeln('  {${binding.shape.memberships.join(', ')}},');
     }
+    if (hasStreams) code.writeln('  {${plan.streamClassId}},');
     code.writeln('];');
     code.writeln('''int _referenceClass(Object value, String path) {
+  ${hasStreams ? 'if (value is NapiStream<dynamic, NativeHostValue>) return ${plan.streamClassId};' : ''}
   ${hasResources ? '_resourceControl(value);' : ''}
   int? canonical;''');
     for (final index in plan.referenceClassOrder) {
@@ -187,6 +199,7 @@ ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int toke
         !hasOpaqueInputs &&
         !hasCallbackInputs &&
         !call.returnsFuture &&
+        !call.returnsStream &&
         call.function != null &&
         parameters.every((p) => p.kind == ParameterKind.requiredPositional) &&
         !call.inputs.any((value) => value is ReferenceConversion) &&
@@ -196,6 +209,9 @@ ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int toke
     );
     if (retainsResources && !call.isCleanup) {
       code.writeln('  final operation = ResourceOperation();');
+      if (call.returnsStream) {
+        code.writeln('  var operationTransferred = false;');
+      }
       if (call.returnsFuture) {
         code.writeln('  _api.attachOperation(token, operation);');
       }
@@ -242,6 +258,7 @@ ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int toke
             hasOpaqueInputs ||
             hasCallbackInputs ||
             call.returnsFuture ||
+            call.returnsStream ||
             call.inputs.any(containsValueClass));
     if (preflight) {
       var option = 0;
@@ -417,7 +434,28 @@ ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int toke
         '    return 0;\n  }\n}',
       );
     } else {
-      if (call.isConstructor) {
+      if (call.returnsStream) {
+        code.writeln('    final stream = $invocation;');
+        code.writeln('    final streamEnv = call.env;');
+        code.writeln(
+          '    final state = NapiStream<${call.output?.dartType ?? 'void'}, NativeHostValue>(stream, snapshot: (value) => _api.snapshotStreamValue(streamEnv, () {',
+        );
+        _writeResult(code, call.output, structures, 'streamEnv');
+        code.writeln(
+          '    }), releaseSnapshot: (value) => value.release(), roots: [${[if (hasReceiver) 'object', for (var i = 0; i < parameters.length; i++) 'a$i'].join(', ')}]${retainsResources ? ', operation: operation' : ''});',
+        );
+        if (retainsResources) {
+          code.writeln('    operationTransferred = true;');
+        }
+        code.writeln(
+          '    var published = false;\n'
+          '    try {\n'
+          '      final result = _api.referenceResult(streamEnv, state, ${plan.streamClassId}, ${_quote(call.context)});\n'
+          '      published = true;\n'
+          '      return result;\n'
+          '    } finally { state.finishCreation(published); }',
+        );
+      } else if (call.isConstructor) {
         code.writeln(
           '    return _api.wrap(call, $invocation, ${call.classId}, ${_quote(call.context)});',
         );
@@ -430,8 +468,44 @@ ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int toke
         _writeResult(code, call.output, structures, 'call.env');
       }
       code.writeln(
-        '  } catch (error) {\n    return _api.fail(envAddress, error);\n  }${retainsResources ? ' finally {\n    operation.release();\n  }' : ''}\n}',
+        '  } catch (error) {\n    return _api.fail(envAddress, error);\n  }${retainsResources ? ' finally {\n    ${call.returnsStream ? 'if (!operationTransferred) ' : ''}operation.release();\n  }' : ''}\n}',
       );
+    }
+  }
+  if (hasStreams) {
+    code.writeln(
+      "int _streamConstructor(int env, int info) => _api.fail(env, NapiTypeError('Stream iterator is not a public constructor'));",
+    );
+    for (final (name, method) in [
+      ('_streamNext', 'next'),
+      ('_streamReturn', 'return_'),
+    ]) {
+      code.writeln("""int $name(int envAddress, int infoAddress, int token) {
+  _api.beginFuture(token);
+  try {
+    final call = _api.call(envAddress, infoAddress, 0);
+    _api.checkNew(call, false, 'Stream iterator');
+    final object = _api.ownerValue(call.env, call.self, 'Stream iterator', ${plan.streamClassId});
+    if (object is! NapiStream<dynamic, NativeHostValue>) throw NapiTypeError('Stream iterator: invalid receiver');
+    _api.retainFuture(token, [object, ...object.retainedInputs]);
+    final env = call.env;
+    _api.completeFuture<StreamDelivery<NativeHostValue>>(envAddress, token, object.$method(), (delivery) {
+      _api.attachOperation(token, delivery);
+      if (delivery.kind == StreamDeliveryKind.error) {
+        final error = delivery.error!;
+        Error.throwWithStackTrace(error is StreamBufferOverflow ? NapiRangeError(error.message.toString()) : error, delivery.stack!);
+      }
+      return _api.iteratorResult(env, delivery.value, done: delivery.kind == StreamDeliveryKind.done);
+    }, 'Stream iterator', onFailure: (delivery, error, stack) {
+      if (delivery.kind != StreamDeliveryKind.error) object.deliveryFailed(error, stack);
+    });
+    return 0;
+  } catch (error, stack) {
+    _api.rejectFuture(envAddress, token, error, stack, 'Stream iterator');
+    return 0;
+  }
+}
+""");
     }
   }
   if (hasStructures) {

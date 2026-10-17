@@ -13,7 +13,8 @@ Both targets also generate [generic payload storage](opaque.md) with matching
 generic TypeScript declarations and actual omission detection.
 Both also generate [retained and async callbacks](callbacks.md), with shared
 scalar/List/record conversions, weak adapter identity and exact JS failures.
-Streams, shared-buffer lifetimes, other native targets and
+Both generate [Stream async iterators](streams.md) with a shared subscription
+kernel and the existing backend delivery transports. Shared-buffer lifetimes, other native targets and
 automatic runtime supply remain development work; see [native scope](native.md).
 
 ## Public contract

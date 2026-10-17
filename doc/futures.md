@@ -117,9 +117,10 @@ original object as the fulfillment value of a root thenable.
 ## Remaining contracts
 
 Future/Promise inputs, `FutureOr`, nullable outer Futures, nested Future payloads,
-`async void`, generators and still-unsupported payload types produce build
-diagnostics. Callbacks, streams, shared buffers and cancellation have their own
-remaining requirements.
+`async void`, synchronous generators and still-unsupported payload types produce
+build diagnostics. `async* Stream<T>` uses the separate [stream adapter](streams.md).
+[Callbacks](callbacks.md), shared buffers and general cancellation have their
+own contracts and remaining requirements.
 
 ## Validation scope
 

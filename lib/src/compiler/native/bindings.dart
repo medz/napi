@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:ffi';
 
 import '../../runtime/resources.dart';
+import '../../runtime/retention.dart';
 
 typedef _CallbackHelperNative = Int32 Function(
   Pointer<Void>,
@@ -481,7 +482,7 @@ final class _ReferenceLease {
 // C acknowledges after calling the JS resolver, which can reenter Dart.
 final class _PendingFuture {
   List<Object?> roots = const [];
-  ResourceOperation? operation;
+  OperationLease? operation;
   bool claimed = false;
 }
 
@@ -1617,16 +1618,64 @@ final class NapiApi {
     }
   }
 
+  // Event admission completes conversion while the owning isolate is active.
+  // The owned value survives subsequent owner-pump turns; no borrowed result
+  // handle or temporary structural handle escapes this local scope.
+  NativeHostValue snapshotStreamValue(
+    Pointer<Void> env,
+    int Function() convert,
+  ) {
+    final scope = _allocate<Pointer<Void>>(1, sizeOf<Pointer<Void>>());
+    var opened = false;
+    try {
+      _check(_openCallbackHandles(env, scope));
+      opened = true;
+      try {
+        return ownHostValue(env, Pointer.fromAddress(convert()));
+      } catch (error, stack) {
+        Error.throwWithStackTrace(_callbackError(env, error), stack);
+      }
+    } finally {
+      try {
+        if (opened) _check(_closeCallbackHandles(env, scope.value));
+      } finally {
+        _free(scope.cast());
+      }
+    }
+  }
+
+  int iteratorResult(
+    Pointer<Void> env,
+    NativeHostValue? value, {
+    required bool done,
+  }) {
+    // The outer result cannot acquire an inherited `then`; its nested value is
+    // never assimilated. The existing Promise resolver therefore settles before
+    // releaseFuture acknowledges the delivery, without a public Promise reaction.
+    final result = createDictionary(env);
+    defineOwnValue(
+      env,
+      result,
+      'value',
+      done ? undefinedResult(env) : hostValue(env, value!).address,
+    );
+    defineOwnValue(env, result, 'done', booleanResult(env, done));
+    return result;
+  }
+
   void beginFuture(int token) => _futures[token] = _PendingFuture();
 
-  void attachOperation(int token, ResourceOperation operation) {
+  void attachOperation(int token, OperationLease operation) {
     _futures[token]!.operation = operation;
   }
 
   void retainFuture(int token, List<Object?> values, {int? observeEnv}) {
     final pending = _futures[token]!;
     pending.roots = values;
-    if (observeEnv != null && pending.operation?.isEmpty == false) {
+    final operation = pending.operation;
+    if (observeEnv != null &&
+        operation is ResourceOperation &&
+        !operation.isEmpty) {
       _check(_observeFuture(Pointer.fromAddress(observeEnv), token));
     }
   }
@@ -1673,8 +1722,9 @@ final class NapiApi {
     int token,
     Future<T> future,
     int Function(T) convert,
-    String context,
-  ) {
+    String context, {
+    void Function(T, Object, StackTrace)? onFailure,
+  }) {
     future.then<void>(
       (value) {
         final pending = _futures[token];
@@ -1693,6 +1743,7 @@ final class NapiApi {
             ),
           );
         } catch (error, stack) {
+          onFailure?.call(value, error, stack);
           _rejectFuture(envAddress, token, error, stack, context);
         }
       },

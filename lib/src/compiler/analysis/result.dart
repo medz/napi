@@ -5,15 +5,23 @@ final _futureDeclaration = DeclarationId(
   'Future',
   kind: DeclarationKind.classType,
 );
+final _streamDeclaration = DeclarationId(
+  Uri.parse('dart:async'),
+  'Stream',
+  kind: DeclarationKind.classType,
+);
 
 /// Completion is a call contract, not a value conversion. Aliases retain the
 /// underlying declaration, and returning a Future does not require `async`.
 bool isFutureType(BindingType? type) =>
     type is DeclaredType && type.declaration == _futureDeclaration;
 
+bool isStreamType(BindingType? type) =>
+    type is DeclaredType && type.declaration == _streamDeclaration;
+
 /// The value delivered by a validated call, with void represented by null.
 BindingType? resultPayload(BindingType? type) {
-  if (isFutureType(type)) {
+  if (isFutureType(type) || isStreamType(type)) {
     type = (type! as DeclaredType).typeArguments.single;
   }
   return type is VoidType ? null : type;

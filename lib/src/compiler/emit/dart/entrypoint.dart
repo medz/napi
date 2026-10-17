@@ -8,6 +8,7 @@ import 'structural.dart';
 
 String emitDart(ModulePlan plan) {
   final resources = plan.resourcePolicies.isNotEmpty;
+  final streams = plan.calls.any((call) => call.returnsStream);
   final callbacks = {
     for (final (index, conversion) in plan.conversions.indexed)
       if (conversion is CallbackConversion) index: conversion,
@@ -21,8 +22,8 @@ String emitDart(ModulePlan plan) {
   final source = jsonEncode(plan.source.toString()).replaceAll(r'$', r'\$');
   final result = StringBuffer(
     "import $source as target;\n"
-    "${asyncCallbacks ? "import 'dart:async';\n" : ''}"
-    "${resources ? "import 'package:napi/runtime.dart';\n" : ''}"
+    "${asyncCallbacks || streams ? "import 'dart:async';\n" : ''}"
+    "${resources || streams ? "import 'package:napi/runtime.dart';\n" : ''}"
     "${plan.conversions.any(containsDictionary) ? "import 'package:napi/napi.dart' as napi;\nimport 'dart:convert' show jsonEncode;\n" : ''}"
     '$prelude\n',
   );
@@ -32,13 +33,14 @@ String emitDart(ModulePlan plan) {
       )) {
     result.writeln(opaqueEntrypointPrelude);
   }
-  if (plan.calls.any((call) => call.returnsFuture)) {
+  if (plan.calls.any((call) => call.returnsFuture) || streams) {
     result.writeln(
       callbacks.isEmpty
           ? futureEntrypointPrelude
           : withCallbackErrors(futureEntrypointPrelude),
     );
   }
+  if (streams) result.writeln(streamEntrypointPrelude);
   if (callbacks.isNotEmpty) result.writeln(callbackEntrypointPrelude);
   if (asyncCallbacks) result.writeln(asyncCallbackEntrypointPrelude);
   if (resources) {
@@ -116,7 +118,9 @@ WasmExternRef _referenceViews(WasmExternRef reference) {
     final constructor =
         call is MemberCallPlan && call.kind == MemberCallKind.constructor;
     final instance = call is MemberCallPlan && !constructor && !call.isStatic;
-    final returnsVoid = call.returnsFuture || (output == null && !constructor);
+    final returnsVoid =
+        call.returnsFuture ||
+        (!call.returnsStream && output == null && !constructor);
     result.writeln("@pragma('wasm:export', '${call.coreExportName}')");
     result.writeln(
       '${returnsVoid ? 'void' : 'WasmExternRef?'} _export$index(${[
@@ -181,6 +185,8 @@ WasmExternRef _referenceViews(WasmExternRef reference) {
     }
     if (call.returnsFuture) {
       result.writeln('  Future<${output?.dartType ?? 'void'}> value;');
+    } else if (call.returnsStream) {
+      result.writeln('  Stream<${output?.dartType ?? 'void'}> value;');
     } else if (output != null) {
       result.writeln('  ${output.dartType} value;');
     }
@@ -197,6 +203,11 @@ WasmExternRef _referenceViews(WasmExternRef reference) {
         '    _retainPromise(capability, WasmAnyRef.fromObject(<Object?>[${[if (instance) 'object', for (var i = 0; i < parameters.length; i++) 'a$i'].join(', ')}]).externalize());',
       );
       result.writeln('    value = $invocation;');
+    } else if (call.returnsStream) {
+      result.writeln('    value = $invocation;');
+      result.writeln(
+        '    return ${_streamStateExpression(call, index, instance: instance)};',
+      );
     } else if (constructor) {
       result.writeln('    final value = $invocation;');
       result.writeln('    return WasmAnyRef.fromObject(value).externalize();');
@@ -214,6 +225,11 @@ WasmExternRef _referenceViews(WasmExternRef reference) {
           : '    return _normalizeError(error);',
     );
     result.writeln('  }');
+    if (call.returnsStream) {
+      result.writeln('}');
+      _emitStreamSnapshot(result, structural, call, index, errorContext);
+      continue;
+    }
     if (call.returnsFuture) {
       result.writeln(
         '  _observeFuture(value, capability, $errorContext, ${output == null ? 'null' : '(value) { _resolvePromiseValue(capability, _futureOutput$index(value)); }'});\n}',
@@ -258,6 +274,50 @@ WasmExternRef _referenceViews(WasmExternRef reference) {
   }
   result.write(structural.source);
   return result.toString();
+}
+
+String _streamStateExpression(
+  CallPlan call,
+  int index, {
+  required bool instance,
+  bool resource = false,
+}) =>
+    'WasmAnyRef.fromObject(NapiStream<${call.output?.dartType ?? 'void'}, _StreamSnapshot>('
+    'value, snapshot: _snapshotStream$index, '
+    'releaseSnapshot: (snapshot) => snapshot.release(), '
+    'roots: <Object?>[${[if (instance) 'object', for (var i = 0; i < call.parameters.length; i++) 'a$i'].join(', ')}]'
+    '${resource ? ', operation: operation' : ''})).externalize()';
+
+void _emitStreamSnapshot(
+  StringBuffer result,
+  DartStructuralEmitter structural,
+  CallPlan call,
+  int index,
+  String errorContext,
+) {
+  final output = call.output;
+  final classId = output is ReferenceConversion ? output.classId : -1;
+  result.writeln('''
+_StreamSnapshot _snapshotStream$index(${output?.dartType ?? 'void'} value) {
+  final envelope = _captureStreamItem(externRefForJSAny(((JSAny envelope) {
+${output == null ? '' : '    _writeStreamItem(externRefForJSAny(envelope)!, _streamOutput$index(value));\n'}  }).toJS)!, WasmI32.fromInt($classId), externRefForJSAny($errorContext.toJS)!);
+  if (_streamItemThrew(envelope).toIntSigned() != 0) throw _StreamHostError(envelope);
+  return _StreamSnapshot(envelope);
+}
+''');
+  if (output == null) return;
+  result.writeln(
+    'WasmExternRef? _streamOutput$index(${output.dartType} value) {',
+  );
+  _emitResourceOutput(
+    result,
+    structural,
+    output,
+    call.outputContext!,
+    '  ',
+    futureContext: errorContext,
+  );
+  result.writeln('}');
 }
 
 void _emitCallbackAdapter(
@@ -364,7 +424,9 @@ void _emitResourceCall(
   final instance = member != null && !member.isStatic;
   final cleanup = member?.isCleanup ?? false;
   final output = call.output;
-  final returnsVoid = call.returnsFuture || (output == null && !constructor);
+  final returnsVoid =
+      call.returnsFuture ||
+      (!call.returnsStream && output == null && !constructor);
   final returnType = returnsVoid ? 'void' : 'WasmExternRef?';
   void catchDartError() {
     result.writeln('  } catch (error${call.returnsFuture ? ', stack' : ''}) {');
@@ -450,6 +512,8 @@ void _emitResourceCall(
       '  _retainPromise(capability, WasmAnyRef.fromObject(<Object?>[${[if (instance) 'object', for (var i = 0; i < call.parameters.length; i++) 'a$i'].join(', ')}]).externalize());',
     );
     result.writeln('  final Future<${output?.dartType ?? 'void'}> value;');
+  } else if (call.returnsStream) {
+    result.writeln('  final Stream<${output?.dartType ?? 'void'}> value;');
   } else if (constructor) {
     result.writeln('  final ${dartReferenceClassType(member!.owner)} value;');
   } else if (output != null) {
@@ -459,9 +523,16 @@ void _emitResourceCall(
   final invoke = cleanup ? 'control.dispose(() => $invocation)' : invocation;
   result.writeln('  try {');
   result.writeln(
-    '    ${call.returnsFuture || constructor || output != null ? 'value = ' : ''}$invoke;',
+    '    ${call.returnsFuture || call.returnsStream || constructor || output != null ? 'value = ' : ''}$invoke;',
   );
   catchDartError();
+  if (call.returnsStream) {
+    result.writeln(
+      '  return ${_streamStateExpression(call, index, instance: instance, resource: true)};\n}',
+    );
+    _emitStreamSnapshot(result, structural, call, index, errorContext);
+    return;
+  }
   if (call.returnsFuture) {
     result.writeln(
       '  _observeFuture(value, capability, $errorContext, ${output == null ? 'null' : '(value) { _resolvePromiseValue(capability, _futureOutput$index(value)); }'});\n}',

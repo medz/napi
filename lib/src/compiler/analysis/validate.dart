@@ -50,6 +50,7 @@ final class ReferenceMemberShape {
   final BindingType? result;
   final bool isCleanup;
   bool get returnsFuture => isCleanup || isFutureType(result);
+  bool get returnsStream => isStreamType(result);
   bool get isStatic =>
       kind == ReferenceMemberKind.constructor || binding.isStatic;
   String get exportName => binding.exportName ?? binding.declaration.name;
@@ -809,7 +810,7 @@ List<ReferenceClassShape> validateReferenceClasses(BindingModule module) {
         isGenerator: member.isGenerator,
         opaqueParameters: opaque,
       );
-      if (isCleanup && resultPayload(type) != null) {
+      if (isCleanup && (isStreamType(type) || resultPayload(type) != null)) {
         reject(
           'NAPI_RESOURCE',
           'A cleanup method must return void or Future<void>.',
@@ -1149,12 +1150,18 @@ List<ReferenceClassShape> _referenceHierarchy(
                   (actual.result! as DeclaredType).typeArguments.length == 1 &&
                   resultPayload(actual.result) == null);
           if (!inheritedMember.isCompatible ||
-              actual.isGenerator ||
-              (actual.isAsync && !isFutureType(actual.result)) ||
+              (actual.isGenerator &&
+                  !(actual.isAsync && isStreamType(actual.result))) ||
+              (actual.isAsync &&
+                  !(actual.isGenerator
+                      ? isStreamType(actual.result)
+                      : isFutureType(actual.result))) ||
               (contract.isCleanup
                   ? !validCleanupResult
-                  : isFutureType(actual.result) !=
-                        isFutureType(contract.result)) ||
+                  : (isFutureType(actual.result) !=
+                            isFutureType(contract.result) ||
+                        isStreamType(actual.result) !=
+                            isStreamType(contract.result))) ||
               (contract.kind != ReferenceMemberKind.method &&
                   actualVoid != contractVoid)) {
             reject(
@@ -1269,7 +1276,8 @@ bool referenceMemberAccepts(
   final output = implementation.result;
   final requiredOutput = contract.result;
   if (implementation.isCleanup != contract.isCleanup ||
-      implementation.returnsFuture != contract.returnsFuture) {
+      implementation.returnsFuture != contract.returnsFuture ||
+      implementation.returnsStream != contract.returnsStream) {
     return false;
   }
   // A void method contract discards its result. The derived binding retains
@@ -1443,8 +1451,11 @@ void validateCallResult(
   Never reject(String message) =>
       throw BindingDiagnostic('NAPI_TYPE', message, source);
   final future = isFutureType(type);
-  if (isGenerator) reject('Generator exports are not implemented.');
-  if (isAsync && !future) {
+  final stream = isStreamType(type);
+  if (isGenerator && !(isAsync && stream)) {
+    reject('Generator exports must use async* and return Stream<T>.');
+  }
+  if (isAsync && !isGenerator && !future) {
     reject('An async export must declare a non-nullable Future<T> result.');
   }
   if (future &&
@@ -1452,9 +1463,14 @@ void validateCallResult(
           (type as DeclaredType).typeArguments.length != 1)) {
     reject('A Future result must be non-nullable with one payload type.');
   }
+  if (stream &&
+      (type!.nullability != TypeNullability.nonNullable ||
+          (type as DeclaredType).typeArguments.length != 1)) {
+    reject('A Stream result must be non-nullable with one payload type.');
+  }
   final payload = resultPayload(type);
   if (payload == null) {
-    if (!future && !allowVoid) {
+    if (!future && !stream && !allowVoid) {
       reject('This backend does not support synchronous void functions.');
     }
     return;
@@ -1655,6 +1671,9 @@ void _validateCallback(FunctionTypeBinding type, SourceLocation source) {
     }
   }
   final result = type.result;
+  if (isStreamType(result)) {
+    reject('Stream results are not supported in callback signatures.');
+  }
   if (isFutureType(result) &&
       (result.nullability != TypeNullability.nonNullable ||
           (result as DeclaredType).typeArguments.length != 1)) {
