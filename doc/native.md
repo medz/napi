@@ -99,8 +99,9 @@ It is bound to the root Zone so a business Zone cannot intercept that release.
 Explicit release is idempotent, and environment teardown deletes remaining
 references without invoking JS or business cleanup. Cross-heap cycles require
 an explicit ownership break as described in the [architecture](architecture.md).
-This is an internal primitive; generated opaque generics and callbacks remain
-unimplemented. It adds no release queue or process-global reference registry.
+Generated [opaque bindings](opaque.md) use this internal primitive for explicitly
+selected type parameters. Callback invocation remains unimplemented. It adds
+no release queue or process-global reference registry.
 
 The private carrier has a separate handwritten ABI fixture compiled to real
 Dart AOT, packed and installed outside its original source directory. Twelve
@@ -132,7 +133,8 @@ outputs snapshot the complete Dart tree before host-side scalar, reference and
 Map-key checks. These paths use temporary snapshot storage; output getters are
 read once per occurrence before converting children.
 
-Unsupported shapes fail before output is created: generic specialization, non-null
+Unsupported shapes fail before output is created: general generic specialization
+beyond generic payload storage, non-null
 object defaults, Future inputs/FutureOr, callbacks, streams and cancellation. The same reference
 contract runs on Wasm; see [reference classes](classes.md). A unique most-specific
 selected class owns the canonical wrapper across base/interface views. Instance

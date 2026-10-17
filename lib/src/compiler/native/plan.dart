@@ -154,10 +154,14 @@ NativeModulePlan validateNative(BindingModule module) {
     bool isCleanup = false,
     int? classId,
   }) {
+    final opaque = opaqueParameterIds(
+      function?.typeParameters ?? owner?.typeParameters ?? const [],
+    );
     validateCallParameters(
       parameters,
       source,
       referenceClasses: module.classes,
+      opaqueParameters: opaque,
     );
     validateCallResult(
       result,
@@ -165,6 +169,7 @@ NativeModulePlan validateNative(BindingModule module) {
       referenceClasses: module.classes,
       isAsync: function?.isAsync ?? member?.isAsync ?? false,
       isGenerator: function?.isGenerator ?? member?.isGenerator ?? false,
+      opaqueParameters: opaque,
     );
     final payload = resultPayload(result);
     return NativeCallPlan._(
@@ -181,6 +186,7 @@ NativeModulePlan validateNative(BindingModule module) {
             classes: module.classes,
             valueSchemas: valueSchemas,
             direction: ValueDirection.input,
+            opaqueParameters: opaque,
           ),
       ]),
       returnsFuture: isCleanup || isFutureType(result),
@@ -194,6 +200,7 @@ NativeModulePlan validateNative(BindingModule module) {
               classes: module.classes,
               valueSchemas: valueSchemas,
               direction: ValueDirection.output,
+              opaqueParameters: opaque,
             ),
       function: function,
       owner: owner,
@@ -248,7 +255,13 @@ NativeModulePlan validateNative(BindingModule module) {
       },
       parameters: selected.parameters,
       result: selected.kind == ReferenceMemberKind.constructor && !constructor
-          ? DeclaredType(binding.declaration, ValueSemantics.reference)
+          ? DeclaredType(
+              binding.declaration,
+              ValueSemantics.reference,
+              typeArguments: binding.typeParameters.map(
+                (p) => TypeParameterType(p.declaration),
+              ),
+            )
           : selected.result,
       source: selected.binding.source,
       owner: binding,
@@ -306,13 +319,7 @@ void _executable(
   bool external,
   SourceLocation source,
 ) {
-  if (types.isNotEmpty) {
-    _reject(
-      'NAPI_GENERIC',
-      'Native generic specialization is not implemented.',
-      source,
-    );
-  }
+  validateOpaqueParameters(types, source);
   if (external) {
     _reject(
       'NAPI_EXTERNAL',

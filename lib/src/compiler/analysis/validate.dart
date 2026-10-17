@@ -716,12 +716,10 @@ ValidatedModule validate(BindingModule module) {
         function.exportName.startsWith('wasm_')) {
       reject('NAPI_NAME', 'Export name is not a supported public identifier.');
     }
-    if (function.typeParameters.isNotEmpty) {
-      reject(
-        'NAPI_GENERIC',
-        'Generic functions require a generic-capable backend.',
-      );
-    }
+    final opaque = validateOpaqueParameters(
+      function.typeParameters,
+      function.source,
+    );
     if (function.isExternal) {
       reject(
         'NAPI_EXTERNAL',
@@ -732,6 +730,7 @@ ValidatedModule validate(BindingModule module) {
       function.parameters,
       function.source,
       referenceClasses: module.classes,
+      opaqueParameters: opaque,
     );
     validateCallResult(
       function.result,
@@ -740,6 +739,7 @@ ValidatedModule validate(BindingModule module) {
       isAsync: function.isAsync,
       isGenerator: function.isGenerator,
       allowVoid: false,
+      opaqueParameters: opaque,
     );
   }
   return ValidatedModule._(declarations.bindings, classes, values);
@@ -758,10 +758,20 @@ List<ReferenceClassShape> validateReferenceClasses(BindingModule module) {
     if (binding.exportSurface != module.source) {
       reject('NAPI_LIBRARY', 'The class must be exposed by the entry library.');
     }
-    if (binding.typeParameters.isNotEmpty) {
+    final opaque = validateOpaqueParameters(
+      binding.typeParameters,
+      binding.source,
+    );
+    if (opaque.any((p) => p.name == binding.exportName)) {
+      reject(
+        'NAPI_NAME',
+        'Opaque type parameters must not shadow their exported class name ${binding.exportName}.',
+      );
+    }
+    if (opaque.isNotEmpty && binding.classPolicy != ClassPolicy.reference) {
       reject(
         'NAPI_GENERIC',
-        'Generic class specialization is not implemented.',
+        'Opaque parameters require the ordinary reference class policy.',
       );
     }
     if (binding.cleanup case final cleanup?) {
@@ -788,6 +798,7 @@ List<ReferenceClassShape> validateReferenceClasses(BindingModule module) {
         parameters,
         member.source,
         referenceClasses: module.classes,
+        opaqueParameters: opaque,
       );
       validateCallResult(
         type,
@@ -795,6 +806,7 @@ List<ReferenceClassShape> validateReferenceClasses(BindingModule module) {
         referenceClasses: module.classes,
         isAsync: member.isAsync,
         isGenerator: member.isGenerator,
+        opaqueParameters: opaque,
       );
       final isCleanup = member.declaration == binding.cleanup;
       if (isCleanup && resultPayload(type) != null) {
@@ -898,7 +910,14 @@ List<ReferenceClassShape> validateReferenceClasses(BindingModule module) {
         if (!member.isFinal && !member.isConst) {
           members.add(
             call(member, ReferenceMemberKind.setter, [
-              ParameterBinding('value', type, source: member.source),
+              ParameterBinding(
+                'value',
+                type,
+                source: member.source,
+                presence: isOpaqueType(type, opaque)
+                    ? ParameterPresence.opaqueRequired
+                    : null,
+              ),
             ], null),
           );
         }
@@ -1008,6 +1027,14 @@ List<ReferenceClassShape> _referenceHierarchy(
     };
     for (final declaration in declarations) {
       if (ids[declaration] case final parent?) {
+        if (binding.typeParameters.isNotEmpty ||
+            classes[parent].binding.typeParameters.isNotEmpty) {
+          throw BindingDiagnostic(
+            'NAPI_GENERIC',
+            'Selected generic reference hierarchies are not supported.',
+            binding.source,
+          );
+        }
         result.addAll(ancestors(parent));
       }
     }
@@ -1314,6 +1341,9 @@ bool _referenceSubtype(
   }
   if (child is SafeIntType && parent is SafeIntType) return true;
   if (child is VoidType && parent is VoidType) return true;
+  if (child is TypeParameterType && parent is TypeParameterType) {
+    return child.declaration == parent.declaration;
+  }
   if (child is DeclaredType && parent is DeclaredType) {
     if (child.declaration != parent.declaration) {
       final childId = ids[child.declaration];
@@ -1395,6 +1425,7 @@ void validateCallResult(
   bool isAsync = false,
   bool isGenerator = false,
   bool allowVoid = true,
+  Set<DeclarationId> opaqueParameters = const {},
 }) {
   Never reject(String message) =>
       throw BindingDiagnostic('NAPI_TYPE', message, source);
@@ -1415,20 +1446,136 @@ void validateCallResult(
     }
     return;
   }
-  validateValueType(payload, source, referenceClasses: referenceClasses);
+  if (future && isOpaqueType(payload, opaqueParameters)) {
+    reject(
+      'Future results cannot be opaque: Promise resolution observes and assimilates thenables.',
+    );
+  }
+  if (future && payload is DeclaredType) {
+    for (final binding in referenceClasses) {
+      if (binding.declaration != payload.declaration ||
+          binding.typeParameters.isEmpty) {
+        continue;
+      }
+      if (binding.members.any(
+        (member) =>
+            member.selection != MemberSelection.excluded &&
+            !member.isStatic &&
+            member.kind != MemberKind.constructor &&
+            member.kind != MemberKind.setter &&
+            (member.exportName ?? member.declaration.name) == 'then',
+      )) {
+        reject(
+          'A generic reference Future result cannot expose an instance then member: Promise resolution would observe or assimilate the wrapper.',
+        );
+      }
+    }
+  }
+  validateValueType(
+    payload,
+    source,
+    referenceClasses: referenceClasses,
+    opaqueParameters: opaqueParameters,
+  );
 }
 
+/// Supported declaration parameters share the default non-null payload carrier.
+Set<DeclarationId> opaqueParameterIds(List<TypeParameterBinding> parameters) =>
+    {
+      for (final parameter in parameters)
+        if (parameter.opaque) parameter.declaration,
+    };
+
+Set<DeclarationId> validateOpaqueParameters(
+  List<TypeParameterBinding> parameters,
+  SourceLocation source,
+) {
+  final selected = opaqueParameterIds(parameters);
+  if (selected.length != parameters.length) {
+    throw BindingDiagnostic(
+      'NAPI_GENERIC',
+      'Generic parameters must have the default JavaScript payload mapping.',
+      source,
+    );
+  }
+  for (final parameter in parameters) {
+    final name = parameter.declaration.name;
+    if (!_identifier.hasMatch(name) ||
+        name == '_' ||
+        _reserved.contains(name) ||
+        const {
+          'any',
+          'unknown',
+          'never',
+          'number',
+          'string',
+          'boolean',
+          'bigint',
+          'symbol',
+          'object',
+          'undefined',
+          'keyof',
+          'infer',
+          'readonly',
+          'unique',
+          'is',
+          'asserts',
+        }.contains(name)) {
+      throw BindingDiagnostic(
+        'NAPI_PARAMETER',
+        'Unsupported opaque type-parameter name $name.',
+        parameter.source ?? source,
+      );
+    }
+    final bound = parameter.bound;
+    if (bound != null &&
+        !(bound is DeclaredType &&
+            bound.declaration ==
+                DeclarationId(
+                  Uri.parse('dart:core'),
+                  'Object',
+                  kind: DeclarationKind.classType,
+                ) &&
+            bound.typeArguments.isEmpty &&
+            bound.nullability != TypeNullability.legacy)) {
+      throw BindingDiagnostic(
+        'NAPI_TYPE',
+        'Opaque parameter $name must have an Object or Object? bound.',
+        parameter.source ?? source,
+      );
+    }
+  }
+  return selected;
+}
+
+bool isOpaqueType(BindingType type, Set<DeclarationId> parameters) =>
+    type is TypeParameterType &&
+    type.nullability != TypeNullability.legacy &&
+    parameters.contains(type.declaration);
+
 /// Only direct references to selected public classes have a runtime mapping.
-bool isReferenceType(BindingType type, List<ClassBinding> classes) =>
+bool isReferenceType(
+  BindingType type,
+  List<ClassBinding> classes, {
+  Set<DeclarationId> opaqueParameters = const {},
+}) =>
     type is DeclaredType &&
     type.nullability != TypeNullability.legacy &&
-    type.typeArguments.isEmpty &&
     type.semantics == ValueSemantics.reference &&
     classes.any(
       (binding) =>
           binding.classPolicy != ClassPolicy.value &&
           binding.declaration == type.declaration &&
-          binding.typeParameters.isEmpty,
+          (binding.typeParameters.isEmpty
+              ? type.typeArguments.isEmpty
+              : binding.typeParameters.every((p) => p.opaque) &&
+                    type.typeArguments.length ==
+                        binding.typeParameters.length &&
+                    type.typeArguments.every(
+                      (t) =>
+                          t.nullability == TypeNullability.nonNullable &&
+                          isOpaqueType(t, opaqueParameters),
+                    )),
     );
 
 /// Scalar/structural values and selected reference leaves share one capability
@@ -1438,7 +1585,24 @@ void validateValueType(
   SourceLocation source, {
   List<ClassBinding> referenceClasses = const [],
   ValueDirection direction = ValueDirection.output,
+  Set<DeclarationId> opaqueParameters = const {},
 }) {
+  if (opaqueParameters.isNotEmpty) {
+    _validateOpaqueReferenceNames(
+      type,
+      source,
+      referenceClasses,
+      opaqueParameters,
+    );
+  }
+  if (isOpaqueType(type, opaqueParameters) ||
+      isReferenceType(
+        type,
+        referenceClasses,
+        opaqueParameters: opaqueParameters,
+      )) {
+    return;
+  }
   _checkValueDirection(
     type,
     source,
@@ -1452,6 +1616,35 @@ void validateValueType(
       'No scalar, structural or selected class reference conversion for this type.',
       source,
     );
+  }
+}
+
+/// Export renames may collide even when the original Dart names are distinct.
+void _validateOpaqueReferenceNames(
+  BindingType type,
+  SourceLocation source,
+  List<ClassBinding> classes,
+  Set<DeclarationId> parameters,
+) {
+  if (type is DeclaredType) {
+    for (final binding in classes) {
+      if (binding.classPolicy != ClassPolicy.value &&
+          binding.declaration == type.declaration &&
+          parameters.any((p) => p.name == binding.exportName)) {
+        throw BindingDiagnostic(
+          'NAPI_NAME',
+          'Opaque type parameters must not shadow the referenced exported class name ${binding.exportName}.',
+          source,
+        );
+      }
+    }
+  }
+  for (final child in switch (type) {
+    DeclaredType() => type.typeArguments,
+    RecordTypeBinding() => [...type.positional, ...type.named.values],
+    _ => <BindingType>[],
+  }) {
+    _validateOpaqueReferenceNames(child, source, classes, parameters);
   }
 }
 
@@ -1485,6 +1678,7 @@ void validateCallParameters(
   SourceLocation source, {
   bool scalarOnly = false,
   List<ClassBinding> referenceClasses = const [],
+  Set<DeclarationId> opaqueParameters = const {},
 }) {
   var optionalPositional = false;
   var named = false;
@@ -1498,12 +1692,24 @@ void validateCallParameters(
     final optional =
         parameter.kind == ParameterKind.optionalPositional ||
         parameter.kind == ParameterKind.optionalNamed;
-    if (parameter.presence !=
-        (optional ? ParameterPresence.optional : ParameterPresence.required)) {
+    final opaque = isOpaqueType(parameter.type, opaqueParameters);
+    if (opaque && parameter.kind == ParameterKind.optionalNamed) {
       reject(
         'NAPI_PRESENCE',
-        'Parameter presence must match its Dart kind. Opaque presence '
-            'requires the opaque conversion engine (#125).',
+        'Optional named opaque parameters cannot preserve the TypeScript payload relationship; use a required named or optional positional parameter.',
+      );
+    }
+    if (parameter.presence !=
+        (opaque
+            ? (optional
+                  ? ParameterPresence.opaqueOptional
+                  : ParameterPresence.opaqueRequired)
+            : (optional
+                  ? ParameterPresence.optional
+                  : ParameterPresence.required))) {
+      reject(
+        'NAPI_PRESENCE',
+        'Parameter presence must match its Dart kind and generic payload mapping.',
       );
     }
     switch (parameter.kind) {
@@ -1537,9 +1743,15 @@ void validateCallParameters(
         parameter.source ?? source,
         referenceClasses: referenceClasses,
         direction: ValueDirection.input,
+        opaqueParameters: opaqueParameters,
       );
-    } else if (!_isBackendScalar(parameter.type) &&
-        !isReferenceType(parameter.type, referenceClasses)) {
+    } else if (!opaque &&
+        !_isBackendScalar(parameter.type) &&
+        !isReferenceType(
+          parameter.type,
+          referenceClasses,
+          opaqueParameters: opaqueParameters,
+        )) {
       reject('NAPI_TYPE', 'No scalar conversion for this type.');
     }
     if (!optional && parameter.hasDefault) {

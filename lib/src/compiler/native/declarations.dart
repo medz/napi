@@ -1,5 +1,12 @@
 import '../emit/typescript/declarations.dart'
-    show emitMemberName, emitParameters, emitReferenceInheritance, emitResult;
+    show
+        emitMemberName,
+        emitParameterVariants,
+        emitReferenceInheritance,
+        emitResult,
+        emitTypeParameters,
+        emitOpaquePhantom,
+        emitFunctionDeclarations;
 import '../ir/model.dart';
 import '../emit/typescript/values.dart';
 import 'plan.dart';
@@ -20,30 +27,37 @@ String emitNativeDeclarations(NativeModulePlan plan) {
     ),
   );
   for (final function in plan.functions) {
-    final parameters = emitParameters(function.parameters, function.inputs);
-    final result = emitResult(
+    for (final declaration in emitFunctionDeclarations(
+      function.exportName,
+      function.parameters,
+      function.inputs,
       function.output,
+      function.function!.typeParameters,
       returnsFuture: function.returnsFuture,
-    );
-    if (function.parameters.any(
-      (p) => p.kind != ParameterKind.requiredPositional,
+      callable: function.parameters.any(
+        (p) => p.kind != ParameterKind.requiredPositional,
+      ),
     )) {
-      code.writeln(
-        'export declare const ${function.exportName}: ($parameters) => $result;',
-      );
-    } else {
-      code.writeln(
-        'export declare function ${function.exportName}($parameters): $result;',
-      );
+      code.writeln(declaration);
     }
   }
   for (final binding in plan.classes) {
-    code.writeln('export declare class ${binding.binding.exportName} {');
     code.writeln(
-      binding.hasPublicConstructor
-          ? '  constructor(${emitParameters(binding.constructor.parameters, binding.constructor.inputs)});'
-          : '  private constructor();',
+      'export declare class ${binding.binding.exportName}${emitTypeParameters(binding.binding.typeParameters, invariant: true)} {',
     );
+    if (binding.binding.typeParameters.isNotEmpty) {
+      code.writeln('  ${emitOpaquePhantom(binding.binding.typeParameters)}');
+    }
+    if (binding.hasPublicConstructor) {
+      for (final parameters in emitParameterVariants(
+        binding.constructor.parameters,
+        binding.constructor.inputs,
+      )) {
+        code.writeln('  constructor($parameters);');
+      }
+    } else {
+      code.writeln('  private constructor();');
+    }
     for (final call in [
       ...binding.members.where((call) => call.isStatic),
       for (final property in binding.shape.prototypeProperties)
@@ -56,17 +70,24 @@ String emitNativeDeclarations(NativeModulePlan plan) {
     ]) {
       final prefix = call.isStatic ? 'static ' : '';
       final name = emitMemberName(call.exportName);
-      final parameters = emitParameters(call.parameters, call.inputs);
+      final generics = call.member?.kind == MemberKind.constructor
+          ? emitTypeParameters(binding.binding.typeParameters)
+          : '';
       final result = emitResult(call.output, returnsFuture: call.returnsFuture);
-      switch (call.kind) {
-        case NativeCallKind.method:
-          code.writeln('  $prefix$name($parameters): $result;');
-        case NativeCallKind.getter:
-          code.writeln('  ${prefix}get $name(): $result;');
-        case NativeCallKind.setter:
-          code.writeln('  ${prefix}set $name($parameters);');
-        default:
-          throw StateError('Unsupported class declaration');
+      for (final parameters in emitParameterVariants(
+        call.parameters,
+        call.inputs,
+      )) {
+        switch (call.kind) {
+          case NativeCallKind.method:
+            code.writeln('  $prefix$name$generics($parameters): $result;');
+          case NativeCallKind.getter:
+            code.writeln('  ${prefix}get $name(): $result;');
+          case NativeCallKind.setter:
+            code.writeln('  ${prefix}set $name($parameters);');
+          default:
+            throw StateError('Unsupported class declaration');
+        }
       }
     }
     code.writeln('}');

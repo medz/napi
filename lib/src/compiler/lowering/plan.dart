@@ -28,6 +28,27 @@ sealed class ValueConversion {
   String get typescriptType;
 }
 
+/// A selected logical payload. Backend carriers retain the original JS value.
+final class OpaqueConversion extends ValueConversion {
+  final DeclarationId parameter;
+  OpaqueConversion(TypeParameterType super.type, super.context)
+    : parameter = type.declaration;
+  @override
+  String get dartType => '_NapiHostValue${nullable ? '?' : ''}';
+  @override
+  String get jsType => 'unknown';
+  @override
+  String get typescriptType => '${parameter.name}${nullable ? ' | null' : ''}';
+}
+
+String dartOpaqueTypeArguments(List<TypeParameterBinding> parameters) =>
+    parameters.isEmpty
+    ? ''
+    : '<${parameters.map((_) => '_NapiHostValue').join(', ')}>';
+
+String dartReferenceClassType(ClassBinding binding) =>
+    'target.${binding.callPath}${dartOpaqueTypeArguments(binding.typeParameters)}';
+
 /// One fixed policy drives Dart, JavaScript and TypeScript scalar generation.
 final class ScalarConversion extends ValueConversion {
   final ScalarKind kind;
@@ -73,31 +94,39 @@ final class ScalarConversion extends ValueConversion {
 final class ReferenceConversion extends ValueConversion {
   final ClassBinding classBinding;
   final int classId;
+  final List<BindingType> typeArguments;
   ReferenceConversion(
     DeclaredType super.type,
     super.context, {
     required this.classBinding,
     required this.classId,
-  });
+  }) : typeArguments = type.typeArguments;
   @override
   String get dartType =>
-      'target.${classBinding.callPath}${nullable ? '?' : ''}';
+      '${dartReferenceClassType(classBinding)}${nullable ? '?' : ''}';
   @override
   String get jsType => 'object';
   @override
   String get typescriptType =>
-      '${classBinding.exportName}${nullable ? ' | null' : ''}';
+      '${classBinding.exportName}${typeArguments.isEmpty ? '' : '<${typeArguments.map((t) => (t as TypeParameterType).declaration.name).join(', ')}>'}${nullable ? ' | null' : ''}';
 }
 
 final class ListConversion extends ValueConversion {
   final ValueConversion element;
-  ListConversion._(super.type, super.context, this.element);
+  final bool _qualifiedType;
+  ListConversion._(
+    super.type,
+    super.context,
+    this.element, {
+    this._qualifiedType = false,
+  });
   ListConversion(
     DeclaredType super.type,
     super.context, {
     required bool bigint,
     List<ClassBinding> classes = const [],
-  }) : element = conversionFor(
+  }) : _qualifiedType = false,
+       element = conversionFor(
          type.typeArguments.single,
          context,
          bigint: bigint,
@@ -109,7 +138,7 @@ final class ListConversion extends ValueConversion {
   String get jsType => 'object';
   @override
   String get typescriptType =>
-      'Array<${element.typescriptType}>${nullable ? ' | null' : ''}';
+      '${_qualifiedType ? 'globalThis.' : ''}Array<${element.typescriptType}>${nullable ? ' | null' : ''}';
 }
 
 final class MapConversion extends ValueConversion {
@@ -199,7 +228,9 @@ Iterable<ValueConversion> conversionGraph(
       ValueClassConversion() => [
         for (final field in node.fields) field.conversion,
       ],
-      ScalarConversion() || ReferenceConversion() => <ValueConversion>[],
+      ScalarConversion() ||
+      ReferenceConversion() ||
+      OpaqueConversion() => <ValueConversion>[],
     });
   }
 }
@@ -237,19 +268,22 @@ bool containsDictionary(ValueConversion value) =>
 final class RecordConversion extends ValueConversion {
   final List<ValueConversion> positional;
   final Map<String, ValueConversion> named;
+  final bool _qualifiedType;
   RecordConversion._(
     super.type,
     super.context,
     Iterable<ValueConversion> positional,
-    Map<String, ValueConversion> named,
-  ) : positional = List.unmodifiable(positional),
-      named = Map.unmodifiable(named);
+    Map<String, ValueConversion> named, {
+    this._qualifiedType = false,
+  }) : positional = List.unmodifiable(positional),
+       named = Map.unmodifiable(named);
   RecordConversion(
     RecordTypeBinding super.type,
     super.context, {
     required bool bigint,
     List<ClassBinding> classes = const [],
-  }) : positional = List.unmodifiable([
+  }) : _qualifiedType = false,
+       positional = List.unmodifiable([
          for (final field in type.positional)
            conversionFor(field, context, bigint: bigint, classes: classes),
        ]),
@@ -283,7 +317,9 @@ final class RecordConversion extends ValueConversion {
   @override
   String get typescriptType =>
       (fields.isEmpty
-          ? 'Record<PropertyKey, never>'
+          ? (_qualifiedType
+                ? 'globalThis.Record<globalThis.PropertyKey, never>'
+                : 'Record<PropertyKey, never>')
           : '{ ${[for (final e in fields.entries) '${e.key}: ${e.value.typescriptType}'].join('; ')} }') +
       (nullable ? ' | null' : '');
 }
@@ -295,11 +331,13 @@ ValueConversion conversionFor(
   List<ClassBinding> classes = const [],
   List<ValueClassSchema> valueSchemas = const [],
   ValueDirection direction = ValueDirection.output,
+  Set<DeclarationId> opaqueParameters = const {},
 }) => _ConversionBuilder(
   classes,
   valueSchemas,
   bigint,
   direction,
+  opaqueParameters,
 ).convert(type, context);
 
 final class _ConversionBuilder {
@@ -307,9 +345,23 @@ final class _ConversionBuilder {
   final List<ValueClassSchema> values;
   final bool bigint;
   final ValueDirection direction;
+  final Set<DeclarationId> opaqueParameters;
   final _nodes = <(DeclarationId, TypeNullability), ValueClassConversion>{};
-  _ConversionBuilder(this.classes, this.values, this.bigint, this.direction);
+  _ConversionBuilder(
+    this.classes,
+    this.values,
+    this.bigint,
+    this.direction,
+    this.opaqueParameters,
+  );
+  bool _shadowsBuiltin(String name) =>
+      opaqueParameters.any((p) => p.name == name) ||
+      classes.any((binding) => binding.exportName == name);
+
   ValueConversion convert(BindingType type, String context) {
+    if (isOpaqueType(type, opaqueParameters)) {
+      return OpaqueConversion(type as TypeParameterType, context);
+    }
     ValueConversion child(BindingType value) => convert(value, context);
     if (type is RecordTypeBinding) {
       return RecordConversion._(
@@ -317,9 +369,11 @@ final class _ConversionBuilder {
         context,
         type.positional.map(child),
         type.named.map((key, value) => MapEntry(key, child(value))),
+        qualifiedType:
+            _shadowsBuiltin('Record') || _shadowsBuiltin('PropertyKey'),
       );
     }
-    if (isReferenceType(type, classes)) {
+    if (isReferenceType(type, classes, opaqueParameters: opaqueParameters)) {
       final references = classes
           .where((c) => c.classPolicy != ClassPolicy.value)
           .toList();
@@ -390,6 +444,7 @@ final class _ConversionBuilder {
           type,
           context,
           child(type.typeArguments.single),
+          qualifiedType: _shadowsBuiltin('Array'),
         );
       }
       if (type.declaration ==
@@ -428,6 +483,8 @@ final class FunctionPlan implements CallPlan {
   final int _index;
   late final ExportRepresentation representation =
       returnsFuture ||
+          inputs.any((c) => c is OpaqueConversion) ||
+          output is OpaqueConversion ||
           parameters.any((p) => p.kind != ParameterKind.requiredPositional) ||
           inputs.any((c) => c is ReferenceConversion) ||
           output is ReferenceConversion ||
@@ -469,6 +526,7 @@ final class FunctionPlan implements CallPlan {
             classes: classes,
             valueSchemas: valueSchemas,
             direction: ValueDirection.input,
+            opaqueParameters: opaqueParameterIds(binding.typeParameters),
           ),
       ]),
       output = resultPayload(binding.result) == null
@@ -479,6 +537,7 @@ final class FunctionPlan implements CallPlan {
               bigint: binding.bigint,
               classes: classes,
               valueSchemas: valueSchemas,
+              opaqueParameters: opaqueParameterIds(binding.typeParameters),
             ),
       inputContexts = List.unmodifiable([
         for (var i = 0; i < binding.parameters.length; i++) firstContext + i,
@@ -534,6 +593,7 @@ final class MemberCallPlan implements CallPlan {
             classes: classes,
             valueSchemas: valueSchemas,
             direction: ValueDirection.input,
+            opaqueParameters: opaqueParameterIds(owner.typeParameters),
           ),
       ]),
       output = resultPayload(member.result) == null
@@ -544,6 +604,7 @@ final class MemberCallPlan implements CallPlan {
               bigint: false,
               classes: classes,
               valueSchemas: valueSchemas,
+              opaqueParameters: opaqueParameterIds(owner.typeParameters),
             ),
       inputContexts = List.unmodifiable([
         for (var i = 0; i < member.parameters.length; i++) firstContext + i,

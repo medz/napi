@@ -26,7 +26,9 @@ final class DartStructuralEmitter {
       ValueClassConversion() => [
         for (final field in conversion.fields) field.conversion,
       ],
-      ScalarConversion() || ReferenceConversion() => <ValueConversion>[],
+      ScalarConversion() ||
+      ReferenceConversion() ||
+      OpaqueConversion() => <ValueConversion>[],
     };
     final functions = [for (final child in children) _emit(child, output)];
     final type = conversion.dartType;
@@ -38,6 +40,8 @@ final class DartStructuralEmitter {
     if (output) _code.writeln('  state.visit(path);');
     if (conversion.nullable) _code.writeln('  if (value == null) return null;');
     switch (conversion) {
+      case OpaqueConversion():
+        throw StateError('Opaque structural conversion is not supported.');
       case ReferenceConversion():
         _code.writeln(
           output

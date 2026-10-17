@@ -184,7 +184,11 @@ import 'package:napi/napi.dart';
   );
 
   for (final (label, declaration, code) in [
-    ('generic class', '@NAPI() class Bad<T> {}', 'NAPI_GENERIC'),
+    (
+      'semantic generic class',
+      '@NAPI() class Bad<T extends num> {}',
+      'NAPI_TYPE',
+    ),
     (
       'generic member',
       '@NAPI() class Bad { T identity<T>(T value) => value; }',

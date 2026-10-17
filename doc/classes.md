@@ -26,7 +26,8 @@ Wasm function exports, including required List/Map/Dictionary/record arguments c
 references; direct reference-valued calls use callable globals. Native packages expose the same class shape through their
 automatic ESM entry and Node-API bridge.
 
-The implemented slice includes non-generic reference classes, direct class
+The implemented slice includes non-generic reference classes and explicitly
+selected [opaque generic classes](opaque.md), direct class
 arguments/results, instance/static methods, fields, explicit accessors,
 readonly fields, renaming and exclusions. Unnamed generative and factory
 constructors use `new Counter(...)`; a cached Dart factory can return an existing
@@ -73,8 +74,8 @@ same cache and brands, without consumer initialization. See [native builds](nati
 That weak identity cache does not collect a cycle created by a separately owned
 native JS value. For example, a Dart object storing a JS payload that points back
 to its wrapper must clear that payload or otherwise break the ownership cycle.
-The [opaque ownership contract](architecture.md#public-contract) applies when
-those bindings are implemented; ordinary acyclic classes retain automatic
+The [opaque ownership contract](opaque.md#ownership) applies to these stored
+payloads; ordinary acyclic classes retain automatic
 collection and do not need a new disposal API.
 
 On first exposure, the runtime checks actual Dart membership and chooses the

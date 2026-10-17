@@ -15,6 +15,9 @@ enum ClassPolicy { reference, value, resource }
 /// uses JavaScript safe-integer `number` values. Dart `BigInt` always uses
 /// JavaScript `bigint`; other scalar types are unaffected. The [bigint] option
 /// is not supported on classes, class members, or excluded declarations.
+/// Generic parameters are read from the Dart declaration. Supported parameters
+/// carry unchanged JavaScript payloads; arbitrary Dart runtime specialization
+/// is not implied by a TypeScript type argument.
 class NAPI {
   final String? name;
   final bool exclude;

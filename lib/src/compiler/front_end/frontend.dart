@@ -152,6 +152,7 @@ final class _Reader {
   final _libraries = <a.LibraryElement, ResolvedLibraryResult>{};
   final _documentation = <a.Element, String>{};
   final _typeParameterIds = <a.TypeParameterElement, DeclarationId>{};
+  final _opaqueParameters = <DeclarationId>{};
   _Reader(this.entry, this.annotationClass, {this.importUri});
 
   Future<BindingModule> readExternal(
@@ -267,6 +268,14 @@ final class _Reader {
   }
 
   void _checkClassOptions(a.Element element, NAPI config) {
+    // The Dart declaration already names and orders all generic parameters.
+    // Register the default payload mapping before reading members/parameters.
+    final parameters = switch (element) {
+      a.ClassElement() => element.typeParameters,
+      a.TopLevelFunctionElement() => element.typeParameters,
+      _ => const <a.TypeParameterElement>[],
+    };
+    if (!config.exclude) _opaqueParameters.addAll(parameters.map(_id));
     if (element is! a.ClassElement) {
       if (config.classPolicy != null ||
           config.cleanup != null ||
@@ -855,27 +864,38 @@ final class _Reader {
     a.FormalParameterElement element, {
     DeclarationId? owner,
     String path = 'parameter',
-  }) => ParameterBinding(
-    element.name ?? '',
-    _type(element.type, owner: owner, path: path),
-    kind: element.isRequiredNamed
-        ? ParameterKind.requiredNamed
-        : element.isOptionalNamed
-        ? ParameterKind.optionalNamed
-        : element.isOptionalPositional
-        ? ParameterKind.optionalPositional
-        : ParameterKind.requiredPositional,
-    defaultSource: element.defaultValueCode,
-    defaultValue: _scalarDefault(element),
-    hasDefault: element.hasDefaultValue,
-    source: element.firstFragment.libraryFragment == null
-        ? null
-        : _source(element),
-    documentation: element.documentationComment ?? _documentation[element],
-    isInitializingFormal: element is a.FieldFormalParameterElement,
-    isSuperFormal: element is a.SuperFormalParameterElement,
-    isCovariant: element.isCovariant,
-  );
+  }) {
+    final type = _type(element.type, owner: owner, path: path);
+    final opaque =
+        type is TypeParameterType &&
+        _opaqueParameters.contains(type.declaration);
+    return ParameterBinding(
+      element.name ?? '',
+      type,
+      presence: opaque
+          ? (element.isOptionalPositional || element.isOptionalNamed
+                ? ParameterPresence.opaqueOptional
+                : ParameterPresence.opaqueRequired)
+          : null,
+      kind: element.isRequiredNamed
+          ? ParameterKind.requiredNamed
+          : element.isOptionalNamed
+          ? ParameterKind.optionalNamed
+          : element.isOptionalPositional
+          ? ParameterKind.optionalPositional
+          : ParameterKind.requiredPositional,
+      defaultSource: element.defaultValueCode,
+      defaultValue: _scalarDefault(element),
+      hasDefault: element.hasDefaultValue,
+      source: element.firstFragment.libraryFragment == null
+          ? null
+          : _source(element),
+      documentation: element.documentationComment ?? _documentation[element],
+      isInitializingFormal: element is a.FieldFormalParameterElement,
+      isSuperFormal: element is a.SuperFormalParameterElement,
+      isCovariant: element.isCovariant,
+    );
+  }
 
   ScalarDefault? _scalarDefault(a.FormalParameterElement element) {
     if (!element.hasDefaultValue) return null;
@@ -893,6 +913,7 @@ final class _Reader {
   TypeParameterBinding _typeParameter(a.TypeParameterElement element) =>
       TypeParameterBinding(
         declaration: _id(element),
+        opaque: _opaqueParameters.contains(_id(element)),
         source: element.firstFragment.libraryFragment == null
             ? null
             : _source(element),

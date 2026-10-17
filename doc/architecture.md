@@ -9,6 +9,8 @@ assembly. The experimental macOS arm64 native
 target generates scalar, structural, reference-class, resource and Future AOT bindings against a
 precompiled runtime bundle. Future exports share the [Promise boundary](futures.md),
 including [resource operation leases](resources.md).
+Both targets also generate [generic payload storage](opaque.md) with matching
+generic TypeScript declarations and actual omission detection.
 Callbacks, streams, shared-buffer lifetimes, other native targets and
 automatic runtime supply remain development work; see [native scope](native.md).
 
@@ -35,8 +37,8 @@ or use the owner's cleanup method. Neither a weak payload reference nor a
 mandatory disposal method on every ordinary class replaces this contract.
 GC and environment teardown release references without running business cleanup.
 Wasm may collect such cycles automatically, but portable code must break them.
-The native private owned-value primitive is groundwork for generated opaque
-and callback bindings; it does not by itself implement those public exports.
+Generated opaque bindings use the native owned-value primitive and direct
+traced externrefs on Wasm. Callback invocation remains a separate engine.
 
 Generated JavaScript is allowed for loading, conversion and runtime interop.
 Business logic stays in Dart. A single Wasm file is an optimization candidate,

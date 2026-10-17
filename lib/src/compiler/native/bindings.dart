@@ -732,6 +732,20 @@ final class NapiApi {
     return call.arguments[index];
   }
 
+  Pointer<Void> presentArgument(NapiCall call, int index, String path) {
+    if (index >= call.argumentCount) {
+      throw NapiTypeError('$path: missing required argument');
+    }
+    return call.arguments[index];
+  }
+
+  Pointer<Void> presentOption(NapiOptions options, int index, String path) {
+    if (!options.present[index]) {
+      throw NapiTypeError('$path: missing required argument');
+    }
+    return options.values[index];
+  }
+
   Pointer<Void> requiredOption(
     Pointer<Void> env,
     NapiOptions options,
