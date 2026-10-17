@@ -124,7 +124,12 @@ export function readAbortSignal(signal, notify) {
 export function abortSignalTarget(companion) {
   return companion.adapter === undefined ? null : $napiSignalApply($napiSignalDeref, companion.adapter, []) ?? null;
 }
-export function bindAbortSignal(companion, target) { companion.adapter = new $napiSignalWeakRef(target); }
+export function bindAbortSignal(companion, target) {
+  // A companion can outlive its weak token during a host call. A replacement
+  // token has no registrations and must not inherit the old host listener.
+  companion.detach();
+  companion.adapter = new $napiSignalWeakRef(target);
+}
 export function abortSignalAborted(companion) { return companion.aborted() ? 1 : 0; }
 export function abortSignalReason(companion) { return {threw: true, value: companion.reason()}; }
 export function armAbortSignal(companion) {

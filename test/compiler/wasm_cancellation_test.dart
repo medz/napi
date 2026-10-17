@@ -79,6 +79,27 @@ try {
 } finally { for (const restore of restores.reverse()) restore(); }
 assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
 assert.throws(() => host.checkAbortSignal(new Proxy(new AbortController().signal, {}), false, 'signal'), TypeError);
+const revivalSource = new AbortController();
+const revival = host.readAbortSignal(revivalSource.signal, notify);
+const previous = (() => {
+  const token = {};
+  host.bindAbortSignal(revival, token);
+  host.armAbortSignal(revival);
+  return new WeakRef(token);
+})();
+for (let i = 0; i < 80 && previous.deref() !== undefined; i++) {
+  await turn(); global.gc(); await turn();
+}
+assert.equal(previous.deref(), undefined);
+assert.equal(getEventListeners(revivalSource.signal, 'abort').length, 1);
+const replacement = {};
+host.bindAbortSignal(revival, replacement);
+assert.equal(host.abortSignalTarget(revival), replacement);
+assert.equal(getEventListeners(revivalSource.signal, 'abort').length, 0,
+    'a replacement token has no inherited registration');
+revivalSource.abort('no new registration');
+await turn();
+assert.deepEqual(notified, [token]);
 ''');
     },
   );
