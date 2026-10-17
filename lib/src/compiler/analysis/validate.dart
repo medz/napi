@@ -731,6 +731,7 @@ ValidatedModule validate(BindingModule module) {
       function.source,
       referenceClasses: module.classes,
       opaqueParameters: opaque,
+      returnsFuture: isFutureType(function.result),
     );
     validateCallResult(
       function.result,
@@ -794,11 +795,13 @@ List<ReferenceClassShape> validateReferenceClasses(BindingModule module) {
       List<ParameterBinding> parameters,
       BindingType? type,
     ) {
+      final isCleanup = member.declaration == binding.cleanup;
       validateCallParameters(
         parameters,
         member.source,
         referenceClasses: module.classes,
         opaqueParameters: opaque,
+        returnsFuture: isCleanup || isFutureType(type),
       );
       validateCallResult(
         type,
@@ -808,7 +811,6 @@ List<ReferenceClassShape> validateReferenceClasses(BindingModule module) {
         isGenerator: member.isGenerator,
         opaqueParameters: opaque,
       );
-      final isCleanup = member.declaration == binding.cleanup;
       if (isCleanup && resultPayload(type) != null) {
         reject(
           'NAPI_RESOURCE',
@@ -1344,6 +1346,19 @@ bool _referenceSubtype(
   if (child is TypeParameterType && parent is TypeParameterType) {
     return child.declaration == parent.declaration;
   }
+  if (child is FunctionTypeBinding && parent is FunctionTypeBinding) {
+    return child.typeParameters.isEmpty &&
+        parent.typeParameters.isEmpty &&
+        child.parameters.length == parent.parameters.length &&
+        child.parameters.indexed.every((entry) {
+          final other = parent.parameters[entry.$1];
+          return entry.$2.kind == ParameterKind.requiredPositional &&
+              other.kind == ParameterKind.requiredPositional &&
+              _referenceSubtype(other.type, entry.$2.type, ids, memberships);
+        }) &&
+        (parent.result is VoidType ||
+            _referenceSubtype(child.result, parent.result, ids, memberships));
+  }
   if (child is DeclaredType && parent is DeclaredType) {
     if (child.declaration != parent.declaration) {
       final childId = ids[child.declaration];
@@ -1586,7 +1601,21 @@ void validateValueType(
   List<ClassBinding> referenceClasses = const [],
   ValueDirection direction = ValueDirection.output,
   Set<DeclarationId> opaqueParameters = const {},
+  bool allowCallback = false,
 }) {
+  if (allowCallback &&
+      direction == ValueDirection.input &&
+      type is FunctionTypeBinding) {
+    _validateBorrowedCallback(type, source);
+    return;
+  }
+  if (_containsCallback(type)) {
+    throw BindingDiagnostic(
+      'NAPI_CALLBACK',
+      'Callbacks require a direct function-typed input; callback outputs and nested callbacks are not supported.',
+      source,
+    );
+  }
   if (opaqueParameters.isNotEmpty) {
     _validateOpaqueReferenceNames(
       type,
@@ -1617,6 +1646,69 @@ void validateValueType(
       source,
     );
   }
+}
+
+bool _containsCallback(BindingType type) => switch (type) {
+  FunctionTypeBinding() => true,
+  DeclaredType() =>
+    (type.declaration.library == Uri.parse('dart:core') &&
+            type.declaration.name == 'Function') ||
+        type.typeArguments.any(_containsCallback),
+  RecordTypeBinding() =>
+    type.positional.any(_containsCallback) ||
+        type.named.values.any(_containsCallback),
+  _ => false,
+};
+
+void _validateBorrowedCallback(
+  FunctionTypeBinding type,
+  SourceLocation source,
+) {
+  Never reject(String message) =>
+      throw BindingDiagnostic('NAPI_CALLBACK', message, source);
+  if (type.typeParameters.isNotEmpty) {
+    reject('Generic callback signatures are not supported.');
+  }
+  if (type.nullability == TypeNullability.legacy) {
+    reject('Legacy callback nullability is not supported.');
+  }
+  for (final parameter in type.parameters) {
+    if (parameter.kind != ParameterKind.requiredPositional) {
+      reject(
+        'Callback signatures require positional parameters without defaults.',
+      );
+    }
+    if (!_isBorrowedCallbackValue(parameter.type)) {
+      reject(
+        'Callback arguments support only scalars, Lists and records; references, opaque payloads and nested callbacks are not supported.',
+      );
+    }
+  }
+  if (type.result is VoidType) return;
+  if (!_isBorrowedCallbackValue(type.result)) {
+    reject(
+      'Callback results must be synchronous scalars, Lists, records or void; Future, FutureOr, references, opaque payloads and nested callbacks are not supported.',
+    );
+  }
+}
+
+bool _isBorrowedCallbackValue(BindingType type) {
+  if (_isBackendScalar(type)) return true;
+  if (type.nullability == TypeNullability.legacy) return false;
+  if (type is RecordTypeBinding) {
+    return type.positional.every(_isBorrowedCallbackValue) &&
+        type.named.values.every(_isBorrowedCallbackValue);
+  }
+  return type is DeclaredType &&
+      type.semantics == ValueSemantics.structural &&
+      type.declaration ==
+          DeclarationId(
+            Uri.parse('dart:core'),
+            'List',
+            kind: DeclarationKind.classType,
+          ) &&
+      type.typeArguments.length == 1 &&
+      _isBorrowedCallbackValue(type.typeArguments.single);
 }
 
 /// Export renames may collide even when the original Dart names are distinct.
@@ -1679,7 +1771,15 @@ void validateCallParameters(
   bool scalarOnly = false,
   List<ClassBinding> referenceClasses = const [],
   Set<DeclarationId> opaqueParameters = const {},
+  bool returnsFuture = false,
 }) {
+  if (returnsFuture && parameters.any((p) => _containsCallback(p.type))) {
+    throw BindingDiagnostic(
+      'NAPI_CALLBACK',
+      'Borrowed callbacks require a synchronous binding call; Future results and resource cleanup are not supported.',
+      source,
+    );
+  }
   var optionalPositional = false;
   var named = false;
   for (final parameter in parameters) {
@@ -1744,6 +1844,7 @@ void validateCallParameters(
         referenceClasses: referenceClasses,
         direction: ValueDirection.input,
         opaqueParameters: opaqueParameters,
+        allowCallback: true,
       );
     } else if (!opaque &&
         !_isBackendScalar(parameter.type) &&

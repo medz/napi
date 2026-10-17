@@ -15,7 +15,8 @@ The product follows napi-rs's model: one Dart export declaration, generated
 bindings and TypeScript types, and npm packages for native and Wasm targets.
 Necessary JavaScript loaders and runtime helpers are allowed. Both targets must
 preserve the same supported calls, including `new Counter()` and argument
-presence. The experimental native target generates scalar, structural, value-class, reference-class, resource and Future AOT bindings
+presence. The experimental native target generates scalar, structural, value-class,
+reference-class, resource, Future and synchronous borrowed-callback AOT bindings
 for macOS arm64; see [native builds](doc/native.md) for its explicit runtime-bundle requirement.
 See [the architecture and delivery plan](doc/architecture.md) and
 [#144](https://github.com/medz/napi/issues/144) for its validation gates.
@@ -35,6 +36,7 @@ See [the architecture and delivery plan](doc/architecture.md) and
 - Structural value classes with explicit constructors, recursive fields and direction-specific TypeScript
 - Future-returning functions/methods/getters with genuine Promises and shared payload/error conversion
 - Resource cleanup with shared state, stable completion identity and operation leases through Promise settlement
+- Synchronous borrowed callbacks with scalar/List/record conversions, reentry, exact JS throws and expiry
 - Direct imports, installed package resolution, artifact inspection, and strict TypeScript tests
 - Fresh Wasm and native npm assembly with explicit assets and atomic publication
 - Shared scalar/default/class consumer contracts for Wasm and native
@@ -45,12 +47,15 @@ The package entry may select and load a backend automatically; consumers should
 not need loader setup, registration, or a call to application `main`.
 
 The annotation frontend records complete declaration metadata; build-time checks
-reject unsupported signatures before writing output. Non-generic cross-type class identity and generic payload storage are implemented; callbacks, streams, shared-buffer lifetimes, broader generic specialization and replacement builds remain work in
+reject unsupported signatures before writing output. Non-generic cross-type class
+identity, generic payload storage and synchronous borrowed callbacks are implemented;
+retained/async callbacks, streams, shared-buffer lifetimes, broader generic
+specialization and replacement builds remain work in
 [#114](https://github.com/medz/napi/issues/114). See [annotation syntax and scope](doc/annotations.md) and the
 [scalar conversion contract](doc/scalars.md), [argument presence and defaults](doc/arguments.md),
 [structural values](doc/structural.md), [value classes](doc/values.md),
 [reference classes](doc/classes.md), [opaque payloads](doc/opaque.md), [resource cleanup](doc/resources.md),
-[Future exports](doc/futures.md), and
+[Future exports](doc/futures.md), [borrowed callbacks](doc/callbacks.md), and
 [npm package assembly](doc/packaging.md).
 Annotated sources import `package:napi/napi.dart`; separate Dart VM build scripts
 use `buildPackage` from `package:napi/build.dart` for a fresh npm package, or

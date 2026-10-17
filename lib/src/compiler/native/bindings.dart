@@ -61,6 +61,20 @@ typedef _HostValueNative = Int32 Function(
 typedef _HostValue = int Function(Pointer<Void>, int, Pointer<Pointer<Void>>);
 typedef _ReleaseHostValueNative = Int32 Function(Pointer<Void>, Int64);
 typedef _ReleaseHostValue = int Function(Pointer<Void>, int);
+typedef _CallBorrowedNative = Int32 Function(
+  Pointer<Void>,
+  Pointer<Void>,
+  Size,
+  Pointer<Pointer<Void>>,
+  Pointer<Pointer<Void>>,
+);
+typedef _CallBorrowed = int Function(
+  Pointer<Void>,
+  Pointer<Void>,
+  int,
+  Pointer<Pointer<Void>>,
+  Pointer<Pointer<Void>>,
+);
 
 typedef _TypeNative = Int32 Function(
   Pointer<Void>,
@@ -464,6 +478,75 @@ final class NativeHostValue {
   }
 }
 
+// A caught JS throw owns its payload independently of the borrowed call frame.
+// Dart may retain and rethrow it after that frame's handles have expired.
+final class _NativeJsException implements Exception {
+  final NativeHostValue value;
+  _NativeJsException(this.value);
+}
+
+/// One synchronous exported invocation, including all its borrowed callbacks.
+final class NativeBorrowFrame {
+  final NapiApi _api;
+  final Pointer<Void> _env;
+  List<Pointer<Void>>? _functions = [];
+  NativeBorrowFrame(this._api, int envAddress)
+    : _env = Pointer.fromAddress(envAddress);
+
+  int bind(Pointer<Void> function, String path) {
+    final functions = _functions;
+    if (functions == null) throw StateError('Borrowed callback has expired');
+    if (_api.typeOf(_env, function) != 7) {
+      throw NapiTypeError('$path: expected function');
+    }
+    functions.add(function);
+    return functions.length - 1;
+  }
+
+  T invoke<T>(
+    int index,
+    int argc,
+    String path,
+    void Function(Pointer<Void>, Pointer<Pointer<Void>>) write,
+    T Function(Pointer<Void>, Pointer<Void>) read,
+  ) {
+    final functions = _functions;
+    if (functions == null) {
+      throw StateError('$path: borrowed callback has expired');
+    }
+    // Scope and result occupy the last two slots of one temporary buffer.
+    final buffer = _allocate<Pointer<Void>>(argc + 2, sizeOf<Pointer<Void>>());
+    final scope = buffer + argc;
+    final result = scope + 1;
+    var opened = false;
+    try {
+      _api._check(_api._openCallbackHandles(_env, scope));
+      opened = true;
+      try {
+        write(_env, buffer);
+        _api._check(
+          _api._callBorrowed(_env, functions[index], argc, buffer, result),
+        );
+        return read(_env, result.value);
+      } catch (_) {
+        if (_api._hasPending(_env)) {
+          _api._check(_api._takeCallbackException(_env, result));
+          throw _NativeJsException(_api.ownHostValue(_env, result.value));
+        }
+        rethrow;
+      }
+    } finally {
+      try {
+        if (opened) _api._check(_api._closeCallbackHandles(_env, scope.value));
+      } finally {
+        _free(buffer.cast());
+      }
+    }
+  }
+
+  void close() => _functions = null;
+}
+
 /// Private Node-API table used by generated AOT entrypoints.
 /// Every temporary native buffer is scoped to one call; no global scratch state.
 final class NapiApi {
@@ -478,8 +561,8 @@ final class NapiApi {
     this.referenceViews,
     this.classMemberships = const [],
   }) : _table = Pointer.fromAddress(address) {
-    if (address == 0 || tableCount != 49) {
-      throw StateError('Incompatible native bridge ABI (expected 49 slots).');
+    if (address == 0 || tableCount != 53) {
+      throw StateError('Incompatible native bridge ABI (expected 53 slots).');
     }
   }
   late final _CallbackInfo _callbackInfo = _table[0]
@@ -615,6 +698,18 @@ final class NapiApi {
   late final _ReleaseHostValue _releaseHostValue = _table[48]
       .cast<NativeFunction<_ReleaseHostValueNative>>()
       .asFunction<_ReleaseHostValue>();
+  late final _Simple _openCallbackHandles = _table[49]
+      .cast<NativeFunction<_SimpleNative>>()
+      .asFunction<_Simple>();
+  late final _Throw _closeCallbackHandles = _table[50]
+      .cast<NativeFunction<_ThrowNative>>()
+      .asFunction<_Throw>();
+  late final _CallBorrowed _callBorrowed = _table[51]
+      .cast<NativeFunction<_CallBorrowedNative>>()
+      .asFunction<_CallBorrowed>();
+  late final _Simple _takeCallbackException = _table[52]
+      .cast<NativeFunction<_SimpleNative>>()
+      .asFunction<_Simple>();
   Pointer<Void>? _hostEnv;
   late final _hostFinalizer = Zone.root.run(
     () => Finalizer<int>((slot) {
@@ -1473,6 +1568,7 @@ final class NapiApi {
     StackTrace? stack,
     String? context,
   }) {
+    if (error is _NativeJsException) return hostValue(env, error.value).address;
     String message;
     try {
       message = error.toString();

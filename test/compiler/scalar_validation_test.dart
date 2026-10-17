@@ -91,7 +91,6 @@ void main() {
         _declared('String', arguments: [const SafeIntType()]),
         _declared('String', semantics: ValueSemantics.reference),
         RecordTypeBinding(positional: [const DynamicType()]),
-        FunctionTypeBinding(result: const SafeIntType(), parameters: const []),
       ];
       for (final type in unsupported) {
         for (final binding in [

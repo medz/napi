@@ -8,12 +8,19 @@ import 'structural.dart';
 
 String emitDart(ModulePlan plan) {
   final resources = plan.resourcePolicies.isNotEmpty;
+  final callbacks = {
+    for (final (index, conversion) in plan.conversions.indexed)
+      if (conversion is CallbackConversion) index: conversion,
+  };
+  final prelude = callbacks.isEmpty
+      ? entrypointPrelude
+      : withCallbackErrors(entrypointPrelude);
   final source = jsonEncode(plan.source.toString()).replaceAll(r'$', r'\$');
   final result = StringBuffer(
     "import $source as target;\n"
     "${resources ? "import 'package:napi/runtime.dart';\n" : ''}"
     "${plan.conversions.any(containsDictionary) ? "import 'package:napi/napi.dart' as napi;\nimport 'dart:convert' show jsonEncode;\n" : ''}"
-    '$entrypointPrelude\n',
+    '$prelude\n',
   );
   if (plan.classes.any((c) => c.binding.typeParameters.any((p) => p.opaque)) ||
       plan.functions.any(
@@ -22,8 +29,13 @@ String emitDart(ModulePlan plan) {
     result.writeln(opaqueEntrypointPrelude);
   }
   if (plan.calls.any((call) => call.returnsFuture)) {
-    result.writeln(futureEntrypointPrelude);
+    result.writeln(
+      callbacks.isEmpty
+          ? futureEntrypointPrelude
+          : withCallbackErrors(futureEntrypointPrelude),
+    );
   }
+  if (callbacks.isNotEmpty) result.writeln(callbackEntrypointPrelude);
   if (resources) {
     result.writeln(resourceEntrypointPrelude);
     _emitResourceControl(result, plan);
@@ -70,15 +82,20 @@ WasmExternRef _referenceViews(WasmExternRef reference) {
     }
   }
   final structural = DartStructuralEmitter();
-  final hasStructural = plan.conversions.any(
-    (c) =>
-        c is ListConversion ||
-        c is RecordConversion ||
-        c is MapConversion ||
-        c is DictionaryConversion ||
-        c is ValueClassConversion,
-  );
+  final hasStructural =
+      callbacks.isNotEmpty ||
+      plan.conversions.any(
+        (c) =>
+            c is ListConversion ||
+            c is RecordConversion ||
+            c is MapConversion ||
+            c is DictionaryConversion ||
+            c is ValueClassConversion,
+      );
   if (hasStructural) result.writeln(dartStructuralPrelude);
+  for (final entry in callbacks.entries) {
+    _emitCallbackAdapter(result, structural, entry.value, entry.key);
+  }
   for (final (index, call) in plan.calls.indexed) {
     final parameters = call.parameters;
     final output = call.output;
@@ -114,7 +131,11 @@ WasmExternRef _referenceViews(WasmExternRef reference) {
         );
         result.writeln('  } else {');
       }
-      if (conversion is OpaqueConversion) {
+      if (conversion is CallbackConversion) {
+        result.writeln(
+          '  a$i = ${conversion.nullable ? 'p$i.isNull ? null : ' : ''}_callback${call.inputContexts[i]}(p$i!);',
+        );
+      } else if (conversion is OpaqueConversion) {
         result.writeln('  a$i = _NapiHostValue(p$i);');
       } else if (conversion is ReferenceConversion) {
         result.writeln(
@@ -234,6 +255,46 @@ WasmExternRef _referenceViews(WasmExternRef reference) {
   return result.toString();
 }
 
+void _emitCallbackAdapter(
+  StringBuffer result,
+  DartStructuralEmitter structural,
+  CallbackConversion callback,
+  int context,
+) {
+  String quote(String value) => jsonEncode(value).replaceAll(r'$', r'\$');
+  final parameters = [
+    for (final (index, conversion) in callback.inputs.indexed)
+      '${conversion.dartType} c$index',
+  ].join(', ');
+  final arguments = [
+    for (final (index, conversion) in callback.inputs.indexed)
+      '${structural.write(conversion)}(c$index, _StructureState(), ${quote(conversion.context)}, 0)',
+  ].join(', ');
+  result.writeln(
+    '''${callback.dartType} _callback$context(WasmExternRef borrowed) {
+  return ($parameters) {
+    if (_callbackActive(borrowed).toIntSigned() == 0) {
+      throw StateError(${quote('${callback.context}: borrowed callback has expired')});
+    }
+    final JSArray<JSAny?> arguments;
+    try {
+      arguments = <JSAny?>[$arguments].toJS;
+    } on _StructureViolation catch (error) {
+      throw _CallbackThrown(_callbackStructureError(externRefForJSAny(error.path.toJS)!, externRefForJSAny(error.message.toJS)!, WasmI32.fromInt(error.range ? 1 : 0)));
+    }
+    final envelope = _invokeCallback(borrowed, externRefForJSAny(arguments)!, WasmI32.fromInt($context));
+    if (_callbackThrew(envelope).toIntSigned() != 0) throw _CallbackThrown(envelope);''',
+  );
+  if (callback.output case final output?) {
+    final read = structural.read(output, bigintText: true);
+    result.writeln(
+      '''    final value = _callbackValue(envelope);
+    return $read(value.isNull ? null : value!.toJS, ${quote(output.context)});''',
+    );
+  }
+  result.writeln('  };\n}');
+}
+
 void _emitResourceControl(StringBuffer result, ModulePlan plan) {
   result.writeln('ResourceControl? _resourceControl(Object? value) {');
   result.writeln('  if (value == null) return null;');
@@ -303,7 +364,11 @@ void _emitResourceCall(
         '  if (d$i.toIntSigned() != 0) {\n    a$i = ${renderDartDefault(parameter, conversion)};\n  } else {',
       );
     }
-    if (conversion is OpaqueConversion) {
+    if (conversion is CallbackConversion) {
+      result.writeln(
+        '  a$i = ${conversion.nullable ? 'p$i.isNull ? null : ' : ''}_callback${call.inputContexts[i]}(p$i!);',
+      );
+    } else if (conversion is OpaqueConversion) {
       result.writeln('  a$i = _NapiHostValue(p$i);');
     } else if (conversion is ReferenceConversion) {
       result.writeln(

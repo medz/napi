@@ -13,6 +13,10 @@ String emitBoundary(ModulePlan plan) {
       if (c is ScalarConversion) scalarPolicy(c) else null,
   ];
   final outputs = {for (final call in plan.calls) ?call.outputContext};
+  final callbacks = {
+    for (final (index, conversion) in conversions.indexed)
+      if (conversion is CallbackConversion) index: conversion,
+  };
   final structures = {
     for (final (index, conversion) in conversions.indexed)
       if (conversion is ListConversion ||
@@ -66,12 +70,95 @@ ${[for (final e in structures.entries)
 export function readBigInt(value) { return value.toString(); }
 export function writeBigInt(value, context) { return checked(BigInt(value), context); }
 export function throwDartError(message) { throw new Error(message); }
-${plan.calls.any((call) => call.returnsFuture) ? '${emitFuturePolicy(resources: resources)}\n' : ''}${resources ? resourcePolicy : ''}${structures.isEmpty ? '' : structuralPolicy}
+${plan.calls.any((call) => call.returnsFuture) ? '${emitFuturePolicy(resources: resources)}\n' : ''}${resources ? resourcePolicy : ''}${structures.isEmpty && callbacks.isEmpty ? '' : structuralPolicy}
 ${conversions.any(_containsMap) ? mapStructuralPolicy : ''}
 ${conversions.any(containsDictionary) ? dictionaryStructuralPolicy : ''}
-${structures.values.map((s) => s.source).join('\n')}
+${structures.values.map((s) => s.source).join('\n')}${callbacks.isEmpty ? '' : '\n${_emitCallbacks(callbacks, futures: plan.calls.any((call) => call.returnsFuture))}'}
 ${plan.classes.isNotEmpty || plan.functions.any((f) => f.representation == ExportRepresentation.callableGlobal) ? argumentPolicy : ''}
 ''';
+}
+
+String _emitCallbacks(
+  Map<int, CallbackConversion> callbacks, {
+  required bool futures,
+}) {
+  final source = StringBuffer(r'''
+const callbackApply = Reflect.apply;
+export function borrowCallback(frame, value, nullable, path) {
+  if (value === null && nullable) return null;
+  if (typeof value !== 'function') throw new TypeError(path + ': expected function' + (nullable ? ' or null' : ''));
+  const state = {fn: value, path};
+  Object.defineProperty(frame, frame.length, {value: state, configurable: true});
+  return state;
+}
+export function expireCallbacks(frame) {
+  for (let i = 0; i < frame.length; i++) frame[i].fn = null;
+  frame.length = 0;
+}
+export function callbackActive(state) { return state.fn === null ? 0 : 1; }
+export function callbackThrew(envelope) { return envelope.threw ? 1 : 0; }
+export function callbackValue(envelope) { return envelope.value; }
+export function throwCallbackError(envelope) { throw envelope.value; }
+export function callbackStructureError(path, message, range) {
+  return {threw: true, value: range ? new RangeError(path + ': ' + message) : new TypeError(path + ': ' + message)};
+}
+export function invokeCallback(state, values, context) {
+  try {
+    const callback = state.fn;
+    if (callback === null) throw new Error(state.path + ': borrowed callback has expired');
+    switch (context) {
+''');
+  final converters = StringBuffer();
+  for (final entry in callbacks.entries) {
+    final id = entry.key;
+    final callback = entry.value;
+    final arguments = <String>[];
+    for (final (index, conversion) in callback.inputs.indexed) {
+      final boundary = emitStructuralBoundary(
+        conversion,
+        prefix: 'callback${id}Argument$index',
+        generateRead: false,
+      );
+      converters.writeln(boundary.source);
+      arguments.add(
+        '${boundary.write}(values[$index], ${jsonEncode(conversion.context)}, {work: 0, active: new Set(), pending: null}, 0)',
+      );
+    }
+    source.writeln('      case $id: {');
+    source.writeln('        const args = [${arguments.join(', ')}];');
+    if (callback.output case final output?) {
+      final boundary = emitStructuralBoundary(
+        output,
+        prefix: 'callback${id}Result',
+        leafAdapter: const BoundaryLeafAdapter(bigintText: true),
+        generateWrite: false,
+      );
+      converters.writeln(boundary.source);
+      source.writeln(
+        '        const value = callbackApply(callback, undefined, args);',
+      );
+      source.writeln(
+        '        return {threw: false, value: ${boundary.read}(value, ${jsonEncode(output.context)}, {work: 0, active: new Set()}, 0)};',
+      );
+    } else {
+      source.writeln('        callbackApply(callback, undefined, args);');
+      source.writeln('        return {threw: false, value: undefined};');
+    }
+    source.writeln('      }');
+  }
+  source.writeln(
+    '''      default: throw new Error('Unknown callback conversion context');
+    }
+  } catch (value) { return {threw: true, value}; }
+}''',
+  );
+  if (futures) {
+    source.writeln(
+      'export function rejectCallbackPromise(capability, envelope) { rejectPromise(capability, envelope.value); }',
+    );
+  }
+  source.write(converters);
+  return source.toString();
 }
 
 /// Private capabilities keep conversion and JS exception handling in JS. Their

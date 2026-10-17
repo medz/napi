@@ -162,6 +162,7 @@ NativeModulePlan validateNative(BindingModule module) {
       source,
       referenceClasses: module.classes,
       opaqueParameters: opaque,
+      returnsFuture: isCleanup || isFutureType(result),
     );
     validateCallResult(
       result,

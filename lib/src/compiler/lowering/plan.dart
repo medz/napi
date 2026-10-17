@@ -41,6 +41,32 @@ final class OpaqueConversion extends ValueConversion {
   String get typescriptType => '${parameter.name}${nullable ? ' | null' : ''}';
 }
 
+/// A direct input borrowed for one synchronous binding call. Its arguments
+/// leave Dart, while its result enters Dart; neither uses the outer direction.
+final class CallbackConversion extends ValueConversion {
+  final List<ParameterBinding> parameters;
+  final List<ValueConversion> inputs;
+  final ValueConversion? output;
+  CallbackConversion._(
+    FunctionTypeBinding super.type,
+    super.context, {
+    required Iterable<ValueConversion> inputs,
+    required this.output,
+  }) : parameters = type.parameters,
+       inputs = List.unmodifiable(inputs);
+  @override
+  String get dartType =>
+      '${output?.dartType ?? 'void'} Function(${inputs.map((c) => c.dartType).join(', ')})${nullable ? '?' : ''}';
+  @override
+  String get jsType => 'function';
+  @override
+  String get typescriptType {
+    final signature =
+        '(${[for (final (i, c) in inputs.indexed) 'arg$i: ${c.typescriptType}'].join(', ')}) => ${output?.typescriptType ?? 'void'}';
+    return nullable ? '($signature) | null' : signature;
+  }
+}
+
 String dartOpaqueTypeArguments(List<TypeParameterBinding> parameters) =>
     parameters.isEmpty
     ? ''
@@ -228,6 +254,7 @@ Iterable<ValueConversion> conversionGraph(
       ValueClassConversion() => [
         for (final field in node.fields) field.conversion,
       ],
+      CallbackConversion() => [...node.inputs, ?node.output],
       ScalarConversion() ||
       ReferenceConversion() ||
       OpaqueConversion() => <ValueConversion>[],
@@ -362,6 +389,40 @@ final class _ConversionBuilder {
     if (isOpaqueType(type, opaqueParameters)) {
       return OpaqueConversion(type as TypeParameterType, context);
     }
+    if (type is FunctionTypeBinding) {
+      ValueConversion callbackValue(
+        BindingType value,
+        String path,
+        ValueDirection direction,
+      ) => conversionFor(
+        value,
+        path,
+        bigint: bigint,
+        classes: classes,
+        valueSchemas: values,
+        direction: direction,
+        opaqueParameters: opaqueParameters,
+      );
+      return CallbackConversion._(
+        type,
+        context,
+        inputs: [
+          for (final (i, parameter) in type.parameters.indexed)
+            callbackValue(
+              parameter.type,
+              '$context callback argument ${i + 1}',
+              ValueDirection.output,
+            ),
+        ],
+        output: type.result is VoidType
+            ? null
+            : callbackValue(
+                type.result,
+                '$context callback result',
+                ValueDirection.input,
+              ),
+      );
+    }
     ValueConversion child(BindingType value) => convert(value, context);
     if (type is RecordTypeBinding) {
       return RecordConversion._(
@@ -484,6 +545,7 @@ final class FunctionPlan implements CallPlan {
   late final ExportRepresentation representation =
       returnsFuture ||
           inputs.any((c) => c is OpaqueConversion) ||
+          inputs.any((c) => c is CallbackConversion) ||
           output is OpaqueConversion ||
           parameters.any((p) => p.kind != ParameterKind.requiredPositional) ||
           inputs.any((c) => c is ReferenceConversion) ||
