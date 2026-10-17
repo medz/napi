@@ -242,6 +242,9 @@ Future<int> resourceHoldEnvelope(ResourceEnvelope value, int token) =>
 Future<(ResourceView, int)> resourceBadResult(ResourceView value) =>
     Future.value((value, 9007199254740992));
 @NAPI()
+Future<T> resourceOpaqueResult<T>(ResourceView owner, T value) =>
+    Future.value(value);
+@NAPI()
 int resourceComplete(int token, [int value = 42]) {
   _gates.remove(token)!.complete(value);
   return token;

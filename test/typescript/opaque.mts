@@ -1,6 +1,6 @@
 import * as api from '@napi/opaque-fixture';
 import * as direct from '@napi/opaque-fixture/BACKEND';
-import {plainEcho, PlainStore} from '@napi/opaque-external';
+import {plainEcho, plainFuture, PlainStore} from '@napi/opaque-external';
 
 const item = {name: 'payload'};
 const same: typeof item = api.identity(item);
@@ -52,6 +52,49 @@ const numbers: number[] = new api.Array('payload').numbers();
 const empty: Record<PropertyKey, never> = new api.Record().empty();
 const futureRouter: Promise<api.Router<string>> = api.futureRouter(router);
 void [numbers, empty, futureRouter];
+
+const futurePayload: Promise<typeof item> = api.futureIdentity(item);
+const futureUndefined: Promise<undefined> = api.futureIdentity(undefined);
+const futureNull: Promise<null> = api.futureIdentity(null);
+const futureMissing: Promise<string | null> = api.futureOptional<string>();
+const futureSupplied: Promise<undefined | null> = api.futureOptional<undefined>(undefined);
+const futureRead: Promise<string | null> = router.futureGet('key');
+const futureField: Promise<string | null> = router.futureValue;
+const promised: Promise<number> = api.futureIdentity(Promise.resolve(42));
+const thenable = {then(resolve: (value: number) => void) { resolve(42); }};
+const adopted: Promise<number> = api.futureIdentity(thenable);
+const box = new api.ThenBox(thenable.then);
+const boxFuture: Promise<number> = box.futureSelf();
+const boxForward: Promise<number> = api.futureThenBox(box);
+const boxNested: Promise<api.ThenBox<typeof thenable.then>[]> = api.futureIdentity([box]);
+const nullableThen = new api.ThenBox<typeof thenable.then | null>(null);
+const nullableAdopted: Promise<number | typeof nullableThen> = nullableThen.futureSelf();
+const unknownThen = new api.ThenBox<unknown>(undefined);
+const unknownResult: Promise<unknown> = api.futureThenBox(unknownThen);
+const noncallableThen = new api.ThenBox('not callable');
+const noncallableResult: Promise<typeof noncallableThen> = noncallableThen.futureSelf();
+const shadowed: Promise<symbol> = api.opaqueAwaited(Symbol());
+const awaitedStore = new api.Awaited('value');
+const awaitedStored: Promise<api.Awaited<string>> = api.futureIdentity(awaitedStore);
+const externalFuture: Promise<number> = plainFuture(thenable);
+const storedFuture: Promise<string> = store.futureValue();
+
+// @ts-expect-error Future validation preserves required input presence.
+api.futureIdentity();
+// @ts-expect-error Supplied undefined is not string, even for an optional Future input.
+api.futureOptional<string>(undefined);
+// @ts-expect-error Promise results adopt the thenable instead of preserving its root type.
+const wrongAdopted: Promise<typeof thenable> = api.futureIdentity(thenable);
+// @ts-expect-error A selected then member also participates in Promise resolution.
+const wrongBox: Promise<typeof box> = box.futureSelf();
+// @ts-expect-error A nullable then can still be callable at runtime.
+const wrongNullable: Promise<typeof nullableThen> = nullableThen.futureSelf();
+// @ts-expect-error Unknown then values cannot promise the original wrapper.
+const wrongUnknown: Promise<typeof unknownThen> = api.futureThenBox(unknownThen);
+void [futurePayload, futureUndefined, futureNull, futureMissing, futureSupplied,
+  futureRead, futureField, promised, adopted, boxFuture, boxForward, boxNested,
+  nullableAdopted, unknownResult, noncallableResult, shadowed, awaitedStored,
+  externalFuture, storedFuture, wrongAdopted, wrongBox, wrongNullable, wrongUnknown];
 
 // @ts-expect-error A required opaque argument may be undefined, but cannot be omitted.
 api.identity();

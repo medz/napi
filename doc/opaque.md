@@ -35,9 +35,11 @@ identity(undefined); // undefined
 ```
 
 The same declarations target native Node-API and Dart Wasm. Objects, functions,
-symbols and primitives retain their original JS identity/value. No payload
+symbols and primitives retain their original JS identity/value on synchronous
+and nested payload paths. No payload
 property, prototype or `then` is read, and payloads are not cloned, coerced or
-invoked. A function can be stored as a payload; calling it from Dart belongs to
+invoked by those paths. Root Future results use the standard Promise resolution
+described below. A function can be stored as a payload; calling it from Dart belongs to
 the separate callback feature.
 
 ## Author contract
@@ -97,7 +99,8 @@ contract. Environment teardown releases remaining native references.
 The first generated slice supports ordinary generic reference classes,
 top-level generic functions, direct opaque inputs/results/fields, required
 named inputs, optional positional inputs and matching selected generic class
-references. A Future with a non-opaque result can retain opaque inputs until
+references. Future results may also carry direct opaque payloads, including
+nullable payloads, with standard Promise resolution. Future calls retain opaque inputs until
 the Dart Future completes and its result is handed to the JS resolver. Waiting
 through subsequent JS thenable adoption is the separate resource-lease contract.
 
@@ -112,19 +115,26 @@ resource/value classes remain unsupported. Concrete or erased specializations
 such as `Router<String>` or raw `Router` are not interchangeable with
 `Router<T>` under this carrier policy. They receive build diagnostics.
 
-`Future<Generic<T>>` is rejected when the selected generic class exposes an
-instance member named `then`, including renamed getters and fields. Such a
-wrapper would be observed or assimilated by the Promise resolver instead of
-reliably becoming its value. Later JS mutations of wrappers retain the broader
-root-thenable limitation documented in [futures.md](futures.md).
+`Future<T>` and `Future<Generic<T>>` hand the converted root value to a genuine
+Promise resolver. It reads `then` and adopts callable thenables, including a
+selected generic class's field/getter or later JavaScript wrapper mutations.
+The fulfillment value can therefore differ from the original payload; getter
+errors reject with their exact thrown value. TypeScript describes the resolved
+value, including callable/non-callable union branches. Synchronous opaque values
+and values nested inside returned containers retain their ordinary identity.
+See [the Promise contract](futures.md#promise-resolution-and-identity).
 
-`Future<T>` with an opaque result is also unsupported: a genuine JS Promise
-observes and assimilates thenables, which conflicts with unrestricted identity
-and zero payload inspection. This restriction does not prohibit storing Promise
-objects as synchronous opaque payloads. These remaining combinations stay
-tracked in #125 and the broader generics/composition issues.
+The unsupported generic combinations above remain tracked in #125 and the
+broader generics/composition issues.
 
 ## Validation and cost
+
+The standard Promise-resolution follow-up passed 13 fresh-process opaque scenarios
+and eight TypeScript configurations per backend on Node 24.19.0/26.11.1. Both full
+consumer suites, 527 Dart tests (one Windows-only skip) and 23 Wasm resource tests
+passed. The resource suite additionally verifies opaque thenable settlement and
+cleanup ordering. Native reuses ABI13. The counts and costs below record the
+original synchronous generic-payload delivery.
 
 Generated annotated and external-selection packages were built, packed, moved
 and installed into fresh consumers after deleting their business/build sources.

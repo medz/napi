@@ -4,6 +4,9 @@ import '../../lowering/plan.dart';
 import 'values.dart';
 
 String emitDeclarations(ModulePlan plan) => [
+  ...emitPromiseResolutionDeclarations(
+    plan.calls.where((call) => call.returnsFuture).map((call) => call.output),
+  ),
   if (plan.valueSchemas.isNotEmpty)
     emitValueDeclarations(
       plan.allClasses,
@@ -133,10 +136,37 @@ Iterable<String> emitParameterVariants(
   }
 }
 
-/// Completion changes the result container, never the payload conversion.
+/// Promise resolution assimilates a root payload's callable `then` member.
 String emitResult(ValueConversion? output, {required bool returnsFuture}) {
   final payload = output?.typescriptType ?? 'void';
-  return returnsFuture ? 'globalThis.Promise<$payload>' : payload;
+  if (!returnsFuture) return payload;
+  final resolved = _needsPromiseResolution(output)
+      ? '\$napiAwaited<$payload>'
+      : payload;
+  return 'globalThis.Promise<$resolved>';
+}
+
+bool _needsPromiseResolution(ValueConversion? output) =>
+    output is OpaqueConversion || output is ReferenceConversion;
+
+/// Unlike TypeScript's Awaited, distribute a nullable or union-valued `then`:
+/// its callable branch resolves, while its non-callable branch returns T.
+/// Public export and generic identifiers cannot contain `$`.
+Iterable<String> emitPromiseResolutionDeclarations(
+  Iterable<ValueConversion?> outputs,
+) sync* {
+  if (outputs.any(_needsPromiseResolution)) {
+    yield r'''type $napiAwaited<T> = unknown extends T ? unknown : T extends object
+  ? 'then' extends keyof T
+    ? T['then'] extends infer F
+      ? unknown extends F ? unknown
+        : F extends (onfulfilled: infer C, ...args: any[]) => any
+          ? C extends (value: infer V, ...args: any[]) => any ? $napiAwaited<V> : never
+          : F extends globalThis.Function ? unknown : T
+      : never
+    : T
+  : T;''';
+  }
 }
 
 /// Merge only the instance type. `class Child extends Base` would incorrectly

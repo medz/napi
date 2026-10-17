@@ -211,7 +211,7 @@ WasmExternRef _referenceViews(WasmExternRef reference) {
     result.writeln('  }');
     if (call.returnsFuture) {
       result.writeln(
-        '  _observeFuture(value, capability, $errorContext, ${output == null ? 'null' : '(value) => _futureJSValue(_futureOutput$index(value))'});\n}',
+        '  _observeFuture(value, capability, $errorContext, ${output == null ? 'null' : '(value) { _resolvePromiseValue(capability, _futureOutput$index(value)); }'});\n}',
       );
       if (output != null) {
         result.writeln(
@@ -424,7 +424,7 @@ void _emitResourceCall(
   catchDartError();
   if (call.returnsFuture) {
     result.writeln(
-      '  _observeFuture(value, capability, $errorContext, ${output == null ? 'null' : '(value) => _futureJSValue(_futureOutput$index(value))'});\n}',
+      '  _observeFuture(value, capability, $errorContext, ${output == null ? 'null' : '(value) { _resolvePromiseValue(capability, _futureOutput$index(value)); }'});\n}',
     );
     if (output == null) return;
     result.writeln(
