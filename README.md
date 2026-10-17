@@ -16,7 +16,7 @@ bindings and TypeScript types, and npm packages for native and Wasm targets.
 Necessary JavaScript loaders and runtime helpers are allowed. Both targets must
 preserve the same supported calls, including `new Counter()` and argument
 presence. The experimental native target generates scalar, structural, value-class,
-reference-class, resource, Future and retained/async-callback AOT bindings
+reference-class, resource, Future, Stream and retained/async-callback AOT bindings
 for macOS arm64; see [native builds](doc/native.md) for its explicit runtime-bundle requirement.
 See [the architecture and delivery plan](doc/architecture.md) and
 [#144](https://github.com/medz/napi/issues/144) for its validation gates.
@@ -37,6 +37,7 @@ See [the architecture and delivery plan](doc/architecture.md) and
 - Future-returning functions/methods/getters, including generic payloads, with standard Promise resolution and shared error conversion
 - Resource cleanup with shared state, stable completion identity and operation leases through Promise settlement
 - Typed callbacks with scalar/List/record conversions, weak adapter identity, retained ownership and Promise results
+- Stream async iterators with FIFO reads, bounded snapshots, cancellation and resource cleanup integration
 - Direct imports, installed package resolution, artifact inspection, and strict TypeScript tests
 - Fresh Wasm and native npm assembly with explicit assets and atomic publication
 - Shared scalar/default/class consumer contracts for Wasm and native
@@ -48,14 +49,14 @@ not need loader setup, registration, or a call to application `main`.
 
 The annotation frontend records complete declaration metadata; build-time checks
 reject unsupported signatures before writing output. Non-generic cross-type class
-identity, generic payload storage and retained/async callbacks are implemented;
-streams, shared-buffer lifetimes, broader generic
+identity, generic payload storage, retained/async callbacks and Stream iterators are implemented;
+shared-buffer lifetimes, broader generic
 specialization and replacement builds remain work in
 [#114](https://github.com/medz/napi/issues/114). See [annotation syntax and scope](doc/annotations.md) and the
 [scalar conversion contract](doc/scalars.md), [argument presence and defaults](doc/arguments.md),
 [structural values](doc/structural.md), [value classes](doc/values.md),
 [reference classes](doc/classes.md), [opaque payloads](doc/opaque.md), [resource cleanup](doc/resources.md),
-[Future exports](doc/futures.md), [callbacks](doc/callbacks.md), and
+[Future exports](doc/futures.md), [callbacks](doc/callbacks.md), [streams](doc/streams.md), and
 [npm package assembly](doc/packaging.md).
 Annotated sources import `package:napi/napi.dart`; separate Dart VM build scripts
 use `buildPackage` from `package:napi/build.dart` for a fresh npm package, or

@@ -146,15 +146,14 @@ catch/rethrow; per-invocation handles close after conversion and execution.
 
 Unsupported shapes fail before output is created: general generic specialization
 beyond generic payload storage, non-null
-object defaults, general Future inputs/FutureOr, streams and
-cancellation. Callback outputs, optional/named callback parameters and callback
+object defaults, general Future inputs/FutureOr and general cancellation. Callback outputs, optional/named callback parameters and callback
 payloads beyond supported scalars/Lists/records also remain unsupported. The same reference
 contract runs on Wasm; see [reference classes](classes.md). A unique most-specific
 selected class owns the canonical wrapper across base/interface views. Instance
 prototypes inherit without static inheritance. Compatible unrelated selected
 memberships use one private composite prototype with a complete instance
 surface; conflicting call contracts fail before exposing a wrapper. Custom JS
-prototypes retain priority. The remaining generic, broader callback, stream
+prototypes retain priority. The remaining generic, broader callback
 and shared-buffer roadmap stays open.
 
 ## Runtime and verification
@@ -175,6 +174,12 @@ cross-backend Promise contract. An unresolved Dart Completer alone does not keep
 Node alive; active Dart ports/timers do. Closing the environment cancels delivery
 and releases its isolate without running business cleanup. Unhandled Dart async
 errors are reported through Node's uncaught-exception path.
+
+Generated [Stream exports](streams.md) reuse ABI 14 and the Future delivery
+transport with a private iterator wrapper. Admission owns a converted host
+snapshot; delivery acknowledgement releases its envelope. Resource leases remain
+attached to the original subscription until cancellation and accepted deliveries
+finish. No new C event queue or runtime bundle is required.
 
 Generated [Future-returning declarations](futures.md) use the same output
 converters, keep receiver/argument roots through conversion and resolver delivery,

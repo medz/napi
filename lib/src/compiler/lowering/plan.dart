@@ -569,6 +569,7 @@ final class _ConversionBuilder {
 /// Ordered private Wasm calls share conversion indices, not declaration kinds.
 abstract interface class CallPlan {
   bool get returnsFuture;
+  bool get returnsStream;
   List<ParameterBinding> get parameters;
   List<ValueConversion> get inputs;
   ValueConversion? get output;
@@ -584,6 +585,7 @@ final class FunctionPlan implements CallPlan {
   final int _index;
   late final ExportRepresentation representation =
       returnsFuture ||
+          returnsStream ||
           inputs.any((c) => c is OpaqueConversion) ||
           inputs.any((c) => c is CallbackConversion) ||
           output is OpaqueConversion ||
@@ -609,6 +611,8 @@ final class FunctionPlan implements CallPlan {
   final int? outputContext;
   @override
   bool get returnsFuture => isFutureType(binding.result);
+  @override
+  bool get returnsStream => isStreamType(binding.result);
   @override
   List<ParameterBinding> get parameters => binding.parameters;
   FunctionPlan._(
@@ -655,6 +659,8 @@ final class MemberCallPlan implements CallPlan {
   final bool isCleanup;
   @override
   final bool returnsFuture;
+  @override
+  final bool returnsStream;
   final ClassBinding owner;
   final MemberBinding binding;
   final MemberCallKind kind;
@@ -682,6 +688,7 @@ final class MemberCallPlan implements CallPlan {
     List<ValueClassSchema> valueSchemas,
   ) : isCleanup = member.isCleanup,
       returnsFuture = member.returnsFuture,
+      returnsStream = member.returnsStream,
       binding = member.binding,
       kind = member.kind,
       parameters = member.parameters,

@@ -51,7 +51,9 @@ Future<BuiltModule> buildNativeModule({
       emitNativeLoader(
         exports,
         classes: plan.classes,
-        hasFutures: plan.calls.any((call) => call.returnsFuture),
+        hasFutures:
+            plan.hasStreams || plan.calls.any((call) => call.returnsFuture),
+        streamClassName: plan.hasStreams ? plan.streamClassName : null,
         hasCallbacks: plan.calls.any(
           (call) => call.inputs.any((input) => input is CallbackConversion),
         ),

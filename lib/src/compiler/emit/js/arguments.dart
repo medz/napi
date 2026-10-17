@@ -4,6 +4,7 @@ import '../../analysis/reference_views.dart';
 import '../../ir/model.dart';
 import '../../lowering/plan.dart';
 import 'reference_views.dart';
+import 'streams.dart';
 
 /// Presence stays separate from conversion: opaque undefined/null are values.
 /// The opaque engine can use this policy without adopting scalar nullish rules.
@@ -46,13 +47,15 @@ export function readOptions(value, supplied, names, context) {
 /// These callables are imported as immutable globals by the public Wasm module.
 /// The private dependency only calls the Dart core after capturing JS presence.
 String emitArgumentCalls(ModulePlan plan) {
+  final streams = plan.calls.any((call) => call.returnsStream);
   final compositeViews = hasCompositeReferenceViews(
     plan.classes.map((c) => c.shape).toList(),
   );
   final result = StringBuffer('''// Generated private callable dependency.
 import * as core from './core.wasm';
-import {useDefault, readOptions${plan.calls.any((call) => call.returnsFuture) ? ', createPromise, rejectPromise' : ''}${plan.resourcePolicies.isNotEmpty ? ', createResourceCall, finishResourceCall, retainResourceReference' : ''}${plan.conversions.any((c) => c is CallbackConversion) ? ', checkCallback' : ''}} from './boundary.mjs';
+import {useDefault, readOptions${plan.calls.any((call) => call.returnsFuture) || streams ? ', createPromise, rejectPromise' : ''}${streams ? ', retainPromise' : ''}${plan.resourcePolicies.isNotEmpty ? ', createResourceCall, finishResourceCall, retainResourceReference' : ''}${plan.conversions.any((c) => c is CallbackConversion) ? ', checkCallback' : ''}} from './boundary.mjs';
 ''');
+  if (streams) result.writeln(streamFacadePolicy);
   if (plan.classes.isNotEmpty) {
     result.writeln("import {registerReference} from './references.mjs';");
     result.writeln('''const wrappers = new WeakMap();
@@ -162,7 +165,7 @@ function intern(reference, expectedId, context, pending, receiver, newTarget) {
       _endFuture(result, '  ', resource: resource);
     } else {
       result.writeln(
-        '${resource ? '    ' : '  '}return ${_output(function.output, invocation)};',
+        '${resource ? '    ' : '  '}return ${function.returnsStream ? 'adoptStream($invocation${resource ? ', capability' : ''})' : _output(function.output, invocation)};',
       );
       if (resource) {
         _endResource(result, '  ');
@@ -259,6 +262,8 @@ function intern(reference, expectedId, context, pending, receiver, newTarget) {
           'core[${jsonEncode(member.coreExportName)}](${[if (member.returnsFuture || resource) 'capability', if (resource) 'operation', if (!member.isStatic) 'reference', if (arguments.isNotEmpty) arguments].join(', ')})';
       final expression = member.kind == MemberCallKind.constructor
           ? 'wrap$index($invocation, ${jsonEncode(member.context)})'
+          : member.returnsStream
+          ? 'adoptStream($invocation${resource ? ', capability' : ''})'
           : _output(member.output, invocation);
       if (member.returnsFuture) {
         result.writeln('      $invocation;');
@@ -266,7 +271,7 @@ function intern(reference, expectedId, context, pending, receiver, newTarget) {
         result.writeln('  }');
       } else {
         result.writeln(
-          '$indent${member.output == null && member.kind != MemberCallKind.constructor ? '' : 'return '}$expression;',
+          '$indent${member.output == null && !member.returnsStream && member.kind != MemberCallKind.constructor ? '' : 'return '}$expression;',
         );
         if (resource) {
           _endResource(result, '    ');

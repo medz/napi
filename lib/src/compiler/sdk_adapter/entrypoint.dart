@@ -141,6 +141,76 @@ void _observeFuture<T>(Future<T> future, WasmExternRef capability, String contex
 }
 ''';
 
+/// Stream snapshots cross the host boundary in a non-null envelope. Their raw
+/// payload never passes through JSAny, which would collapse undefined to null.
+const streamEntrypointPrelude = r'''
+@pragma('wasm:import', 'napi.captureStreamItem')
+external WasmExternRef _captureStreamItem(WasmExternRef convert, WasmI32 classId, WasmExternRef path);
+@pragma('wasm:import', 'napi.writeStreamItem')
+external void _writeStreamItem(WasmExternRef envelope, WasmExternRef? value);
+@pragma('wasm:import', 'napi.streamItemThrew')
+external WasmI32 _streamItemThrew(WasmExternRef envelope);
+@pragma('wasm:import', 'napi.releaseStreamItem')
+external void _releaseStreamItem(WasmExternRef envelope);
+@pragma('wasm:import', 'napi.throwStreamError')
+external WasmExternRef? _throwStreamError(WasmExternRef envelope);
+@pragma('wasm:import', 'napi.throwStreamOverflow')
+external WasmExternRef? _throwStreamOverflow(WasmExternRef message, WasmExternRef stack);
+@pragma('wasm:import', 'napi.attachStreamDelivery')
+external void _attachStreamDelivery(WasmExternRef capability, WasmExternRef release, WasmExternRef failed);
+@pragma('wasm:import', 'napi.resolveStreamResult')
+external void _resolveStreamResult(WasmExternRef capability, WasmExternRef? envelope, WasmI32 done);
+
+final class _StreamSnapshot {
+  final WasmExternRef envelope;
+  _StreamSnapshot(this.envelope);
+  void release() { _releaseStreamItem(envelope); }
+}
+final class _StreamHostError implements Exception {
+  final WasmExternRef envelope;
+  _StreamHostError(this.envelope);
+}
+NapiStream<dynamic, _StreamSnapshot> _streamState(WasmExternRef reference) =>
+    reference.internalize().toObject() as NapiStream<dynamic, _StreamSnapshot>;
+
+@pragma('wasm:export', 'napi:stream:roots')
+WasmExternRef _streamRoots(WasmExternRef reference) =>
+    WasmAnyRef.fromObject(_streamState(reference).retainedInputs).externalize();
+
+@pragma('wasm:export', 'napi:stream:finish')
+void _finishStreamCreation(WasmExternRef reference, WasmI32 published) {
+  _streamState(reference).finishCreation(published.toIntSigned() != 0);
+}
+
+@pragma('wasm:export', 'napi:stream:read')
+void _readStream(WasmExternRef capability, WasmExternRef reference, WasmI32 closing) {
+  final state = _streamState(reference);
+  _observeFuture(closing.toIntSigned() == 0 ? state.next() : state.return_(),
+      capability, 'Stream iteration', (delivery) {
+    _attachStreamDelivery(capability, externRefForJSAny((() { delivery.release(); }).toJS)!,
+        externRefForJSAny(((JSAny envelope) {
+          state.deliveryFailed(_StreamHostError(externRefForJSAny(envelope)!), StackTrace.current);
+        }).toJS)!);
+    switch (delivery.kind) {
+      case StreamDeliveryKind.value:
+        _resolveStreamResult(capability, delivery.value!.envelope, WasmI32.fromInt(0));
+      case StreamDeliveryKind.done:
+        _resolveStreamResult(capability, null, WasmI32.fromInt(1));
+      case StreamDeliveryKind.error:
+        final error = delivery.error!;
+        if (error is _StreamHostError) {
+          _throwStreamError(error.envelope);
+        } else if (error is StreamBufferOverflow) {
+          _throwStreamOverflow(externRefForJSAny(error.message.toString().toJS)!,
+              externRefForJSAny(_stackMessage(delivery.stack ?? StackTrace.empty).toJS)!);
+        } else {
+          _normalizeFutureError(error, delivery.stack ?? StackTrace.empty, 'Stream iteration');
+        }
+    }
+  });
+}
+''';
+
 /// The host owns the release callback so JS conversion failures also release
 /// accepted operations, including errors that bypass Dart exception handlers.
 const resourceEntrypointPrelude = r'''

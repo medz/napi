@@ -24,6 +24,7 @@ String emitDeclarations(ModulePlan plan) => [
       function.output,
       function.binding.typeParameters,
       returnsFuture: function.returnsFuture,
+      returnsStream: function.returnsStream,
       callable: function.representation == ExportRepresentation.callableGlobal,
     ),
   for (final binding in plan.classes) ...[
@@ -54,9 +55,9 @@ String emitDeclarations(ModulePlan plan) => [
       ))
         switch (member.kind) {
           MemberCallKind.method =>
-            '  ${member.isStatic ? 'static ' : ''}${emitMemberName(member.exportName)}($parameters): ${emitResult(member.output, returnsFuture: member.returnsFuture)};',
+            '  ${member.isStatic ? 'static ' : ''}${emitMemberName(member.exportName)}($parameters): ${emitResult(member.output, returnsFuture: member.returnsFuture, returnsStream: member.returnsStream)};',
           MemberCallKind.getter =>
-            '  ${member.isStatic ? 'static ' : ''}get ${emitMemberName(member.exportName)}(): ${emitResult(member.output, returnsFuture: member.returnsFuture)};',
+            '  ${member.isStatic ? 'static ' : ''}get ${emitMemberName(member.exportName)}(): ${emitResult(member.output, returnsFuture: member.returnsFuture, returnsStream: member.returnsStream)};',
           MemberCallKind.setter =>
             '  ${member.isStatic ? 'static ' : ''}set ${emitMemberName(member.exportName)}($parameters);',
           MemberCallKind.constructor =>
@@ -70,6 +71,7 @@ String emitDeclarations(ModulePlan plan) => [
         return emitViewGetterResult(
           member.output,
           returnsFuture: member.returnsFuture,
+          returnsStream: member.returnsStream,
         );
       },
     ),
@@ -106,11 +108,16 @@ Iterable<String> emitFunctionDeclarations(
   ValueConversion? output,
   List<TypeParameterBinding> types, {
   required bool returnsFuture,
+  bool returnsStream = false,
   required bool callable,
 }) sync* {
   final variants = emitParameterVariants(parameters, inputs).toList();
   final generics = emitTypeParameters(types);
-  final result = emitResult(output, returnsFuture: returnsFuture);
+  final result = emitResult(
+    output,
+    returnsFuture: returnsFuture,
+    returnsStream: returnsStream,
+  );
   if (callable && variants.length > 1) {
     yield 'export declare const $name: {';
     for (final parameters in variants) {
@@ -152,8 +159,15 @@ Iterable<String> emitParameterVariants(
 }
 
 /// Promise resolution assimilates a root payload's callable `then` member.
-String emitResult(ValueConversion? output, {required bool returnsFuture}) {
+String emitResult(
+  ValueConversion? output, {
+  required bool returnsFuture,
+  bool returnsStream = false,
+}) {
   final payload = output?.typescriptType ?? 'void';
+  if (returnsStream) {
+    return 'globalThis.AsyncIterableIterator<$payload, undefined, undefined>';
+  }
   if (!returnsFuture) return payload;
   final resolved = _needsPromiseResolution(output)
       ? '\$napiAwaited<$payload>'
@@ -188,6 +202,7 @@ Iterable<String> emitPromiseResolutionDeclarations(
 String emitViewGetterResult(
   ValueConversion? output, {
   required bool returnsFuture,
+  bool returnsStream = false,
 }) {
   if (output != null &&
       conversionGraph([output]).any(
@@ -195,9 +210,17 @@ String emitViewGetterResult(
             value is OpaqueConversion ||
             value is ReferenceConversion && value.typeArguments.isNotEmpty,
       )) {
-    return returnsFuture ? 'globalThis.Promise<unknown>' : 'unknown';
+    return returnsStream
+        ? 'globalThis.AsyncIterableIterator<unknown, undefined, undefined>'
+        : returnsFuture
+        ? 'globalThis.Promise<unknown>'
+        : 'unknown';
   }
-  return emitResult(output, returnsFuture: returnsFuture);
+  return emitResult(
+    output,
+    returnsFuture: returnsFuture,
+    returnsStream: returnsStream,
+  );
 }
 
 /// Missing accessors read undefined, but composed views can supply a getter.

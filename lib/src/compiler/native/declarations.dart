@@ -42,6 +42,7 @@ String emitNativeDeclarations(NativeModulePlan plan) {
       function.output,
       function.function!.typeParameters,
       returnsFuture: function.returnsFuture,
+      returnsStream: function.returnsStream,
       callable: function.parameters.any(
         (p) => p.kind != ParameterKind.requiredPositional,
       ),
@@ -81,7 +82,11 @@ String emitNativeDeclarations(NativeModulePlan plan) {
       final generics = call.member?.kind == MemberKind.constructor
           ? emitTypeParameters(binding.binding.typeParameters)
           : '';
-      final result = emitResult(call.output, returnsFuture: call.returnsFuture);
+      final result = emitResult(
+        call.output,
+        returnsFuture: call.returnsFuture,
+        returnsStream: call.returnsStream,
+      );
       for (final parameters in emitParameterVariants(
         call.parameters,
         call.inputs,
@@ -106,6 +111,7 @@ String emitNativeDeclarations(NativeModulePlan plan) {
         return emitViewGetterResult(
           member.output,
           returnsFuture: member.returnsFuture,
+          returnsStream: member.returnsStream,
         );
       },
     )) {

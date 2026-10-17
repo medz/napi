@@ -17,6 +17,7 @@ final class NativeCallPlan {
   final List<ValueConversion> inputs;
   final ValueConversion? output;
   final bool returnsFuture;
+  final bool returnsStream;
   final bool isCleanup;
   final bool isStatic;
   final int? classId;
@@ -31,6 +32,7 @@ final class NativeCallPlan {
     this.owner,
     this.member,
     this.returnsFuture = false,
+    this.returnsStream = false,
     this.isCleanup = false,
     this.isStatic = false,
     this.classId,
@@ -66,6 +68,11 @@ final class NativeModulePlan {
   final List<NativeClassPlan> classes;
   final List<ValueClassSchema> valueSchemas;
   final List<int> referenceClassOrder;
+  bool get hasStreams => calls.any((call) => call.returnsStream);
+  int get streamClassId => classes.length;
+  // Public export identifiers cannot contain $, so this private class cannot
+  // collide with a selected Dart declaration.
+  String get streamClassName => r'$napiStream';
   NativeModulePlan._(
     this.bindings,
     this.functions,
@@ -190,6 +197,7 @@ NativeModulePlan validateNative(BindingModule module) {
           ),
       ]),
       returnsFuture: isCleanup || isFutureType(result),
+      returnsStream: isStreamType(result),
       isCleanup: isCleanup,
       output: payload == null
           ? null

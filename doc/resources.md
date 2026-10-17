@@ -129,8 +129,12 @@ returning the original root thenable. The binding preserves standard Promise
 semantics and does not hide `then`, box results or fabricate a Promise-like
 object. Unconditional identity for arbitrary root thenables remains an explicit
 boundary in [Future contracts](futures.md); this resource work does not claim it.
-Callbacks, streams, cancellation and shared-buffer views require their own
-operation-lifetime integration when those features land.
+[Callbacks](callbacks.md) and [Stream iterators](streams.md) have their own
+operation-lifetime integration. Streams transfer the original call leases and
+notify subscriptions when an owner closes. Cleanup waits for cancellation and
+accepted delivery acknowledgements. Business cleanup errors take priority over
+cancellation errors; otherwise the first cancellation error in registration order
+is forwarded. Shared-buffer views and general cancellation remain separate work.
 
 ## Settlement observer cost
 

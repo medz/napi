@@ -3,3 +3,4 @@ library;
 
 export 'src/runtime/resources.dart';
 export 'src/runtime/retention.dart';
+export 'src/runtime/streams.dart';

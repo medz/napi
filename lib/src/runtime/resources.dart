@@ -23,6 +23,9 @@ final class ResourceControl implements OperationOwner {
   int _operations = 0;
   Completer<void>? _completion;
   void Function()? _cleanup;
+  Set<_ResourceStreamNotice>? _streams;
+  List<Future<void>?>? _cancellationErrors;
+  int _pendingCancellations = 0;
 
   ResourceState get state => _completion == null
       ? ResourceState.open
@@ -50,6 +53,8 @@ final class ResourceControl implements OperationOwner {
   /// first call's zone. Future errors keep their error and stack; synchronous
   /// exceptions follow that zone's error interception. Success and failure close
   /// the resource permanently. Releasing a lease does not throw cleanup errors.
+  /// Attached streams cancel before cleanup. A cleanup failure takes priority;
+  /// otherwise the first cancellation failure in attachment order is forwarded.
   ///
   /// Cleanup may reenter [dispose], but must not await its own disposal. Returning
   /// that future directly is rejected; an indirect circular wait cannot be
@@ -70,7 +75,11 @@ final class ResourceControl implements OperationOwner {
         if (result is Future<void>) {
           // Forward an existing asynchronous error without invoking the
           // disposal zone's errorCallback a second time.
-          completion.complete(result.whenComplete(() => _owner = null));
+          final cancellation = _firstCancellationError;
+          final settled = cancellation == null
+              ? result
+              : result.then<void>((_) => cancellation);
+          completion.complete(settled.whenComplete(() => _owner = null));
         } else {
           _finish();
         }
@@ -78,13 +87,51 @@ final class ResourceControl implements OperationOwner {
         _finish(error, stack);
       }
     });
-    if (_operations == 0) _runCleanup();
+    _cancelStreams(_streams?.toList(growable: false) ?? const []);
+    _tryCleanup();
     return completion.future;
   }
 
   void _release() {
     _operations--;
-    if (_operations == 0 && _cleanup != null) _runCleanup();
+    _tryCleanup();
+  }
+
+  void _tryCleanup() {
+    if (_operations == 0 && _pendingCancellations == 0 && _cleanup != null) {
+      _runCleanup();
+    }
+  }
+
+  Future<void>? get _firstCancellationError {
+    for (final error in _cancellationErrors ?? const <Future<void>?>[]) {
+      if (error != null) return error;
+    }
+    return null;
+  }
+
+  void _cancelStreams(List<_ResourceStreamNotice> notices) {
+    if (notices.isEmpty) return;
+    final errors = _cancellationErrors ??= [];
+    final first = errors.length;
+    // Reserve the entire registration order before cancellation can reenter.
+    errors.addAll(List<Future<void>?>.filled(notices.length, null));
+    _pendingCancellations += notices.length;
+    for (final (offset, notice) in notices.indexed) {
+      final future = notice.request();
+      future.then<void>(
+        (_) {
+          _pendingCancellations--;
+          _tryCleanup();
+        },
+        onError: (Object error, StackTrace stack) {
+          // Forward the failed Future without intercepting its error twice.
+          errors[first + offset] = future;
+          _pendingCancellations--;
+          _tryCleanup();
+        },
+      );
+    }
   }
 
   void _runCleanup() {
@@ -102,7 +149,7 @@ final class ResourceControl implements OperationOwner {
     if (_completion!.isCompleted) return;
     _owner = null;
     if (error == null) {
-      _completion!.complete();
+      _completion!.complete(_firstCancellationError);
     } else {
       _completion!.completeError(error, stack);
     }
@@ -136,6 +183,7 @@ final class ResourceOperation implements OperationLease {
 
   ResourceControl? _exempt;
   final _leases = Map<ResourceControl, OperationLease>.identity();
+  _ResourceStreamNotice? _stream;
   bool _released = false;
 
   bool get isEmpty => _leases.isEmpty;
@@ -148,10 +196,41 @@ final class ResourceOperation implements OperationLease {
     _leases.putIfAbsent(control, control.retainOperation);
   }
 
+  /// Transfers close notification to one stream without strongly rooting it.
+  ///
+  /// [cancel] must be an unbound function: the notice keeps only a weak target,
+  /// but retains this operation so an abandoned target cannot strand leases.
+  void attachStream(Object target, Future<void> Function(Object) cancel) {
+    if (_released || _stream != null) {
+      throw StateError('Resource operation cannot attach another stream.');
+    }
+    if (_leases.isEmpty) return;
+    final notice = _ResourceStreamNotice(
+      this,
+      target,
+      cancel,
+      _leases.keys.toList(),
+    );
+    _stream = notice;
+    for (final control in notice.controls) {
+      final streams = control._streams ??= {};
+      for (final previous in streams.toList(growable: false)) {
+        if (previous.target.target == null) previous.operation.release();
+      }
+      streams.add(notice);
+    }
+    // All links exist before cancellation can synchronously reenter cleanup.
+    for (final control in notice.controls.toList(growable: false)) {
+      if (control.state != ResourceState.open) control._cancelStreams([notice]);
+    }
+  }
+
   @override
   void release() {
     if (_released) return;
     _released = true;
+    _stream?.detach();
+    _stream = null;
     final leases = _leases.values.toList(growable: false);
     _leases.clear();
     _exempt = null;
@@ -160,5 +239,38 @@ final class ResourceOperation implements OperationLease {
     for (final lease in leases.reversed) {
       lease.release();
     }
+  }
+}
+
+final class _ResourceStreamNotice {
+  _ResourceStreamNotice(
+    this.operation,
+    Object target,
+    this.cancel,
+    this.controls,
+  ) : target = WeakReference(target);
+
+  final ResourceOperation operation;
+  final WeakReference<Object> target;
+  final Future<void> Function(Object) cancel;
+  final List<ResourceControl> controls;
+  Future<void>? _future;
+
+  Future<void> request() {
+    final existing = _future;
+    if (existing != null) return existing;
+    final value = target.target;
+    if (value == null) {
+      operation.release();
+      return _future = Future<void>.value();
+    }
+    return _future = Future<void>.sync(() => cancel(value));
+  }
+
+  void detach() {
+    for (final control in controls) {
+      control._streams?.remove(this);
+    }
+    controls.clear();
   }
 }

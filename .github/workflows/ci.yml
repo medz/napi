@@ -24,7 +24,7 @@ jobs:
       - run: dart analyze --fatal-infos
       - run: npm install --prefix .dart_tool/js --no-save --no-package-lock --ignore-scripts --no-audit --no-fund typescript@7.0.2
       - run: dart test
-      - run: dart test --platform node --compiler dart2wasm test/runtime/resources_test.dart
+      - run: dart test --platform node --compiler dart2wasm test/runtime/resources_test.dart test/runtime/streams_test.dart
       - run: dart run tool/verify.dart
       - run: dart run tool/check_package.dart
       - run: git diff --check HEAD^ HEAD

@@ -5,10 +5,12 @@ import 'arguments.dart';
 import 'callbacks.dart';
 import 'structural.dart';
 import 'settlement.dart';
+import 'streams.dart';
 
 String emitBoundary(ModulePlan plan) {
   final conversions = plan.conversions;
   final resources = plan.resourcePolicies.isNotEmpty;
+  final streams = plan.calls.any((call) => call.returnsStream);
   final policies = [
     for (final c in conversions)
       if (c is ScalarConversion) scalarPolicy(c) else null,
@@ -71,10 +73,10 @@ ${[for (final e in structures.entries)
 export function readBigInt(value) { return value.toString(); }
 export function writeBigInt(value, context) { return checked(BigInt(value), context); }
 export function throwDartError(message) { throw new Error(message); }
-${plan.calls.any((call) => call.returnsFuture) ? '${emitFuturePolicy(resources: resources)}\n' : ''}${resources ? resourcePolicy : ''}${structures.isEmpty && callbacks.isEmpty ? '' : structuralPolicy}
+${plan.calls.any((call) => call.returnsFuture) || streams ? '${emitFuturePolicy(resources: resources, streams: streams)}\n' : ''}${resources ? resourcePolicy : ''}${streams ? streamBoundaryPolicy(references: plan.classes.isNotEmpty) : ''}${structures.isEmpty && callbacks.isEmpty ? '' : structuralPolicy}
 ${conversions.any(_containsMap) ? mapStructuralPolicy : ''}
 ${conversions.any(containsDictionary) ? dictionaryStructuralPolicy : ''}
-${structures.values.map((s) => s.source).join('\n')}${callbacks.isEmpty ? '' : '\n${_emitCallbacks(callbacks, futures: plan.calls.any((call) => call.returnsFuture))}'}
+${structures.values.map((s) => s.source).join('\n')}${callbacks.isEmpty ? '' : '\n${_emitCallbacks(callbacks, futures: plan.calls.any((call) => call.returnsFuture) || streams)}'}
 ${plan.classes.isNotEmpty || plan.functions.any((f) => f.representation == ExportRepresentation.callableGlobal) ? argumentPolicy : ''}
 ''';
 }
@@ -225,26 +227,29 @@ $asynchronousCases      default: throw new Error('Unknown async callback convers
 
 /// Private capabilities keep conversion and JS exception handling in JS. Their
 /// raw Dart roots last through resolver handoff, including then-getter reentry.
-String emitFuturePolicy({bool resources = false}) =>
+String emitFuturePolicy({bool resources = false, bool streams = false}) =>
     '''
 const capturedPromise = globalThis.Promise;
 const pendingPromises = new Set();
+const promiseApply = Reflect.apply;
+const promiseSetAdd = Set.prototype.add;
+const promiseSetDelete = Set.prototype.delete;
 export function createPromise(wrap = null) {
   let resolve, reject;
   const promise = new capturedPromise((accept, fail) => { resolve = accept; reject = fail; });
-  return {promise, resolve, reject, wrap, roots: null, done: false${resources ? ', release: null, hasOperation: false, observed: false' : ''}};
+  return {promise, resolve, reject, wrap, roots: null, done: false${resources || streams ? ', release: null' : ''}${streams ? ', streamFailure: null' : ''}${resources ? ', hasOperation: false, observed: false' : ''}};
 }
 export function retainPromise(capability, roots) {
   capability.roots = roots;
-  pendingPromises.add(capability);
+  promiseApply(promiseSetAdd, pendingPromises, [capability]);
 }
 function releasePromise(capability) {
-  pendingPromises.delete(capability);
-${resources ? '  const release = capability.release;\n  capability.release = null;\n  capability.retain = null;\n' : ''}  capability.roots = null;
+  promiseApply(promiseSetDelete, pendingPromises, [capability]);
+${resources || streams ? '  const release = capability.release;\n  capability.release = null;\n' : ''}${resources ? '  capability.retain = null;\n' : ''}${streams ? '  capability.streamFailure = null;\n' : ''}  capability.roots = null;
   capability.wrap = null;
   capability.resolve = null;
   capability.reject = null;
-${resources ? '  if (release !== null) release();\n' : ''}}
+${resources || streams ? '  if (release !== null) release();\n' : ''}}
 export function rejectPromise(capability, error) {
   if (capability.done) return;
   capability.done = true;

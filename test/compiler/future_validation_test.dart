@@ -91,7 +91,7 @@ typedef Later<T> = Future<T>;
     ('nested Future', '@NAPI() Future<Future<int>> value() => throw 1;'),
     ('async void function', '@NAPI() void value() async {}'),
     ('async void member', '@NAPI() class Box { void value() async {} }'),
-    ('generator', '@NAPI() Stream<int> value() async* { yield 1; }'),
+    ('sync generator', '@NAPI() Iterable<int> value() sync* { yield 1; }'),
   ]) {
     test(
       '$name is diagnosed before either backend can drop metadata',
