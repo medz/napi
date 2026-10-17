@@ -744,21 +744,16 @@ final class _Reader {
 
   ClassBinding _classAlias(a.TypeAliasElement alias, String path, NAPI config) {
     final type = _concreteAliasType(alias);
-    if (config.classPolicy == ClassPolicy.value) {
-      _reject(
-        alias,
-        'NAPI_GENERIC',
-        'Concrete value aliases are not implemented.',
-      );
-    }
     final types = type.element.library.typeSystem;
-    if (_selectedConcreteTypes.values.any(
-      (other) =>
-          other.element == type.element &&
-          other != type &&
-          types.isSubtypeOf(type, other) &&
-          types.isSubtypeOf(other, type),
-    )) {
+    if (config.classPolicy != ClassPolicy.value &&
+        _selectedConcreteTypes.entries.any(
+          (entry) =>
+              _config(entry.key)?.classPolicy != ClassPolicy.value &&
+              entry.value.element == type.element &&
+              entry.value != type &&
+              types.isSubtypeOf(type, entry.value) &&
+              types.isSubtypeOf(entry.value, type),
+        )) {
       _reject(
         alias,
         'NAPI_GENERIC',
@@ -815,10 +810,8 @@ final class _Reader {
       source: _source(selected),
       classPolicy: config.classPolicy ?? ClassPolicy.reference,
       cleanup: _cleanup(element, config),
-      valueConstructor: alias == null
-          ? _valueConstructor(element, config)
-          : null,
-      valueFields: alias == null ? _valueFields(element, config) : const {},
+      valueConstructor: _valueConstructor(element, config),
+      valueFields: _valueFields(element, config),
       exportSurface: entry,
       callPath: path,
       documentation: selected.documentationComment ?? _documentation[selected],

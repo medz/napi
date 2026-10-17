@@ -831,11 +831,10 @@ void _validateConcreteSelections(BindingModule module) {
   );
   for (final binding in concrete) {
     final type = binding.instantiatedType!;
-    if (binding.classPolicy == ClassPolicy.value ||
-        !_closedConcreteType(type)) {
+    if (!_closedConcreteType(type)) {
       throw BindingDiagnostic(
         'NAPI_GENERIC',
-        'Concrete aliases require a closed class type and the reference or resource policy.',
+        'Concrete aliases require a closed class type.',
         binding.source,
       );
     }
@@ -1865,7 +1864,7 @@ void validateValueType(
     source,
     referenceClasses,
     direction,
-    <DeclarationId>{},
+    <ClassBinding>{},
   );
   if (!_isBackendValue(type, referenceClasses, direction)) {
     throw BindingDiagnostic(
@@ -1986,6 +1985,9 @@ void _validateOpaqueReferenceNames(
   List<ClassBinding> classes,
   Set<DeclarationId> parameters,
 ) {
+  // Value fields live in module-level private TS aliases, outside the call's
+  // opaque parameter scope. Their concrete arguments do not appear at the use.
+  if (_valueClassBinding(type, classes) != null) return;
   if (type is DeclaredType) {
     for (final binding in classes) {
       if (binding.classPolicy != ClassPolicy.value &&
@@ -2180,17 +2182,25 @@ bool _isBackendScalar(BindingType type) {
       }.contains(type.declaration.name);
 }
 
-bool isValueClassType(BindingType type, List<ClassBinding> classes) =>
+ClassBinding? _valueClassBinding(
+  BindingType type,
+  List<ClassBinding> classes,
+) =>
     type is DeclaredType &&
-    type.nullability != TypeNullability.legacy &&
-    type.semantics == ValueSemantics.reference &&
-    type.typeArguments.isEmpty &&
-    classes.any(
-      (c) =>
-          c.classPolicy == ClassPolicy.value &&
-          c.declaration == type.declaration &&
-          c.typeParameters.isEmpty,
-    );
+        type.nullability != TypeNullability.legacy &&
+        type.semantics == ValueSemantics.reference
+    ? classes
+          .where(
+            (binding) =>
+                binding.classPolicy == ClassPolicy.value &&
+                binding.typeParameters.isEmpty &&
+                referenceClassMatches(binding, type),
+          )
+          .firstOrNull
+    : null;
+
+bool isValueClassType(BindingType type, List<ClassBinding> classes) =>
+    _valueClassBinding(type, classes) != null;
 
 Iterable<BindingType> _valueChildren(
   ClassBinding binding,
@@ -2221,7 +2231,7 @@ void _checkValueDirection(
   SourceLocation source,
   List<ClassBinding> classes,
   ValueDirection direction,
-  Set<DeclarationId> visited,
+  Set<ClassBinding> visited,
 ) {
   if (type is DeclaredType &&
       type.declaration.library == Uri.parse('dart:typed_data') &&
@@ -2233,10 +2243,7 @@ void _checkValueDirection(
       source,
     );
   }
-  if (isValueClassType(type, classes)) {
-    final binding = classes.firstWhere(
-      (c) => c.declaration == (type as DeclaredType).declaration,
-    );
+  if (_valueClassBinding(type, classes) case final binding?) {
     if (direction == ValueDirection.input && binding.valueConstructor == null) {
       throw BindingDiagnostic(
         'NAPI_VALUE_INPUT',
@@ -2244,7 +2251,7 @@ void _checkValueDirection(
         source,
       );
     }
-    if (!visited.add(binding.declaration)) return;
+    if (!visited.add(binding)) return;
     for (final child in _valueChildren(binding, direction)) {
       _checkValueDirection(child, source, classes, direction, visited);
     }
@@ -2263,7 +2270,7 @@ bool _isBackendValue(
   BindingType type, [
   List<ClassBinding> classes = const [],
   ValueDirection direction = ValueDirection.output,
-  Set<DeclarationId>? seen,
+  Set<ClassBinding>? seen,
 ]) {
   if (_isBackendScalar(type) ||
       isBinaryType(type) ||
@@ -2272,17 +2279,14 @@ bool _isBackendValue(
     return true;
   }
   if (type.nullability == TypeNullability.legacy) return false;
-  final visited = seen ?? <DeclarationId>{};
+  final visited = seen ?? <ClassBinding>{};
   bool child(BindingType value) =>
       _isBackendValue(value, classes, direction, visited);
-  if (isValueClassType(type, classes)) {
-    final binding = classes.firstWhere(
-      (c) => c.declaration == (type as DeclaredType).declaration,
-    );
+  if (_valueClassBinding(type, classes) case final binding?) {
     if (direction == ValueDirection.input && binding.valueConstructor == null) {
       return false;
     }
-    if (!visited.add(binding.declaration)) return true;
+    if (!visited.add(binding)) return true;
     return _valueChildren(binding, direction).every(child);
   }
   if (type is RecordTypeBinding) {

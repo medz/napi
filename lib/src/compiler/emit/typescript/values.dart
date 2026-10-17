@@ -16,7 +16,8 @@ String emitValueDeclarations(
   final defaults = [
     for (final schema in schemas)
       conversionFor(
-        DeclaredType(schema.binding.declaration, ValueSemantics.reference),
+        schema.binding.instantiatedType ??
+            DeclaredType(schema.binding.declaration, ValueSemantics.reference),
         schema.binding.exportName,
         bigint: false,
         classes: classes,
@@ -27,12 +28,12 @@ String emitValueDeclarations(
       .whereType<ValueClassConversion>()
       .toList();
   final representatives =
-      <(DeclarationId, ValueDirection, bool), ValueClassConversion>{};
-  final aliases = <(DeclarationId, ValueDirection, bool), String>{};
+      <(ClassBinding, ValueDirection, bool), ValueClassConversion>{};
+  final aliases = <(ClassBinding, ValueDirection, bool), String>{};
   final used = {...reservedNames, for (final c in classes) c.exportName};
   var next = 0;
   for (final node in nodes) {
-    final key = (node.classBinding.declaration, node.direction, node.bigint);
+    final key = (node.classBinding, node.direction, node.bigint);
     if (!aliases.containsKey(key)) {
       String name;
       do {
