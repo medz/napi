@@ -130,3 +130,61 @@ void [concreteValue, requiredNext, valueTuple, nestedValue, nullableValue, value
 
 const hiddenValueType: api.Leaf = api.valueShadow<string>({value: leaf}, 'payload').value;
 void hiddenValueType;
+
+const child = new api.IntChildCell(1);
+const parent: api.IntCell = child;
+const feature: api.IntCellFeature = child;
+const childSelf: api.IntChildCell = child.self();
+const featureResult: number = feature.feature(1);
+const childDefault: number = child.count();
+const adoptedChild: api.IntCell = api.createChildCell(2);
+const batchChild: api.IntListCell = new api.IntBatchChild([1, 2]);
+const childSession: api.IntSession = new api.IntChildSession(503, 1);
+const childCleanup: Promise<void> = childSession.close();
+const externalChild: external.IntCell = new external.IntChildCell(3);
+// @ts-expect-error Same JS scalar representation does not merge generic parents.
+const wrongChild: api.IntCell = new api.DoubleChildCell(1.5);
+// @ts-expect-error Covariance is not a selected wider writable view.
+const widerChild: api.NullableCell = child;
+// @ts-expect-error A base object does not have the nominal child identity.
+const reverseChild: api.IntChildCell = new api.IntCell(1);
+// @ts-expect-error Interface specializations retain nominal identity.
+const wrongFeature: api.IntCellFeature = new api.DoubleChildCell(1.5);
+// @ts-expect-error Named constructors are not inherited as static APIs.
+api.IntChildCell.named(1);
+// @ts-expect-error Nested substitution does not accept strings.
+new api.IntBatchChild(['wrong']);
+// @ts-expect-error Resource inheritance does not erase concrete parameters.
+api.echoSession(new api.DoubleChildSession(504, 1.5));
+void [parent, feature, childSelf, featureResult, childDefault, adoptedChild, batchChild, childCleanup, externalChild, wrongChild, widerChild, reverseChild, wrongFeature];
+
+const nullableChild: api.NullableCell = new api.NullableChildCell(null);
+// @ts-expect-error A selected child specialization does not widen another child's boundary identity.
+const widerChildInstance: api.NullableChildCell = child;
+void [nullableChild, widerChildInstance];
+
+const deepCell: api.IntCell = new api.DeepCell(1);
+const mixedDeepCell: api.IntCell = api.createMixedDeepCell(2);
+const deepSession: api.IntSession = new api.DeepSession(520, 1);
+const deepCleanup: Promise<void> = deepSession.close();
+const mixedDeepSession: api.IntSession = api.createMixedDeepSession(521, 2);
+// @ts-expect-error The selected wider intermediate is not an ancestor view.
+const wideMiddle: api.NullableMiddleCell = new api.DeepCell(1);
+// @ts-expect-error The wider resource view has a different type and cleanup policy.
+const wideSessionMiddle: api.NullableMiddleSession = new api.DeepSession(522, 2);
+void [deepCell, mixedDeepCell, deepCleanup, mixedDeepSession, wideMiddle, wideSessionMiddle];
+
+const hiddenCell: api.NullableMiddleCell = api.createHiddenMiddleCell(3);
+const hiddenParent: api.NullableCell = hiddenCell;
+const hiddenSession: api.NullableSession = api.createHiddenSession(523, 3);
+const hiddenCleanup: Promise<void> = hiddenSession.shutdown();
+// @ts-expect-error The accepted selected child carries its wider ancestor view.
+const hiddenNarrowParent: api.IntCell = hiddenCell;
+void [hiddenParent, hiddenCleanup, hiddenNarrowParent];
+
+const compatibleView: api.NullableCrossView = api.compatibleView();
+const compatibleOwner: api.NullableCrossOwner = api.compatibleOwner(524);
+const compatibleCleanup: Promise<void> = compatibleOwner.close();
+// @ts-expect-error Same-origin concrete aliases remain invariant through children.
+const wrongCrossParent: api.IntCrossView = api.compatibleView();
+void [compatibleView, compatibleCleanup, wrongCrossParent];

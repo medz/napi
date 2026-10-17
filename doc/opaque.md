@@ -139,7 +139,7 @@ subset: a letter or underscore followed by letters, digits or underscores,
 excluding `$`, reserved words and the standalone wildcard `_`. A type parameter
 must not shadow its class's exported name or a referenced class's exported name.
 
-Opaque leaves inside structural containers, generic selected hierarchies,
+Opaque leaves inside structural containers, open opaque selected hierarchies,
 independent generic member methods and generic resource/value classes remain
 unsupported. Concrete or erased specializations
 such as `Router<String>` or raw `Router` are not interchangeable with

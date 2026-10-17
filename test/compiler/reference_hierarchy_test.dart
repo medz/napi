@@ -107,13 +107,19 @@ void main() {
     final selected = external.classes.singleWhere(
       (c) => c.exportName == 'Child',
     );
-    expect(selected.allSupertypes, annotated.allSupertypes);
-    expect(selected.superclassChain, annotated.superclassChain);
     expect(
-      annotated.allSupertypes.map((id) => id.name),
+      selected.allSupertypes.map((type) => type.declaration),
+      annotated.allSupertypes.map((type) => type.declaration),
+    );
+    expect(
+      selected.superclassChain.map((type) => type.declaration),
+      annotated.superclassChain.map((type) => type.declaration),
+    );
+    expect(
+      annotated.allSupertypes.map((type) => type.declaration.name),
       containsAll(['Base', 'Feature', '_Middle']),
     );
-    expect(annotated.superclassChain.map((id) => id.name), [
+    expect(annotated.superclassChain.map((type) => type.declaration.name), [
       '_Middle',
       'Base',
       'Object',

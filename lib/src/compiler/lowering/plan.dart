@@ -172,19 +172,59 @@ String dartReferenceClassType(ClassBinding binding) =>
 
 /// Prefer a stricter selected specialization without granting its covariant
 /// supertypes writable JS views. Unselected subclasses still match by `is`.
-String dartReferenceClassTest(
-  ClassBinding binding,
-  Iterable<ClassBinding> classes, {
-  String object = 'object',
-}) => [
-  '$object is ${dartReferenceClassType(binding)}',
-  if (binding.instantiatedType != null)
-    for (final other in classes)
-      if (other.concreteSupertypes.any(
-        (type) => referenceClassMatches(binding, type),
-      ))
-        '$object is! ${dartReferenceClassType(other)}',
-].join(' && ');
+/// Emit each dependent specialization check once for a classification scope.
+/// Ordinary declarations keep their inline tests and unchanged generated code.
+final class DartReferenceClassTests {
+  final List<ClassBinding> _classes;
+  final String object;
+  final _tests = <ClassBinding, String>{};
+  final _declarations = StringBuffer();
+
+  DartReferenceClassTests(
+    Iterable<ClassBinding> classes, {
+    this.object = 'object',
+    Iterable<ClassBinding>? tested,
+  }) : _classes = classes.toList() {
+    final dependent = _classes.any((binding) => _children(binding).isNotEmpty);
+    String generate(ClassBinding binding) => _tests.putIfAbsent(binding, () {
+      final condition = [
+        '$object is ${dartReferenceClassType(binding)}',
+        if (binding.instantiatedType != null)
+          for (final other in _classes)
+            if (other.concreteSupertypes.any(
+              (type) => referenceClassMatches(binding, type),
+            ))
+              dependent
+                  ? '!${generate(other)}'
+                  : '$object is! ${dartReferenceClassType(other)}',
+        // Both covariance and ancestry exclusions use effective selected views.
+        // A raw narrower type may itself be suppressed by a selected descendant.
+        for (final other in _children(binding)) '!${generate(other)}',
+      ].join(' && ');
+      if (!dependent) return condition;
+      final name = '_napiClass${_classes.indexOf(binding)}';
+      _declarations.writeln('  final $name = $condition;');
+      return name;
+    });
+    for (final binding in tested ?? _classes) {
+      generate(binding);
+    }
+  }
+
+  Iterable<ClassBinding> _children(ClassBinding binding) =>
+      binding.instantiatedType == null
+      ? const []
+      : _classes.where(
+          (other) => other.allSupertypes.any(
+            (type) =>
+                type.declaration == binding.declaration &&
+                !referenceClassMatches(binding, type),
+          ),
+        );
+
+  String get declarations => _declarations.toString();
+  String test(ClassBinding binding) => _tests[binding]!;
+}
 
 /// One fixed policy drives Dart, JavaScript and TypeScript scalar generation.
 final class ScalarConversion extends ValueConversion {

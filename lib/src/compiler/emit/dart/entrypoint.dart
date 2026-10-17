@@ -53,6 +53,7 @@ String emitDart(ModulePlan plan) {
     _emitResourceControl(result, plan);
   }
   if (plan.classes.isNotEmpty) {
+    final tests = DartReferenceClassTests(plan.classes.map((c) => c.binding));
     final candidates = [for (final _ in plan.classes) <int>[]];
     for (final binding in plan.classes) {
       for (final id in binding.shape.memberships) {
@@ -63,12 +64,12 @@ String emitDart(ModulePlan plan) {
 @pragma('wasm:export', 'napi:class:classify')
 WasmI32 _classifyReference(WasmExternRef reference) {
   final object = reference.internalize().toObject();
-${resources ? '  try { _resourceControl(object); } catch (error) { _normalizeResourceError(error); }\n' : ''}  var candidate = -1;
+${resources ? '  try { _resourceControl(object); } catch (error) { _normalizeResourceError(error); }\n' : ''}${tests.declarations}  var candidate = -1;
   var ambiguous = false;
 ''');
     for (final classId in plan.referenceClassOrder) {
       result.writeln('''
-  if (${dartReferenceClassTest(plan.classes[classId].binding, plan.classes.map((c) => c.binding))}) {
+  if (${tests.test(plan.classes[classId].binding)}) {
     if (candidate < 0) {
       candidate = $classId;
     } else if (${candidates[classId].map((id) => 'candidate != $id').join(' && ')}) {
@@ -83,12 +84,10 @@ ${resources ? '  try { _resourceControl(object); } catch (error) { _normalizeRes
 @pragma('wasm:export', 'napi:class:views')
 WasmExternRef _referenceViews(WasmExternRef reference) {
   final object = reference.internalize().toObject();
-  return externRefForJSAny(<JSAny?>[
+${tests.declarations}  return externRefForJSAny(<JSAny?>[
 ''');
       for (final (id, binding) in plan.classes.indexed) {
-        result.writeln(
-          '    if (${dartReferenceClassTest(binding.binding, plan.classes.map((c) => c.binding))}) $id.toJS,',
-        );
+        result.writeln('    if (${tests.test(binding.binding)}) $id.toJS,');
       }
       result.writeln('  ].toJS)!;\n}');
     }
@@ -433,16 +432,20 @@ void _emitCallbackAdapter(
 }
 
 void _emitResourceControl(StringBuffer result, ModulePlan plan) {
+  final tests = DartReferenceClassTests(
+    plan.classes.map((c) => c.binding),
+    object: 'value',
+    tested: plan.resourcePolicies.keys.map((id) => plan.classes[id].binding),
+  );
   result.writeln('ResourceControl? _resourceControl(Object? value) {');
   result.writeln('  if (value == null) return null;');
+  result.write(tests.declarations);
   result.writeln('  var policy = -1;');
   for (final entry in plan.resourcePolicies.entries) {
-    result.writeln(
-      '''  if (${dartReferenceClassTest(plan.classes[entry.key].binding, plan.classes.map((c) => c.binding), object: 'value')}) {
+    result.writeln('''  if (${tests.test(plan.classes[entry.key].binding)}) {
     if (policy >= 0 && policy != ${entry.value}) throw const _ResourcePolicyViolation();
     policy = ${entry.value};
-  }''',
-    );
+  }''');
   }
   result.writeln(
     '  return policy < 0 ? null : ResourceControl.forObject(value);\n}',

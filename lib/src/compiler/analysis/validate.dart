@@ -500,6 +500,16 @@ ValidatedDeclarations validateDeclarations(BindingModule module) {
     for (final type in [...binding.interfaces, ...binding.mixins]) {
       _checkType(type, binding.source);
     }
+    for (final type in [...binding.allSupertypes, ...binding.superclassChain]) {
+      _checkType(type, binding.source);
+      if (type.nullability != TypeNullability.nonNullable) {
+        throw BindingDiagnostic(
+          'NAPI_DECLARATION',
+          'Ancestor types must be non-null.',
+          binding.source,
+        );
+      }
+    }
     final members = <DeclarationId>{};
     for (final member in binding.members) {
       _checkSource(member.source);
@@ -1138,13 +1148,14 @@ List<ReferenceClassShape> validateReferenceClasses(BindingModule module) {
 List<ReferenceClassShape> _referenceHierarchy(
   List<ReferenceClassShape> classes,
 ) {
-  final ids = {
-    for (final shape in classes) shape.binding.declaration: shape.classId,
-  };
-  final concreteDeclarations = {
-    for (final shape in classes)
-      if (shape.binding.instantiatedType != null) shape.binding.declaration,
-  };
+  final bindings = classes.map((shape) => shape.binding).toList();
+  int? selected(DeclaredType type) {
+    final index = bindings.indexWhere(
+      (binding) => referenceClassMatches(binding, type),
+    );
+    return index < 0 ? null : index;
+  }
+
   final memberships = <int, Set<int>>{};
   final visiting = <int>{};
   Set<int> ancestors(int id) {
@@ -1158,23 +1169,21 @@ List<ReferenceClassShape> _referenceHierarchy(
       );
     }
     final result = <int>{id};
-    final declarations = <DeclarationId>{
+    final ancestorsTypes = <DeclaredType>[
       ...binding.allSupertypes,
       ...binding.superclassChain,
       // These edges also support hand-written IR without resolved ancestors.
-      if (binding.supertype case DeclaredType(:final declaration)) declaration,
+      if (binding.supertype case final DeclaredType type) type,
       for (final type in [...binding.interfaces, ...binding.mixins])
-        if (type case DeclaredType(:final declaration)) declaration,
-    };
-    for (final declaration in declarations) {
-      if (ids[declaration] case final parent?) {
-        if (binding.instantiatedType != null ||
-            classes[parent].binding.instantiatedType != null ||
-            binding.typeParameters.isNotEmpty ||
+        if (type is DeclaredType) type,
+    ];
+    for (final type in ancestorsTypes) {
+      if (selected(type) case final parent?) {
+        if (binding.typeParameters.isNotEmpty ||
             classes[parent].binding.typeParameters.isNotEmpty) {
           throw BindingDiagnostic(
             'NAPI_GENERIC',
-            'Selected generic reference hierarchies are not supported.',
+            'Selected open generic reference hierarchies are not supported.',
             binding.source,
           );
         }
@@ -1186,12 +1195,10 @@ List<ReferenceClassShape> _referenceHierarchy(
   }
 
   int? superclass(ClassBinding binding) {
-    for (final declaration in binding.superclassChain) {
-      if (ids[declaration] case final parent?) return parent;
+    for (final type in binding.superclassChain) {
+      if (selected(type) case final parent?) return parent;
     }
-    if (binding.supertype case DeclaredType(:final declaration)) {
-      return ids[declaration];
-    }
+    if (binding.supertype case final DeclaredType type) return selected(type);
     return null;
   }
 
@@ -1265,6 +1272,10 @@ List<ReferenceClassShape> _referenceHierarchy(
         for (final ref in refs) {
           final contract = member(ref);
           if (contract.binding.declaration != inheritedMember.contract ||
+              !referenceClassMatches(
+                classes[ref.classId].binding,
+                inheritedMember.contractType,
+              ) ||
               contract.kind.name != actual.kind.name) {
             continue;
           }
@@ -1360,9 +1371,8 @@ List<ReferenceClassShape> _referenceHierarchy(
                 (ref) => referenceMemberAccepts(
                   member(candidate),
                   member(ref),
-                  ids,
+                  bindings,
                   memberships,
-                  concreteDeclarations: concreteDeclarations,
                 ),
               ),
             )
@@ -1411,12 +1421,11 @@ List<ReferenceClassShape> _referenceHierarchy(
 bool referenceMemberAccepts(
   ReferenceMemberShape implementation,
   ReferenceMemberShape contract,
-  Map<DeclarationId, int> ids,
-  Map<int, Set<int>> memberships, {
-  Set<DeclarationId> concreteDeclarations = const {},
-}) {
+  List<ClassBinding> bindings,
+  Map<int, Set<int>> memberships,
+) {
   bool subtype(BindingType child, BindingType parent) =>
-      _referenceSubtype(child, parent, ids, memberships, concreteDeclarations);
+      _referenceSubtype(child, parent, bindings, memberships);
   final output = implementation.result;
   final requiredOutput = contract.result;
   if (implementation.isCleanup != contract.isCleanup ||
@@ -1484,9 +1493,8 @@ bool referenceMemberAccepts(
 bool _referenceSubtype(
   BindingType child,
   BindingType parent,
-  Map<DeclarationId, int> ids,
+  List<ClassBinding> bindings,
   Map<int, Set<int>> memberships,
-  Set<DeclarationId> concreteDeclarations,
 ) {
   if (child.nullability == TypeNullability.nullable &&
       parent.nullability != TypeNullability.nullable) {
@@ -1508,30 +1516,39 @@ bool _referenceSubtype(
               _referenceSubtype(
                 other.type,
                 entry.$2.type,
-                ids,
+                bindings,
                 memberships,
-                concreteDeclarations,
               );
         }) &&
         (parent.result is VoidType ||
             _referenceSubtype(
               child.result,
               parent.result,
-              ids,
+              bindings,
               memberships,
-              concreteDeclarations,
             ));
   }
   if (child is DeclaredType && parent is DeclaredType) {
-    if (child.declaration != parent.declaration) {
-      final childId = ids[child.declaration];
-      final parentId = ids[parent.declaration];
-      return childId != null &&
-          parentId != null &&
-          memberships[childId]!.contains(parentId);
-    }
-    if (concreteDeclarations.contains(child.declaration)) {
-      return child.typeArguments.length == parent.typeArguments.length &&
+    final concrete = bindings.any(
+      (binding) =>
+          binding.declaration == child.declaration &&
+          binding.instantiatedType != null,
+    );
+    if (child.declaration != parent.declaration || concrete) {
+      final childId = bindings.indexWhere(
+        (binding) => referenceClassMatches(binding, child),
+      );
+      final parentId = bindings.indexWhere(
+        (binding) => referenceClassMatches(binding, parent),
+      );
+      if (childId >= 0 && parentId >= 0) {
+        return memberships[childId]!.contains(parentId);
+      }
+      // A value projection may share an origin with a selected reference alias.
+      // It has no reference membership, but the same concrete value type still
+      // satisfies itself.
+      return child.declaration == parent.declaration &&
+          child.typeArguments.length == parent.typeArguments.length &&
           child.typeArguments.indexed.every(
             (entry) =>
                 _sameCanonicalType(entry.$2, parent.typeArguments[entry.$1]),
@@ -1542,9 +1559,8 @@ bool _referenceSubtype(
           (entry) => _referenceSubtype(
             entry.$2,
             parent.typeArguments[entry.$1],
-            ids,
+            bindings,
             memberships,
-            concreteDeclarations,
           ),
         );
   }
@@ -1555,9 +1571,8 @@ bool _referenceSubtype(
           (entry) => _referenceSubtype(
             entry.$2,
             parent.positional[entry.$1],
-            ids,
+            bindings,
             memberships,
-            concreteDeclarations,
           ),
         ) &&
         child.named.entries.every(
@@ -1566,9 +1581,8 @@ bool _referenceSubtype(
               _referenceSubtype(
                 entry.value,
                 parent.named[entry.key]!,
-                ids,
+                bindings,
                 memberships,
-                concreteDeclarations,
               ),
         );
   }
@@ -2307,9 +2321,7 @@ bool _isBackendValue(
 /// share one policy. Generated classifiers reject actual composite objects whose
 /// selected views match different policy IDs before exposing or using them.
 Map<int, int> resourcePolicies(List<ReferenceClassShape> classes) {
-  final ids = {
-    for (final shape in classes) shape.binding.declaration: shape.classId,
-  };
+  final bindings = classes.map((shape) => shape.binding).toList();
   final memberships = {
     for (final shape in classes) shape.classId: shape.memberships,
   };
@@ -2324,8 +2336,8 @@ Map<int, int> resourcePolicies(List<ReferenceClassShape> classes) {
               other.binding.declaration.name &&
           (cleanup.binding.callPath ?? cleanup.binding.declaration.name) ==
               (other.binding.callPath ?? other.binding.declaration.name) &&
-          referenceMemberAccepts(cleanup, other, ids, memberships) &&
-          referenceMemberAccepts(other, cleanup, ids, memberships) &&
+          referenceMemberAccepts(cleanup, other, bindings, memberships) &&
+          referenceMemberAccepts(other, cleanup, bindings, memberships) &&
           referenceMemberDefaultsAccept(cleanup, other) &&
           referenceMemberDefaultsAccept(other, cleanup);
     }

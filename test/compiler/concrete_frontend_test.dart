@@ -482,7 +482,7 @@ class Cell<T> { T value; Cell(this.value); }
     }
   });
 
-  test('selected concrete inheritance stays explicitly unsupported', () async {
+  test('selected concrete inheritance retains its selected parent', () async {
     for (final declarations in [
       '@NAPI() class Base {} class Cell<T> extends Base {} @NAPI() typedef IntCell = Cell<int>;',
       'class Cell<T> {} @NAPI() typedef IntCell = Cell<int>; @NAPI() class Child extends Cell<int> {}',
@@ -491,8 +491,9 @@ class Cell<T> { T value; Cell(this.value); }
       final module = await read(
         await source("import 'package:napi/napi.dart';\n$declarations"),
       );
-      expect(() => validate(module), throwsA(diagnostic('NAPI_GENERIC')));
-      expect(() => validateNative(module), throwsA(diagnostic('NAPI_GENERIC')));
+      final shapes = validate(module).classes;
+      expect(shapes.last.memberships, {0, 1});
+      expect(validateNative(module).classes.last.shape.memberships, {0, 1});
     }
   });
 

@@ -50,7 +50,11 @@ function $napiCompositePrototype(viewIds, context) {
     code.write(r'''  for (const group of $napiConcreteGroups) {
     let matched = false;
     for (const id of group) {
-      if (viewIds.includes(id)) {
+      let present = false;
+      for (const view of viewIds) {
+        if ($napiViewMemberships[view].includes(id)) { present = true; break; }
+      }
+      if (present) {
         if (matched) throw new TypeError(context + ': ambiguous concrete type arguments');
         matched = true;
       }
