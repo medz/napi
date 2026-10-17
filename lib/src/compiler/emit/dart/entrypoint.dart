@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import '../../analysis/reference_views.dart';
 import '../../lowering/plan.dart';
 import '../../ir/model.dart';
 import '../../sdk_adapter/entrypoint.dart';
@@ -38,6 +39,20 @@ WasmI32 _classifyReference(WasmExternRef reference) {
 ''');
     }
     result.writeln('  return WasmI32.fromInt(ambiguous ? -1 : candidate);\n}');
+    if (hasCompositeReferenceViews(plan.classes.map((c) => c.shape).toList())) {
+      result.writeln('''
+@pragma('wasm:export', 'napi:class:views')
+WasmExternRef _referenceViews(WasmExternRef reference) {
+  final object = reference.internalize().toObject();
+  return externRefForJSAny(<JSAny?>[
+''');
+      for (final (id, binding) in plan.classes.indexed) {
+        result.writeln(
+          '    if (object is target.${binding.binding.callPath}) $id.toJS,',
+        );
+      }
+      result.writeln('  ].toJS)!;\n}');
+    }
   }
   final structural = DartStructuralEmitter();
   final hasStructural = plan.conversions.any(

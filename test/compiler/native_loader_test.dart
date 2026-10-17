@@ -41,6 +41,12 @@ import 'package:napi/napi.dart';
     expect(loader, contains(r'export {$napi0 as add}'));
   });
 
+  test('a total selected hierarchy emits no composite resolver', () {
+    final loader = emitNativeLoader(['Counter', 'add'], classes: plan.classes);
+    expect(loader, isNot(contains(r'$napiCompositePrototype')));
+    expect(loader, isNot(contains(r'$napiResolveReferenceShape')));
+  });
+
   test('loader decorates only planned class methods and accessors', () async {
     await File('${directory.path}/module.mjs').writeAsString(
       emitNativeLoader(['Counter', 'add'], classes: plan.classes),

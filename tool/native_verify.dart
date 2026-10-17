@@ -67,6 +67,8 @@ dependencies:
   await File('test/fixtures/classes.dart').copy('${project.path}/classes.dart');
   await File('test/fixtures/reference_hierarchy.dart')
       .copy('${project.path}/reference_hierarchy.dart');
+  await File('test/fixtures/reference_views.dart')
+      .copy('${project.path}/reference_views.dart');
   await File('test/fixtures/named_list.dart')
       .copy('${project.path}/named_list.dart');
   await File('test/fixtures/structural_values.dart')
@@ -124,6 +126,8 @@ Future<void> main() async {
       .copy('${consumer.path}/structural_contract.mjs');
   await File('test/integration/hierarchy_contract.mjs')
       .copy('${consumer.path}/hierarchy_contract.mjs');
+  await File('test/integration/reference_views_contract.mjs')
+      .copy('${consumer.path}/reference_views_contract.mjs');
   await File('test/integration/reference_contract.mjs')
       .copy('${consumer.path}/reference_contract.mjs');
   await File('test/integration/structural_reference_contract.mjs')
@@ -186,6 +190,12 @@ Future<void> main() async {
     ).readAsString()).replaceAll('@napi/class-fixture', '@napi/native-fixture'),
   );
   await typescript(consumer, 'reference_hierarchy.mts');
+  await File('${consumer.path}/reference_views.mts').writeAsString(
+    (await File(
+      'test/typescript/reference_views.mts',
+    ).readAsString()).replaceAll('@napi/class-fixture', '@napi/native-fixture'),
+  );
+  await typescript(consumer, 'reference_views.mts');
   await File('${consumer.path}/workers-only.mjs').writeAsString('''
 import {Worker} from 'node:worker_threads';
 for (let i = 0; i < 4; i++) {

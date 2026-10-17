@@ -25,9 +25,9 @@ class Output {
 @NAPI() List<Output> list(bool throwing) => [Output(throwing)];
 @NAPI() (Output, Later) record(bool throwing) => (Output(false), Later(throwing));
 @NAPI() Dictionary<Output> dictionary(bool throwing) => Dictionary({'x': Output(throwing)});
-@NAPI() class RefBase {}
+@NAPI() class RefBase { int conflict([int value = 1]) => value; }
 @NAPI() class RefChild extends RefBase {}
-@NAPI() class RefOther {}
+@NAPI() class RefOther { int conflict([int value = 2]) => value; }
 class _Ambiguous extends RefBase implements RefOther {}
 final _bad = _Ambiguous();
 final _shared = RefChild();

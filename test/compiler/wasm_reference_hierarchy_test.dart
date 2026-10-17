@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:napi/build.dart';
 import 'package:napi/src/compiler/analysis/validate.dart';
+import 'package:napi/src/compiler/emit/dart/entrypoint.dart';
 import 'package:napi/src/compiler/emit/js/arguments.dart';
 import 'package:napi/src/compiler/emit/js/boundary.dart';
 import 'package:napi/src/compiler/emit/js/references.dart';
@@ -51,13 +52,37 @@ class _Hidden implements Left, Right {
   int left() => 1;
   int right() => 2;
 }
+class _HiddenGetter extends Getter implements Right {
+  _HiddenGetter() : super(3);
+  int right() => 2;
+}
 @NAPI() class Both implements Left, Right {
   Both();
   int left() => 3;
   int right() => 4;
 }
-@NAPI() Left hidden() => _Hidden();
+final _hidden = _Hidden();
+@NAPI() Left hidden() => _hidden;
+@NAPI() Left freshHidden() => _Hidden();
+@NAPI() Base hiddenGetter() => _HiddenGetter();
+@NAPI() Right hiddenRight() => _hidden;
+@NAPI() Left echoLeft(Left value) => value;
+@NAPI() Right echoRight(Right value) => value;
 @NAPI() Left both() => Both();
+@NAPI() abstract class DefaultLeft {
+  DefaultLeft._();
+  int choose([int value = 1]);
+}
+@NAPI() abstract class DefaultRight {
+  DefaultRight._();
+  int choose([int value = 2]);
+}
+class _Conflict implements DefaultLeft, DefaultRight {
+  int choose([int value = 3]) => value;
+}
+final _conflict = _Conflict();
+@NAPI() DefaultLeft conflictLeft() => _conflict;
+@NAPI() DefaultRight conflictRight() => _conflict;
 @NAPI() class Factory {
   Factory._();
   factory Factory() => _factory;
@@ -72,6 +97,38 @@ final _factory = FactoryChild();
 
 void main() {
   test(
+    'a total selected hierarchy does not emit composite fallback code',
+    () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'napi-wasm-hierarchy-chain-',
+      );
+      addTearDown(() => directory.delete(recursive: true));
+      for (final count in [1, 3]) {
+        final input = await File('${directory.path}/business$count.dart')
+            .writeAsString('''
+import 'package:napi/napi.dart';
+@NAPI() class A { A(); }
+${count > 1 ? '@NAPI() class B extends A { B(); } @NAPI() class C extends B { C(); }' : ''}
+''');
+        final plan = lower(
+          validate(
+            await AnnotationFrontend(
+              packagesPath: File('.dart_tool/package_config.json')
+                  .absolute
+                  .path,
+            ).read(input.uri),
+          ),
+        );
+        expect(emitDart(plan), isNot(contains('napi:class:views')));
+        expect(
+          emitArgumentCalls(plan),
+          isNot(contains(r'$napiCompositePrototype')),
+        );
+      }
+    },
+  );
+
+  test(
     'canonical cache hits and dead-wrapper adoption skip classification',
     () async {
       final directory = await Directory.systemTemp.createTemp(
@@ -83,6 +140,7 @@ void main() {
 import 'package:napi/napi.dart';
 @NAPI() class Base { Base(); Base self() => this; }
 @NAPI() class Child extends Base { Child(); }
+@NAPI() class Right { Right(); int right() => 1; }
 ''');
       final plan = lower(
         validate(
@@ -94,10 +152,14 @@ import 'package:napi/napi.dart';
       final core = StringBuffer('''
 export const reference = {classId: 1};
 export const fresh = {classId: 1};
-export const ambiguous = {classId: -1};
+export const composite = {classId: -1, views: [0, 2]};
+export const compositeFresh = {classId: -1, views: [0, 2]};
 export let scans = 0;
+export let fallbacks = 0;
 const classify = reference => { scans++; return reference.classId; };
 export {classify as 'napi:class:classify'};
+const views = reference => { fallbacks++; return reference.views; };
+export {views as 'napi:class:views'};
 ''');
       for (final (index, call) in plan.calls.indexed) {
         core.writeln('''
@@ -115,8 +177,8 @@ export {call$index as ${jsonEncode(call.coreExportName)}};
           .writeAsString(emitReferences());
       final script = await File('${directory.path}/test.mjs').writeAsString(r'''
 import assert from 'node:assert/strict';
-import {Base, Child} from './calls.mjs';
-import {reference, fresh, ambiguous, scans} from './core.mjs';
+import {Base, Child, Right} from './calls.mjs';
+import {reference, fresh, composite, compositeFresh, scans, fallbacks} from './core.mjs';
 import {readReference, writeReference} from './references.mjs';
 const weak = (() => {
   const wrapper = new Base();
@@ -156,8 +218,42 @@ assert.equal(scans, 3, 'failed new claims are independently classified again');
 for (const undo of pending) undo();
 assert.equal(writeReference(fresh, 0, 'after stale rollback'), recovered);
 assert.equal(scans, 3, 'stale rollback cannot erase the current claim');
-assert.throws(() => writeReference(ambiguous, 0, 'bad output'), error =>
-  error instanceof TypeError && error.message === 'bad output: no unique most-specific selected class');
+const compositeWeak = (() => {
+  const wrapper = writeReference(composite, 0, 'composite Base');
+  assert.equal(Object.getPrototypeOf(Object.getPrototypeOf(wrapper)), Object.prototype);
+  assert.equal(wrapper.constructor, Object);
+  assert.equal(wrapper instanceof Base, false);
+  assert.equal(wrapper instanceof Right, false);
+  assert.equal(writeReference(composite, 2, 'composite Right'), wrapper);
+  assert.equal(readReference(wrapper, 0, false, 'Base input'), composite);
+  assert.equal(readReference(wrapper, 2, false, 'Right input'), composite);
+  assert.equal(scans, 4);
+  assert.equal(fallbacks, 1);
+  return new WeakRef(wrapper);
+})();
+for (let i = 0; i < 80; i++) {
+  await new Promise(resolve => setImmediate(resolve));
+  global.gc();
+  if (compositeWeak.deref() === undefined) break;
+}
+assert.equal(compositeWeak.deref(), undefined);
+const compositeAdopted = writeReference(composite, 2, 'composite readopt');
+assert.equal(compositeAdopted.constructor, Object);
+assert.equal(writeReference(composite, 0, 'composite Base again'), compositeAdopted);
+assert.equal(scans, 4, 'composite readoption reuses its cached shape ID');
+assert.equal(fallbacks, 1, 'composite readoption does not recollect views');
+const compositePending = new Set();
+const discarded = writeReference(compositeFresh, 0, 'fresh composite', compositePending);
+for (const undo of compositePending) undo();
+const compositeRecovered = writeReference(compositeFresh, 2, 'composite recovery');
+assert.notEqual(compositeRecovered, discarded);
+assert.equal(Object.getPrototypeOf(compositeRecovered), Object.getPrototypeOf(compositeAdopted));
+assert.equal(scans, 6);
+assert.equal(fallbacks, 3, 'only a rolled-back fresh claim recollects its views');
+for (const undo of compositePending) undo();
+assert.equal(writeReference(compositeFresh, 0, 'after stale composite rollback'), compositeRecovered);
+assert.equal(scans, 6);
+assert.equal(fallbacks, 3);
 ''');
       final execution = await Process.run('node', ['--expose-gc', script.path]);
       expect(
@@ -211,8 +307,45 @@ assert.equal(getter.value, 16, 'overridden getter retains inherited setter');
 const setter = new api.Setter(3);
 setter.value = 8;
 assert.equal(setter.value, 9, 'overridden setter retains inherited getter');
-assert.throws(() => api.hidden(), error => error instanceof TypeError &&
-  /no unique most-specific selected class/.test(error.message));
+const hidden = api.hidden();
+assert.equal(api.hiddenRight(), hidden);
+assert.equal(api.echoLeft(hidden), hidden);
+assert.equal(api.echoRight(hidden), hidden);
+assert.equal(hidden.constructor, Object);
+assert.equal(hidden instanceof api.Left, false);
+assert.equal(hidden instanceof api.Right, false);
+assert.equal(hidden.left(), 1);
+assert.equal(hidden.right(), 2);
+assert.equal(api.Left.prototype.left.call(hidden), 1);
+assert.equal(api.Right.prototype.right.call(hidden), 2);
+assert.equal(Object.getPrototypeOf(Object.getPrototypeOf(hidden)), Object.prototype);
+for (const action of [api.conflictLeft, api.conflictRight, api.conflictLeft]) {
+  assert.throws(action, error => error instanceof TypeError && /conflict/i.test(error.message));
+}
+assert.equal(api.hidden(), hidden, 'conflicts do not poison valid cached shapes');
+const oldIndex = Object.getOwnPropertyDescriptor(Array.prototype, '0');
+let indexSetters = 0;
+let freshHidden;
+let unexpected;
+Object.defineProperty(Array.prototype, '0', {
+  configurable: true,
+  get() { indexSetters++; throw new Error('inherited metadata index getter'); },
+  set() { indexSetters++; throw new Error('inherited metadata index setter'); },
+});
+try { freshHidden = api.freshHidden(); } catch (error) { unexpected = error; }
+finally {
+  if (oldIndex) Object.defineProperty(Array.prototype, '0', oldIndex);
+  else delete Array.prototype[0];
+}
+assert.equal(unexpected, undefined);
+assert.equal(indexSetters, 0, 'view collection only creates own metadata entries');
+assert.equal(Object.getPrototypeOf(freshHidden), Object.getPrototypeOf(hidden));
+const hiddenGetter = api.hiddenGetter();
+assert.equal(hiddenGetter.defaults(), 7, 'a maximal view supersedes ancestor defaults');
+assert.equal(api.Base.prototype.defaults.call(hiddenGetter), 1);
+hiddenGetter.value = 8;
+assert.equal(hiddenGetter.value, 16, 'composites retain complete inherited accessors');
+assert.equal(hiddenGetter.right(), 2);
 const both = api.both();
 assert(both instanceof api.Both);
 assert.equal(api.Left.prototype.left.call(both), 3);

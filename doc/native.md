@@ -79,12 +79,13 @@ Weak identity entries and zero-count Node-API references do not root wrappers.
 Environment, live lease and actual selected-class membership are checked before business calls.
 Readonly fields remain readonly and GC does not call business disposal methods.
 
-The private bridge table is ABI 7 (42 slots). Older bundles are rejected before
+The private bridge table is ABI 8 (43 slots). Older bundles are rejected before
 copying; maintainers rebuild the bridge/runtime bundle using their existing VM
 cache. Consumer builds still require only the ordinary Dart SDK and that bundle.
-The additional slot compares a callback's actual construction target with the
-captured public constructor, preserving custom JS subclass receivers during
-canonical adoption. Member callbacks validate Dart membership instead of V8's
+Constructor-target detection preserves custom JS subclass receivers during
+canonical adoption. The new slot registers a composite wrapper creator only
+after its observed interface combination passes the shared contract checks.
+Ordinary class callbacks retain the existing path. Member callbacks validate Dart membership instead of V8's
 exact Node-API constructor receiver restriction.
 
 List/Map/Dictionary/record functions and class members share Wasm's [structural conversion](structural.md)
@@ -112,8 +113,10 @@ generic specialization, non-null
 object defaults, Futures, callbacks, streams and cancellation. The same reference
 contract runs on Wasm; see [reference classes](classes.md). A unique most-specific
 selected class owns the canonical wrapper across base/interface views. Instance
-prototypes inherit without static inheritance. Unrelated selected memberships
-without such a unique class remain unsupported. The full class/lifetime roadmap remains open.
+prototypes inherit without static inheritance. Compatible unrelated selected
+memberships use one private composite prototype with a complete instance
+surface; conflicting call contracts fail before exposing a wrapper. Custom JS
+prototypes retain priority. The full generic/resource/async roadmap remains open.
 
 ## Runtime and verification
 

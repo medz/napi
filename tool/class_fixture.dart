@@ -26,6 +26,8 @@ dependencies:
   await File('test/fixtures/classes.dart').copy('${project.path}/classes.dart');
   await File('test/fixtures/reference_hierarchy.dart')
       .copy('${project.path}/reference_hierarchy.dart');
+  await File('test/fixtures/reference_views.dart')
+      .copy('${project.path}/reference_views.dart');
   await File('${project.path}/build.dart').writeAsString('''
 import 'dart:io';
 import 'package:napi/build.dart';
@@ -74,6 +76,8 @@ Future<void> main() async {
       .copy('${consumer.path}/class_contract.mjs');
   await File('test/integration/hierarchy_contract.mjs')
       .copy('${consumer.path}/hierarchy_contract.mjs');
+  await File('test/integration/reference_views_contract.mjs')
+      .copy('${consumer.path}/reference_views_contract.mjs');
   await File('test/integration/reference_contract.mjs')
       .copy('${consumer.path}/reference_contract.mjs');
   await File('test/integration/structural_reference_contract.mjs')
@@ -99,6 +103,9 @@ Future<void> main() async {
   await File('test/typescript/reference_hierarchy.mts')
       .copy('${consumer.path}/reference_hierarchy.mts');
   await typescript(consumer, 'reference_hierarchy.mts');
+  await File('test/typescript/reference_views.mts')
+      .copy('${consumer.path}/reference_views.mts');
+  await typescript(consumer, 'reference_views.mts');
 
   // External metadata must work without source annotations.
   final plain = await File('test/fixtures/classes.dart').readAsString();

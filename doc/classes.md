@@ -71,12 +71,37 @@ converters automatically when classes are defined; structural traversal uses the
 same cache and brands, without consumer initialization. See [native builds](native.md).
 
 On first exposure, the runtime checks actual Dart membership and chooses the
-unique most-specific selected reference class. Returning a Child as Base first
+unique most-specific selected reference class when one exists. Returning a Child as Base first
 therefore creates the same Child wrapper as returning it as Child first; subsequent
 calls and collection/readoption reuse that choice. Classification runs once per
 identity claim, with one check per selected reference class; ordinary receiver
 checks use the cached class's membership set. A base factory returning a child
 adopts the child without invoking its constructor again.
+
+An object implementing compatible unrelated selected interfaces keeps one
+wrapper with their combined instance methods and properties. This default
+wrapper has a private prototype inheriting `Object.prototype`, so its
+`constructor` is `Object` and it does not pass those interfaces' `instanceof`
+tests. Actual Dart membership accepts the wrapper as each interface, including
+explicitly borrowed methods. The complete surface is independent of which
+interface returned it first. A unique selected concrete class still uses its
+public prototype instead. TypeScript does not invent inheritance between the
+unrelated interface declarations.
+
+Composition uses the most-specific matched views and merges getter/setter
+halves. Overridden ancestor declarations do not replace their selected child's
+defaults. A repeated JS name must refer to the same Dart member with compatible
+parameter/result conversions and call mapping; defaults must agree whenever
+both declarations allow omission. Conflicts raise `TypeError` with the output
+path when that combination is first exposed. Merely selecting two conflicting
+interfaces does not reject unrelated objects or the entire module. Different
+export aliases can retain their separate call contracts.
+
+Composite prototype caches hold type metadata and callback functions only.
+Wrapper collection/readoption and failed-output rollback follow the same rules
+as concrete classes. First exposure performs an additional membership scan
+only when no unique class exists. Single-class and total-inheritance-chain
+modules do not generate composite support.
 
 Instance prototypes follow the nearest selected Dart superclass, skipping
 unselected intermediate ancestors. Selected interface members are available on
@@ -105,6 +130,8 @@ their supplied prototype and receiver. They can use JS private fields and call
 `super.method()`. A factory's already reachable wrapper takes precedence over a
 later `newTarget`. A custom prototype need not satisfy the public constructor's
 `instanceof` test to hold a genuine Dart reference.
+For a composite object, an explicit custom prototype can hide the unrelated
+interfaces' methods; borrowing those interfaces' methods remains valid.
 
 Repeated imports of the same module graph, including npm root/direct-Wasm
 subpaths, share constructors. A copied complete Wasm graph has independent class
@@ -113,10 +140,10 @@ graph because its dependencies may still be shared.
 
 Generic specialization, resource policies
 and async APIs remain unsupported and produce build diagnostics. Non-null Dart
-object defaults are also rejected. An object implementing unrelated selected
-public types without a unique most-specific selected class currently raises
-TypeError on first exposure. Compatible composite interface views remain work
-for #123; this slice must not be treated as complete polymorphic class support.
+object defaults are also rejected. A composite must have a selected operation
+whose call contract satisfies every view sharing that JS name; the compiler
+does not synthesize a new overload or union conversion from incompatible
+operations.
 
 `dart run tool/class_fixture.dart` verifies annotated and unannotated external
 classes, a class-only module, an independent Dart build project, an npm tarball
@@ -125,14 +152,15 @@ TypeScript NodeNext/Bundler, whole-graph isolation, twelve collect/readopt cycle
 Dart weak-reference collection under bounded allocation pressure, nested reference
 identity and six container-held collect/readopt cycles, structural class members,
 canonical Base/Child/interface views, partial accessor overrides, JS subclasses,
-custom construction targets and six hierarchy collect/readopt cycles,
+custom construction targets, six hierarchy collect/readopt cycles, complete
+composite surfaces, conflicting views and six composite collect/readopt cycles,
 and normal/terminated Workers. The shared class contract is also run by
 `tool/native_verify.dart`.
 Tested with Dart 3.13.5, Node 24.19.0/26.11.1 and TypeScript 7.0.2; native execution
 is currently qualified only on macOS arm64.
 
 Frozen old/new single-class measurements on these Node versions used separate
-A/A samples and three balanced AB/BA rounds. The canonical implementation added
+A/A samples and three balanced AB/BA rounds. The hierarchy implementation in #160 added
 1,989 bytes (1.70%) to the small Wasm package, including 251 bytes of core Wasm;
 the native package grew 1,886 bytes. Wasm getter medians rose from 19.435 to
 20.562 ns on Node 24 and 18.891 to 19.693 ns on Node 26, consistently slower in
@@ -143,3 +171,13 @@ speed or no-regression claim. Constructor A/A noise reached about 25%; its
 RSS do not establish long-term memory bounds. Large class hierarchies were not
 benchmarked. The ordinary callback path reuses the cached canonical class;
 first-exposure work grows with the selected class set.
+
+The subsequent composite implementation was measured against the exact #160
+tree with the same single-Counter source URI. All eight Wasm artifacts and the
+native loader/declarations were byte-identical. Native ABI 8 added 112 bytes of
+AOT and 1,136 bytes in total. Across the two Node versions, ordinary method,
+getter, setter, self and constructor medians changed by -2.78% to +0.47%; every
+case had both positive and negative paired changes, and A/A noise reached
+5.41%. This does not establish a speed advantage or zero regression. These
+measurements cover existing concrete-class calls, not first-exposure cost or
+scaling of large composite interface sets.

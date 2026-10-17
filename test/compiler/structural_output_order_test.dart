@@ -44,9 +44,9 @@ class BadMapIterator extends BadMapLength {
 @NAPI() Dictionary<Map<String, int>> dictionaryLateMapLength() => Dictionary({'first': {'x': unsafe}, 'late': BadMapLength()});
 @NAPI() (int, List<int>) safeBeforeLateList() => (1, BadList());
 @NAPI() List<int> unsafeOnly() => [unsafe];
-@NAPI() class RefBase { RefBase(); }
+@NAPI() class RefBase { RefBase(); int conflict([int value = 1]) => value; }
 @NAPI() class RefChild extends RefBase { RefChild(); }
-@NAPI() class RefOther {}
+@NAPI() class RefOther { int conflict([int value = 2]) => value; }
 class _Ambiguous extends RefBase implements RefOther {}
 final _bad = _Ambiguous();
 RefChild? _shared;

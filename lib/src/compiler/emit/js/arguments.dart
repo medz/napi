@@ -1,7 +1,9 @@
 import 'dart:convert';
 
+import '../../analysis/reference_views.dart';
 import '../../ir/model.dart';
 import '../../lowering/plan.dart';
+import 'reference_views.dart';
 
 /// Presence stays separate from conversion: opaque undefined/null are values.
 /// The opaque engine can use this policy without adopting scalar nullish rules.
@@ -44,13 +46,16 @@ export function readOptions(value, supplied, names, context) {
 /// These callables are imported as immutable globals by the public Wasm module.
 /// The private dependency only calls the Dart core after capturing JS presence.
 String emitArgumentCalls(ModulePlan plan) {
+  final compositeViews = hasCompositeReferenceViews(
+    plan.classes.map((c) => c.shape).toList(),
+  );
   final result = StringBuffer('''// Generated private callable dependency.
 import * as core from './core.wasm';
 import {useDefault, readOptions} from './boundary.mjs';
 ''');
   if (plan.classes.isNotEmpty) {
     result.writeln("import {registerReference} from './references.mjs';");
-    result.writeln(r'''const wrappers = new WeakMap();
+    result.writeln('''const wrappers = new WeakMap();
 class Receiver {
   constructor(receiver) { return receiver; }
 }
@@ -73,8 +78,8 @@ function unwrap(value, classId, context, nullable) {
 }
 function intern(reference, expectedId, context, pending, receiver, newTarget) {
   const previous = wrappers.get(reference);
-  const classId = previous === undefined ? core['napi:class:classify'](reference) : previous.classId;
-  if (classId < 0) throw new TypeError(context + ': no unique most-specific selected class');
+  ${compositeViews ? 'let' : 'const'} classId = previous === undefined ? core['napi:class:classify'](reference) : previous.classId;
+  if (classId < 0) ${compositeViews ? 'classId = compositeClass(reference, context);' : "throw new TypeError(context + ': no unique most-specific selected class');"}
   if (classId !== expectedId && !memberships[classId].has(expectedId)) {
     throw new TypeError(context + ': expected a local ' + classNames[expectedId]);
   }
@@ -83,7 +88,7 @@ function intern(reference, expectedId, context, pending, receiver, newTarget) {
     if (wrapper !== undefined) return wrapper;
   }
   const wrapper = receiver !== undefined && (newTarget !== constructors[expectedId] || classId === expectedId)
-    ? receiver : new constructors[classId](adopt);
+    ? receiver : ${compositeViews ? 'classId < constructors.length ? new constructors[classId](adopt) : Object.create(prototypes[classId])' : 'new constructors[classId](adopt)'};
   const entry = {reference, classId, wrapper: new WeakRef(wrapper)};
   new Owner(wrapper, entry);
   wrappers.set(reference, entry);
@@ -93,6 +98,21 @@ function intern(reference, expectedId, context, pending, receiver, newTarget) {
   return wrapper;
 }
 ''');
+    if (compositeViews) {
+      result.writeln(r'''function compositeClass(reference, context) {
+  const views = core['napi:class:views'](reference);
+  const key = views.join(',');
+  const previous = compositeIds.get(key);
+  if (previous !== undefined) return previous;
+  const prototype = $napiCompositePrototype(views, context);
+  const classId = memberships.length;
+  Object.defineProperty(memberships, classId, {value: new Set(views)});
+  Object.defineProperty(prototypes, classId, {value: prototype});
+  compositeIds.set(key, classId);
+  return classId;
+}
+''');
+    }
     result.writeln(
       'const memberships = [${plan.classes.map((c) => 'new Set(${jsonEncode(c.shape.memberships.toList())})').join(', ')}];',
     );
@@ -241,6 +261,17 @@ function intern(reference, expectedId, context, pending, receiver, newTarget) {
       );
     }
     result.writeln('];');
+    if (compositeViews) {
+      result.writeln(
+        'const prototypes = constructors.map(constructor => constructor.prototype);\nconst compositeIds = new Map();',
+      );
+      result.write(
+        emitCompositeReferencePrototypes(
+          plan.classes.map((c) => c.shape).toList(),
+          (ref) => 'members[${ref.classId}][${ref.memberIndex}]',
+        ),
+      );
+    }
     for (final (classId, binding) in plan.classes.indexed) {
       final superclassId = binding.shape.superclassId;
       if (superclassId != null) {

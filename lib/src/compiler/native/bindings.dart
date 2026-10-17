@@ -119,6 +119,20 @@ typedef _ReferenceCreate = int Function(
   int,
   Pointer<Pointer<Void>>,
 );
+typedef _RegisterReferenceShapeNative = Int32 Function(
+  Pointer<Void>,
+  Uint32,
+  Pointer<Uint32>,
+  Size,
+  Pointer<Void>,
+);
+typedef _RegisterReferenceShape = int Function(
+  Pointer<Void>,
+  int,
+  Pointer<Uint32>,
+  int,
+  Pointer<Void>,
+);
 typedef _InspectShapeNative = Int32 Function(
   Pointer<Void>,
   Pointer<Void>,
@@ -386,15 +400,17 @@ final class _ReferenceLease {
 final class NapiApi {
   final Pointer<Pointer<Void>> _table;
   final int Function(Object, String)? referenceClass;
+  final List<int> Function(Object)? referenceViews;
   final List<Set<int>> classMemberships;
   NapiApi(
     int address,
     int tableCount, {
     this.referenceClass,
+    this.referenceViews,
     this.classMemberships = const [],
   }) : _table = Pointer.fromAddress(address) {
-    if (address == 0 || tableCount != 42) {
-      throw StateError('Incompatible native bridge ABI (expected 42 slots).');
+    if (address == 0 || tableCount != 43) {
+      throw StateError('Incompatible native bridge ABI (expected 43 slots).');
     }
   }
   late final _CallbackInfo _callbackInfo = _table[0]
@@ -508,10 +524,16 @@ final class NapiApi {
   late final _ConstructorTarget _constructorTarget = _table[41]
       .cast<NativeFunction<_ConstructorTargetNative>>()
       .asFunction<_ConstructorTarget>();
+  late final _RegisterReferenceShape _registerReferenceShape = _table[42]
+      .cast<NativeFunction<_RegisterReferenceShapeNative>>()
+      .asFunction<_RegisterReferenceShape>();
   // Only an attached JS lease retains its Dart value. The identity cache's
   // weak keys and primitive records cannot keep either heap alive by themselves.
   final _owners = <int, Object>{};
   final _references = Expando<_ReferenceLease>('native reference lease');
+  // These caches contain selected type IDs only, never business objects.
+  late final _referenceShapes = <String, int>{};
+  late final _shapeMemberships = <int, Set<int>>{};
   var _nextOwner = 1;
 
   void _check(int status) {
@@ -1058,8 +1080,9 @@ final class NapiApi {
     List<(Object, int)>? pending,
   ]) {
     final cached = _references[object];
-    final canonical =
+    var canonical =
         cached?.classId ?? referenceClass?.call(object, path) ?? classId;
+    if (canonical < 0) canonical = _compositeShape(env, object, path);
     if (!_memberOf(canonical, classId)) {
       throw NapiTypeError('$path: object is bound to a different public class');
     }
@@ -1091,11 +1114,43 @@ final class NapiApi {
     }
   }
 
+  int _compositeShape(Pointer<Void> env, Object object, String path) {
+    final collect = referenceViews;
+    if (collect == null) {
+      throw NapiTypeError('$path: no unique most-specific selected class');
+    }
+    final views = collect(object).toSet().toList()..sort();
+    if (views.length < 2 ||
+        views.any((id) => id < 0 || id >= classMemberships.length)) {
+      throw NapiTypeError('$path: no unique most-specific selected class');
+    }
+    final key = views.join(',');
+    if (_referenceShapes[key] case final known?) return known;
+    final shape = classMemberships.length + _shapeMemberships.length;
+    if (shape > 0xffffffff) throw StateError('Native shape id exhausted');
+    Pointer<Uint32> ids = nullptr;
+    try {
+      ids = _allocate<Uint32>(views.length, sizeOf<Uint32>());
+      for (final (index, id) in views.indexed) {
+        ids[index] = id;
+      }
+      final context = Pointer<Void>.fromAddress(stringResult(env, path));
+      _check(_registerReferenceShape(env, shape, ids, views.length, context));
+      // JS resolves conflicts before either Dart cache is published.
+      _shapeMemberships[shape] = Set.unmodifiable(views);
+      _referenceShapes[key] = shape;
+      return shape;
+    } finally {
+      _free(ids.cast());
+    }
+  }
+
   bool _memberOf(int canonical, int requested) => classMemberships.isEmpty
       ? canonical == requested
       : canonical >= 0 &&
-            canonical < classMemberships.length &&
-            classMemberships[canonical].contains(requested);
+            (canonical < classMemberships.length
+                ? classMemberships[canonical].contains(requested)
+                : (_shapeMemberships[canonical]?.contains(requested) ?? false));
 
   bool _isConstructorTarget(NapiCall call, int classId) {
     final result = _allocate<Bool>(1, sizeOf<Bool>());

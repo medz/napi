@@ -80,8 +80,11 @@ export function verifyHierarchy(api) {
     assert.throws(() => api.echoHierarchyBase(invalid), TypeError);
     assert.throws(() => Base.prototype.self.call(invalid), TypeError);
   }
-  assert.throws(() => api.ambiguousHierarchyLeft(), TypeError);
-  assert.throws(() => api.ambiguousHierarchyRight(), TypeError);
+  const unrelated = api.ambiguousHierarchyLeft();
+  assert.equal(api.ambiguousHierarchyRight(), unrelated);
+  assert.equal(unrelated.left(), 1);
+  assert.equal(unrelated.right(), 2);
+  assert.equal(unrelated.constructor, Object);
   assert.equal(new api.HierarchyLeft().left(), 1);
   assert.throws(() => api.failingHierarchy(), RangeError);
   const recovered = api.heldHierarchyChild();
