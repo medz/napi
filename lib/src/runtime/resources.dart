@@ -87,8 +87,13 @@ final class ResourceControl implements OperationOwner {
         _finish(error, stack);
       }
     });
-    _cancelStreams(_streams?.toList(growable: false) ?? const []);
-    _tryCleanup();
+    final streams = _streams;
+    if (streams == null) {
+      if (_operations == 0) _runCleanup();
+    } else {
+      _cancelStreams(streams.toList(growable: false));
+      _tryCleanup();
+    }
     return completion.future;
   }
 
@@ -104,7 +109,9 @@ final class ResourceControl implements OperationOwner {
   }
 
   Future<void>? get _firstCancellationError {
-    for (final error in _cancellationErrors ?? const <Future<void>?>[]) {
+    final errors = _cancellationErrors;
+    if (errors == null) return null;
+    for (final error in errors) {
       if (error != null) return error;
     }
     return null;
