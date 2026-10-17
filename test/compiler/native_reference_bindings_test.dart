@@ -10,6 +10,12 @@ typedef _Free = void Function(Pointer<Void>);
 typedef _Wrap = Int32 Function(Pointer<Void>, Pointer<Void>, Int64);
 typedef _Unwrap = Int64 Function(Pointer<Void>, Pointer<Void>);
 typedef _Value = Int32 Function(Pointer<Void>, Int64, Pointer<Pointer<Void>>);
+typedef _Target = Int32 Function(
+  Pointer<Void>,
+  Pointer<Void>,
+  Uint32,
+  Pointer<Bool>,
+);
 typedef _Create = Int32 Function(
   Pointer<Void>,
   Uint32,
@@ -25,7 +31,7 @@ final _free = _libc.lookupFunction<_FreeNative, _Free>('free');
 // cache expiry/finalizer ordering; real Node weak references and teardown are
 // covered by the generated native integration contract.
 final class _Table {
-  final table = _calloc(41, sizeOf<Pointer<Void>>()).cast<Pointer<Void>>();
+  final table = _calloc(42, sizeOf<Pointer<Void>>()).cast<Pointer<Void>>();
   final byLease = <int, int>{};
   final byPointer = <int, int>{};
   final creations = <(int, int)>[];
@@ -33,6 +39,9 @@ final class _Table {
   var lastLease = 0;
   var failWrap = false;
   var failCreate = false;
+  var originalConstructorTarget = true;
+  var targetChecks = 0;
+  late final NativeCallable<_Target> target;
   late final NativeCallable<_Wrap> wrap;
   late final NativeCallable<_Unwrap> unwrap;
   late final NativeCallable<_Value> value;
@@ -40,7 +49,10 @@ final class _Table {
   late final NapiApi api;
   final env = Pointer<Void>.fromAddress(1);
 
-  _Table() {
+  _Table({
+    int Function(Object, String)? referenceClass,
+    List<Set<int>> classMemberships = const [],
+  }) {
     if (table == nullptr) throw StateError('Cannot allocate test table');
     wrap = NativeCallable<_Wrap>.isolateLocal((
       Pointer<Void> env,
@@ -80,11 +92,27 @@ final class _Table {
       out.value = Pointer<Void>.fromAddress(pointer);
       return 0;
     }, exceptionalReturn: 1);
+    target = NativeCallable<_Target>.isolateLocal((
+      Pointer<Void> env,
+      Pointer<Void> info,
+      int classId,
+      Pointer<Bool> out,
+    ) {
+      targetChecks++;
+      out.value = originalConstructorTarget;
+      return 0;
+    }, exceptionalReturn: 1);
+    table[41] = target.nativeFunction.cast();
     table[14] = wrap.nativeFunction.cast();
     table[15] = unwrap.nativeFunction.cast();
     table[28] = value.nativeFunction.cast();
     table[29] = create.nativeFunction.cast();
-    api = NapiApi(table.address, 41);
+    api = NapiApi(
+      table.address,
+      42,
+      referenceClass: referenceClass,
+      classMemberships: classMemberships,
+    );
   }
 
   NapiCall call(int self) => NapiCall(
@@ -101,6 +129,7 @@ final class _Table {
   }
 
   void close() {
+    target.close();
     create.close();
     value.close();
     unwrap.close();
@@ -115,6 +144,12 @@ final class _EqualValue {
   @override
   int get hashCode => 0;
 }
+
+class _Base {}
+
+class _Child extends _Base {}
+
+int _shape(Object object, String path) => object is _Child ? 1 : 0;
 
 void main() {
   late _Table bridge;
@@ -135,6 +170,151 @@ void main() {
       same(object),
     );
   });
+
+  test(
+    'first Base exposure uses canonical Child and both receiver memberships',
+    () {
+      final table = _Table(
+        referenceClass: _shape,
+        classMemberships: const [
+          {0},
+          {0, 1},
+        ],
+      );
+      addTearDown(table.close);
+      final object = _Child();
+      final pointer = table.api.referenceResult(table.env, object, 0, 'Base');
+      expect(table.creations.single.$1, 1);
+      expect(
+        table.api.ownerValue(
+          table.env,
+          Pointer.fromAddress(pointer),
+          'base receiver',
+          0,
+        ),
+        same(object),
+      );
+      expect(
+        table.api.ownerValue(
+          table.env,
+          Pointer.fromAddress(pointer),
+          'child receiver',
+          1,
+        ),
+        same(object),
+      );
+      expect(table.api.referenceResult(table.env, object, 1, 'Child'), pointer);
+      final lease = table.byPointer[pointer]!;
+      table.expire(lease);
+      final pending = <(Object, int)>[];
+      final replacement = table.api.referenceResult(
+        table.env,
+        object,
+        0,
+        'readopt',
+        pending,
+      );
+      expect(pending, isEmpty);
+      expect(table.creations.last.$1, 1);
+      table.api.releaseOwner(lease);
+      expect(
+        table.api.ownerValue(
+          table.env,
+          Pointer.fromAddress(replacement),
+          'replacement',
+          0,
+        ),
+        same(object),
+      );
+    },
+  );
+
+  test('canonical adoption distinguishes original from custom new.target', () {
+    final table = _Table(
+      referenceClass: _shape,
+      classMemberships: const [
+        {0},
+        {0, 1},
+      ],
+    );
+    addTearDown(table.close);
+    final original = table.api.wrap(
+      table.call(90),
+      _Child(),
+      0,
+      'Base factory',
+    );
+    expect(original, isNot(90));
+    expect(table.creations.single.$1, 1);
+    expect(table.targetChecks, 1);
+    table.originalConstructorTarget = false;
+    final object = _Child();
+    expect(table.api.wrap(table.call(91), object, 0, 'custom target'), 91);
+    expect(
+      table.api.ownerValue(
+        table.env,
+        Pointer.fromAddress(91),
+        'child method',
+        1,
+      ),
+      same(object),
+    );
+    expect(table.api.wrap(table.call(92), object, 0, 'existing first'), 91);
+    expect(table.targetChecks, 2);
+    expect(table.byPointer.containsKey(92), isFalse);
+  });
+
+  test(
+    'canonical rollback invalidates only the tentative lease then recovers',
+    () {
+      final table = _Table(
+        referenceClass: _shape,
+        classMemberships: const [
+          {0},
+          {0, 1},
+        ],
+      );
+      addTearDown(table.close);
+      final object = _Child();
+      final pending = <(Object, int)>[];
+      final tentative = table.api.referenceResult(
+        table.env,
+        object,
+        0,
+        'output',
+        pending,
+      );
+      final lease = table.byPointer[tentative]!;
+      table.api.rollbackReferences(pending);
+      expect(
+        () => table.api.ownerValue(
+          table.env,
+          Pointer.fromAddress(tentative),
+          'unexposed',
+          1,
+        ),
+        throwsA(isA<NapiTypeError>()),
+      );
+      final recovered = table.api.referenceResult(
+        table.env,
+        object,
+        1,
+        'recover',
+      );
+      expect(table.creations.last.$1, 1);
+      table.api.rollbackReferences(pending);
+      table.api.releaseOwner(lease);
+      expect(
+        table.api.ownerValue(
+          table.env,
+          Pointer.fromAddress(recovered),
+          'base projection',
+          0,
+        ),
+        same(object),
+      );
+    },
+  );
 
   test('cache uses object identity rather than equality', () {
     final first = _EqualValue();
@@ -180,7 +360,7 @@ void main() {
     expect(bridge.creations, hasLength(21));
   });
 
-  test('public class binding is sticky after cache expiry and release', () {
+  test('unrelated schema-free class IDs stay rejected after cache expiry', () {
     final object = Object();
     bridge.api.wrap(bridge.call(99), object, 3, 'Counter');
     expect(
@@ -253,5 +433,6 @@ void main() {
     expect(() => NapiApi(bridge.table.address, 30), throwsStateError);
     expect(() => NapiApi(bridge.table.address, 35), throwsStateError);
     expect(() => NapiApi(bridge.table.address, 38), throwsStateError);
+    expect(() => NapiApi(bridge.table.address, 41), throwsStateError);
   });
 }

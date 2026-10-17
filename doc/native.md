@@ -76,12 +76,16 @@ methods, fields, accessors and selection/renaming. Repeated returns reuse a live
 wrapper. Wrapper collection releases its retained-object lease; a Dart-held object
 can later acquire a fresh wrapper without another business constructor call.
 Weak identity entries and zero-count Node-API references do not root wrappers.
-Environment and exact selected class brands are checked before business calls.
+Environment, live lease and actual selected-class membership are checked before business calls.
 Readonly fields remain readonly and GC does not call business disposal methods.
 
-The private bridge table is ABI 6 (41 slots). Older bundles are rejected before
+The private bridge table is ABI 7 (42 slots). Older bundles are rejected before
 copying; maintainers rebuild the bridge/runtime bundle using their existing VM
 cache. Consumer builds still require only the ordinary Dart SDK and that bundle.
+The additional slot compares a callback's actual construction target with the
+captured public constructor, preserving custom JS subclass receivers during
+canonical adoption. Member callbacks validate Dart membership instead of V8's
+exact Node-API constructor receiver restriction.
 
 List/Map/Dictionary/record functions and class members share Wasm's [structural conversion](structural.md)
 contract, including nullable containers, cloned outputs, own-data fields, bounded
@@ -106,9 +110,10 @@ read once per occurrence before converting children.
 Unsupported shapes fail before output is created: resource policies,
 generic specialization, non-null
 object defaults, Futures, callbacks, streams and cancellation. The same reference
-contract runs on Wasm; see [reference classes](classes.md). JavaScript inheritance
-is not generated, and one Dart object returned through different selected public
-class types is rejected. The full class/lifetime roadmap remains open.
+contract runs on Wasm; see [reference classes](classes.md). A unique most-specific
+selected class owns the canonical wrapper across base/interface views. Instance
+prototypes inherit without static inheritance. Unrelated selected memberships
+without such a unique class remain unsupported. The full class/lifetime roadmap remains open.
 
 ## Runtime and verification
 

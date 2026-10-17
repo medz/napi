@@ -58,16 +58,56 @@ final class ReferenceMemberShape {
   ) : parameters = List.unmodifiable(parameters);
 }
 
+typedef ReferenceMemberRef = ({int classId, int memberIndex});
+
+/// One own JS prototype descriptor; references retain the declaring binding.
+final class ReferencePropertyShape {
+  final String name;
+  final ReferenceMemberRef? method;
+  final ReferenceMemberRef? getter;
+  final ReferenceMemberRef? setter;
+  const ReferencePropertyShape({
+    required this.name,
+    this.method,
+    this.getter,
+    this.setter,
+  });
+}
+
 final class ReferenceClassShape {
   final ClassBinding binding;
   final ReferenceMemberShape? constructor;
+
+  /// Own selected members only; references use these stable indices.
   final List<ReferenceMemberShape> members;
+  final int classId;
+  final Set<int> memberships;
+  final int? superclassId;
+  final List<ReferencePropertyShape> prototypeProperties;
   ReferenceClassShape._(
     this.binding,
     this.constructor,
-    Iterable<ReferenceMemberShape> members,
-  ) : members = List.unmodifiable(members);
+    Iterable<ReferenceMemberShape> members, {
+    required this.classId,
+    Iterable<int> memberships = const [],
+    this.superclassId,
+    Iterable<ReferencePropertyShape> prototypeProperties = const [],
+  }) : members = List.unmodifiable(members),
+       memberships = Set.unmodifiable(memberships),
+       prototypeProperties = List.unmodifiable(prototypeProperties);
 }
+
+/// A strict subtype has every ancestor membership plus its own class ID.
+/// Stable ID tie breaking keeps unrelated classes in declaration order.
+List<int> referenceClassOrder(List<ReferenceClassShape> classes) =>
+    List.unmodifiable(
+      classes.map((shape) => shape.classId).toList()..sort((a, b) {
+        final depth = classes[b].memberships.length.compareTo(
+          classes[a].memberships.length,
+        );
+        return depth == 0 ? a.compareTo(b) : depth;
+      }),
+    );
 
 /// A finite declaration node; recursive field types refer back by identity.
 final class ValueFieldSchema {
@@ -895,9 +935,374 @@ List<ReferenceClassShape> validateReferenceClasses(BindingModule module) {
       }
       staticNames[member.exportName] = member;
     }
-    result.add(ReferenceClassShape._(binding, constructor, members));
+    result.add(
+      ReferenceClassShape._(
+        binding,
+        constructor,
+        members,
+        classId: result.length,
+      ),
+    );
   }
-  return List.unmodifiable(result);
+  return _referenceHierarchy(result);
+}
+
+List<ReferenceClassShape> _referenceHierarchy(
+  List<ReferenceClassShape> classes,
+) {
+  final ids = {
+    for (final shape in classes) shape.binding.declaration: shape.classId,
+  };
+  final memberships = <int, Set<int>>{};
+  final visiting = <int>{};
+  Set<int> ancestors(int id) {
+    if (memberships[id] case final known?) return known;
+    final binding = classes[id].binding;
+    if (!visiting.add(id)) {
+      throw BindingDiagnostic(
+        'NAPI_INHERITANCE',
+        'A selected class cannot inherit from itself.',
+        binding.source,
+      );
+    }
+    final result = <int>{id};
+    final declarations = <DeclarationId>{
+      ...binding.allSupertypes,
+      ...binding.superclassChain,
+      // These edges also support hand-written IR without resolved ancestors.
+      if (binding.supertype case DeclaredType(:final declaration)) declaration,
+      for (final type in [...binding.interfaces, ...binding.mixins])
+        if (type case DeclaredType(:final declaration)) declaration,
+    };
+    for (final declaration in declarations) {
+      if (ids[declaration] case final parent?) {
+        result.addAll(ancestors(parent));
+      }
+    }
+    visiting.remove(id);
+    return memberships[id] = result;
+  }
+
+  int? superclass(ClassBinding binding) {
+    for (final declaration in binding.superclassChain) {
+      if (ids[declaration] case final parent?) return parent;
+    }
+    if (binding.supertype case DeclaredType(:final declaration)) {
+      return ids[declaration];
+    }
+    return null;
+  }
+
+  final shapes = [
+    for (final shape in classes)
+      ReferenceClassShape._(
+        shape.binding,
+        shape.constructor,
+        shape.members,
+        classId: shape.classId,
+        memberships: ancestors(shape.classId),
+        superclassId: superclass(shape.binding),
+      ),
+  ];
+  final effective = <int, Map<String, ReferencePropertyShape>>{};
+  final order = referenceClassOrder(shapes);
+  ReferenceMemberShape member(ReferenceMemberRef ref) =>
+      classes[ref.classId].members[ref.memberIndex];
+  for (final id in order.reversed) {
+    final shape = shapes[id];
+    final inherited = effective[shape.superclassId] ?? const {};
+    final candidates = <String, List<ReferenceMemberRef>>{};
+    final dartNames = <String, String>{};
+    Never reject(String message, [SourceLocation? source]) =>
+        throw BindingDiagnostic(
+          'NAPI_INHERITANCE',
+          '${shape.binding.exportName}: $message',
+          source ?? shape.binding.source,
+        );
+    for (final ancestor in order.reversed.where(shape.memberships.contains)) {
+      for (final (index, selected) in classes[ancestor].members.indexed) {
+        if (selected.isStatic) continue;
+        final name = selected.binding.declaration.name;
+        final exported = selected.exportName;
+        final previous = dartNames[name];
+        if (previous != null && previous != exported) {
+          reject(
+            'Inherited member $name must retain export name $previous; '
+            'renaming it to $exported would hide a selected ancestor contract.',
+            selected.binding.source,
+          );
+        }
+        dartNames[name] = exported;
+        candidates.putIfAbsent(exported, () => []).add((
+          classId: ancestor,
+          memberIndex: index,
+        ));
+      }
+    }
+    for (final own in shape.binding.members) {
+      if (own.isStatic || own.selection != MemberSelection.excluded) continue;
+      for (final refs in candidates.values) {
+        for (final ref in refs) {
+          if (ref.classId == id) continue;
+          final selected = member(ref);
+          if (selected.binding.declaration.name == own.declaration.name &&
+              (own.kind == MemberKind.field ||
+                  own.kind.name == selected.kind.name)) {
+            reject(
+              'Excluded member ${own.declaration.name} is required by a '
+              'selected ancestor; excluding it cannot hide that contract.',
+              own.source,
+            );
+          }
+        }
+      }
+    }
+    for (final inheritedMember in shape.binding.inheritedInstanceMembers) {
+      final actual = inheritedMember.member;
+      for (final refs in candidates.values) {
+        for (final ref in refs) {
+          final contract = member(ref);
+          if (contract.binding.declaration != inheritedMember.contract ||
+              contract.kind.name != actual.kind.name) {
+            continue;
+          }
+          if (actual.selection == MemberSelection.excluded) {
+            reject(
+              'Inherited implementation ${actual.declaration.name} is excluded '
+              'but is required by a selected ancestor.',
+              actual.source,
+            );
+          }
+          if (actual.hasExplicitExportName &&
+              actual.exportName != contract.exportName) {
+            reject(
+              'Inherited implementation ${actual.declaration.name} renames '
+              'selected ancestor export ${contract.exportName}.',
+              actual.source,
+            );
+          }
+          final actualVoid = actual.result is VoidType;
+          final contractVoid = contract.result == null;
+          if (!inheritedMember.isCompatible ||
+              (contract.kind != ReferenceMemberKind.method &&
+                  actualVoid != contractVoid)) {
+            reject(
+              'Inherited implementation ${actual.declaration.name} has an '
+              'incompatible parameter or result type for a selected ancestor.',
+              actual.source,
+            );
+          }
+        }
+      }
+    }
+    final properties = <String, ReferencePropertyShape>{};
+    for (final entry in candidates.entries) {
+      final refs = entry.value;
+      final originalNames = refs
+          .map((ref) => member(ref).binding.declaration.name)
+          .toSet();
+      if (originalNames.length != 1) {
+        reject(
+          'Export ${entry.key} maps to different inherited Dart members: '
+          '${originalNames.join(', ')}.',
+        );
+      }
+      final kinds = refs.map((ref) => member(ref).kind).toSet();
+      if (kinds.contains(ReferenceMemberKind.method) && kinds.length != 1) {
+        reject('Export ${entry.key} cannot be both a method and an accessor.');
+      }
+      ReferenceMemberRef? select(ReferenceMemberKind kind) {
+        final matching = refs.where((ref) => member(ref).kind == kind).toList();
+        if (matching.isEmpty) return null;
+        // Prefer an own/most-specific declaration. For equivalent interface
+        // contracts, retain the existing extends descriptor where possible.
+        final closest =
+            matching
+                .where(
+                  (ref) => !matching.any(
+                    (other) =>
+                        ref.classId != other.classId &&
+                        shapes[other.classId].memberships.contains(ref.classId),
+                  ),
+                )
+                .toList()
+              ..sort((a, b) => a.classId.compareTo(b.classId));
+        final inheritedProperty = inherited[entry.key];
+        final inheritedRef = switch (kind) {
+          ReferenceMemberKind.method => inheritedProperty?.method,
+          ReferenceMemberKind.getter => inheritedProperty?.getter,
+          ReferenceMemberKind.setter => inheritedProperty?.setter,
+          ReferenceMemberKind.constructor => null,
+        };
+        final compatible = closest
+            .where(
+              (candidate) => matching.every(
+                (ref) => _referenceMemberAccepts(
+                  member(candidate),
+                  member(ref),
+                  ids,
+                  memberships,
+                ),
+              ),
+            )
+            .toList();
+        if (compatible.isEmpty) {
+          reject(
+            'Member ${entry.key} has an incompatible inherited parameter, '
+            'presence or result conversion; select an own compatible override.',
+            member(closest.first).binding.source,
+          );
+        }
+        return compatible.contains(inheritedRef)
+            ? inheritedRef!
+            : compatible.first;
+      }
+
+      properties[entry.key] = ReferencePropertyShape(
+        name: entry.key,
+        method: select(ReferenceMemberKind.method),
+        getter: select(ReferenceMemberKind.getter),
+        setter: select(ReferenceMemberKind.setter),
+      );
+    }
+    effective[id] = properties;
+    shapes[id] = ReferenceClassShape._(
+      shape.binding,
+      shape.constructor,
+      shape.members,
+      classId: id,
+      memberships: shape.memberships,
+      superclassId: shape.superclassId,
+      prototypeProperties: properties.values.where((property) {
+        final previous = inherited[property.name];
+        return previous == null ||
+            property.method != previous.method ||
+            property.getter != previous.getter ||
+            property.setter != previous.setter;
+      }),
+    );
+  }
+  return List.unmodifiable(shapes);
+}
+
+bool _referenceMemberAccepts(
+  ReferenceMemberShape implementation,
+  ReferenceMemberShape contract,
+  Map<DeclarationId, int> ids,
+  Map<int, Set<int>> memberships,
+) {
+  bool subtype(BindingType child, BindingType parent) =>
+      _referenceSubtype(child, parent, ids, memberships);
+  final output = implementation.result;
+  final requiredOutput = contract.result;
+  // A void method contract discards its result. The derived binding retains
+  // its own conversion, while explicitly borrowing the base still returns void.
+  final discardsResult =
+      contract.kind == ReferenceMemberKind.method && requiredOutput == null;
+  if (!discardsResult &&
+      ((output == null) != (requiredOutput == null) ||
+          (output != null && !subtype(output, requiredOutput!)))) {
+    return false;
+  }
+  bool positional(ParameterBinding p) =>
+      p.kind == ParameterKind.requiredPositional ||
+      p.kind == ParameterKind.optionalPositional;
+  final actual = implementation.parameters.where(positional).toList();
+  final expected = contract.parameters.where(positional).toList();
+  if (actual.length < expected.length) return false;
+  for (final (index, parameter) in actual.indexed) {
+    if (index >= expected.length) {
+      if (parameter.presence != ParameterPresence.optional) return false;
+      continue;
+    }
+    final previous = expected[index];
+    if ((previous.presence == ParameterPresence.optional &&
+            parameter.presence != ParameterPresence.optional) ||
+        !subtype(previous.type, parameter.type)) {
+      return false;
+    }
+  }
+  final actualNamed = {
+    for (final p in implementation.parameters.where((p) => !positional(p)))
+      p.name: p,
+  };
+  final expectedNamed = {
+    for (final p in contract.parameters.where((p) => !positional(p))) p.name: p,
+  };
+  // Named options occupy the slot after every positional parameter. A new
+  // positional slot would move that object and break the inherited JS call.
+  if (expectedNamed.isNotEmpty && actual.length != expected.length) {
+    return false;
+  }
+  for (final entry in expectedNamed.entries) {
+    final parameter = actualNamed[entry.key];
+    final previous = entry.value;
+    if (parameter == null ||
+        (previous.presence == ParameterPresence.optional &&
+            parameter.presence != ParameterPresence.optional) ||
+        !subtype(previous.type, parameter.type)) {
+      return false;
+    }
+  }
+  return actualNamed.values.every(
+    (p) =>
+        expectedNamed.containsKey(p.name) ||
+        p.presence == ParameterPresence.optional,
+  );
+}
+
+bool _referenceSubtype(
+  BindingType child,
+  BindingType parent,
+  Map<DeclarationId, int> ids,
+  Map<int, Set<int>> memberships,
+) {
+  if (child.nullability == TypeNullability.nullable &&
+      parent.nullability != TypeNullability.nullable) {
+    return false;
+  }
+  if (child is SafeIntType && parent is SafeIntType) return true;
+  if (child is DeclaredType && parent is DeclaredType) {
+    if (child.declaration != parent.declaration) {
+      final childId = ids[child.declaration];
+      final parentId = ids[parent.declaration];
+      return childId != null &&
+          parentId != null &&
+          memberships[childId]!.contains(parentId);
+    }
+    return child.typeArguments.length == parent.typeArguments.length &&
+        child.typeArguments.indexed.every(
+          (entry) => _referenceSubtype(
+            entry.$2,
+            parent.typeArguments[entry.$1],
+            ids,
+            memberships,
+          ),
+        );
+  }
+  if (child is RecordTypeBinding && parent is RecordTypeBinding) {
+    return child.positional.length == parent.positional.length &&
+        child.named.length == parent.named.length &&
+        child.positional.indexed.every(
+          (entry) => _referenceSubtype(
+            entry.$2,
+            parent.positional[entry.$1],
+            ids,
+            memberships,
+          ),
+        ) &&
+        child.named.entries.every(
+          (entry) =>
+              parent.named.containsKey(entry.key) &&
+              _referenceSubtype(
+                entry.value,
+                parent.named[entry.key]!,
+                ids,
+                memberships,
+              ),
+        );
+  }
+  return false;
 }
 
 void _referenceName(

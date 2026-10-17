@@ -1,5 +1,5 @@
 import '../emit/typescript/declarations.dart'
-    show emitMemberName, emitParameters;
+    show emitMemberName, emitParameters, emitReferenceInheritance;
 import '../ir/model.dart';
 import '../emit/typescript/values.dart';
 import 'plan.dart';
@@ -41,7 +41,16 @@ String emitNativeDeclarations(NativeModulePlan plan) {
           ? '  constructor(${emitParameters(binding.constructor.parameters, binding.constructor.inputs)});'
           : '  private constructor();',
     );
-    for (final call in binding.members) {
+    for (final call in [
+      ...binding.members.where((call) => call.isStatic),
+      for (final property in binding.shape.prototypeProperties)
+        for (final ref in [
+          ?property.method,
+          ?property.getter,
+          ?property.setter,
+        ])
+          plan.classes[ref.classId].members[ref.memberIndex],
+    ]) {
       final prefix = call.isStatic ? 'static ' : '';
       final name = emitMemberName(call.exportName);
       final parameters = emitParameters(call.parameters, call.inputs);
@@ -58,6 +67,12 @@ String emitNativeDeclarations(NativeModulePlan plan) {
       }
     }
     code.writeln('}');
+    for (final declaration in emitReferenceInheritance(
+      binding.shape,
+      plan.classes.map((binding) => binding.shape).toList(),
+    )) {
+      code.writeln(declaration);
+    }
   }
   return code.toString();
 }

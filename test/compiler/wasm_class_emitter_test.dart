@@ -61,12 +61,21 @@ void main() {
   // contract. Source-to-Wasm integration separately exercises actual Dart.
   Future<void> javascript(ModulePlan plan, String check) async {
     final core = StringBuffer('export const history = [];\n');
+    core.writeln('''
+const classify = reference => reference.classId;
+export {classify as 'napi:class:classify'};
+''');
     for (final (index, call) in plan.calls.indexed) {
       final constructor =
           call is MemberCallPlan && call.kind == MemberCallKind.constructor;
+      final classId = call is MemberCallPlan
+          ? plan.classes.indexWhere(
+              (c) => c.binding.declaration == call.owner.declaration,
+            )
+          : -1;
       core.writeln('''
 const call$index = (...args) => {
-  const result = {};
+  const result = {classId: $classId};
   history.push({name: ${jsonEncode(call.coreExportName)}, args, result});
   return ${constructor ? 'result' : 'null'};
 };
@@ -160,8 +169,11 @@ for (const options of [null, [], {unknown: 1}, {}, {amount: undefined},
 }
 const foreign = new IndependentCounter();
 const other = new Other(4);
+const revoked = Proxy.revocable(one, {});
+revoked.revoke();
 const receivers = [{}, Object.create(Counter.prototype), other, foreign,
-  new Proxy(one, {}), Reflect.construct(Object, [], Counter), null, undefined];
+  new Proxy(one, {}), revoked.proxy, Reflect.construct(Object, [], Counter),
+  null, undefined, 1, false, 'text', Symbol('brand'), () => {}];
 const beforeBrands = history.length;
 for (const receiver of receivers) {
   assert.throws(() => Counter.prototype.named.call(receiver, {get amount() { reads++; }}), TypeError);

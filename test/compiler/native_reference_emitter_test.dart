@@ -181,34 +181,41 @@ void main() {
     expect(types, contains('static named(box: Box): FactoryOnly;'));
   });
 
-  test(
-    'reference inputs and receivers require the selected public class brand',
-    () async {
-      final plan = await read();
-      final input =
-          plan.functions
-                  .singleWhere((call) => call.exportName == 'identityBase')
-                  .inputs
-                  .single
-              as ReferenceConversion;
-      final base = plan.classes[4];
-      final child = plan.classes[5];
-      expect(input.classId, base.constructor.classId);
-      expect(input.classId, isNot(child.constructor.classId));
-      expect(base.members.single.classId, input.classId);
-      final dart = emitNativeDart(plan);
-      expect(
-        dart,
-        contains('_api.ownerValue(call.env, raw0, "identityBase.value", 4)'),
-      );
-      expect(
-        dart,
-        contains('_api.ownerValue(call.env, call.self, "RefBase.echo", 4)'),
-      );
-      expect(dart, contains('if (object0 is! target.RefBase)'));
-      expect(dart, contains('if (object is! target.RefBase)'));
-    },
-  );
+  test('reference receivers require membership in the canonical selected hierarchy', () async {
+    final plan = await read();
+    final input =
+        plan.functions
+                .singleWhere((call) => call.exportName == 'identityBase')
+                .inputs
+                .single
+            as ReferenceConversion;
+    final base = plan.classes[4];
+    final child = plan.classes[5];
+    expect(input.classId, base.constructor.classId);
+    expect(input.classId, isNot(child.constructor.classId));
+    expect(base.members.single.classId, input.classId);
+    expect(child.shape.memberships, contains(base.shape.classId));
+    expect(
+      plan.referenceClassOrder.indexOf(child.shape.classId),
+      lessThan(plan.referenceClassOrder.indexOf(base.shape.classId)),
+    );
+    expect(emitNativeDart(plan), contains('referenceClass: _referenceClass'));
+    expect(
+      emitNativeDart(plan),
+      contains('_referenceMemberships[canonical].contains(4)'),
+    );
+    final dart = emitNativeDart(plan);
+    expect(
+      dart,
+      contains('_api.ownerValue(call.env, raw0, "identityBase.value", 4)'),
+    );
+    expect(
+      dart,
+      contains('_api.ownerValue(call.env, call.self, "RefBase.echo", 4)'),
+    );
+    expect(dart, contains('if (object0 is! target.RefBase)'));
+    expect(dart, contains('if (object is! target.RefBase)'));
+  });
 
   test('native reference declarations accept class APIs and reject private new', () async {
     final plan = await read();

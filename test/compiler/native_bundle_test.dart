@@ -12,7 +12,7 @@ import 'package:test/test.dart';
 void main() {
   late Directory root;
   late Map<String, Object?> manifest;
-  const identity = 'dart-3.13.5-product-macos-arm64-abi6-fixture';
+  const identity = 'dart-3.13.5-product-macos-arm64-abi7-fixture';
   const runtime = 'libnapi_runtime_$identity.dylib';
   Future<void> save() =>
       File('${root.path}/manifest.json').writeAsString(jsonEncode(manifest));
@@ -39,7 +39,7 @@ void main() {
       'platform': 'macos',
       'architecture': 'arm64',
       'minimumOsVersion': '14.0',
-      'abi': 6,
+      'abi': 7,
       'identity': identity,
       'bridge': 'bridge.node',
       'runtime': runtime,
@@ -82,7 +82,7 @@ void main() {
   );
 
   test('rejects an older runtime ABI before copying assets', () async {
-    manifest['abi'] = 5;
+    manifest['abi'] = 6;
     await save();
     await expectLater(
       NativeRuntimeBundle.read(root),

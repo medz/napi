@@ -1,4 +1,4 @@
-// Compiler-private bridge ABI, version 6. Keep generated Dart in lockstep.
+// Compiler-private bridge ABI, version 7. Keep generated Dart in lockstep.
 #pragma once
 #include <node_api.h>
 #include <stdint.h>
@@ -70,7 +70,8 @@ enum BridgeApiSlot {
   bridge_dictionary_keys = 38,
   bridge_create_dictionary = 39,
   bridge_read_optional_own_value = 40,
-  bridge_api_count = 41,
+  bridge_is_constructor_target = 41,
+  bridge_api_count = 42,
 };
 typedef napi_status (*BridgeOwnerWrap)(napi_env, napi_value self, int64_t ownerId);
 typedef int64_t (*BridgeOwnerUnwrap)(napi_env, napi_value self);
@@ -121,3 +122,8 @@ typedef napi_status (*BridgeCreateDictionary)(napi_env, napi_value* result);
 // properties containing JS undefined/null retain their ordinary napi_value;
 // accessors and reflection errors follow BridgeReadOwnValue without rereading.
 typedef BridgeReadOwnValue BridgeReadOptionalOwnValue;
+
+// Compare new.target with this Owner's captured original constructor. No JS
+// property lookup or user callback participates; false for an ordinary call.
+typedef napi_status (*BridgeIsConstructorTarget)(
+    napi_env, napi_callback_info, uint32_t classId, bool* result);

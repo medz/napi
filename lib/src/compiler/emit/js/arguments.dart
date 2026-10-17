@@ -51,15 +51,41 @@ import {useDefault, readOptions} from './boundary.mjs';
   if (plan.classes.isNotEmpty) {
     result.writeln("import {registerReference} from './references.mjs';");
     result.writeln(r'''const wrappers = new WeakMap();
-function intern(reference, classId, create, context, pending) {
+class Receiver {
+  constructor(receiver) { return receiver; }
+}
+class Owner extends Receiver {
+  #entry;
+  constructor(receiver, entry) { super(receiver); this.#entry = entry; }
+  static get(value) {
+    if (value === null || (typeof value !== 'object' && typeof value !== 'function')) return undefined;
+    return #entry in value ? value.#entry : undefined;
+  }
+}
+const adopt = Symbol();
+function unwrap(value, classId, context, nullable) {
+  if (value === null && nullable) return null;
+  const owner = Owner.get(value);
+  if (owner === undefined || (owner.classId !== classId && !memberships[owner.classId].has(classId))) {
+    throw new TypeError(context + ': expected a local ' + classNames[classId]);
+  }
+  return owner.reference;
+}
+function intern(reference, expectedId, context, pending, receiver, newTarget) {
   const previous = wrappers.get(reference);
+  const classId = previous === undefined ? core['napi:class:classify'](reference) : previous.classId;
+  if (classId < 0) throw new TypeError(context + ': no unique most-specific selected class');
+  if (classId !== expectedId && !memberships[classId].has(expectedId)) {
+    throw new TypeError(context + ': expected a local ' + classNames[expectedId]);
+  }
   if (previous !== undefined) {
-    if (previous.classId !== classId) throw new TypeError(context + ': conflicting public class identity');
     const wrapper = previous.wrapper.deref();
     if (wrapper !== undefined) return wrapper;
   }
-  const wrapper = create();
-  const entry = {classId, wrapper: new WeakRef(wrapper)};
+  const wrapper = receiver !== undefined && (newTarget !== constructors[expectedId] || classId === expectedId)
+    ? receiver : new constructors[classId](adopt);
+  const entry = {reference, classId, wrapper: new WeakRef(wrapper)};
+  new Owner(wrapper, entry);
   wrappers.set(reference, entry);
   if (previous === undefined && pending !== undefined) {
     pending.add(() => { if (wrappers.get(reference) === entry) wrappers.delete(reference); });
@@ -67,11 +93,18 @@ function intern(reference, classId, create, context, pending) {
   return wrapper;
 }
 ''');
+    result.writeln(
+      'const memberships = [${plan.classes.map((c) => 'new Set(${jsonEncode(c.shape.memberships.toList())})').join(', ')}];',
+    );
+    result.writeln(
+      'const classNames = ${jsonEncode(plan.classes.map((c) => c.binding.exportName).toList())};',
+    );
     for (final (index, _) in plan.classes.indexed) {
-      result.writeln('let unwrap$index;');
-      result.writeln('const adopt$index = Symbol();');
       result.writeln(
-        'const wrap$index = (reference, context, pending) => reference === null ? null : intern(reference, $index, () => new class$index(adopt$index, reference), context, pending);',
+        'const unwrap$index = (value, context, nullable) => unwrap(value, $index, context, nullable);',
+      );
+      result.writeln(
+        'const wrap$index = (reference, context, pending) => reference === null ? null : intern(reference, $index, context, pending);',
       );
     }
   }
@@ -109,7 +142,7 @@ function intern(reference, classId, create, context, pending) {
   for (final (index, binding) in plan.classes.indexed) {
     final local = 'class$index';
     result.writeln(
-      'class $local {\n  #reference;\n  static {\n    unwrap$index = (value, context, nullable) => {\n      if (value === null && nullable) return null;\n      try { return value.#reference; } catch { throw new TypeError(context + ": expected a local ${binding.binding.exportName}"); }\n    };\n  }\n  constructor(...args) {\n    if (args[0] === adopt$index) { this.#reference = args[1]; return; }',
+      'class $local {\n  constructor(...args) {\n    if (args[0] === adopt) return;',
     );
     final constructor = binding.constructor;
     if (constructor == null) {
@@ -128,7 +161,7 @@ function intern(reference, classId, create, context, pending) {
         '    const reference = core[${jsonEncode(constructor.coreExportName)}]($arguments);',
       );
       result.writeln(
-        '    return intern(reference, $index, () => { this.#reference = reference; return this; }, ${jsonEncode(binding.binding.exportName)});',
+        '    return intern(reference, $index, ${jsonEncode(binding.binding.exportName)}, undefined, this, new.target);',
       );
     }
     result.writeln('  }');
@@ -142,10 +175,11 @@ function intern(reference, classId, create, context, pending) {
         MemberCallKind.constructor => 'static [$name](...args)',
       };
       result.writeln('  $declaration {');
-      // A private field rejects forged, foreign and Proxy receivers before any
-      // options inspection or Dart call, while retaining the Dart object itself.
+      // Module ownership and Dart membership precede options and business calls.
       if (!member.isStatic) {
-        result.writeln('    const reference = this.#reference;');
+        result.writeln(
+          '    const reference = unwrap$index(this, ${jsonEncode(member.context)}, false);',
+        );
       }
       if (member.kind == MemberCallKind.setter) {
         result.writeln('    const args = [value];');
@@ -167,7 +201,6 @@ function intern(reference, classId, create, context, pending) {
       );
     }
     result.writeln('}');
-    result.writeln('registerReference($index, unwrap$index, wrap$index);');
     if (!binding.members.any(
       (member) => member.isStatic && member.exportName == 'name',
     )) {
@@ -189,6 +222,48 @@ function intern(reference, classId, create, context, pending) {
       );
     }
     result.writeln('export {$local as ${binding.binding.exportName}};');
+  }
+  if (plan.classes.isNotEmpty) {
+    result.writeln(
+      'const constructors = [${[for (final (index, _) in plan.classes.indexed) 'class$index'].join(', ')}];',
+    );
+    // Capture selected own callbacks before completing inherited accessors.
+    result.writeln('const members = [');
+    for (final (classId, binding) in plan.classes.indexed) {
+      result.writeln(
+        '  [${[for (final member in binding.members)
+          if (member.isStatic) 'undefined' else 'Object.getOwnPropertyDescriptor(class$classId.prototype, ${jsonEncode(member.exportName)}).${switch (member.kind) {
+              MemberCallKind.method => 'value',
+              MemberCallKind.getter => 'get',
+              MemberCallKind.setter => 'set',
+              MemberCallKind.constructor => throw StateError('Static constructor expected'),
+            }}'].join(', ')}],',
+      );
+    }
+    result.writeln('];');
+    for (final (classId, binding) in plan.classes.indexed) {
+      final superclassId = binding.shape.superclassId;
+      if (superclassId != null) {
+        result.writeln(
+          'Object.setPrototypeOf(class$classId.prototype, class$superclassId.prototype);',
+        );
+      }
+      for (final property in binding.shape.prototypeProperties) {
+        final method = property.method;
+        final getter = property.getter;
+        final setter = property.setter;
+        result.writeln(
+          'Object.defineProperty(class$classId.prototype, ${jsonEncode(property.name)}, {${[
+            if (method != null) ...['value: members[${method.classId}][${method.memberIndex}]', 'writable: true'] else ...['get: ${getter == null ? 'undefined' : 'members[${getter.classId}][${getter.memberIndex}]'}', 'set: ${setter == null ? 'undefined' : 'members[${setter.classId}][${setter.memberIndex}]'}'],
+            'enumerable: false',
+            'configurable: true',
+          ].join(', ')}});',
+        );
+      }
+      result.writeln(
+        'registerReference($classId, unwrap$classId, wrap$classId);',
+      );
+    }
   }
   return result.toString();
 }

@@ -27,6 +27,9 @@ class Output {
 @NAPI() Dictionary<Output> dictionary(bool throwing) => Dictionary({'x': Output(throwing)});
 @NAPI() class RefBase {}
 @NAPI() class RefChild extends RefBase {}
+@NAPI() class RefOther {}
+class _Ambiguous extends RefBase implements RefOther {}
+final _bad = _Ambiguous();
 final _shared = RefChild();
 final _fresh = RefChild();
 @NAPI() RefChild child() => _shared;
@@ -34,7 +37,7 @@ final _fresh = RefChild();
 @NAPI(classPolicy: ClassPolicy.value)
 class ReferenceOutput {
   ReferenceOutput(bool throwing) : later = Later(throwing);
-  final RefBase bad = _shared;
+  final RefBase bad = _bad;
   final Later later;
 }
 @NAPI() ReferenceOutput reference(bool throwing) => ReferenceOutput(throwing);

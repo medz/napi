@@ -49,6 +49,52 @@ function $napiCallable(target, name, kind) {
       }
     }
   }
+  // Capture the original concise callback functions before installing effective
+  // inherited/interface descriptors, so defaults remain owned by the source.
+  final references = {
+    for (final binding in classes)
+      for (final property in binding.shape.prototypeProperties) ...[
+        ?property.method,
+        ?property.getter,
+        ?property.setter,
+      ],
+  };
+  for (final ref in references) {
+    final owner = classes[ref.classId];
+    final member = owner.members[ref.memberIndex];
+    final kind = switch (member.kind) {
+      NativeCallKind.method => 'value',
+      NativeCallKind.getter => 'get',
+      NativeCallKind.setter => 'set',
+      _ => throw StateError('Unsupported prototype callback'),
+    };
+    code.writeln(
+      'const \$member${ref.classId}_${ref.memberIndex} = Object.getOwnPropertyDescriptor(bindings[${jsonEncode(owner.binding.exportName)}].prototype, ${jsonEncode(member.exportName)}).$kind;',
+    );
+  }
+  for (final binding in classes) {
+    final target =
+        'bindings[${jsonEncode(binding.binding.exportName)}].prototype';
+    final parent = binding.shape.superclassId;
+    if (parent != null) {
+      code.writeln(
+        'Object.setPrototypeOf($target, bindings[${jsonEncode(classes[parent].binding.exportName)}].prototype);',
+      );
+    }
+    for (final property in binding.shape.prototypeProperties) {
+      String callback(({int classId, int memberIndex}) ref) =>
+          '\$member${ref.classId}_${ref.memberIndex}';
+      final fields = property.method != null
+          ? 'value: ${callback(property.method!)}, writable: true'
+          : [
+              if (property.getter != null) 'get: ${callback(property.getter!)}',
+              if (property.setter != null) 'set: ${callback(property.setter!)}',
+            ].join(', ');
+      code.writeln(
+        'Object.defineProperty($target, ${jsonEncode(property.name)}, {$fields, enumerable: false, configurable: true});',
+      );
+    }
+  }
   for (final (index, name) in exports.indexed) {
     code.writeln(
       'const \$napi$index = bindings[${jsonEncode(name)}]; export {\$napi$index as $name};',

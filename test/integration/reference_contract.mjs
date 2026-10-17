@@ -49,9 +49,11 @@ export function verifyReferences(api) {
   assert.throws(() => api.namedReference({value: undefined}), TypeError);
   assert.throws(() => api.namedReference({}), TypeError);
   assert.throws(() => { box.peer = undefined; }, TypeError);
-  // One object cannot silently acquire two selected public class brands.
-  assert.throws(() => new RefChild().asBase(), TypeError);
-  assert.throws(() => api.identityBase(new RefChild()), TypeError);
+  // A genuine selected subtype keeps its canonical wrapper through a base view.
+  const child = new RefChild();
+  assert(child instanceof api.RefBase);
+  assert.equal(child.asBase(), child);
+  assert.equal(api.identityBase(child), child);
   const base = new api.RefBase();
   assert.equal(api.identityBase(base), base);
 }

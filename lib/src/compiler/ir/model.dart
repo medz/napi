@@ -353,6 +353,19 @@ final class MemberBinding {
 
 enum ValueDirection { input, output }
 
+/// An actual inherited implementation checked against one selected contract.
+/// Dart subtype evidence is resolved before analyzer types leave the frontend.
+final class InheritedInstanceMember {
+  final MemberBinding member;
+  final DeclarationId contract;
+  final bool isCompatible;
+  const InheritedInstanceMember({
+    required this.member,
+    required this.contract,
+    required this.isCompatible,
+  });
+}
+
 final class ClassBinding {
   final DeclarationId declaration;
 
@@ -368,6 +381,10 @@ final class ClassBinding {
   final SourceLocation source;
   final String? documentation;
   final List<MemberBinding> members;
+
+  /// Effective inherited implementations of selected ancestor instance members.
+  /// Diagnostic metadata only: these do not add exports or change defaults.
+  final List<InheritedInstanceMember> inheritedInstanceMembers;
   final List<TypeParameterBinding> typeParameters;
   final String callPath;
   final Uri exportSurface;
@@ -380,6 +397,12 @@ final class ClassBinding {
   final BindingType? supertype;
   final List<BindingType> interfaces;
   final List<BindingType> mixins;
+
+  /// Resolved ancestor identities, including unselected classes and interfaces.
+  final List<DeclarationId> allSupertypes;
+
+  /// The extends chain, nearest first; interfaces do not select a JS prototype.
+  final List<DeclarationId> superclassChain;
   ClassBinding({
     required this.declaration,
     required this.exportName,
@@ -389,6 +412,7 @@ final class ClassBinding {
     this.valueConstructor,
     Map<String, DeclarationId> valueFields = const {},
     Iterable<MemberBinding> members = const [],
+    Iterable<InheritedInstanceMember> inheritedInstanceMembers = const [],
     Iterable<TypeParameterBinding> typeParameters = const [],
     this.documentation,
     String? callPath,
@@ -402,13 +426,18 @@ final class ClassBinding {
     this.supertype,
     Iterable<BindingType> interfaces = const [],
     Iterable<BindingType> mixins = const [],
+    Iterable<DeclarationId> allSupertypes = const [],
+    Iterable<DeclarationId> superclassChain = const [],
   }) : valueFields = Map.unmodifiable(valueFields),
        members = List.unmodifiable(members),
+       inheritedInstanceMembers = List.unmodifiable(inheritedInstanceMembers),
        typeParameters = List.unmodifiable(typeParameters),
        callPath = callPath ?? declaration.name,
        exportSurface = exportSurface ?? declaration.library,
        interfaces = List.unmodifiable(interfaces),
-       mixins = List.unmodifiable(mixins);
+       mixins = List.unmodifiable(mixins),
+       allSupertypes = List.unmodifiable(allSupertypes),
+       superclassChain = List.unmodifiable(superclassChain);
 }
 
 /// Declarations exposed through one entry library, with their original identity.

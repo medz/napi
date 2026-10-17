@@ -100,7 +100,8 @@ export function verifyStructuralReferences(api) {
   assert.throws(() => api.failingExistingReferenceScalar(exposed), RangeError);
   global.gc?.();
   assert.equal(api.identityBase(exposed), exposed);
-  assert.throws(() => api.partialReferenceChild(), TypeError);
+  assert.equal(api.partialReferenceChild(), exposed);
+  assert(exposed instanceof api.RefChild);
 }
 
 export function verifyForeignStructuralReferences(api, independent) {

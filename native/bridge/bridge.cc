@@ -810,6 +810,22 @@ static napi_status read_options(
   return napi_ok;
 }
 
+static napi_status is_constructor_target(napi_env env, napi_callback_info info,
+                                         uint32_t class_id, bool* result) {
+  *result = false;
+  auto owner = active_owner;
+  if (!owner || owner->closing || owner->env != env ||
+      class_id >= owner->constructors.size()) {
+    fail(env, "Invalid native constructor target");
+    return napi_invalid_arg;
+  }
+  napi_value target, original;
+  auto status = napi_get_new_target(env, info, &target);
+  if (status != napi_ok || !target) return status;
+  status = napi_get_reference_value(env, owner->constructors[class_id], &original);
+  return status == napi_ok ? napi_strict_equals(env, target, original, result) : status;
+}
+
 static void* api_table[] = {
     reinterpret_cast<void*>(&napi_get_cb_info),
     reinterpret_cast<void*>(&napi_typeof),
@@ -852,6 +868,7 @@ static void* api_table[] = {
     reinterpret_cast<void*>(&dictionary_keys),
     reinterpret_cast<void*>(&create_dictionary),
     reinterpret_cast<void*>(&read_optional_own_value),
+    reinterpret_cast<void*>(&is_constructor_target),
 };
 static_assert(sizeof(api_table) / sizeof(*api_table) == bridge_api_count);
 
@@ -1128,12 +1145,13 @@ static bool register_bindings(Owner* owner, napi_value exports) {
           else member.accessors->setter_arity = member_arity;
         }
       }
-      std::vector<napi_property_descriptor> properties;
-      properties.reserve(members.size());
+      std::vector<napi_property_descriptor> instance_properties, static_properties;
+      instance_properties.reserve(members.size());
+      static_properties.reserve(members.size());
       for (auto& member : members) {
         auto attributes = static_cast<napi_property_attributes>(
-            (member.method ? napi_default_method : napi_configurable) |
-            (member.is_static ? napi_static : napi_default));
+            member.method ? napi_default_method : napi_configurable);
+        auto& properties = member.is_static ? static_properties : instance_properties;
         properties.push_back({member.name.c_str(), nullptr,
             member.method ? dispatch : nullptr,
             member.accessors && member.accessors->getter ? dispatch_get : nullptr,
@@ -1142,7 +1160,7 @@ static bool register_bindings(Owner* owner, napi_value exports) {
             member.method ? static_cast<void*>(member.method) : member.accessors});
       }
       if (napi_define_class(env, name.c_str(), name.size(), dispatch, callback,
-                           properties.size(), properties.data(), &value) !=
+                           0, nullptr, &value) !=
           napi_ok) return false;
       try {
         owner->constructors.push_back(nullptr);
@@ -1153,6 +1171,13 @@ static bool register_bindings(Owner* owner, napi_value exports) {
       if (napi_create_reference(env, value, 1, &owner->constructors.back()) != napi_ok)
         return false;
       napi_value prototype = nullptr;
+      if (!instance_properties.empty() &&
+          (napi_get_named_property(env, value, "prototype", &prototype) != napi_ok ||
+           napi_define_properties(env, prototype, instance_properties.size(),
+                                  instance_properties.data()) != napi_ok)) return false;
+      if (!static_properties.empty() &&
+          napi_define_properties(env, value, static_properties.size(),
+                                 static_properties.data()) != napi_ok) return false;
       for (const auto& member : members) {
         if (!member.is_static && !prototype &&
             napi_get_named_property(env, value, "prototype", &prototype) != napi_ok)

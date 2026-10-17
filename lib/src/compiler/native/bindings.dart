@@ -311,6 +311,19 @@ typedef _Options = int Function(
   Pointer<Uint8>,
   Pointer<Uint8>,
 );
+typedef _ConstructorTargetNative = Int32 Function(
+  Pointer<Void>,
+  Pointer<Void>,
+  Uint32,
+  Pointer<Bool>,
+);
+typedef _ConstructorTarget = int Function(
+  Pointer<Void>,
+  Pointer<Void>,
+  int,
+  Pointer<Bool>,
+);
+
 typedef _CallocNative = Pointer<Void> Function(Size, Size);
 typedef _Calloc = Pointer<Void> Function(int, int);
 typedef _FreeNative = Void Function(Pointer<Void>);
@@ -372,9 +385,16 @@ final class _ReferenceLease {
 /// Every temporary native buffer is scoped to one call; no global scratch state.
 final class NapiApi {
   final Pointer<Pointer<Void>> _table;
-  NapiApi(int address, int tableCount) : _table = Pointer.fromAddress(address) {
-    if (address == 0 || tableCount != 41) {
-      throw StateError('Incompatible native bridge ABI (expected 41 slots).');
+  final int Function(Object, String)? referenceClass;
+  final List<Set<int>> classMemberships;
+  NapiApi(
+    int address,
+    int tableCount, {
+    this.referenceClass,
+    this.classMemberships = const [],
+  }) : _table = Pointer.fromAddress(address) {
+    if (address == 0 || tableCount != 42) {
+      throw StateError('Incompatible native bridge ABI (expected 42 slots).');
     }
   }
   late final _CallbackInfo _callbackInfo = _table[0]
@@ -485,6 +505,9 @@ final class NapiApi {
   late final _ReadOwnValue _readOptionalOwnValue = _table[40]
       .cast<NativeFunction<_ReadOwnValueNative>>()
       .asFunction<_ReadOwnValue>();
+  late final _ConstructorTarget _constructorTarget = _table[41]
+      .cast<NativeFunction<_ConstructorTargetNative>>()
+      .asFunction<_ConstructorTarget>();
   // Only an attached JS lease retains its Dart value. The identity cache's
   // weak keys and primitive records cannot keep either heap alive by themselves.
   final _owners = <int, Object>{};
@@ -1035,12 +1058,12 @@ final class NapiApi {
     List<(Object, int)>? pending,
   ]) {
     final cached = _references[object];
+    final canonical =
+        cached?.classId ?? referenceClass?.call(object, path) ?? classId;
+    if (!_memberOf(canonical, classId)) {
+      throw NapiTypeError('$path: object is bound to a different public class');
+    }
     if (cached != null) {
-      if (cached.classId != classId) {
-        throw NapiTypeError(
-          '$path: object is bound to a different public class',
-        );
-      }
       final existing = _result((out) => _referenceValue(env, cached.id, out));
       if (existing != 0) return existing;
     }
@@ -1049,8 +1072,9 @@ final class NapiApi {
     _owners[id] = object;
     try {
       final int result;
-      if (call == null) {
-        result = _result((out) => _referenceCreate(env, classId, id, out));
+      if (call == null ||
+          (canonical != classId && _isConstructorTarget(call, classId))) {
+        result = _result((out) => _referenceCreate(env, canonical, id, out));
         if (result == 0) {
           throw StateError('Native reference creation failed');
         }
@@ -1059,11 +1083,27 @@ final class NapiApi {
         result = call.self.address;
       }
       if (cached == null) pending?.add((object, id));
-      _references[object] = _ReferenceLease(id, classId);
+      _references[object] = _ReferenceLease(id, canonical);
       return result;
     } catch (_) {
       _owners.remove(id);
       rethrow;
+    }
+  }
+
+  bool _memberOf(int canonical, int requested) => classMemberships.isEmpty
+      ? canonical == requested
+      : canonical >= 0 &&
+            canonical < classMemberships.length &&
+            classMemberships[canonical].contains(requested);
+
+  bool _isConstructorTarget(NapiCall call, int classId) {
+    final result = _allocate<Bool>(1, sizeOf<Bool>());
+    try {
+      _check(_constructorTarget(call.env, call.info, classId, result));
+      return result.value;
+    } finally {
+      _free(result.cast());
     }
   }
 
@@ -1085,7 +1125,7 @@ final class NapiApi {
     final lease = _references[object];
     if (lease == null ||
         lease.id != id ||
-        (classId != null && lease.classId != classId)) {
+        (classId != null && !_memberOf(lease.classId, classId))) {
       throw NapiTypeError('$path: incompatible native class');
     }
     return object;

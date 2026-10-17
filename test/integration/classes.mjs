@@ -6,6 +6,7 @@ import {fileURLToPath, pathToFileURL} from 'node:url';
 import {Worker, isMainThread, parentPort, workerData} from 'node:worker_threads';
 import * as api from '@napi/class-fixture';
 import {verifyClasses} from './class_contract.mjs';
+import {verifyHierarchy, verifyForeignHierarchy, verifyHierarchyRetention} from './hierarchy_contract.mjs';
 import {verifyReferences, verifyForeignReferences, verifyReferenceRetention} from './reference_contract.mjs';
 import {verifyStructuralReferences, verifyForeignStructuralReferences, verifyStructuralReferenceRetention} from './structural_reference_contract.mjs';
 import {verifyMaps, verifyForeignMaps, verifyMapRetention} from './map_contract.mjs';
@@ -13,6 +14,7 @@ import {verifyDictionaries, verifyForeignDictionaries, verifyDictionaryRetention
 import {verifyValueClasses, verifyForeignValueClasses} from './value_class_contract.mjs';
 
 verifyClasses(api);
+  verifyHierarchy(api);
 verifyReferences(api);
 verifyStructuralReferences(api);
 verifyMaps(api);
@@ -31,6 +33,7 @@ if (isMainThread) {
     const independent = await import(pathToFileURL(join(copied, 'module.wasm')));
     assert.notEqual(independent.Counter, api.Counter);
     verifyForeignReferences(api, independent);
+  verifyForeignHierarchy(api, independent);
     verifyForeignStructuralReferences(api, independent);
     verifyForeignMaps(api, independent);
     verifyForeignDictionaries(api, independent);
@@ -46,6 +49,7 @@ if (isMainThread) {
   }
   await verifyRetention();
   await verifyReferenceRetention(api);
+  await verifyHierarchyRetention(api);
   await verifyStructuralReferenceRetention(api);
   await verifyMapRetention(api);
   await verifyDictionaryRetention(api);
@@ -64,6 +68,7 @@ if (isMainThread) {
       await done;
     }));
     verifyClasses(api);
+  verifyHierarchy(api);
     verifyReferences(api);
     verifyStructuralReferences(api);
     verifyMaps(api);
