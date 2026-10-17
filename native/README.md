@@ -83,7 +83,7 @@ operations initialize, load immutable canonical AOT snapshots, create/enter/exit
 isolates, drain microtasks, free errors and shut down one isolate. Public Dart C
 APIs provide scopes, values, invocation and persistent handles while entered.
 
-`bridge/abi.h` fixes the 44-slot compiler-private table and binding metadata.
+`bridge/abi.h` fixes the 46-slot compiler-private table and binding metadata.
 `napiBindings(address, count)` must validate that count before reading the table.
 Functions/classes retain actual JS call presence and `new` behavior. Getter and
 setter closures share one JS property descriptor but remain distinct callbacks.
@@ -153,16 +153,15 @@ runtime images stay resident with a retained `RTLD_NODELETE` handle because
 there is no process-global VM shutdown. This protects worker-only unload/reload.
 
 The ABI/runtime are coupled to private experimental Dart SDK internals:
-embedder initialization, core-library setup and microtask draining. Generated
-resource cleanup and complete operation leases, Dart-created child isolates,
+embedder initialization, core-library setup and microtask draining. Dart-created child isolates,
 non-returning Dart interruption,
 cross-identity VM sharing and other platforms are outside this implementation.
 Their acceptance remains open. `DART_LICENSE` and `DART_AUTHORS` retain the
 upstream SDK license/attribution; original bridge code uses the package license.
 
 Slot 41 compares actual `new.target` with the captured selected constructor; it
-performs no mutable JavaScript property lookup. The compiler-private ABI is 10
-with 44 slots. It retains the owner-thread event scheduling and async environment
+performs no mutable JavaScript property lookup. The compiler-private ABI is 11
+with 46 slots. It retains the owner-thread event scheduling and async environment
 cleanup introduced by ABI 9. Older bundles are rejected before copying.
 
 Slot 42 registers a composite selected-interface shape through the generated
@@ -179,6 +178,36 @@ loader's captured constructor and holds its private capability with an ordinary
 Node-API reference. Conversion writes the payload into that capability; it never
 keeps a callback-scoped handle across a Dart Future. The event pump calls the
 resolver after leaving Dart, then acknowledges release of retained Dart
-arguments/receiver roots. Teardown drops capability references without invoking
+arguments/receiver roots. Resource calls with object results defer their lease
+release until the public Promise settles, including thenable adoption. Teardown drops capability references without invoking
 JavaScript. Sync-only modules do not install the factory or retain the Dart
 Future entrypoint. See [Future contracts and remaining limits](../doc/futures.md).
+
+The release entrypoint returns its retained argument list into the current native
+Dart handle scope before discarding the pending record. That observable native
+return prevents AOT from removing stores to an otherwise write-only roots field.
+Fresh consumers verify that even orphaned pending business Futures retain their
+arguments/receiver after the caller drops its Promise. The list is released with
+the scope; this adds no permanent root or separate traversal.
+
+Slot 44 binds a cleanup candidate to the raw ResourceControl's stable numeric
+identity. Repeated valid calls return a live canonical Promise and discard their
+unexposed candidate capability. The cache holds a weak Node-API reference; its
+finalizer removes only its own entry, so a delayed finalizer cannot erase a
+replacement. Wrapper collection does not change cleanup identity. If no consumer
+retains the old Promise, a later wrapper can obtain the control's already terminal
+completion without rerunning Dart cleanup. Teardown invalidates cache owner
+pointers before destroying the Owner.
+
+Slot 45 marks a Future with nonempty resource operation leases for final
+settlement observation. After output conversion and exit from Dart, the bridge
+registers the public Promise with a module-private Node promise hook only when
+its actual result is an object/function. The resolver may adopt an arbitrary
+thenable. The hook queues an acknowledgement after final settlement; a later
+owner-thread pump reenters Dart to release leases. It never attaches a hidden
+rejection reaction. Pending capabilities and Dart operations remain strongly
+owned until this acknowledgement. Primitive/null results and rejected conversions
+release after resolver delivery without installing the hook. Idle observers stop
+receiving notifications. A separate finalizable callback sentinel is invalidated
+before Owner teardown, so a late acknowledgement cannot dereference a freed
+Owner. See [resource semantics and host limits](../doc/resources.md).

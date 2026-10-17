@@ -3,9 +3,11 @@ import 'dart:convert';
 import '../../lowering/plan.dart';
 import 'arguments.dart';
 import 'structural.dart';
+import 'settlement.dart';
 
 String emitBoundary(ModulePlan plan) {
   final conversions = plan.conversions;
+  final resources = plan.resourcePolicies.isNotEmpty;
   final policies = [
     for (final c in conversions)
       if (c is ScalarConversion) scalarPolicy(c) else null,
@@ -21,13 +23,14 @@ String emitBoundary(ModulePlan plan) {
         index: emitStructuralBoundary(
           conversion,
           prefix: 'structure$index',
+          leafAdapter: BoundaryLeafAdapter(resources: resources),
           generateRead: !outputs.contains(index),
           generateWrite: outputs.contains(index),
         ),
   };
   return '''// Generated JS imports for the Wasm boundary, not a consumer entry.
 ${plan.classes.isEmpty ? '' : "import {readReference, writeReference} from './references.mjs';"}
-const policies = ${jsonEncode(policies)};
+${resources ? '$settlementObserver\n' : ''}const policies = ${jsonEncode(policies)};
 function checkedScalar(value, policy, path) {
   if (value === null && policy.nullable) return null;
   if (typeof value !== policy.type) {
@@ -44,10 +47,10 @@ function checkedScalar(value, policy, path) {
   return value;
 }
 function checked(value, context) { return checkedScalar(value, policies[context], policies[context].context); }
-export function readValue(value, context) {
+export function readValue(value, context${resources ? ', operation = null' : ''}) {
   switch (context) {
 ${[for (final e in structures.entries)
-    if (e.value.read != null) '    case ${e.key}: return ${e.value.read}(value, ${jsonEncode(conversions[e.key].context)}, {work: 0, active: new Set()}, 0);'].join('\n')}
+    if (e.value.read != null) '    case ${e.key}: return ${e.value.read}(value, ${jsonEncode(conversions[e.key].context)}, {work: 0, active: new Set()${resources ? ', operation' : ''}}, 0);'].join('\n')}
     default: return checked(value, context);
   }
 }
@@ -63,7 +66,7 @@ ${[for (final e in structures.entries)
 export function readBigInt(value) { return value.toString(); }
 export function writeBigInt(value, context) { return checked(BigInt(value), context); }
 export function throwDartError(message) { throw new Error(message); }
-${plan.calls.any((call) => call.returnsFuture) ? '$futurePolicy\n' : ''}${structures.isEmpty ? '' : structuralPolicy}
+${plan.calls.any((call) => call.returnsFuture) ? '${emitFuturePolicy(resources: resources)}\n' : ''}${resources ? resourcePolicy : ''}${structures.isEmpty ? '' : structuralPolicy}
 ${conversions.any(_containsMap) ? mapStructuralPolicy : ''}
 ${conversions.any(containsDictionary) ? dictionaryStructuralPolicy : ''}
 ${structures.values.map((s) => s.source).join('\n')}
@@ -73,20 +76,26 @@ ${plan.classes.isNotEmpty || plan.functions.any((f) => f.representation == Expor
 
 /// Private capabilities keep conversion and JS exception handling in JS. Their
 /// raw Dart roots last through resolver handoff, including then-getter reentry.
-const futurePolicy = r'''
+String emitFuturePolicy({bool resources = false}) =>
+    '''
 const capturedPromise = globalThis.Promise;
+const pendingPromises = new Set();
 export function createPromise(wrap = null) {
   let resolve, reject;
   const promise = new capturedPromise((accept, fail) => { resolve = accept; reject = fail; });
-  return {promise, resolve, reject, wrap, roots: null, done: false};
+  return {promise, resolve, reject, wrap, roots: null, done: false${resources ? ', release: null, hasOperation: false, observed: false' : ''}};
 }
-export function retainPromise(capability, roots) { capability.roots = roots; }
+export function retainPromise(capability, roots) {
+  capability.roots = roots;
+  pendingPromises.add(capability);
+}
 function releasePromise(capability) {
-  capability.roots = null;
+  pendingPromises.delete(capability);
+${resources ? '  const release = capability.release;\n  capability.release = null;\n  capability.retain = null;\n' : ''}  capability.roots = null;
   capability.wrap = null;
   capability.resolve = null;
   capability.reject = null;
-}
+${resources ? '  if (release !== null) release();\n' : ''}}
 export function rejectPromise(capability, error) {
   if (capability.done) return;
   capability.done = true;
@@ -109,12 +118,59 @@ export function completePromise(capability, convert) {
   capability.done = true;
   try {
     const value = convert === null ? undefined : convert();
-    capability.resolve(capability.wrap === null ? value : capability.wrap(value));
+${resources ? '''    const output = capability.wrap === null ? value : capability.wrap(value);
+    if (capability.hasOperation && output !== null && (typeof output === 'object' || typeof output === 'function')) {
+      resourceSettlements.observe(capability.promise, capability);
+      capability.observed = true;
+    }
+    capability.resolve(output);''' : '    capability.resolve(capability.wrap === null ? value : capability.wrap(value));'}
   } catch (error) {
     capability.reject(error);
   } finally {
-    releasePromise(capability);
+${resources ? '''    if (capability.observed) {
+      capability.wrap = null;
+      capability.resolve = null;
+      capability.reject = null;
+    } else releasePromise(capability);''' : '    releasePromise(capability);'}
   }
+}
+''';
+
+const resourcePolicy = r'''
+const resourceSettlements = createSettlementObserver(releasePromise);
+const cleanupPromises = new WeakMap();
+export function resourcePolicyError() { throw new TypeError('Resource has incompatible cleanup policies'); }
+export function createResourceCall() { return {release: null}; }
+export function attachResourceOperation(capability, release, retain) {
+  capability.release = release;
+  capability.retain = retain;
+}
+export function readResourceValue(capability, value, context) { return readValue(value, context, capability); }
+export function retainResourceReference(capability, reference) {
+  capability.retain(reference);
+  return reference;
+}
+function readResourceReference(value, classId, nullable, path, capability) {
+  const reference = readReference(value, classId, nullable, path);
+  if (capability !== null) capability.retain(reference);
+  return reference;
+}
+export function activateResourceOperation(capability, active) {
+  capability.hasOperation = active !== 0;
+}
+export function finishResourceCall(capability) {
+  if ((capability.promise !== undefined && !capability.done) || capability.observed) return;
+  releasePromise(capability);
+}
+export function bindCleanup(capability, control) {
+  const previous = cleanupPromises.get(control)?.deref();
+  if (previous !== undefined) {
+    capability.promise = previous;
+    capability.done = true;
+    return 0;
+  }
+  cleanupPromises.set(control, new WeakRef(capability.promise));
+  return 1;
 }
 ''';
 

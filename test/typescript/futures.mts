@@ -18,6 +18,8 @@ const method: Promise<number> = counter.add();
 const retained: Promise<number> = counter.hold();
 const label: Promise<string> = api.FutureCounter.label();
 const box = new api.FutureBox(3);
+const orphanInput: Promise<number> = api.futureOrphan(box);
+const orphanReceiver: Promise<number> = counter.orphan();
 const identity: Promise<api.FutureBox> = api.futureReference(box);
 const named: globalThis.Promise<DartPromise> = api.futureNamedPromise(new DartPromise(6));
 const row: Promise<{$1: api.FutureBox; peers: (api.FutureBox | null)[]}> =
@@ -45,5 +47,5 @@ api.futureDictionary(new Map());
 // @ts-expect-error nullable containers do not admit undefined.
 api.futureNullableRows(undefined);
 void [value, empty, nullable, text, wide, huge, numbers, defaults, required,
-  current, method, retained, label, identity, named, row, map, dictionary,
+  current, method, retained, label, orphanInput, orphanReceiver, identity, named, row, map, dictionary,
   nullableRows, point, subpath, eager, wrongVoid];

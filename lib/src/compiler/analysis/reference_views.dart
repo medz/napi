@@ -1,4 +1,3 @@
-import '../ir/model.dart';
 import 'validate.dart';
 
 /// A total selected hierarchy has exactly one class at every membership depth.
@@ -32,7 +31,7 @@ ReferenceViewContracts referenceViewContracts(
         declarations,
         memberships,
       ) &&
-      _defaultsAccept(member(actual), member(expected));
+      referenceMemberDefaultsAccept(member(actual), member(expected));
   final groups = <(String, String, String, ReferenceMemberKind), List<int>>{};
   final representatives = <ReferenceMemberRef>[];
   final ids = <ReferenceMemberRef, int>{};
@@ -81,53 +80,4 @@ ReferenceViewContracts referenceViewContracts(
     Map.unmodifiable(ids),
     List.unmodifiable(coverage.map(Set<int>.unmodifiable)),
   );
-}
-
-bool _positional(ParameterBinding parameter) =>
-    parameter.kind == ParameterKind.requiredPositional ||
-    parameter.kind == ParameterKind.optionalPositional;
-
-bool _defaultsAccept(
-  ReferenceMemberShape actual,
-  ReferenceMemberShape expected,
-) {
-  final positional = actual.parameters.where(_positional).toList();
-  final named = {
-    for (final p in actual.parameters.where((p) => !_positional(p))) p.name: p,
-  };
-  var position = 0;
-  for (final previous in expected.parameters) {
-    final parameter = _positional(previous)
-        ? positional[position++]
-        : named[previous.name]!;
-    // Required contracts prescribe no result for omission. If both accept it,
-    // the chosen callback must supply the same Dart value, also for undefined.
-    if (previous.presence == ParameterPresence.optional &&
-        !_sameDefault(parameter, previous)) {
-      return false;
-    }
-  }
-  return true;
-}
-
-Object? _default(ParameterBinding parameter) {
-  final value = parameter.defaultValue?.value;
-  if (value is int) {
-    if (parameter.type case DeclaredType(:final declaration)
-        when declaration.library == Uri.parse('dart:core') &&
-            declaration.name == 'double') {
-      return value.toDouble();
-    }
-  }
-  return value;
-}
-
-bool _sameDefault(ParameterBinding left, ParameterBinding right) {
-  final a = _default(left);
-  final b = _default(right);
-  if (a is double && b is double) {
-    if (a.isNaN && b.isNaN) return true;
-    if (a == 0 && b == 0) return a.isNegative == b.isNegative;
-  }
-  return a.runtimeType == b.runtimeType && a == b;
 }

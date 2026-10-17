@@ -191,22 +191,16 @@ void main() {
         ),
       );
     }
-    for (final policy in [ClassPolicy.resource]) {
-      final unsupported = ClassBinding(
-        declaration: owner,
-        exportName: 'Box',
-        source: source,
-        classPolicy: policy,
-      );
-      expect(
-        () => validateValueType(
-          reference,
-          source,
-          referenceClasses: [unsupported],
-        ),
-        throwsA(isA<BindingDiagnostic>()),
-      );
-    }
+    final resource = ClassBinding(
+      declaration: owner,
+      exportName: 'Box',
+      source: source,
+      classPolicy: ClassPolicy.resource,
+    );
+    expect(
+      () => validateValueType(reference, source, referenceClasses: [resource]),
+      returnsNormally,
+    );
   });
 
   test('structural class members use the shared value conversions', () async {

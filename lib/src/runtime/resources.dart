@@ -125,3 +125,40 @@ final class _ResourceLease implements OperationLease {
     control._release();
   }
 }
+
+/// The distinct resources accepted by one generated call.
+///
+/// Adapters retain during conversion, before business constructors or getters
+/// can reenter. They release after the final use, even if later conversion
+/// fails. Cleanup exempts its own control to avoid waiting on its own lease.
+final class ResourceOperation implements OperationLease {
+  ResourceOperation({this._exempt});
+
+  ResourceControl? _exempt;
+  final _leases = Map<ResourceControl, OperationLease>.identity();
+  bool _released = false;
+
+  bool get isEmpty => _leases.isEmpty;
+  @override
+  bool get isReleased => _released;
+
+  void retain(ResourceControl? control) {
+    if (_released) throw StateError('Resource operation is released.');
+    if (control == null || identical(control, _exempt)) return;
+    _leases.putIfAbsent(control, control.retainOperation);
+  }
+
+  @override
+  void release() {
+    if (_released) return;
+    _released = true;
+    final leases = _leases.values.toList(growable: false);
+    _leases.clear();
+    _exempt = null;
+    // Cleanup may reenter disposal or other operations. This group is already
+    // detached, so reentrant release cannot release any accepted use twice.
+    for (final lease in leases.reversed) {
+      lease.release();
+    }
+  }
+}

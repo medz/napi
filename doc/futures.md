@@ -63,7 +63,8 @@ Future are separate calls and do not imply the same JavaScript Promise identity.
 The adapter retains converted arguments and the receiver while the Dart Future
 is pending, through result conversion and delivery to the Promise resolver.
 Business code does not need to capture these objects in its own Future closure
-to keep them reachable. Temporary native callback handles never survive their
+to keep them reachable. Each module strongly owns pending calls even when a
+business Future has no external owner and the caller drops the public Promise. Temporary native callback handles never survive their
 scope. Dropping the JavaScript Promise does not cancel Dart work.
 
 Native completion uses the owning Node thread and its Dart isolate. The private
@@ -81,10 +82,11 @@ is not guaranteed to be identical between the two runtimes.
 
 ## Remaining contracts
 
-Resources still require generated cleanup and operation-lease integration in
-[#124](https://github.com/medz/napi/issues/124). Ordinary argument reachability
-does not prove resource disposal waits for all uses. Repeated cleanup's promised
-JavaScript identity must also be implemented separately.
+[Resource bindings](resources.md) acquire operation leases during receiver/input
+conversion. For object results, a private Node settlement observer keeps these
+leases through the public Promise's eventual settlement, including thenable
+adoption. Repeated valid resource cleanup returns the same Promise. Ordinary
+argument reachability alone does not provide these disposal guarantees.
 
 A genuine JavaScript Promise assimilates a root result with callable `then`.
 It can therefore fulfill with a different value or reject, instead of returning
@@ -93,11 +95,11 @@ existing wrapper can affect this behavior. Nested object fields and collection
 elements are not recursively assimilated. The binding does not hide `then`,
 box the result or substitute a Promise-like object.
 
-Unconditional identity for arbitrary root thenables, and resource retention
-through an adopted thenable's eventual settlement, remain unresolved in
-[#129](https://github.com/medz/napi/issues/129). Resolver return is only a resolution
-handoff in that case. Ordinary reference identity and the implemented delivery
-lifetime must not be used as evidence that this broader contract is complete.
+Unconditional identity for arbitrary root thenables remains unresolved in
+[#129](https://github.com/medz/napi/issues/129): it conflicts with standard Promise
+assimilation. Resolver return is only a resolution handoff for thenables; resource
+leases now wait for actual settlement. Neither that lifetime guarantee nor
+ordinary reference identity establishes unconditional thenable identity.
 
 Future/Promise inputs, `FutureOr`, nullable outer Futures, nested Future payloads,
 `async void`, generators and still-unsupported payload types produce build
@@ -108,7 +110,7 @@ remaining requirements.
 
 The generated contract was tested on Dart 3.13.5 and Node 24.19.0/26.11.1,
 with TypeScript 7.0.2 in NodeNext and Bundler modes. Native execution uses the
-experimental macOS arm64 runtime bundle, private ABI 10 (44 slots), pinned to
+experimental macOS arm64 runtime bundle, private ABI 11 (46 slots), pinned to
 Dart revision `04bcd1036cdc799ac6564988f159ee454d42c822`. Wasm uses the matching
 SDK's version-specific compiler/host adapter; this is not a portable WASI ABI.
 
@@ -118,7 +120,8 @@ original business/build sources and installs offline into a relocated path with
 spaces and Unicode characters. The shared suite covers normal and adversarial
 completion, concurrent calls, independent module instances, pending argument
 and receiver reachability, event-loop liveness, unhandled rejections, and normal
-or terminated Workers in ten fresh-process scenarios. The full Wasm and native
+or terminated Workers in eleven fresh-process scenarios. The full Wasm and native
 verification commands include this fixture. These tests establish the ordinary
-Future delivery contract above; they do not establish the outstanding resource
-lease or arbitrary thenable contracts.
+Future delivery contract above. The separate [resource fixture](resources.md)
+checks generated cleanup and operation leases; neither suite changes the
+arbitrary root-thenable identity boundary.

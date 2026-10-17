@@ -46,11 +46,11 @@ final class NativeRuntimeBundle {
         manifest['platform'] != 'macos' ||
         manifest['architecture'] != 'arm64' ||
         manifest['minimumOsVersion'] != '14.0' ||
-        manifest['abi'] != 10 ||
+        manifest['abi'] != 11 ||
         manifest['bridge'] != 'bridge.node') {
       throw const SdkCompatibilityException(
         'NAPI_NATIVE_BUNDLE',
-        'Expected a Dart 3.13.5 Product macOS arm64 ABI 10 runtime bundle.',
+        'Expected a Dart 3.13.5 Product macOS arm64 ABI 11 runtime bundle.',
       );
     }
     final identity = manifest['identity'];

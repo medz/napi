@@ -164,9 +164,9 @@ import 'package:napi/napi.dart';
       'NAPI_VALUE',
     ),
     (
-      'resource',
-      "@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close') class Bad { void close() {} }",
-      'NAPI_CLASS',
+      'non-void resource cleanup',
+      "@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close') class Bad { int close() => 0; }",
+      'NAPI_RESOURCE',
     ),
     ('abstract class', '@NAPI() abstract class Bad {}', 'NAPI_CONSTRUCTOR'),
     (

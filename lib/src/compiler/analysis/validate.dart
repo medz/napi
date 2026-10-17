@@ -48,6 +48,8 @@ final class ReferenceMemberShape {
   final ReferenceMemberKind kind;
   final List<ParameterBinding> parameters;
   final BindingType? result;
+  final bool isCleanup;
+  bool get returnsFuture => isCleanup || isFutureType(result);
   bool get isStatic =>
       kind == ReferenceMemberKind.constructor || binding.isStatic;
   String get exportName => binding.exportName ?? binding.declaration.name;
@@ -55,8 +57,9 @@ final class ReferenceMemberShape {
     this.binding,
     this.kind,
     Iterable<ParameterBinding> parameters,
-    this.result,
-  ) : parameters = List.unmodifiable(parameters);
+    this.result, {
+    this.isCleanup = false,
+  }) : parameters = List.unmodifiable(parameters);
 }
 
 typedef ReferenceMemberRef = ({int classId, int memberIndex});
@@ -85,6 +88,8 @@ final class ReferenceClassShape {
   final Set<int> memberships;
   final int? superclassId;
   final List<ReferencePropertyShape> prototypeProperties;
+  ReferenceMemberShape? get cleanup =>
+      members.where((member) => member.isCleanup).singleOrNull;
   ReferenceClassShape._(
     this.binding,
     this.constructor,
@@ -753,14 +758,23 @@ List<ReferenceClassShape> validateReferenceClasses(BindingModule module) {
     if (binding.exportSurface != module.source) {
       reject('NAPI_LIBRARY', 'The class must be exposed by the entry library.');
     }
-    if (binding.classPolicy != ClassPolicy.reference) {
-      reject('NAPI_CLASS', 'A reference class policy is required.');
-    }
     if (binding.typeParameters.isNotEmpty) {
       reject(
         'NAPI_GENERIC',
         'Generic class specialization is not implemented.',
       );
+    }
+    if (binding.cleanup case final cleanup?) {
+      final member = binding.members.singleWhere(
+        (member) => member.declaration == cleanup,
+      );
+      if (member.selection == MemberSelection.excluded) {
+        reject(
+          'NAPI_RESOURCE',
+          'A resource cleanup method must be selected for explicit disposal.',
+          member.source,
+        );
+      }
     }
     ReferenceMemberShape? constructor;
     final members = <ReferenceMemberShape>[];
@@ -782,11 +796,20 @@ List<ReferenceClassShape> validateReferenceClasses(BindingModule module) {
         isAsync: member.isAsync,
         isGenerator: member.isGenerator,
       );
+      final isCleanup = member.declaration == binding.cleanup;
+      if (isCleanup && resultPayload(type) != null) {
+        reject(
+          'NAPI_RESOURCE',
+          'A cleanup method must return void or Future<void>.',
+          member.source,
+        );
+      }
       return ReferenceMemberShape._(
         member,
         kind,
         parameters,
         type is VoidType ? null : type,
+        isCleanup: isCleanup,
       );
     }
 
@@ -938,7 +961,22 @@ List<ReferenceClassShape> validateReferenceClasses(BindingModule module) {
       ),
     );
   }
-  return _referenceHierarchy(result);
+  final shapes = _referenceHierarchy(result);
+  final policies = resourcePolicies(shapes);
+  for (final shape in shapes) {
+    final inheritedPolicies = shape.memberships
+        .where(policies.containsKey)
+        .map((id) => policies[id])
+        .toSet();
+    if (inheritedPolicies.length > 1) {
+      throw BindingDiagnostic(
+        'NAPI_RESOURCE',
+        '${shape.binding.exportName} inherits incompatible cleanup policies.',
+        shape.binding.source,
+      );
+    }
+  }
+  return shapes;
 }
 
 List<ReferenceClassShape> _referenceHierarchy(
@@ -1077,10 +1115,19 @@ List<ReferenceClassShape> _referenceHierarchy(
           }
           final actualVoid = actual.result is VoidType;
           final contractVoid = contract.result == null;
+          final validCleanupResult =
+              actualVoid ||
+              (isFutureType(actual.result) &&
+                  actual.result!.nullability == TypeNullability.nonNullable &&
+                  (actual.result! as DeclaredType).typeArguments.length == 1 &&
+                  resultPayload(actual.result) == null);
           if (!inheritedMember.isCompatible ||
               actual.isGenerator ||
               (actual.isAsync && !isFutureType(actual.result)) ||
-              isFutureType(actual.result) != isFutureType(contract.result) ||
+              (contract.isCleanup
+                  ? !validCleanupResult
+                  : isFutureType(actual.result) !=
+                        isFutureType(contract.result)) ||
               (contract.kind != ReferenceMemberKind.method &&
                   actualVoid != contractVoid)) {
             reject(
@@ -1194,12 +1241,16 @@ bool referenceMemberAccepts(
       _referenceSubtype(child, parent, ids, memberships);
   final output = implementation.result;
   final requiredOutput = contract.result;
-  if (isFutureType(output) != isFutureType(requiredOutput)) return false;
+  if (implementation.isCleanup != contract.isCleanup ||
+      implementation.returnsFuture != contract.returnsFuture) {
+    return false;
+  }
   // A void method contract discards its result. The derived binding retains
   // its own conversion, while explicitly borrowing the base still returns void.
   final discardsResult =
       contract.kind == ReferenceMemberKind.method && requiredOutput == null;
-  if (!discardsResult &&
+  if (!contract.isCleanup &&
+      !discardsResult &&
       ((output == null) != (requiredOutput == null) ||
           (output != null && !subtype(output, requiredOutput!)))) {
     return false;
@@ -1375,7 +1426,7 @@ bool isReferenceType(BindingType type, List<ClassBinding> classes) =>
     type.semantics == ValueSemantics.reference &&
     classes.any(
       (binding) =>
-          binding.classPolicy == ClassPolicy.reference &&
+          binding.classPolicy != ClassPolicy.value &&
           binding.declaration == type.declaration &&
           binding.typeParameters.isEmpty,
     );
@@ -1667,4 +1718,88 @@ bool _isBackendValue(
           ) &&
       type.typeArguments.length == (name == 'List' ? 1 : 2) &&
       type.typeArguments.every(child);
+}
+
+/// Resource views with the same original cleanup target, call shape and defaults
+/// share one policy. Generated classifiers reject actual composite objects whose
+/// selected views match different policy IDs before exposing or using them.
+Map<int, int> resourcePolicies(List<ReferenceClassShape> classes) {
+  final ids = {
+    for (final shape in classes) shape.binding.declaration: shape.classId,
+  };
+  final memberships = {
+    for (final shape in classes) shape.classId: shape.memberships,
+  };
+  final representatives = <ReferenceClassShape>[];
+  final policies = <int, int>{};
+  for (final shape in classes) {
+    final cleanup = shape.cleanup;
+    if (cleanup == null) continue;
+    bool compatible(ReferenceClassShape previous) {
+      final other = previous.cleanup!;
+      return cleanup.binding.declaration.name ==
+              other.binding.declaration.name &&
+          (cleanup.binding.callPath ?? cleanup.binding.declaration.name) ==
+              (other.binding.callPath ?? other.binding.declaration.name) &&
+          referenceMemberAccepts(cleanup, other, ids, memberships) &&
+          referenceMemberAccepts(other, cleanup, ids, memberships) &&
+          referenceMemberDefaultsAccept(cleanup, other) &&
+          referenceMemberDefaultsAccept(other, cleanup);
+    }
+
+    final previous = representatives.where(compatible).firstOrNull;
+    if (previous == null) representatives.add(shape);
+    policies[shape.classId] = previous?.classId ?? shape.classId;
+  }
+  return Map.unmodifiable(policies);
+}
+
+bool _referencePositional(ParameterBinding parameter) =>
+    parameter.kind == ParameterKind.requiredPositional ||
+    parameter.kind == ParameterKind.optionalPositional;
+
+bool referenceMemberDefaultsAccept(
+  ReferenceMemberShape actual,
+  ReferenceMemberShape expected,
+) {
+  final positional = actual.parameters.where(_referencePositional).toList();
+  final named = {
+    for (final p in actual.parameters.where((p) => !_referencePositional(p)))
+      p.name: p,
+  };
+  var position = 0;
+  for (final previous in expected.parameters) {
+    final parameter = _referencePositional(previous)
+        ? positional[position++]
+        : named[previous.name]!;
+    // Required contracts prescribe no result for omission. If both accept it,
+    // the chosen callback must supply the same Dart value, also for undefined.
+    if (previous.presence == ParameterPresence.optional &&
+        !_sameReferenceDefault(parameter, previous)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+Object? _referenceDefault(ParameterBinding parameter) {
+  final value = parameter.defaultValue?.value;
+  if (value is int) {
+    if (parameter.type case DeclaredType(:final declaration)
+        when declaration.library == Uri.parse('dart:core') &&
+            declaration.name == 'double') {
+      return value.toDouble();
+    }
+  }
+  return value;
+}
+
+bool _sameReferenceDefault(ParameterBinding left, ParameterBinding right) {
+  final a = _referenceDefault(left);
+  final b = _referenceDefault(right);
+  if (a is double && b is double) {
+    if (a.isNaN && b.isNaN) return true;
+    if (a == 0 && b == 0) return a.isNegative == b.isNegative;
+  }
+  return a.runtimeType == b.runtimeType && a == b;
 }

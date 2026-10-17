@@ -1,5 +1,5 @@
-// Compiler-private bridge ABI, version 10. Keep generated Dart in lockstep.
-// Version 10 adds queued Promise capabilities to owner-thread event delivery.
+// Compiler-private bridge ABI, version 11. Keep generated Dart in lockstep.
+// Version 11 adds canonical cleanup Promises and final-settlement retention.
 #pragma once
 #include <node_api.h>
 #include <stdint.h>
@@ -20,8 +20,10 @@
 //
 // Future callback metadata appends true after arity. These callbacks are
 // int Function(int envAddress, int callbackInfoAddress, int futureToken), and
-// return zero; C creates/returns the Promise before Dart validation. The root
-// releaseFuture(int futureToken) acknowledges resolver handoff outside Dart.
+// normally return zero; C creates the Promise before Dart validation. Cleanup
+// callbacks may return a canonical Promise's napi_value pointer from slot 44.
+// releaseFuture(int futureToken) acknowledges resolver handoff, or final observed
+// settlement for resource leases, outside the JS resolver's Dart entry.
 // Other callbacks are int Function(int envAddress, int callbackInfoAddress).
 // Its returned int is a napi_value pointer, or zero with a pending exception.
 // ownerId is a positive isolate-local integer. A wrapper must use slots 14/15
@@ -78,7 +80,9 @@ enum BridgeApiSlot {
   bridge_is_constructor_target = 41,
   bridge_register_reference_shape = 42,
   bridge_queue_promise_settlement = 43,
-  bridge_api_count = 44,
+  bridge_bind_cleanup_promise = 44,
+  bridge_observe_future_settlement = 45,
+  bridge_api_count = 46,
 };
 typedef napi_status (*BridgeOwnerWrap)(napi_env, napi_value self, int64_t ownerId);
 typedef int64_t (*BridgeOwnerUnwrap)(napi_env, napi_value self);
@@ -149,3 +153,15 @@ typedef napi_status (*BridgeRegisterReferenceShape)(
 // Error fallback. Ordinary JS null/undefined have nonnull napi_value handles.
 typedef napi_status (*BridgeQueuePromiseSettlement)(
     napi_env, int64_t futureToken, napi_value value, bool reject);
+
+// Bind a freshly allocated capability to a stable raw ResourceControl identity.
+// A hit discards the unexposed candidate and returns the existing weakly cached
+// Promise with first=false. Dart must discard that candidate's pending record.
+// A miss publishes the candidate before cleanup can reenter, first=true.
+typedef napi_status (*BridgeBindCleanupPromise)(
+    napi_env, int64_t futureToken, int64_t controlId, napi_value* result, bool* first);
+
+// A call with resource leases and a potentially object-valued output requests
+// final settlement acknowledgement. C observes only an actual object/function
+// fulfillment, outside Dart; rejection, null and primitives retain handoff ack.
+typedef napi_status (*BridgeObserveFutureSettlement)(napi_env, int64_t futureToken);

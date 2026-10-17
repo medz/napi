@@ -24,6 +24,8 @@ String nativeScalarWriter(ScalarConversion value) => switch (value.kind) {
 
 /// Typed traversal owns only callback-scoped JS handles and ordinary Dart values.
 final class NativeStructuralEmitter {
+  final bool hasResources;
+  NativeStructuralEmitter({this.hasResources = false});
   final _code = StringBuffer();
   var _next = 0;
   final _reads = Map<ValueConversion, String>.identity();
@@ -85,6 +87,9 @@ final class NativeStructuralEmitter {
         _code.writeln(
           "  if (object is! target.${conversion.classBinding.callPath}) throw NapiTypeError('\$path: expected ${conversion.classBinding.exportName}');",
         );
+        if (hasResources) {
+          _code.writeln('  state.operation?.retain(_resourceControl(object));');
+        }
         _code.writeln('  return object;');
       case ScalarConversion():
         _code.writeln(

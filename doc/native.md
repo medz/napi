@@ -79,9 +79,9 @@ Weak identity entries and zero-count Node-API references do not root wrappers.
 Environment, live lease and actual selected-class membership are checked before business calls.
 Readonly fields remain readonly and GC does not call business disposal methods.
 
-The private bridge table is ABI 10 (44 slots). The new slot queues Future
-settlement for delivery outside Dart; ABI 9 supplied owner-thread event-loop
-integration. Older bundles are rejected before
+The private bridge table is ABI 11 (46 slots). It adds canonical resource cleanup
+Promises and resource-lease settlement observation to ABI 10's Future delivery;
+ABI 9 supplied owner-thread event-loop integration. Older bundles are rejected before
 copying; maintainers rebuild the bridge/runtime bundle using their existing VM
 cache. Consumer builds still require only the ordinary Dart SDK and that bundle.
 Constructor-target detection preserves custom JS subclass receivers during
@@ -110,15 +110,14 @@ outputs snapshot the complete Dart tree before host-side scalar, reference and
 Map-key checks. These paths use temporary snapshot storage; output getters are
 read once per occurrence before converting children.
 
-Unsupported shapes fail before output is created: resource policies,
-generic specialization, non-null
+Unsupported shapes fail before output is created: generic specialization, non-null
 object defaults, Future inputs/FutureOr, callbacks, streams and cancellation. The same reference
 contract runs on Wasm; see [reference classes](classes.md). A unique most-specific
 selected class owns the canonical wrapper across base/interface views. Instance
 prototypes inherit without static inheritance. Compatible unrelated selected
 memberships use one private composite prototype with a complete instance
 surface; conflicting call contracts fail before exposing a wrapper. Custom JS
-prototypes retain priority. The full generic/resource/async roadmap remains open.
+prototypes retain priority. The remaining generic, callback, stream and shared-buffer roadmap stays open.
 
 ## Runtime and verification
 
@@ -142,7 +141,10 @@ errors are reported through Node's uncaught-exception path.
 Generated [Future-returning declarations](futures.md) use the same output
 converters, keep receiver/argument roots through conversion and resolver delivery,
 and return genuine Promises even for ordinary argument failures. Generated
-resource cleanup and its complete lease settlement contract remain outstanding.
+[resource bindings](resources.md) share raw-object state, cache cleanup completion
+and retain receiver/input leases through actual public Promise settlement.
+Object results with nonempty resource leases use a private Node promise hook;
+ordinary Future calls do not activate that observer.
 
 The runtime's filename/install-name and bridge expectation encode the pinned
 SDK/configuration and runtime source/input identity. The bridge checks the actual
@@ -166,6 +168,8 @@ generated package exercises Dart microtasks, timers, messages, event-loop
 liveness, async errors and Worker shutdown without exposing Future signatures.
 A further package checks the shared [Future contract](futures.md), including
 pending receiver/argument retention and ordinary Promise rejection behavior.
+The resource package adds cleanup identity, nested-resource leases, thenable
+settlement, failure rollback, wrapper readoption and teardown checks.
 General CI also checks native metadata, emission, AOT compilation and manifest validation;
 the full native execution check requires a maintainer bundle and is run locally.
 
@@ -257,3 +261,28 @@ Complete native artifacts grow from 6,584,496 to 6,585,876 bytes (+1,380 bytes,
 runtime size is unchanged. Promise factories and Dart retention state are
 generated only for modules with Future exports; this synchronous comparison
 does not measure Future throughput or claim zero async allocation cost.
+
+### Resource bindings and synchronous modules
+
+The ABI 11 resource bridge was compared with `b1b3264` and its ABI 10 bundle
+using the same synchronous `add`/`Counter` source and the A/A plus three balanced
+AB/BA protocol above. AOT was regenerated for the private ABI change. Complete
+artifacts grow from 6,585,876 to 6,587,844 bytes (+1,968 bytes, 0.03%), all in the
+bridge; AOT/runtime sizes and loader/declaration bytes are unchanged. All eight
+compiled Wasm artifacts for this resource-free sample remain byte-identical.
+Across nine resource-free synchronous fixtures, all 36 Wasm emitted texts remain
+identical; eight native synchronous fixtures retain identical generated Dart.
+
+| Node | Function ns, before → after | Getter ns, before → after | Method ns, before → after |
+| --- | ---: | ---: | ---: |
+| 24.19.0 | 923.0 → 927.9 | 779.4 → 779.8 | 774.3 → 778.0 |
+| 26.11.1 | 924.1 → 937.3 | 783.8 → 791.8 | 779.6 → 792.6 |
+
+Call median changes range from +0.05% to +1.67%, with mixed paired directions
+and same-target variation up to 3.56%. Constructor medians change +2.97%/-1.27%,
+while same-target variation reaches 8.09%. Initial filesystem/signature checks
+strongly affect first import; neither predictable cold-start latency nor zero
+regression is established. Raw paired samples and artifacts are retained under
+`.dart_tool/evidence/resource-bindings/cost/` in the development checkout.
+These synchronous measurements exclude active resource leases and Promise-hook
+cost; see [resource measurement scope](resources.md#settlement-observer-cost).

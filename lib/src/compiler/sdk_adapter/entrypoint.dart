@@ -81,3 +81,56 @@ void _observeFuture<T>(Future<T> future, WasmExternRef capability, String contex
   } catch (error, stack) { fail(error, stack); }
 }
 ''';
+
+/// The host owns the release callback so JS conversion failures also release
+/// accepted operations, including errors that bypass Dart exception handlers.
+const resourceEntrypointPrelude = r'''
+final class _ResourcePolicyViolation implements Exception {
+  const _ResourcePolicyViolation();
+}
+
+WasmExternRef? _normalizeResourceError(Object error) {
+  if (error is _ResourcePolicyViolation) {
+    _resourcePolicyError();
+    return null;
+  }
+  return _normalizeError(error);
+}
+
+void _failResourceFuture(WasmExternRef capability, Object error, StackTrace stack, String context) {
+  if (error is _ResourcePolicyViolation) { _resourcePolicyError(); return; }
+  _failFuture(capability, error, stack, context);
+}
+
+void _retainResourceReference(ResourceOperation operation, JSAny? reference) {
+  if (reference == null) return;
+  try {
+    operation.retain(_resourceControl(externRefForJSAny(reference)!.internalize().toObject()));
+  } catch (error) { _normalizeResourceError(error); }
+}
+
+@pragma('wasm:export', 'napi:resource:begin')
+WasmExternRef? _beginResourceOperation(WasmExternRef capability, WasmExternRef? reference, WasmI32 cleanup) {
+  try {
+    final control = reference.isNull ? null : _resourceControl(reference!.internalize().toObject());
+    final exempt = cleanup.toIntSigned() != 0;
+    final operation = ResourceOperation(exempt: exempt ? control : null);
+    _attachResourceOperation(capability,
+        externRefForJSAny((() { operation.release(); }).toJS)!,
+        externRefForJSAny(((JSAny? value) { _retainResourceReference(operation, value); }).toJS)!);
+    if (!exempt) operation.retain(control);
+    return WasmAnyRef.fromObject(operation).externalize();
+  } catch (error) { return _normalizeResourceError(error); }
+}
+
+@pragma('wasm:import', 'napi.attachResourceOperation')
+external void _attachResourceOperation(WasmExternRef capability, WasmExternRef release, WasmExternRef retain);
+@pragma('wasm:import', 'napi.readResourceValue')
+external WasmExternRef? _readResourceValue(WasmExternRef capability, WasmExternRef? value, WasmI32 context);
+@pragma('wasm:import', 'napi.activateResourceOperation')
+external void _activateResourceOperation(WasmExternRef capability, WasmI32 active);
+@pragma('wasm:import', 'napi.bindCleanup')
+external WasmI32 _bindCleanup(WasmExternRef capability, WasmExternRef control);
+@pragma('wasm:import', 'napi.resourcePolicyError')
+external void _resourcePolicyError();
+''';

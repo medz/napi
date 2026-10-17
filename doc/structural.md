@@ -147,7 +147,7 @@ null-prototype special keys, own-data descriptors, key ordering and JSON paths,
 mixed Map/Dictionary signatures, class members, alias recognition and GC. Fresh native/Wasm npm
 consumers run it with the original native source/build directories removed.
 Tested with Dart 3.13.5, Node 24.19.0/26.11.1 and TypeScript 7.0.2. Native execution
-is qualified on macOS arm64 and requires an ABI 10 bundle. The compiler/runtime
+is qualified on macOS arm64 and requires an ABI 11 bundle. The compiler/runtime
 use private experimental SDK APIs; other native platforms remain unqualified.
 
 Non-null structural defaults, generic reference specialization and opaque/shared

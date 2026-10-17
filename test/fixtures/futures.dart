@@ -117,6 +117,11 @@ class FutureCounter {
     return _receiverGate!.future;
   }
 
+  Future<int> orphan() {
+    _pendingReceiver = WeakReference(this);
+    return Completer<int>().future;
+  }
+
   static Future<String> label() => Future.value('FutureCounter');
 }
 
@@ -169,6 +174,12 @@ Future<int> futureHold(FutureBox value) {
   _pendingBox = WeakReference(value);
   // The Future itself never captures value. Its lifetime is the adapter's job.
   return _gate!.future;
+}
+
+@NAPI()
+Future<int> futureOrphan(FutureBox value) {
+  _pendingBox = WeakReference(value);
+  return Completer<int>().future;
 }
 
 @NAPI()

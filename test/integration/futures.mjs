@@ -218,6 +218,23 @@ async function retention(api) {
   assert.fail('settled operations must release both input and receiver roots');
 }
 
+async function orphan(api) {
+  // No business gate or timer retains either Future, and neither public Promise
+  // is saved. Acceptance must still preserve raw input and receiver lifetimes.
+  promise(() => api.futureOrphan(new api.FutureBox(81)));
+  promise(() => new api.FutureCounter(19).orphan());
+  for (let attempt = 0; attempt < 30; attempt++) {
+    await new Promise(resolve => setImmediate(resolve));
+    global.gc();
+    for (let allocation = 0; allocation < 16; allocation++) {
+      api.futurePressure(attempt * 16 + allocation);
+    }
+    assert.equal(api.futureHeldAlive(), true, 'orphan Future retains its accepted raw input');
+    assert.equal(api.futureReceiverAlive(), true, 'orphan Future retains its accepted raw receiver');
+  }
+  // The parent watchdog proves unresolved Futures alone permit natural exit.
+}
+
 async function runWorker(hold) {
   await new Promise((resolve, reject) => {
     const worker = new Worker(new URL(import.meta.url), {workerData: {hold}});
@@ -275,6 +292,9 @@ async function scenario(name) {
     case 'retention':
       await retention(api);
       break;
+    case 'orphan':
+      await orphan(api);
+      break;
     case 'liveness': {
       let settled = false;
       promise(() => api.futureDelay(42, 30)).then(value => { assert.equal(value, 42); settled = true; });
@@ -321,7 +341,7 @@ if (!isMainThread) {
 } else if (process.argv[2]) {
   await scenario(process.argv[2]);
 } else {
-  const cases = ['basic', 'concurrent', 'independent', 'retention', 'liveness',
+  const cases = ['basic', 'concurrent', 'independent', 'retention', 'orphan', 'liveness',
     'pending', 'unhandled-event', 'unhandled-strict', 'worker-only', 'workers-with-main'];
   for (const name of cases) {
     // Parent-only watchdogs cannot conceal a missing native/Wasm keepalive.

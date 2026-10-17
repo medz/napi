@@ -685,8 +685,7 @@ final class _Reader {
       documentation: element.documentationComment ?? _documentation[element],
       typeParameters: element.typeParameters.map(_typeParameter),
       members: members.where((e) => e.isPublic).map(_member),
-      inheritedInstanceMembers:
-          (config.classPolicy ?? ClassPolicy.reference) == ClassPolicy.reference
+      inheritedInstanceMembers: config.classPolicy != ClassPolicy.value
           ? _inheritedInstanceMembers(element)
           : const [],
       isAbstract: element.isAbstract,
@@ -724,8 +723,7 @@ final class _Reader {
     for (final type in element.allSupertypes) {
       final ancestor = type.element;
       if (!_selectedClasses.contains(ancestor) ||
-          (_config(ancestor)?.classPolicy ?? ClassPolicy.reference) !=
-              ClassPolicy.reference) {
+          _config(ancestor)?.classPolicy == ClassPolicy.value) {
         continue;
       }
       for (final contract in [

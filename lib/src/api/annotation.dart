@@ -26,8 +26,9 @@ class NAPI {
   /// Original Dart name of a resource's own public instance cleanup method.
   ///
   /// Required for [ClassPolicy.resource] and invalid for other policies. Its
-  /// full signature is retained; resource invocation and lifecycle generation
-  /// remain backend work. This does not add disposal to ordinary classes.
+  /// full signature is retained. Generated cleanup exposes `Promise<void>` for
+  /// a selected `void` or `Future<void>` method and waits for accepted operation
+  /// leases. This does not add disposal to ordinary classes.
   final String? cleanup;
 
   /// Public Dart constructor name (`new` for unnamed) for value inputs.

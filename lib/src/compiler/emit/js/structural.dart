@@ -10,11 +10,12 @@ abstract interface class StructuralLeafAdapter {
 }
 
 final class BoundaryLeafAdapter implements StructuralLeafAdapter {
-  const BoundaryLeafAdapter();
+  final bool resources;
+  const BoundaryLeafAdapter({this.resources = false});
   @override
   String read(ValueConversion leaf, String value, String path) =>
       leaf is ReferenceConversion
-      ? 'readReference($value, ${leaf.classId}, ${leaf.nullable}, $path)'
+      ? '${resources ? 'readResourceReference' : 'readReference'}($value, ${leaf.classId}, ${leaf.nullable}, $path${resources ? ', state.operation' : ''})'
       : 'checkedScalar($value, ${jsonEncode(scalarPolicy(leaf as ScalarConversion))}, $path)';
   @override
   String write(ValueConversion leaf, String value, String path) {

@@ -7,6 +7,7 @@ import 'verify.dart' show run, typescript;
 import 'value_fixture.dart';
 import 'native_event_fixture.dart';
 import 'future_fixture.dart';
+import 'resource_fixture.dart';
 
 /// Run explicitly with a maintainer-built runtime bundle. No native compiler,
 /// SDK-source checkout, network access or package publication is used here.
@@ -199,6 +200,7 @@ console.log('Native Worker-only unload and reload: passed');
   await verifyValueOnlyFixture(root, nativeRuntime: bundle);
   await verifyNativeEvents(root, nativeRuntime: bundle);
   await verifyFutureFixture(root, nativeRuntime: bundle);
+  await verifyResourceFixture(root, nativeRuntime: bundle);
   await root.delete(recursive: true);
   stdout.writeln(
     'Generated native bindings, fresh npm install and TypeScript: passed',

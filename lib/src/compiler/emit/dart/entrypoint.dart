@@ -7,14 +7,20 @@ import '../../sdk_adapter/entrypoint.dart';
 import 'structural.dart';
 
 String emitDart(ModulePlan plan) {
+  final resources = plan.resourcePolicies.isNotEmpty;
   final source = jsonEncode(plan.source.toString()).replaceAll(r'$', r'\$');
   final result = StringBuffer(
     "import $source as target;\n"
+    "${resources ? "import 'package:napi/runtime.dart';\n" : ''}"
     "${plan.conversions.any(containsDictionary) ? "import 'package:napi/napi.dart' as napi;\nimport 'dart:convert' show jsonEncode;\n" : ''}"
     '$entrypointPrelude\n',
   );
   if (plan.calls.any((call) => call.returnsFuture)) {
     result.writeln(futureEntrypointPrelude);
+  }
+  if (resources) {
+    result.writeln(resourceEntrypointPrelude);
+    _emitResourceControl(result, plan);
   }
   if (plan.classes.isNotEmpty) {
     final candidates = [for (final _ in plan.classes) <int>[]];
@@ -27,7 +33,7 @@ String emitDart(ModulePlan plan) {
 @pragma('wasm:export', 'napi:class:classify')
 WasmI32 _classifyReference(WasmExternRef reference) {
   final object = reference.internalize().toObject();
-  var candidate = -1;
+${resources ? '  try { _resourceControl(object); } catch (error) { _normalizeResourceError(error); }\n' : ''}  var candidate = -1;
   var ambiguous = false;
 ''');
     for (final classId in plan.referenceClassOrder) {
@@ -75,6 +81,10 @@ WasmExternRef _referenceViews(WasmExternRef reference) {
           ? call.binding.exportName
           : (call as MemberCallPlan).context,
     ).replaceAll(r'$', r'\$');
+    if (plan.needsResourceOperation(call)) {
+      _emitResourceCall(result, structural, call, index, errorContext);
+      continue;
+    }
     final constructor =
         call is MemberCallPlan && call.kind == MemberCallKind.constructor;
     final instance = call is MemberCallPlan && !constructor && !call.isStatic;
@@ -212,6 +222,190 @@ WasmExternRef _referenceViews(WasmExternRef reference) {
   }
   result.write(structural.source);
   return result.toString();
+}
+
+void _emitResourceControl(StringBuffer result, ModulePlan plan) {
+  result.writeln('ResourceControl? _resourceControl(Object? value) {');
+  result.writeln('  if (value == null) return null;');
+  result.writeln('  var policy = -1;');
+  for (final entry in plan.resourcePolicies.entries) {
+    result.writeln(
+      '''  if (value is target.${plan.classes[entry.key].binding.callPath}) {
+    if (policy >= 0 && policy != ${entry.value}) throw const _ResourcePolicyViolation();
+    policy = ${entry.value};
+  }''',
+    );
+  }
+  result.writeln(
+    '  return policy < 0 ? null : ResourceControl.forObject(value);\n}',
+  );
+}
+
+void _emitResourceCall(
+  StringBuffer result,
+  DartStructuralEmitter structural,
+  CallPlan call,
+  int index,
+  String errorContext,
+) {
+  final member = call is MemberCallPlan ? call : null;
+  final constructor = member?.kind == MemberCallKind.constructor;
+  final instance = member != null && !member.isStatic;
+  final cleanup = member?.isCleanup ?? false;
+  final output = call.output;
+  final returnsVoid = call.returnsFuture || (output == null && !constructor);
+  final returnType = returnsVoid ? 'void' : 'WasmExternRef?';
+  void catchDartError() {
+    result.writeln('  } catch (error${call.returnsFuture ? ', stack' : ''}) {');
+    result.writeln(
+      call.returnsFuture
+          ? '    _failResourceFuture(capability, error, stack, $errorContext);\n    return;'
+          : returnsVoid
+          ? '    _normalizeResourceError(error);\n    return;'
+          : '    return _normalizeResourceError(error);',
+    );
+    result.writeln('  }');
+  }
+
+  result.writeln("@pragma('wasm:export', '${call.coreExportName}')");
+  result.writeln(
+    '$returnType _export$index(${[
+      'WasmExternRef capability',
+      'WasmExternRef prepared',
+      if (instance) 'WasmExternRef reference',
+      for (final (i, parameter) in call.parameters.indexed) ...[if (_optional(parameter)) 'WasmI32 d$i', 'WasmExternRef? p$i'],
+    ].join(', ')}) {',
+  );
+  result.writeln(
+    '  final operation = prepared.internalize().toObject() as ResourceOperation;',
+  );
+  if (instance) {
+    result.writeln(
+      '  final object = reference.internalize().toObject() as target.${member.owner.callPath};',
+    );
+    if (cleanup) result.writeln('  final control = _resourceControl(object);');
+  }
+  for (final (i, parameter) in call.parameters.indexed) {
+    final conversion = call.inputs[i];
+    result.writeln('  final ${conversion.dartType} a$i;');
+    if (_optional(parameter)) {
+      result.writeln(
+        '  if (d$i.toIntSigned() != 0) {\n    a$i = ${renderDartDefault(parameter, conversion)};\n  } else {',
+      );
+    }
+    if (conversion is ReferenceConversion) {
+      result.writeln(
+        '  a$i = ${conversion.nullable ? 'p$i.isNull ? null : ' : ''}p$i!.internalize().toObject() as ${conversion.dartType};',
+      );
+    } else {
+      // JS snapshots may throw any value. Keep imports outside Dart catch so
+      // the host's Promise/finally boundary receives their original identity.
+      result.writeln(
+        '  final v$i = _readResourceValue(capability, p$i, WasmI32.fromInt(${call.inputContexts[i]}));',
+      );
+      final value = conversion is ScalarConversion
+          ? '${conversion.nullable ? 'v$i.isNull ? null : ' : ''}${_read(conversion, 'v$i!')}'
+          : '${structural.read(conversion)}(v$i.isNull ? null : v$i!.toJS, ${jsonEncode(conversion.context).replaceAll(r'$', r'\$')})';
+      if (conversion is! ScalarConversion) result.writeln('  try {');
+      result.writeln('  a$i = $value;');
+      if (conversion is! ScalarConversion) {
+        result.writeln('  } on _StructureViolation catch (error) {');
+        result.writeln(
+          returnsVoid
+              ? '    _reportStructureError(error);\n    return;'
+              : '    return _reportStructureError(error);',
+        );
+        catchDartError();
+      }
+    }
+    if (_optional(parameter)) result.writeln('  }');
+  }
+  if (cleanup) {
+    result.writeln(
+      '  if (_bindCleanup(capability, WasmAnyRef.fromObject(control!).externalize()).toIntSigned() == 0) return;',
+    );
+  }
+  if (call.returnsFuture) {
+    result.writeln(
+      '  _activateResourceOperation(capability, WasmI32.fromInt(operation.isEmpty ? 0 : 1));',
+    );
+    result.writeln(
+      '  _retainPromise(capability, WasmAnyRef.fromObject(<Object?>[${[if (instance) 'object', for (var i = 0; i < call.parameters.length; i++) 'a$i'].join(', ')}]).externalize());',
+    );
+    result.writeln('  final Future<${output?.dartType ?? 'void'}> value;');
+  } else if (constructor) {
+    result.writeln('  final target.${member!.owner.callPath} value;');
+  } else if (output != null) {
+    result.writeln('  final ${output.dartType} value;');
+  }
+  final invocation = _invocation(call);
+  final invoke = cleanup ? 'control.dispose(() => $invocation)' : invocation;
+  result.writeln('  try {');
+  result.writeln(
+    '    ${call.returnsFuture || constructor || output != null ? 'value = ' : ''}$invoke;',
+  );
+  catchDartError();
+  if (call.returnsFuture) {
+    result.writeln(
+      '  _observeFuture(value, capability, $errorContext, ${output == null ? 'null' : '(value) => _futureJSValue(_futureOutput$index(value))'});\n}',
+    );
+    if (output == null) return;
+    result.writeln(
+      'WasmExternRef? _futureOutput$index(${output.dartType} value) {',
+    );
+  } else if (constructor) {
+    result.writeln('  return WasmAnyRef.fromObject(value).externalize();\n}');
+    return;
+  }
+  if (output != null) {
+    _emitResourceOutput(
+      result,
+      structural,
+      output,
+      call.outputContext!,
+      '  ',
+      futureContext: call.returnsFuture ? errorContext : null,
+    );
+  }
+  result.writeln('}');
+}
+
+void _emitResourceOutput(
+  StringBuffer result,
+  DartStructuralEmitter structural,
+  ValueConversion output,
+  int context,
+  String indent, {
+  String? futureContext,
+}) {
+  if (output.nullable) {
+    result.writeln('${indent}if (value == null) return WasmExternRef.nullRef;');
+  }
+  if (output is ReferenceConversion) {
+    result.writeln(
+      '${indent}return WasmAnyRef.fromObject(value).externalize();',
+    );
+  } else if (output is ScalarConversion) {
+    result.writeln('${indent}return ${_write(output, context)};');
+  } else {
+    result.writeln('${indent}final JSAny? serialized;');
+    result.writeln('${indent}try {');
+    result.writeln(
+      '$indent  serialized = ${structural.write(output)}(value, _StructureState(), ${jsonEncode(output.context).replaceAll(r'$', r'\$')}, 0);',
+    );
+    result.writeln('$indent} on _StructureViolation catch (error) {');
+    result.writeln('$indent  return _reportStructureError(error);');
+    result.writeln(
+      '$indent} catch (error${futureContext != null ? ', stack' : ''}) {',
+    );
+    result.writeln(
+      '$indent  return ${futureContext == null ? '_normalizeResourceError(error)' : '_normalizeFutureError(error, stack, $futureContext)'};',
+    );
+    result.writeln('$indent}');
+    result.writeln(
+      '${indent}return _writeValue(externRefForJSAny(serialized!), WasmI32.fromInt($context));',
+    );
+  }
 }
 
 String _invocation(CallPlan call) {
