@@ -29,6 +29,7 @@ See [the architecture and delivery plan](doc/architecture.md) and
 - Required positional scalar functions: `bool`, `String`, `double`, `int`, `BigInt`, and nullable forms
 - Optional positional and named scalar arguments with resolved Dart defaults and exact presence capture
 - Nested Lists, Maps, explicit Dictionaries and records in functions/class members, with strict fields, reference identity and bounded traversal on both targets
+- Independent Uint8List/ByteBuffer snapshots with strict brands, visible byte ranges and invalidation checks on both targets
 - Safe-number `int` by default, or fixed JavaScript `bigint` with `@NAPI(bigint: true)`
 - A pinned Dart SDK adapter and linker producing actual Wasm named exports
 - Generated reference classes, named/factory constructors and weak wrapper identity on both targets
@@ -55,7 +56,7 @@ shared-buffer lifetimes, broader generic
 specialization and replacement builds remain work in
 [#114](https://github.com/medz/napi/issues/114). See [annotation syntax and scope](doc/annotations.md) and the
 [scalar conversion contract](doc/scalars.md), [argument presence and defaults](doc/arguments.md),
-[structural values](doc/structural.md), [value classes](doc/values.md),
+[structural values](doc/structural.md), [binary snapshots](doc/binary.md), [value classes](doc/values.md),
 [reference classes](doc/classes.md), [opaque payloads](doc/opaque.md), [resource cleanup](doc/resources.md),
 [Future exports](doc/futures.md), [callbacks](doc/callbacks.md), [streams](doc/streams.md),
 [explicit cancellation](doc/cancellation.md), and

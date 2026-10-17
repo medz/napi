@@ -1682,6 +1682,86 @@ static napi_status take_callback_exception(napi_env env, napi_value* result) {
   return napi_get_and_clear_last_exception(env, result);
 }
 
+// Canonical Uint8Array admission runs in the captured loader helper first.
+// No borrowed pointer survives this function or a call into JavaScript.
+static Dart_Handle read_binary(napi_env env, napi_value value, int32_t kind) {
+  auto error = [&](const char* message) {
+    fail_error(env, message);
+    return Dart_Null();
+  };
+  auto owner = active_owner;
+  if (!owner || owner->env != env || owner->closing || (kind != 0 && kind != 1))
+    return error("Invalid native binary input owner or kind");
+  napi_typedarray_type type;
+  size_t length = 0;
+  napi_value backing;
+  if (napi_get_typedarray_info(env, value, &type, &length, nullptr, &backing, nullptr) != napi_ok ||
+      type != napi_uint8_array || length > 0x7fffffff)
+    return error("Invalid native binary input window");
+  bool arraybuffer = false, detached = false;
+  if (napi_is_arraybuffer(env, backing, &arraybuffer) != napi_ok || !arraybuffer ||
+      napi_is_detached_arraybuffer(env, backing, &detached) != napi_ok || detached)
+    return error("Invalid native binary input backing");
+  auto result = Dart_NewTypedData(Dart_TypedData_kUint8, length);
+  if (Dart_IsError(result)) return error(Dart_GetError(result));
+  // Dart allocation precedes the last source pointer lookup. No JS code runs
+  // between the original admission and this copy; shared backing is rejected.
+  void* source = nullptr;
+  size_t confirmed = 0;
+  if (napi_get_typedarray_info(env, value, nullptr, &confirmed, &source, nullptr, nullptr) != napi_ok ||
+      confirmed != length || (length && !source))
+    return error("Native binary input changed during conversion");
+  Dart_TypedData_Type dart_type;
+  void* destination = nullptr;
+  intptr_t count = 0;
+  auto acquired = Dart_TypedDataAcquireData(result, &dart_type, &destination, &count);
+  if (Dart_IsError(acquired)) return error(Dart_GetError(acquired));
+  const bool valid = dart_type == Dart_TypedData_kUint8 && count == static_cast<intptr_t>(length);
+  if (valid && length) std::memcpy(destination, source, length);
+  auto released = Dart_TypedDataReleaseData(result);
+  if (Dart_IsError(released)) return error(Dart_GetError(released));
+  if (!valid) return error("Invalid Dart binary destination");
+  if (kind == 1) result = Dart_NewByteBuffer(result);
+  return Dart_IsError(result) ? error(Dart_GetError(result)) : result;
+}
+
+static intptr_t write_binary(napi_env env, Dart_Handle value, int32_t kind) {
+  auto error = [&](const char* message) -> intptr_t {
+    fail_error(env, message);
+    return 0;
+  };
+  auto owner = active_owner;
+  if (!owner || owner->env != env || owner->closing || (kind != 0 && kind != 1))
+    return error("Invalid native binary output owner or kind");
+  Dart_TypedData_Type type;
+  void* source = nullptr;
+  intptr_t length = 0;
+  auto acquired = Dart_TypedDataAcquireData(value, &type, &source, &length);
+  if (Dart_IsError(acquired)) return error(Dart_GetError(acquired));
+  auto released = Dart_TypedDataReleaseData(value);
+  if (Dart_IsError(released)) return error(Dart_GetError(released));
+  if (type != Dart_TypedData_kUint8 || length < 0 || length > 0x7fffffff)
+    return error("Invalid Dart binary output window");
+  // Allocate before reacquiring. Inside the acquired interval only memcpy runs.
+  void* destination = nullptr;
+  napi_value buffer, result;
+  if (napi_create_arraybuffer(env, static_cast<size_t>(length), &destination, &buffer) != napi_ok)
+    return error("Cannot allocate native binary output");
+  Dart_TypedData_Type confirmed_type;
+  intptr_t confirmed = 0;
+  acquired = Dart_TypedDataAcquireData(value, &confirmed_type, &source, &confirmed);
+  if (Dart_IsError(acquired)) return error(Dart_GetError(acquired));
+  const bool valid = confirmed == length && confirmed_type == type;
+  if (valid && length) std::memcpy(destination, source, static_cast<size_t>(length));
+  released = Dart_TypedDataReleaseData(value);
+  if (Dart_IsError(released)) return error(Dart_GetError(released));
+  if (!valid) return error("Dart binary output changed during conversion");
+  if (kind == 1) result = buffer;
+  else if (napi_create_typedarray(env, napi_uint8_array, static_cast<size_t>(length), buffer, 0, &result) != napi_ok)
+    return error("Cannot create native binary output view");
+  return reinterpret_cast<intptr_t>(result);
+}
+
 static void* api_table[] = {
     reinterpret_cast<void*>(&napi_get_cb_info),
     reinterpret_cast<void*>(&napi_typeof),
@@ -1738,6 +1818,8 @@ static void* api_table[] = {
     reinterpret_cast<void*>(&take_callback_exception),
     reinterpret_cast<void*>(&callback_helper),
     reinterpret_cast<void*>(&callback_identity),
+    reinterpret_cast<void*>(&read_binary),
+    reinterpret_cast<void*>(&write_binary),
 };
 static_assert(sizeof(api_table) / sizeof(*api_table) == bridge_api_count);
 

@@ -192,7 +192,7 @@ Native and Wasm each passed Node 24.19.0 and 26.11.1: 25 payload categories,
 The complete existing native/Wasm consumers, 497 Dart tests and 23 Wasm resource
 kernel tests passed; one Windows-only Dart test was skipped on this macOS host.
 Both backends remain coupled to the qualified Dart 3.13.5 compiler. Current native
-builds require the ABI14 (55 slots) macOS arm64 bundle described in
+builds require the ABI15 (57 slots) macOS arm64 bundle described in
 [native.md](native.md); the complete consumer matrix has also passed with ABI13.
 ABI14 additionally exercises hostile and revoked callable Proxies, extending the
 payload matrix to 27 categories and checking the direct function-reference path

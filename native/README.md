@@ -83,7 +83,7 @@ operations initialize, load immutable canonical AOT snapshots, create/enter/exit
 isolates, drain microtasks, free errors and shut down one isolate. Public Dart C
 APIs provide scopes, values, invocation and persistent handles while entered.
 
-`bridge/abi.h` fixes the 55-slot compiler-private table and binding metadata.
+`bridge/abi.h` fixes the 57-slot compiler-private table and binding metadata.
 `napiBindings(address, count)` must validate that count before reading the table.
 Functions/classes retain actual JS call presence and `new` behavior. Getter and
 setter closures share one JS property descriptor but remain distinct callbacks.
@@ -160,8 +160,8 @@ Their acceptance remains open. `DART_LICENSE` and `DART_AUTHORS` retain the
 upstream SDK license/attribution; original bridge code uses the package license.
 
 Slot 41 compares actual `new.target` with the captured selected constructor; it
-performs no mutable JavaScript property lookup. The compiler-private ABI is 14
-with 55 slots. It retains the owner-thread event scheduling and async environment
+performs no mutable JavaScript property lookup. The compiler-private ABI is 15
+with 57 slots. It retains the owner-thread event scheduling and async environment
 cleanup introduced by ABI 9. Older bundles are rejected before copying.
 
 Slot 42 registers a composite selected-interface shape through the generated
@@ -245,7 +245,8 @@ unused adapter permanent. Removing one business registration does not invalidate
 other Dart references. Same-owner reentry uses independent invocation scopes;
 different-isolate reentry remains rejected.
 
-Slot 53 supplies a private helper: kind 0 maps JS functions to weak identities;
+Slot 53 supplies a private helper: kind 0 maps JS functions to weak identities
+and validates binary windows for bulk copies;
 kind 1 lazily initializes strict Promise observation and the owner-local incoming
 completion queue. Slot 54 obtains the numeric identity inside a C-local handle
 scope. Async JS reactions enqueue owned payloads without entering Dart; only the
@@ -261,3 +262,14 @@ not invoke JS or business cleanup. Generated retained and asynchronous callbacks
 are tested through fresh packages and workers on Node 24.19.0 and 26.11.1 with
 the pinned Dart profile. See the [supported signatures, Promise admission,
 lifetime contract and measured costs](../doc/callbacks.md).
+
+Slots 55–56 copy binary input and output in bulk. The input path validates the
+actual Uint8Array window, allocates fresh Dart typed data, and copies into its
+briefly acquired storage. The output path determines the length before JS
+allocation, then reacquires the Dart source only for the copy. Every successful
+acquisition is paired with a release; no JS helper, callback or allocation occurs
+while the pointer is acquired. ByteBuffer output is normalized to its full byte
+view before this handoff. Errors follow the existing pending-exception transport.
+These operations neither retain foreign raw pointers nor lock caller buffers.
+ABI 15 rebuilds the bridge and bundle metadata using the already compiled VM
+runtime; business package builds still use only the ordinary Dart SDK.

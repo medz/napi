@@ -10,6 +10,8 @@ String emitDart(ModulePlan plan) {
   final resources = plan.resourcePolicies.isNotEmpty;
   final streams = plan.calls.any((call) => call.returnsStream);
   final signals = plan.conversions.any((c) => c is AbortSignalConversion);
+  final binary = conversionGraph(plan.conversions)
+      .any((c) => c is BinaryConversion);
   final callbacks = {
     for (final (index, conversion) in plan.conversions.indexed)
       if (conversion is CallbackConversion) index: conversion,
@@ -25,6 +27,7 @@ String emitDart(ModulePlan plan) {
   final result = StringBuffer(
     "import $source as target;\n"
     "${asyncCallbacks || streams ? "import 'dart:async';\n" : ''}"
+    "${binary ? "import 'dart:typed_data' as typed_data;\n" : ''}"
     "${resources || streams || signals ? "import 'package:napi/runtime.dart';\n" : ''}"
     "${signals || plan.conversions.any(containsDictionary) ? "import 'package:napi/napi.dart' as napi;\n" : ''}"
     "${plan.conversions.any(containsDictionary) ? "import 'dart:convert' show jsonEncode;\n" : ''}"
@@ -44,6 +47,7 @@ String emitDart(ModulePlan plan) {
     );
   }
   if (streams) result.writeln(streamEntrypointPrelude);
+  if (binary) result.writeln(binaryEntrypointPrelude);
   if (callbacks.isNotEmpty) result.writeln(callbackEntrypointPrelude);
   if (signals) {
     if (callbacks.isEmpty) result.writeln(callbackErrorEntrypointPrelude);
@@ -100,6 +104,7 @@ WasmExternRef _referenceViews(WasmExternRef reference) {
       callbacks.isNotEmpty ||
       plan.conversions.any(
         (c) =>
+            c is BinaryConversion ||
             c is ListConversion ||
             c is RecordConversion ||
             c is MapConversion ||

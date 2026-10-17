@@ -7,6 +7,7 @@ import '../ir/model.dart';
 import '../lowering/plan.dart'
     show
         AbortSignalConversion,
+        BinaryConversion,
         CallbackConversion,
         DictionaryConversion,
         ListConversion,
@@ -31,6 +32,7 @@ String _quote(String value) => jsonEncode(value).replaceAll(r'$', r'\$');
 /// Generate business-specific Dart only. The Node-API bridge stays generic.
 String emitNativeDart(NativeModulePlan plan) {
   final hasStreams = plan.hasStreams;
+  final hasBinary = plan.hasBinary;
   final hasFutures = hasStreams || plan.calls.any((call) => call.returnsFuture);
   final hasCallbacks = plan.calls.any(
     (call) => call.inputs.any((value) => value is CallbackConversion),
@@ -77,6 +79,9 @@ String emitNativeDart(NativeModulePlan plan) {
   );
   final structures = NativeStructuralEmitter(hasResources: hasResources);
   final code = StringBuffer();
+  if (hasBinary) {
+    code.writeln("import 'dart:typed_data' as typed_data;");
+  }
   if (hasResources || hasStreams) {
     code.writeln("import 'package:napi/runtime.dart';");
   }
@@ -86,7 +91,12 @@ String emitNativeDart(NativeModulePlan plan) {
   if (hasDictionary || hasSignals) {
     code.writeln("import 'package:napi/napi.dart' as napi;");
   }
-  if (hasStructures || hasFutures || hasOpaque || hasCallbacks || hasSignals) {
+  if (hasStructures ||
+      hasFutures ||
+      hasOpaque ||
+      hasCallbacks ||
+      hasSignals ||
+      hasBinary) {
     code.writeln("import 'dart:ffi';");
   }
   code.write('''
@@ -382,6 +392,10 @@ ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int toke
         code.writeln(
           '    a$index = ${conversion.nullable ? '_api.isNull(call.env, raw$index) ? null : ' : ''}_api.abortSignal(call.env, raw$index, $path);',
         );
+      } else if (conversion is BinaryConversion) {
+        code.writeln(
+          '    a$index = _api.binary(call.env, raw$index, ${conversion.kind.index}, $path${conversion.nullable ? ', nullable: true' : ''}) as ${conversion.dartType};',
+        );
       } else if (conversion is ScalarConversion) {
         final converted =
             '_api.${nativeScalarReader(conversion)}(call.env, raw$index, $path)';
@@ -631,6 +645,7 @@ void _writeResult(
   if (output.nullable &&
       (output is ReferenceConversion ||
           output is ScalarConversion ||
+          output is BinaryConversion ||
           output is OpaqueConversion)) {
     code.writeln('    if (value == null) return _api.nullResult($env);');
   }
@@ -640,6 +655,10 @@ void _writeResult(
     );
   } else if (output is OpaqueConversion) {
     code.writeln('    return _api.hostValue($env, value).address;');
+  } else if (output is BinaryConversion) {
+    code.writeln(
+      '    return _api.binaryResult($env, value, ${output.kind.index}, ${_quote(output.context)});',
+    );
   } else if (output is ScalarConversion) {
     final context = output.kind == ScalarKind.integer && !output.usesBigInt
         ? ', ${_quote(output.context)}'

@@ -40,7 +40,7 @@ final _free = _libc.lookupFunction<_FreeN, void Function(Pointer<Void>)>(
 // Exercise actual FFI marshalling, including UTF-16 paths and both snapshot
 // out-pointers. Map reflection/equality itself is covered by Node consumers.
 final class _Table {
-  final table = _calloc(55, sizeOf<Pointer<Void>>()).cast<Pointer<Void>>();
+  final table = _calloc(57, sizeOf<Pointer<Void>>()).cast<Pointer<Void>>();
   final env = Pointer<Void>.fromAddress(1);
   final strings = <int, String>{};
   final calls = <List<Object?>>[];
@@ -117,7 +117,7 @@ final class _Table {
     table[35] = snapshot.nativeFunction.cast();
     table[36] = create.nativeFunction.cast();
     table[37] = insert.nativeFunction.cast();
-    api = NapiApi(table.address, 55);
+    api = NapiApi(table.address, 57);
   }
 
   void close() {
@@ -205,6 +205,6 @@ void main() {
     for (final count in [28, 30, 35, 38, 46]) {
       expect(() => NapiApi(bridge.table.address, count), throwsStateError);
     }
-    expect(() => NapiApi(0, 55), throwsStateError);
+    expect(() => NapiApi(0, 57), throwsStateError);
   });
 }

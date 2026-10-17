@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import '../../lowering/plan.dart';
 import 'arguments.dart';
+import 'binary.dart';
 import 'callbacks.dart';
 import 'cancellation.dart';
 import 'structural.dart';
@@ -13,6 +14,12 @@ String emitBoundary(ModulePlan plan) {
   final resources = plan.resourcePolicies.isNotEmpty;
   final streams = plan.calls.any((call) => call.returnsStream);
   final signals = conversions.any((c) => c is AbortSignalConversion);
+  final binaries = {
+    for (final (index, conversion) in conversions.indexed)
+      if (conversion is BinaryConversion) index: conversion,
+  };
+  final hasBinary = conversionGraph(conversions)
+      .any((c) => c is BinaryConversion);
   final policies = [
     for (final c in conversions)
       if (c is ScalarConversion) scalarPolicy(c) else null,
@@ -40,6 +47,7 @@ String emitBoundary(ModulePlan plan) {
   return '''// Generated JS imports for the Wasm boundary, not a consumer entry.
 ${plan.classes.isEmpty ? '' : "import {readReference, writeReference} from './references.mjs';"}
 ${signals ? '$cancellationPolicy\n$wasmCancellationPolicy' : ''}
+${hasBinary ? '$binaryPolicy\n$wasmBinaryPolicy' : ''}
 ${resources ? '$settlementObserver\n' : ''}const policies = ${jsonEncode(policies)};
 function checkedScalar(value, policy, path) {
   if (value === null && policy.nullable) return null;
@@ -59,6 +67,7 @@ function checkedScalar(value, policy, path) {
 function checked(value, context) { return checkedScalar(value, policies[context], policies[context].context); }
 export function readValue(value, context${resources ? ', operation = null' : ''}) {
   switch (context) {
+${[for (final e in binaries.entries) '    case ${e.key}: return \$napiCopyBinary(value, ${e.value.kind.index}, ${e.value.nullable}, ${jsonEncode(e.value.context)}, true);'].join('\n')}
 ${[for (final e in structures.entries)
     if (e.value.read != null) '    case ${e.key}: return ${e.value.read}(value, ${jsonEncode(conversions[e.key].context)}, {work: 0, active: new Set()${resources ? ', operation' : ''}}, 0);'].join('\n')}
     default: return checked(value, context);
@@ -66,6 +75,7 @@ ${[for (final e in structures.entries)
 }
 export function writeValue(value, context) {
   switch (context) {
+${[for (final e in binaries.entries) '    case ${e.key}: return \$napiAdoptBinary(value, ${e.value.kind.index}, ${e.value.nullable}, ${jsonEncode(e.value.context)});'].join('\n')}
 ${[for (final e in structures.entries)
     if (e.value.write != null) '    case ${e.key}: {\n      const state = {work: 0, active: new Set(), pending: null};\n      try { return ${e.value.write}(value, ${jsonEncode(conversions[e.key].context)}, state, 0); }\n      catch (error) { if (state.pending !== null) { for (const undo of state.pending) undo(); } throw error; }\n    }'].join('\n')}
     default: return checked(value, context);
@@ -76,7 +86,11 @@ ${[for (final e in structures.entries)
 export function readBigInt(value) { return value.toString(); }
 export function writeBigInt(value, context) { return checked(BigInt(value), context); }
 export function throwDartError(message) { throw new Error(message); }
-${plan.calls.any((call) => call.returnsFuture) || streams ? '${emitFuturePolicy(resources: resources, streams: streams)}\n' : ''}${resources ? resourcePolicy : ''}${streams ? streamBoundaryPolicy(references: plan.classes.isNotEmpty) : ''}${structures.isEmpty && callbacks.isEmpty ? '' : structuralPolicy}
+${plan.calls.any((call) => call.returnsFuture) || streams ? '${emitFuturePolicy(resources: resources, streams: streams)}\n' : ''}${resources ? resourcePolicy : ''}${streams ? streamBoundaryPolicy(references: plan.classes.isNotEmpty) : ''}${structures.isEmpty && callbacks.isEmpty
+      ? hasBinary
+            ? structuralErrorPolicy
+            : ''
+      : structuralPolicy}
 ${conversions.any(_containsMap) ? mapStructuralPolicy : ''}
 ${conversions.any(containsDictionary) ? dictionaryStructuralPolicy : ''}
 ${structures.values.map((s) => s.source).join('\n')}${callbacks.isEmpty ? '' : '\n${_emitCallbacks(callbacks)}'}

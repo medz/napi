@@ -36,7 +36,11 @@ final class NativeStructuralEmitter {
   final _snapshotWriters = Map<ValueConversion, String>.identity();
 
   String read(ValueConversion conversion) {
-    if (!containsValueClass(conversion)) return _read(conversion);
+    if (!containsValueClass(conversion) &&
+        !conversionGraph([conversion])
+            .any((value) => value is BinaryConversion)) {
+      return _read(conversion);
+    }
     final normalize = _normalize(conversion);
     final materialize = _materialize(conversion);
     final name = '_readNativeValueRoot${_next++}';
@@ -91,6 +95,10 @@ final class NativeStructuralEmitter {
       case OpaqueConversion():
         throw StateError(
           'Signal, callback and opaque structural leaves are unsupported',
+        );
+      case BinaryConversion():
+        _code.writeln(
+          '  return _api.binary(env, value, ${conversion.kind.index}, path) as ${conversion.dartType};',
         );
       case ReferenceConversion():
         _code.writeln(
@@ -210,6 +218,16 @@ final class NativeStructuralEmitter {
       case OpaqueConversion():
         throw StateError(
           'Signal, callback and opaque structural leaves are unsupported',
+        );
+      case BinaryConversion():
+        final bytes = conversion.kind == BinaryKind.uint8List
+            ? 'value'
+            : 'value.asUint8List()';
+        _code.writeln(
+          "  final bytes = $bytes;\n"
+          "  if (bytes.lengthInBytes > ${BinaryConversion.maxByteLength}) throw NapiRangeError('\$path: binary byte length exceeds ${BinaryConversion.maxByteLength}');\n"
+          '  final snapshot = typed_data.Uint8List.fromList(bytes);\n'
+          '  return snapshot${conversion.kind == BinaryKind.byteBuffer ? '.buffer' : ''};',
         );
       case ScalarConversion() || ReferenceConversion():
         _code.writeln('  return value;');
@@ -358,6 +376,10 @@ final class NativeStructuralEmitter {
         throw StateError(
           'Signal, callback and opaque structural leaves are unsupported',
         );
+      case BinaryConversion():
+        _code.writeln(
+          '  return _api.binaryResult(env, value!, ${conversion.kind.index}, path);',
+        );
       case ScalarConversion():
         final type = conversion.nullable
             ? conversion.dartType.substring(0, conversion.dartType.length - 1)
@@ -428,7 +450,7 @@ final class NativeStructuralEmitter {
     ValueClassConversion() => [
       for (final field in value.fields) field.conversion,
     ],
-    ScalarConversion() || ReferenceConversion() => [],
+    ScalarConversion() || ReferenceConversion() || BinaryConversion() => [],
     AbortSignalConversion() ||
     CallbackConversion() ||
     OpaqueConversion() => throw StateError(
@@ -436,12 +458,14 @@ final class NativeStructuralEmitter {
     ),
   };
 
-  // Only value-containing input roots use this path. Raw validation snapshots
-  // into lists so neither value constructors nor Map equality/hashCode can run.
+  // Value-class and binary input roots snapshot into lists before constructors
+  // or Map equality/hashCode can run user code and mutate later binary leaves.
   String _normalize(ValueConversion conversion) {
     final previous = _normalizers[conversion];
     if (previous != null) return previous;
-    if (conversion is ScalarConversion || conversion is ReferenceConversion) {
+    if (conversion is ScalarConversion ||
+        conversion is ReferenceConversion ||
+        conversion is BinaryConversion) {
       return _normalizers[conversion] = _read(conversion);
     }
     final name = '_normalizeNativeStructure${_next++}';
@@ -567,7 +591,7 @@ final class NativeStructuralEmitter {
         _code.writeln(
           '    return result;\n  } finally { state.active.removeLast(); }',
         );
-      case ScalarConversion() || ReferenceConversion():
+      case ScalarConversion() || ReferenceConversion() || BinaryConversion():
         throw StateError('Scalar/reference normalization uses strict readers');
     }
     _code.writeln('}');
@@ -585,7 +609,9 @@ final class NativeStructuralEmitter {
       for (final child in _children(conversion)) _materialize(child),
     ];
     _code.writeln('${conversion.dartType} $name(Object? value, String path) {');
-    if (conversion is ScalarConversion || conversion is ReferenceConversion) {
+    if (conversion is ScalarConversion ||
+        conversion is ReferenceConversion ||
+        conversion is BinaryConversion) {
       _code.writeln('  return value as ${conversion.dartType};\n}');
       return name;
     }
@@ -661,7 +687,7 @@ final class NativeStructuralEmitter {
         _code.writeln(
           '  return target.${conversion.classBinding.callPath}$suffix($arguments);',
         );
-      case ScalarConversion() || ReferenceConversion():
+      case ScalarConversion() || ReferenceConversion() || BinaryConversion():
         throw StateError('Scalar/reference materialization is a typed cast');
     }
     _code.writeln('}');

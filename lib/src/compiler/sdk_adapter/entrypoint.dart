@@ -32,6 +32,28 @@ WasmExternRef? _normalizeError(Object error) {
 void main() => throw StateError('napi library entrypoint main was invoked');
 ''';
 
+/// Inputs already own a host snapshot. Outputs always allocate separate backing;
+/// public Uint8List.toJS alone would alias SDK wrappers but copy WasmGC lists.
+const binaryEntrypointPrelude = r'''
+@pragma('wasm:import', 'napi.allocateBinary')
+external WasmExternRef _allocateBinary(WasmI32 length);
+@pragma('wasm:import', 'napi.finishBinary')
+external WasmExternRef _finishBinary(WasmExternRef array, WasmI32 kind);
+
+JSAny _copyBinary(typed_data.Uint8List value, String path, int kind) {
+  // SDK JS-backed length is cached; byteLength also checks current validity.
+  final length = value.lengthInBytes;
+  if (length < 0 || length > 0x7fffffff) {
+    _structureError(path, 'binary byte length exceeds 2147483647', true);
+  }
+  final reference = _allocateBinary(WasmI32.fromInt(length));
+  final array = reference.toJS as JSUint8Array;
+  final destination = array.toDart;
+  for (var i = 0; i < length; i++) { destination[i] = value[i]; }
+  return _finishBinary(reference, WasmI32.fromInt(kind)).toJS;
+}
+''';
+
 /// A non-null Dart object keeps raw JS null and undefined distinct from Dart
 /// absence. WasmGC traces the externref directly without inspecting its value.
 const opaqueEntrypointPrelude = r'''

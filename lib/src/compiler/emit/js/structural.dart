@@ -15,6 +15,9 @@ final class BoundaryLeafAdapter implements StructuralLeafAdapter {
   const BoundaryLeafAdapter({this.resources = false, this.bigintText = false});
   @override
   String read(ValueConversion leaf, String value, String path) {
+    if (leaf is BinaryConversion) {
+      return '\$napiCopyBinary($value, ${leaf.kind.index}, ${leaf.nullable}, $path, true)';
+    }
     if (leaf is ReferenceConversion) {
       return '${resources ? 'readResourceReference' : 'readReference'}($value, ${leaf.classId}, ${leaf.nullable}, $path${resources ? ', state.operation' : ''})';
     }
@@ -26,6 +29,9 @@ final class BoundaryLeafAdapter implements StructuralLeafAdapter {
 
   @override
   String write(ValueConversion leaf, String value, String path) {
+    if (leaf is BinaryConversion) {
+      return '\$napiAdoptBinary($value, ${leaf.kind.index}, ${leaf.nullable}, $path)';
+    }
     if (leaf is ReferenceConversion) {
       return 'writeReference($value, ${leaf.classId}, $path, state.pending ??= new Set())';
     }
@@ -72,6 +78,7 @@ StructuralBoundary emitStructuralBoundary(
         for (final field in node.fields) field.conversion,
       ],
       ScalarConversion() ||
+      BinaryConversion() ||
       ReferenceConversion() ||
       OpaqueConversion() ||
       AbortSignalConversion() ||
@@ -88,7 +95,7 @@ StructuralBoundary emitStructuralBoundary(
         throw StateError('Nested callback conversion is not supported.');
       case AbortSignalConversion():
         throw StateError('Nested AbortSignal conversion is not supported.');
-      case ReferenceConversion() || ScalarConversion():
+      case ReferenceConversion() || ScalarConversion() || BinaryConversion():
         code.writeln(
           '  return ${output ? leafAdapter.write(node, 'value', 'path') : leafAdapter.read(node, 'value', 'path')};',
         );
@@ -353,7 +360,8 @@ function snapshotMap(value, length, path, state) {
 }
 ''';
 
-const structuralPolicy = r'''
+const structuralPolicy =
+    r'''
 function visitStructure(state, path) {
   if (++state.work > 10000) throw new RangeError(path + ': structural work limit (10000) exceeded');
 }
@@ -394,6 +402,10 @@ function checkRecordProperties(value, fields, path, state) {
     }
   }
 }
+''' +
+    structuralErrorPolicy;
+
+const structuralErrorPolicy = r'''
 export function failStructure(path, message, range) {
   throw range ? new RangeError(path + ': ' + message) : new TypeError(path + ': ' + message);
 }

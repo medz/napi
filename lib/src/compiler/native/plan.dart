@@ -1,7 +1,8 @@
 import '../analysis/result.dart';
 import '../analysis/validate.dart';
 import '../ir/model.dart';
-import '../lowering/plan.dart' show ValueConversion, conversionFor;
+import '../lowering/plan.dart'
+    show BinaryConversion, ValueConversion, conversionFor, conversionGraph;
 
 enum NativeCallKind { function, constructor, method, getter, setter }
 
@@ -68,6 +69,11 @@ final class NativeModulePlan {
   final List<NativeClassPlan> classes;
   final List<ValueClassSchema> valueSchemas;
   final List<int> referenceClassOrder;
+  bool get hasBinary => calls.any(
+    (call) =>
+        conversionGraph([...call.inputs, if (call.output != null) call.output!])
+            .any((value) => value is BinaryConversion),
+  );
   bool get hasStreams => calls.any((call) => call.returnsStream);
   int get streamClassId => classes.length;
   // Public export identifiers cannot contain $, so this private class cannot

@@ -127,7 +127,7 @@ shared buffers retain separate requirements.
 
 The generated contract was tested on Dart 3.13.5 and Node 24.19.0/26.11.1,
 with TypeScript 7.0.2 in NodeNext and Bundler modes. Native execution uses the
-experimental macOS arm64 runtime bundle, private ABI 14 (55 slots), pinned to
+experimental macOS arm64 runtime bundle, private ABI 15 (57 slots), pinned to
 Dart revision `04bcd1036cdc799ac6564988f159ee454d42c822`. Wasm uses the matching
 SDK's version-specific compiler/host adapter; this is not a portable WASI ABI.
 

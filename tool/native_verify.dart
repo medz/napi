@@ -14,6 +14,7 @@ import 'opaque_fixture.dart';
 import 'callback_fixture.dart';
 import 'stream_fixture.dart';
 import 'cancellation_fixture.dart';
+import 'binary_fixture.dart';
 import 'package_contents.dart';
 
 /// Run explicitly with a maintainer-built runtime bundle. No native compiler,
@@ -242,6 +243,7 @@ console.log('Native Worker-only unload and reload: passed');
   await verifyCallbackFixture(root, nativeRuntime: bundle);
   await verifyStreamFixture(root, nativeRuntime: bundle);
   await verifyCancellationFixture(root, nativeRuntime: bundle);
+  await verifyBinaryFixture(root, nativeRuntime: bundle);
   await root.delete(recursive: true);
   stdout.writeln(
     'Generated native bindings, fresh npm install and TypeScript: passed',
