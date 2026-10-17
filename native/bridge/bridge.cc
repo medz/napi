@@ -108,6 +108,8 @@ struct Owner {
   Adoption* adoption = nullptr;
   napi_ref maps[map_intrinsic_count] = {};
   napi_ref dictionary_create = nullptr;
+  int64_t next_host_value = 1;
+  std::map<int64_t, napi_ref> host_values;
 };
 static thread_local Owner* active_owner = nullptr;
 
@@ -1437,6 +1439,53 @@ static napi_status register_reference_shape(napi_env env, uint32_t shape_id,
   }
 }
 
+static napi_status own_host_value(napi_env env, napi_value value, int64_t* slot) {
+  auto owner = active_owner;
+  if (!owner || owner->env != env || owner->closing || !value || !slot ||
+      owner->next_host_value == std::numeric_limits<int64_t>::max())
+    return napi_invalid_arg;
+  // Node-API versions below 10 cannot reference every primitive directly.
+  // An inaccessible own data property also avoids inherited setters and traps.
+  napi_value holder;
+  auto status = napi_create_object(env, &holder);
+  napi_property_descriptor property = {"value", nullptr, nullptr, nullptr,
+      nullptr, value, napi_default, nullptr};
+  if (status == napi_ok) status = napi_define_properties(env, holder, 1, &property);
+  napi_ref reference = nullptr;
+  if (status == napi_ok) status = napi_create_reference(env, holder, 1, &reference);
+  if (status != napi_ok) return status;
+  try {
+    owner->host_values.emplace(owner->next_host_value, reference);
+  } catch (const std::bad_alloc&) {
+    napi_delete_reference(env, reference);
+    return napi_generic_failure;
+  }
+  *slot = owner->next_host_value++;
+  return napi_ok;
+}
+
+static napi_status host_value(napi_env env, int64_t slot, napi_value* result) {
+  auto owner = active_owner;
+  if (!owner || owner->env != env || owner->closing || !result)
+    return napi_invalid_arg;
+  auto found = owner->host_values.find(slot);
+  if (found == owner->host_values.end()) return napi_invalid_arg;
+  napi_value holder;
+  auto status = napi_get_reference_value(env, found->second, &holder);
+  return status == napi_ok
+      ? napi_get_named_property(env, holder, "value", result) : status;
+}
+
+static napi_status release_host_value(napi_env env, int64_t slot) {
+  auto owner = active_owner;
+  if (!owner || owner->env != env || owner->closing) return napi_invalid_arg;
+  auto found = owner->host_values.find(slot);
+  if (found == owner->host_values.end()) return napi_ok;
+  auto status = napi_delete_reference(env, found->second);
+  if (status == napi_ok) owner->host_values.erase(found);
+  return status;
+}
+
 static void* api_table[] = {
     reinterpret_cast<void*>(&napi_get_cb_info),
     reinterpret_cast<void*>(&napi_typeof),
@@ -1484,6 +1533,9 @@ static void* api_table[] = {
     reinterpret_cast<void*>(&queue_promise_settlement),
     reinterpret_cast<void*>(&bind_cleanup_promise),
     reinterpret_cast<void*>(&observe_future_settlement),
+    reinterpret_cast<void*>(&own_host_value),
+    reinterpret_cast<void*>(&host_value),
+    reinterpret_cast<void*>(&release_host_value),
 };
 static_assert(sizeof(api_table) / sizeof(*api_table) == bridge_api_count);
 
@@ -1577,6 +1629,11 @@ static napi_value dispatch_set(napi_env env, napi_callback_info info) {
 
 static void destroy(Owner* owner) {
   owner->closing = true;
+  // Core Finalizer callbacks are optional and do not run at isolate shutdown.
+  // This owner-thread cleanup releases all remaining host roots without JS.
+  for (const auto& value : owner->host_values)
+    napi_delete_reference(owner->env, value.second);
+  owner->host_values.clear();
   if (owner->future_release) owner->future_release->owner = nullptr;
   for (const auto& cached : owner->cleanup_promises) cached.second->owner = nullptr;
   owner->cleanup_promises.clear();

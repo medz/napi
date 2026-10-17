@@ -70,6 +70,13 @@ GC never calls a business disposal method. Wasm registers its private reference
 converters automatically when classes are defined; structural traversal uses the
 same cache and brands, without consumer initialization. See [native builds](native.md).
 
+That weak identity cache does not collect a cycle created by a separately owned
+native JS value. For example, a Dart object storing a JS payload that points back
+to its wrapper must clear that payload or otherwise break the ownership cycle.
+The [opaque ownership contract](architecture.md#public-contract) applies when
+those bindings are implemented; ordinary acyclic classes retain automatic
+collection and do not need a new disposal API.
+
 On first exposure, the runtime checks actual Dart membership and chooses the
 unique most-specific selected reference class when one exists. Returning a Child as Base first
 therefore creates the same Child wrapper as returning it as Child first; subsequent

@@ -43,6 +43,24 @@ typedef _BindCleanup = int Function(
 );
 typedef _ObserveFutureNative = Int32 Function(Pointer<Void>, Int64);
 typedef _ObserveFuture = int Function(Pointer<Void>, int);
+typedef _OwnHostValueNative = Int32 Function(
+  Pointer<Void>,
+  Pointer<Void>,
+  Pointer<Int64>,
+);
+typedef _OwnHostValue = int Function(
+  Pointer<Void>,
+  Pointer<Void>,
+  Pointer<Int64>,
+);
+typedef _HostValueNative = Int32 Function(
+  Pointer<Void>,
+  Int64,
+  Pointer<Pointer<Void>>,
+);
+typedef _HostValue = int Function(Pointer<Void>, int, Pointer<Pointer<Void>>);
+typedef _ReleaseHostValueNative = Int32 Function(Pointer<Void>, Int64);
+typedef _ReleaseHostValue = int Function(Pointer<Void>, int);
 
 typedef _TypeNative = Int32 Function(
   Pointer<Void>,
@@ -430,6 +448,22 @@ final class _PendingFuture {
   bool claimed = false;
 }
 
+/// Compiler-private ownership of an arbitrary JS value in one native isolate.
+/// Strong cross-heap cycles require an explicit ownership break.
+final class NativeHostValue {
+  final NapiApi _api;
+  int _slot;
+  NativeHostValue._(this._api, this._slot);
+
+  /// Release once from this owner's active Dart callback or event pump.
+  void release() {
+    if (_slot == 0) return;
+    _api._check(_api._releaseHostValue(_api._hostEnv!, _slot));
+    _slot = 0;
+    _api._hostFinalizer.detach(this);
+  }
+}
+
 /// Private Node-API table used by generated AOT entrypoints.
 /// Every temporary native buffer is scoped to one call; no global scratch state.
 final class NapiApi {
@@ -444,8 +478,8 @@ final class NapiApi {
     this.referenceViews,
     this.classMemberships = const [],
   }) : _table = Pointer.fromAddress(address) {
-    if (address == 0 || tableCount != 46) {
-      throw StateError('Incompatible native bridge ABI (expected 46 slots).');
+    if (address == 0 || tableCount != 49) {
+      throw StateError('Incompatible native bridge ABI (expected 49 slots).');
     }
   }
   late final _CallbackInfo _callbackInfo = _table[0]
@@ -572,6 +606,23 @@ final class NapiApi {
   late final _ObserveFuture _observeFuture = _table[45]
       .cast<NativeFunction<_ObserveFutureNative>>()
       .asFunction<_ObserveFuture>();
+  late final _OwnHostValue _ownHostValue = _table[46]
+      .cast<NativeFunction<_OwnHostValueNative>>()
+      .asFunction<_OwnHostValue>();
+  late final _HostValue _hostValue = _table[47]
+      .cast<NativeFunction<_HostValueNative>>()
+      .asFunction<_HostValue>();
+  late final _ReleaseHostValue _releaseHostValue = _table[48]
+      .cast<NativeFunction<_ReleaseHostValueNative>>()
+      .asFunction<_ReleaseHostValue>();
+  Pointer<Void>? _hostEnv;
+  late final _hostFinalizer = Zone.root.run(
+    () => Finalizer<int>((slot) {
+      // Core finalizers are ordinary owner-pump events, not C GC callbacks.
+      // Never throw from a finalizer; environment teardown drops any leftovers.
+      _releaseHostValue(_hostEnv!, slot);
+    }),
+  );
   late final _cleanupIds = Expando<int>('native resource cleanup');
   var _nextCleanup = 1;
   // Only an attached JS lease retains its Dart value. The identity cache's
@@ -585,6 +636,43 @@ final class NapiApi {
 
   void _check(int status) {
     if (status != 0) throw StateError('Node-API operation failed ($status)');
+  }
+
+  /// Retain without reading payload properties or coercing its value.
+  NativeHostValue ownHostValue(Pointer<Void> env, Pointer<Void> value) {
+    if (_hostEnv != null && _hostEnv != env) {
+      throw StateError('Native host value belongs to a different environment.');
+    }
+    final out = _allocate<Int64>(1, sizeOf<Int64>());
+    try {
+      _check(_ownHostValue(env, value, out));
+      _hostEnv = env;
+      try {
+        final owned = NativeHostValue._(this, out.value);
+        _hostFinalizer.attach(owned, out.value, detach: owned);
+        return owned;
+      } catch (_) {
+        _releaseHostValue(env, out.value);
+        rethrow;
+      }
+    } finally {
+      _free(out.cast());
+    }
+  }
+
+  /// Borrow a live value only for the current Node callback's handle scope.
+  Pointer<Void> hostValue(Pointer<Void> env, NativeHostValue value) {
+    if (!identical(value._api, this) || _hostEnv != env) {
+      throw StateError('Native host value belongs to a different owner.');
+    }
+    if (value._slot == 0) throw StateError('Native host value is released.');
+    final out = _allocate<Pointer<Void>>(1, sizeOf<Pointer<Void>>());
+    try {
+      _check(_hostValue(env, value._slot, out));
+      return out.value;
+    } finally {
+      _free(out.cast());
+    }
   }
 
   int _result(int Function(Pointer<Pointer<Void>>) create) {

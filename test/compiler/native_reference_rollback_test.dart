@@ -23,7 +23,7 @@ final _free = _libc.lookupFunction<_FreeNative, _Free>('free');
 // Model only the lease protocol through real FFI calls. Node weak-reference
 // collection and failed structural output traversal have separate integration.
 final class _LeaseBridge {
-  final table = _calloc(46, sizeOf<Pointer<Void>>()).cast<Pointer<Void>>();
+  final table = _calloc(49, sizeOf<Pointer<Void>>()).cast<Pointer<Void>>();
   final byLease = <int, int>{};
   final byPointer = <int, int>{};
   final creations = <(int, int)>[];
@@ -68,7 +68,7 @@ final class _LeaseBridge {
     table[15] = unwrap.nativeFunction.cast();
     table[28] = value.nativeFunction.cast();
     table[29] = create.nativeFunction.cast();
-    api = NapiApi(table.address, 46);
+    api = NapiApi(table.address, 49);
   }
 
   Object owner(int pointer, int classId) =>

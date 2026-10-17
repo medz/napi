@@ -27,6 +27,17 @@ An unsupported feature fails during the build; it must not silently select a
 different public contract. Completion requires both target conformance and
 documented platform capabilities.
 
+Persistent opaque values use explicit reference ownership, following napi-rs's
+model. An unreachable acyclic native carrier releases its JS reference; a Dart
+root keeps that reference alive. A cycle spanning a JS payload and its Dart
+owner requires the author to clear the stored value, unregister the callback,
+or use the owner's cleanup method. Neither a weak payload reference nor a
+mandatory disposal method on every ordinary class replaces this contract.
+GC and environment teardown release references without running business cleanup.
+Wasm may collect such cycles automatically, but portable code must break them.
+The native private owned-value primitive is groundwork for generated opaque
+and callback bindings; it does not by itself implement those public exports.
+
 Generated JavaScript is allowed for loading, conversion and runtime interop.
 Business logic stays in Dart. A single Wasm file is an optimization candidate,
 not a correctness requirement. Existing direct `.wasm` named imports remain a

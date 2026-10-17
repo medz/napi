@@ -1,5 +1,5 @@
-// Compiler-private bridge ABI, version 11. Keep generated Dart in lockstep.
-// Version 11 adds canonical cleanup Promises and final-settlement retention.
+// Compiler-private bridge ABI, version 12. Keep generated Dart in lockstep.
+// Version 12 adds owner-bound persistent host values.
 #pragma once
 #include <node_api.h>
 #include <stdint.h>
@@ -82,8 +82,19 @@ enum BridgeApiSlot {
   bridge_queue_promise_settlement = 43,
   bridge_bind_cleanup_promise = 44,
   bridge_observe_future_settlement = 45,
-  bridge_api_count = 46,
+  bridge_own_host_value = 46,
+  bridge_host_value = 47,
+  bridge_release_host_value = 48,
+  bridge_api_count = 49,
 };
+// Slots are local to the active Owner and never reused. The holder is private;
+// arbitrary payloads are retained without inspecting or coercing them. Get
+// returns a borrowed handle valid only in the current Node callback scope.
+// Release is idempotent. Dart core Finalizer callbacks run as owner-pump events;
+// they may call release directly. Owner teardown drops any remaining refs.
+typedef napi_status (*BridgeOwnHostValue)(napi_env, napi_value, int64_t* slot);
+typedef napi_status (*BridgeHostValue)(napi_env, int64_t slot, napi_value* result);
+typedef napi_status (*BridgeReleaseHostValue)(napi_env, int64_t slot);
 typedef napi_status (*BridgeOwnerWrap)(napi_env, napi_value self, int64_t ownerId);
 typedef int64_t (*BridgeOwnerUnwrap)(napi_env, napi_value self);
 typedef napi_status (*BridgeReadOptions)(
