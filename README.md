@@ -117,6 +117,15 @@ dart run tool/check_package.dart
 
 `tool/verify.dart` builds fresh artifacts and executes the real Node ESM consumers,
 including an npm-packed fixture installed offline into a separate consumer.
+Set `NAPI_NODE_EXECUTABLES` to a JSON array of absolute Node executable paths
+(e.g. `'["/path/to/node24","/path/to/node26"]'`) to compile and install once,
+then run each runtime and TypeScript consumer against the same artifacts on
+every selected Node. The same setting works for `tool/native_verify.dart`; an
+unset value uses `node` from PATH. Any selected runtime failure stops the run.
+CI checks the Wasm artifacts on Node 24.19.0 and 26.11.1. Independent Dart unit
+probes still use their configured/default Node; this setting controls the
+conformance tools.
+
 It checks TypeScript in NodeNext and Bundler modes. `NAPI_TSC` can select an
 already installed TypeScript executable. Package validation permits only the
 expected warning for the exact analyzer pin; every other warning or error fails.

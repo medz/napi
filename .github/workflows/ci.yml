@@ -17,8 +17,14 @@ jobs:
           sdk: 3.13.5
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
+          node-version: 26.11.1
+          package-manager-cache: false
+      - run: node -p '"NAPI_NODE_26=" + process.execPath' >> "$GITHUB_ENV"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
           node-version: 24.19.0
           package-manager-cache: false
+      - run: node -p '"NAPI_NODE_EXECUTABLES=" + JSON.stringify([process.execPath, process.env.NAPI_NODE_26])' >> "$GITHUB_ENV"
       - run: dart pub get
       - run: dart format --output=none --set-exit-if-changed lib test tool
       - run: dart analyze --fatal-infos

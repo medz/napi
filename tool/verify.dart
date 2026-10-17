@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'command.dart';
 import 'export_kind_fixture.dart';
 import 'scalar_fixture.dart';
 import 'argument_fixture.dart';
@@ -17,14 +18,7 @@ import 'binary_fixture.dart';
 import 'concrete_fixture.dart';
 import 'shared_bytes_fixture.dart';
 
-Future<void> run(String command, List<String> args, {String? cwd}) async {
-  final result = await Process.run(command, args, workingDirectory: cwd);
-  stdout.write(result.stdout);
-  stderr.write(result.stderr);
-  if (result.exitCode != 0) {
-    throw StateError('$command ${args.join(' ')} exited ${result.exitCode}');
-  }
-}
+export 'command.dart' show run;
 
 Future<void> typescript(Directory directory, String consumer) async {
   final tsc =
@@ -113,10 +107,8 @@ Future<void> installedConsumer(
 }
 
 Future<void> main() async {
-  final version = await Process.run('node', ['--version']);
-  stdout.writeln(
-    'Node ${version.stdout.toString().trim()}; Dart ${Platform.version}',
-  );
+  await reportNodeVersions();
+  stdout.writeln('Dart ${Platform.version}');
   final root = await Directory('.dart_tool').createTemp('napi conformance ');
   final scalar = Directory('${root.absolute.path}/scalars');
   await buildScalarFixture(scalar);

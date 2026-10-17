@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:napi/build.dart';
 
 import 'package_contents.dart';
+import 'command.dart';
 
 /// Verify real build -> fresh npm package -> pack -> relocated install.
 Future<void> verifyPackageAssembly(Directory root) async {
@@ -67,7 +68,7 @@ Future<void> verifyPackageAssembly(Directory root) async {
       .create();
   await File('${consumer.path}/package.json')
       .writeAsString('{"private":true,"type":"module"}');
-  await _run('npm', [
+  await run('npm', [
     'install',
     '--offline',
     '--ignore-scripts',
@@ -132,7 +133,7 @@ relativeOptional(null);
 new relativeOptional();
 void [text, defaults, relativeResult, relativeDefaults, relativeText];
 ''');
-  await _run('node', ['test.mjs'], cwd: consumer.path);
+  await run('node', ['test.mjs'], cwd: consumer.path);
   final tsc = File(
     Platform.environment['NAPI_TSC'] ??
         '${Directory.current.path}/.dart_tool/js/node_modules/typescript/bin/tsc',
@@ -143,7 +144,7 @@ void [text, defaults, relativeResult, relativeDefaults, relativeText];
     );
   }
   for (final mode in ['NodeNext', 'Bundler']) {
-    await _run('node', [
+    await run('node', [
       tsc.path,
       '--ignoreConfig',
       '--strict',
@@ -161,20 +162,8 @@ void [text, defaults, relativeResult, relativeDefaults, relativeText];
   }
 }
 
-Future<void> _run(
-  String command,
-  List<String> args, {
-  required String cwd,
-}) async {
-  final result = await Process.run(command, args, workingDirectory: cwd);
-  stdout.write(result.stdout);
-  stderr.write(result.stderr);
-  if (result.exitCode != 0) {
-    throw StateError('$command ${args.join(' ')} exited ${result.exitCode}');
-  }
-}
-
 Future<void> main(List<String> args) async {
+  await reportNodeVersions();
   final root = args.isEmpty
       ? await Directory('.dart_tool').createTemp('package assembly ')
       : await Directory(args.single).create(recursive: true);

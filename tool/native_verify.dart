@@ -5,6 +5,7 @@ import 'package:napi/build.dart';
 import 'package:napi/src/build/native_bundle.dart';
 
 import 'verify.dart' show run, typescript;
+import 'command.dart' show reportNodeVersions;
 import 'value_fixture.dart';
 import 'native_event_fixture.dart';
 import 'native_host_value_fixture.dart';
@@ -27,6 +28,7 @@ Future<void> main(List<String> args) async {
       'Usage: dart run tool/native_verify.dart <runtime-bundle>',
     );
   }
+  await reportNodeVersions();
   final bundle = Directory(args.single).absolute;
   final runtimeBundle = await NativeRuntimeBundle.read(bundle);
   final expectedFiles = {
