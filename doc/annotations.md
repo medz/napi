@@ -74,6 +74,14 @@ uses the selected method's export name and supported parameters, returns
 leases. Excluding the cleanup method is descriptive metadata, but prevents a
 resource build; it does not silently expose a hidden method.
 
+Direct function-typed inputs generate [synchronous borrowed callbacks](callbacks.md)
+on both targets, including constructors, methods and setters. Callback parameters
+must be required positional; parameters and results support scalars/Lists/records,
+with void results also allowed. The adapter expires when the outer call exits.
+Nullable/default-null inputs retain ordinary presence rules. Passing callbacks to
+Future-returning exports or resource cleanup, callback outputs and retained/async
+callbacks remain unsupported.
+
 ## Resolution and metadata
 
 The selected entry is a file library. Ordinary imports do not select exports.
@@ -116,7 +124,8 @@ the same inferred mapping without extra configuration.
 `@NAPI(bigint: true)` selects fixed JavaScript `bigint` representation for every
 Dart `int` parameter/result of that function, including nullable ints and typedefs.
 It does not change other scalar types; Dart `BigInt` always uses JavaScript
-`bigint`. See [scalar conversion semantics](scalars.md) and
+`bigint`. This policy also applies inside supported callback signatures.
+See [scalar conversion semantics](scalars.md) and
 [optional/named arguments and defaults](arguments.md). Other types, external
 functions and unsupported class shapes produce source diagnostics; selected
 unsupported declarations are never dropped.

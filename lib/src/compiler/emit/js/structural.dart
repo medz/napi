@@ -11,12 +11,19 @@ abstract interface class StructuralLeafAdapter {
 
 final class BoundaryLeafAdapter implements StructuralLeafAdapter {
   final bool resources;
-  const BoundaryLeafAdapter({this.resources = false});
+  final bool bigintText;
+  const BoundaryLeafAdapter({this.resources = false, this.bigintText = false});
   @override
-  String read(ValueConversion leaf, String value, String path) =>
-      leaf is ReferenceConversion
-      ? '${resources ? 'readResourceReference' : 'readReference'}($value, ${leaf.classId}, ${leaf.nullable}, $path${resources ? ', state.operation' : ''})'
-      : 'checkedScalar($value, ${jsonEncode(scalarPolicy(leaf as ScalarConversion))}, $path)';
+  String read(ValueConversion leaf, String value, String path) {
+    if (leaf is ReferenceConversion) {
+      return '${resources ? 'readResourceReference' : 'readReference'}($value, ${leaf.classId}, ${leaf.nullable}, $path${resources ? ', state.operation' : ''})';
+    }
+    final scalar = leaf as ScalarConversion;
+    final checked =
+        'checkedScalar($value, ${jsonEncode(scalarPolicy(scalar))}, $path)';
+    return bigintText && scalar.usesBigInt ? 'readBigInt($checked)' : checked;
+  }
+
   @override
   String write(ValueConversion leaf, String value, String path) {
     if (leaf is ReferenceConversion) {
@@ -66,7 +73,8 @@ StructuralBoundary emitStructuralBoundary(
       ],
       ScalarConversion() ||
       ReferenceConversion() ||
-      OpaqueConversion() => <ValueConversion>[],
+      OpaqueConversion() ||
+      CallbackConversion() => <ValueConversion>[],
     };
     final converters = [for (final child in children) emit(child, output)];
     code.writeln('function $name(value, path, state, depth) {');
@@ -75,6 +83,8 @@ StructuralBoundary emitStructuralBoundary(
     switch (node) {
       case OpaqueConversion():
         throw StateError('Opaque structural conversion is not supported.');
+      case CallbackConversion():
+        throw StateError('Nested callback conversion is not supported.');
       case ReferenceConversion() || ScalarConversion():
         code.writeln(
           '  return ${output ? leafAdapter.write(node, 'value', 'path') : leafAdapter.read(node, 'value', 'path')};',

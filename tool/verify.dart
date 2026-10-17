@@ -10,6 +10,7 @@ import 'class_fixture.dart';
 import 'future_fixture.dart';
 import 'resource_fixture.dart';
 import 'opaque_fixture.dart';
+import 'callback_fixture.dart';
 
 Future<void> run(String command, List<String> args, {String? cwd}) async {
   final result = await Process.run(command, args, workingDirectory: cwd);
@@ -155,5 +156,6 @@ Future<void> main() async {
   await verifyFutureFixture(root.absolute);
   await verifyResourceFixture(root.absolute);
   await verifyOpaqueFixture(root.absolute);
+  await verifyCallbackFixture(root.absolute);
   stdout.writeln('Direct-Wasm conformance passed. Artifacts: ${root.path}');
 }

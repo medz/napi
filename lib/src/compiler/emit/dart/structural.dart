@@ -7,14 +7,15 @@ import '../../lowering/plan.dart';
 final class DartStructuralEmitter {
   final _code = StringBuffer();
   var _next = 0;
-  final _memo = <(ValueConversion, bool), String>{};
+  final _memo = <(ValueConversion, bool, bool), String>{};
 
-  String read(ValueConversion conversion) => _emit(conversion, false);
-  String write(ValueConversion conversion) => _emit(conversion, true);
+  String read(ValueConversion conversion, {bool bigintText = false}) =>
+      _emit(conversion, false, bigintText);
+  String write(ValueConversion conversion) => _emit(conversion, true, false);
   String get source => _code.toString();
 
-  String _emit(ValueConversion conversion, bool output) {
-    final key = (conversion, output);
+  String _emit(ValueConversion conversion, bool output, bool bigintText) {
+    final key = (conversion, output, bigintText);
     if (_memo[key] case final name?) return name;
     final name = '_${output ? 'write' : 'read'}Structure${_next++}';
     _memo[key] = name;
@@ -28,9 +29,12 @@ final class DartStructuralEmitter {
       ],
       ScalarConversion() ||
       ReferenceConversion() ||
-      OpaqueConversion() => <ValueConversion>[],
+      OpaqueConversion() ||
+      CallbackConversion() => <ValueConversion>[],
     };
-    final functions = [for (final child in children) _emit(child, output)];
+    final functions = [
+      for (final child in children) _emit(child, output, bigintText),
+    ];
     final type = conversion.dartType;
     _code.writeln(
       output
@@ -42,6 +46,8 @@ final class DartStructuralEmitter {
     switch (conversion) {
       case OpaqueConversion():
         throw StateError('Opaque structural conversion is not supported.');
+      case CallbackConversion():
+        throw StateError('Nested callback conversion is not supported.');
       case ReferenceConversion():
         _code.writeln(
           output
@@ -50,7 +56,7 @@ final class DartStructuralEmitter {
         );
       case ScalarConversion():
         _code.writeln(
-          '  return ${output ? _writeScalar(conversion) : _readScalar(conversion)};',
+          '  return ${output ? _writeScalar(conversion) : _readScalar(conversion, bigintText: bigintText)};',
         );
       case ListConversion(:final element):
         if (output) {
@@ -218,9 +224,10 @@ final class DartStructuralEmitter {
   }
 }
 
-String _readScalar(ScalarConversion conversion) {
+String _readScalar(ScalarConversion conversion, {bool bigintText = false}) {
   if (conversion.usesBigInt) {
     final parse = conversion.kind == ScalarKind.integer ? 'int' : 'BigInt';
+    if (bigintText) return '$parse.parse((value as JSString).toDart)';
     return '$parse.parse((_readBigInt(externRefForJSAny(value!)!).toJS as JSString).toDart)';
   }
   return switch (conversion.kind) {

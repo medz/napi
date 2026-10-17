@@ -11,6 +11,7 @@ import 'native_host_value_fixture.dart';
 import 'future_fixture.dart';
 import 'resource_fixture.dart';
 import 'opaque_fixture.dart';
+import 'callback_fixture.dart';
 import 'package_contents.dart';
 
 /// Run explicitly with a maintainer-built runtime bundle. No native compiler,
@@ -236,6 +237,7 @@ console.log('Native Worker-only unload and reload: passed');
   await verifyFutureFixture(root, nativeRuntime: bundle);
   await verifyResourceFixture(root, nativeRuntime: bundle);
   await verifyOpaqueFixture(root, nativeRuntime: bundle);
+  await verifyCallbackFixture(root, nativeRuntime: bundle);
   await root.delete(recursive: true);
   stdout.writeln(
     'Generated native bindings, fresh npm install and TypeScript: passed',

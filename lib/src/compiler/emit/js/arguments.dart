@@ -51,7 +51,7 @@ String emitArgumentCalls(ModulePlan plan) {
   );
   final result = StringBuffer('''// Generated private callable dependency.
 import * as core from './core.wasm';
-import {useDefault, readOptions${plan.calls.any((call) => call.returnsFuture) ? ', createPromise, rejectPromise' : ''}${plan.resourcePolicies.isNotEmpty ? ', createResourceCall, finishResourceCall, retainResourceReference' : ''}} from './boundary.mjs';
+import {useDefault, readOptions${plan.calls.any((call) => call.returnsFuture) ? ', createPromise, rejectPromise' : ''}${plan.resourcePolicies.isNotEmpty ? ', createResourceCall, finishResourceCall, retainResourceReference' : ''}${plan.conversions.any((c) => c is CallbackConversion) ? ', borrowCallback, expireCallbacks' : ''}} from './boundary.mjs';
 ''');
   if (plan.classes.isNotEmpty) {
     result.writeln("import {registerReference} from './references.mjs';");
@@ -143,7 +143,9 @@ function intern(reference, expectedId, context, pending, receiver, newTarget) {
       continue;
     }
     final resource = plan.needsResourceOperation(function);
+    final callbacks = function.inputs.any((c) => c is CallbackConversion);
     result.writeln('const call$index = (...args) => {');
+    if (callbacks) _beginCallbacks(result, '  ', resource: resource);
     if (resource && !function.returnsFuture) _beginResource(result, '  ');
     if (function.returnsFuture) _beginFuture(result, function.output, '  ');
     if (resource) _prepareResource(result, 'null', false, '    ');
@@ -152,7 +154,7 @@ function intern(reference, expectedId, context, pending, receiver, newTarget) {
       function,
       function.binding.exportName,
       names[function],
-      indent: function.returnsFuture || resource ? '    ' : '  ',
+      indent: function.returnsFuture || resource || callbacks ? '    ' : '  ',
       retainReferences: resource,
     );
     final invocation =
@@ -162,9 +164,13 @@ function intern(reference, expectedId, context, pending, receiver, newTarget) {
       _endFuture(result, '  ', resource: resource);
     } else {
       result.writeln(
-        '${resource ? '    ' : '  '}return ${_output(function.output, invocation)};',
+        '${resource || callbacks ? '    ' : '  '}return ${_output(function.output, invocation)};',
       );
-      if (resource) _endResource(result, '  ');
+      if (resource) {
+        _endResource(result, '  ', callbacks: callbacks);
+      } else if (callbacks) {
+        _endCallbacks(result, '  ');
+      }
     }
     result.writeln(
       '};\nexport {call$index as ${function.binding.exportName}};',
@@ -185,8 +191,10 @@ function intern(reference, expectedId, context, pending, receiver, newTarget) {
       );
     } else {
       final resource = plan.needsResourceOperation(constructor);
+      final callbacks = constructor.inputs.any((c) => c is CallbackConversion);
+      if (callbacks) _beginCallbacks(result, '    ', resource: resource);
       if (resource) _beginResource(result, '    ');
-      final indent = resource ? '      ' : '    ';
+      final indent = resource || callbacks ? '      ' : '    ';
       if (resource) _prepareResource(result, 'null', false, indent);
       final arguments = _arguments(
         result,
@@ -205,7 +213,11 @@ function intern(reference, expectedId, context, pending, receiver, newTarget) {
       result.writeln(
         '${indent}return intern(reference, $index, ${jsonEncode(binding.binding.exportName)}, undefined, this, new.target);',
       );
-      if (resource) _endResource(result, '    ');
+      if (resource) {
+        _endResource(result, '    ', callbacks: callbacks);
+      } else if (callbacks) {
+        _endCallbacks(result, '    ');
+      }
     }
     result.writeln('  }');
     for (final member in binding.members) {
@@ -218,10 +230,14 @@ function intern(reference, expectedId, context, pending, receiver, newTarget) {
         MemberCallKind.constructor => 'static [$name](...args)',
       };
       final resource = plan.needsResourceOperation(member);
+      final callbacks = member.inputs.any((c) => c is CallbackConversion);
       result.writeln('  $declaration {');
+      if (callbacks) _beginCallbacks(result, '    ', resource: resource);
       if (resource && !member.returnsFuture) _beginResource(result, '    ');
       if (member.returnsFuture) _beginFuture(result, member.output, '    ');
-      final indent = member.returnsFuture || resource ? '      ' : '    ';
+      final indent = member.returnsFuture || resource || callbacks
+          ? '      '
+          : '    ';
       // Module ownership and Dart membership precede options and business calls.
       if (!member.isStatic) {
         result.writeln(
@@ -264,7 +280,11 @@ function intern(reference, expectedId, context, pending, receiver, newTarget) {
         result.writeln(
           '$indent${member.output == null && member.kind != MemberCallKind.constructor ? '' : 'return '}$expression;',
         );
-        if (resource) _endResource(result, '    ');
+        if (resource) {
+          _endResource(result, '    ', callbacks: callbacks);
+        } else if (callbacks) {
+          _endCallbacks(result, '    ');
+        }
         result.writeln('  }');
       }
     }
@@ -380,11 +400,34 @@ String _arguments(
       '${jsonEncode(call.inputs[i].context)});',
     );
   }
+  String reference(int i) =>
+      '${_optional(parameters[i]) ? 'd$i ? null : ' : ''}${retainReferences ? 'retainResourceReference(capability, ' : ''}unwrap${(call.inputs[i] as ReferenceConversion).classId}(p$i, ${jsonEncode(call.inputs[i].context)}, ${call.inputs[i].nullable})${retainReferences ? ')' : ''}';
+  final callbacks = call.inputs.any((c) => c is CallbackConversion);
+  if (callbacks) {
+    // Match Native: complete presence and direct-reference admission before
+    // binding callbacks, then enter Dart's per-parameter value conversion.
+    for (final (i, conversion) in call.inputs.indexed) {
+      if (conversion is ReferenceConversion) {
+        result.writeln('${indent}const reference$i = ${reference(i)};');
+      }
+    }
+    for (final (i, conversion) in call.inputs.indexed) {
+      if (conversion is CallbackConversion) {
+        result.writeln(
+          '${indent}const callback$i = ${_optional(parameters[i]) ? 'd$i ? null : ' : ''}borrowCallback(borrowed, p$i, ${conversion.nullable}, ${jsonEncode(conversion.context)});',
+        );
+      }
+    }
+  }
   return [
     for (final (i, p) in parameters.indexed) ...[
       if (_optional(p)) 'd$i ? 1 : 0',
       call.inputs[i] is ReferenceConversion
-          ? '${_optional(p) ? 'd$i ? null : ' : ''}${retainReferences ? 'retainResourceReference(capability, ' : ''}unwrap${(call.inputs[i] as ReferenceConversion).classId}(p$i, ${jsonEncode(call.inputs[i].context)}, ${call.inputs[i].nullable})${retainReferences ? ')' : ''}'
+          ? callbacks
+                ? 'reference$i'
+                : reference(i)
+          : call.inputs[i] is CallbackConversion
+          ? 'callback$i'
           : 'p$i',
     ],
   ].join(', ');
@@ -424,8 +467,25 @@ void _prepareResource(
   "${indent}const operation = core['napi:resource:begin'](capability, $reference, ${cleanup ? 1 : 0});",
 );
 
-void _endResource(StringBuffer result, String indent) =>
-    result.writeln('$indent} finally { finishResourceCall(capability); }');
+void _endResource(
+  StringBuffer result,
+  String indent, {
+  bool callbacks = false,
+}) => result.writeln(
+  '$indent} finally { ${callbacks ? 'expireCallbacks(borrowed); ' : ''}finishResourceCall(capability); }',
+);
+
+void _beginCallbacks(
+  StringBuffer result,
+  String indent, {
+  required bool resource,
+}) {
+  result.writeln('${indent}const borrowed = [];');
+  if (!resource) result.writeln('${indent}try {');
+}
+
+void _endCallbacks(StringBuffer result, String indent) =>
+    result.writeln('$indent} finally { expireCallbacks(borrowed); }');
 
 int _arity(CallPlan call) =>
     call.parameters.any((p) => p.kind != ParameterKind.requiredPositional)

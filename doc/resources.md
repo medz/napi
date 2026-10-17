@@ -211,7 +211,7 @@ native verification commands include this fixture.
 
 The toolchain is Dart 3.13.5, Node 24.19.0/26.11.1 and TypeScript 7.0.2 in NodeNext
 and Bundler modes. Native uses the experimental macOS arm64 runtime bundle,
-private ABI 12 (49 slots), pinned to Dart revision
+private ABI 13 (53 slots), pinned to Dart revision
 `04bcd1036cdc799ac6564988f159ee454d42c822`. Wasm uses that SDK's version-specific
 compiler and host adapter, not WASI/emnapi. Other native targets and hosts remain
 unqualified.

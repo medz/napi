@@ -64,6 +64,12 @@ final class NativeStructuralEmitter {
     return name;
   }
 
+  // Callback arguments share one Dart serialization phase before host checks.
+  String snapshotOutput(ValueConversion conversion) =>
+      _snapshotOutput(conversion);
+  String writeSnapshot(ValueConversion conversion) =>
+      _writeSnapshot(conversion);
+
   String get source => _code.toString();
 
   String _read(ValueConversion conversion) {
@@ -80,6 +86,7 @@ final class NativeStructuralEmitter {
       _code.writeln('  if (_api.isNull(env, value)) return null;');
     }
     switch (conversion) {
+      case CallbackConversion():
       case OpaqueConversion():
         throw StateError('Opaque structural leaves are unsupported');
       case ReferenceConversion():
@@ -195,6 +202,7 @@ final class NativeStructuralEmitter {
     _code.writeln('  state.visit(path);');
     if (conversion.nullable) _code.writeln('  if (value == null) return null;');
     switch (conversion) {
+      case CallbackConversion():
       case OpaqueConversion():
         throw StateError('Opaque structural leaves are unsupported');
       case ScalarConversion() || ReferenceConversion():
@@ -338,6 +346,7 @@ final class NativeStructuralEmitter {
       _code.writeln('  if (value == null) return _api.nullResult(env);');
     }
     switch (conversion) {
+      case CallbackConversion():
       case OpaqueConversion():
         throw StateError('Opaque structural leaves are unsupported');
       case ScalarConversion():
@@ -411,7 +420,7 @@ final class NativeStructuralEmitter {
       for (final field in value.fields) field.conversion,
     ],
     ScalarConversion() || ReferenceConversion() => [],
-    OpaqueConversion() => throw StateError(
+    CallbackConversion() || OpaqueConversion() => throw StateError(
       'Opaque structural leaves are unsupported',
     ),
   };
@@ -437,6 +446,7 @@ final class NativeStructuralEmitter {
       _code.writeln('  if (_api.isNull(env, value)) return null;');
     }
     switch (conversion) {
+      case CallbackConversion():
       case OpaqueConversion():
         throw StateError('Opaque structural leaves are unsupported');
       case ListConversion():
@@ -568,6 +578,7 @@ final class NativeStructuralEmitter {
     if (conversion.nullable) _code.writeln('  if (value == null) return null;');
     _code.writeln('  final items = value as List<Object?>;');
     switch (conversion) {
+      case CallbackConversion():
       case OpaqueConversion():
         throw StateError('Opaque structural leaves are unsupported');
       case ListConversion(:final element):

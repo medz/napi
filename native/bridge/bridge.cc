@@ -1486,6 +1486,24 @@ static napi_status release_host_value(napi_env env, int64_t slot) {
   return status;
 }
 
+static napi_status call_borrowed(napi_env env, napi_value function, size_t argc,
+                                const napi_value* argv, napi_value* result) {
+  auto owner = active_owner;
+  if (!owner || owner->env != env || owner->closing || !function || !result)
+    return napi_invalid_arg;
+  napi_value receiver;
+  auto status = napi_get_undefined(env, &receiver);
+  return status == napi_ok
+      ? napi_call_function(env, receiver, function, argc, argv, result) : status;
+}
+
+static napi_status take_callback_exception(napi_env env, napi_value* result) {
+  auto owner = active_owner;
+  if (!owner || owner->env != env || owner->closing || !result)
+    return napi_invalid_arg;
+  return napi_get_and_clear_last_exception(env, result);
+}
+
 static void* api_table[] = {
     reinterpret_cast<void*>(&napi_get_cb_info),
     reinterpret_cast<void*>(&napi_typeof),
@@ -1536,6 +1554,10 @@ static void* api_table[] = {
     reinterpret_cast<void*>(&own_host_value),
     reinterpret_cast<void*>(&host_value),
     reinterpret_cast<void*>(&release_host_value),
+    reinterpret_cast<void*>(&napi_open_handle_scope),
+    reinterpret_cast<void*>(&napi_close_handle_scope),
+    reinterpret_cast<void*>(&call_borrowed),
+    reinterpret_cast<void*>(&take_callback_exception),
 };
 static_assert(sizeof(api_table) / sizeof(*api_table) == bridge_api_count);
 

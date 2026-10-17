@@ -41,6 +41,48 @@ final class _NapiHostValue {
 }
 ''';
 
+/// Borrowed adapters expire in the outer JS finally. Exception envelopes have
+/// their own traced lifetime and can survive Dart catch/save/rethrow across calls.
+const callbackEntrypointPrelude = r'''
+@pragma('wasm:import', 'napi.callbackActive')
+external WasmI32 _callbackActive(WasmExternRef callback);
+@pragma('wasm:import', 'napi.invokeCallback')
+external WasmExternRef _invokeCallback(WasmExternRef callback, WasmExternRef arguments, WasmI32 context);
+@pragma('wasm:import', 'napi.callbackThrew')
+external WasmI32 _callbackThrew(WasmExternRef envelope);
+@pragma('wasm:import', 'napi.callbackValue')
+external WasmExternRef? _callbackValue(WasmExternRef envelope);
+@pragma('wasm:import', 'napi.throwCallbackError')
+external WasmExternRef? _throwCallbackError(WasmExternRef envelope);
+@pragma('wasm:import', 'napi.rejectCallbackPromise')
+external void _rejectCallbackPromise(WasmExternRef capability, WasmExternRef envelope);
+@pragma('wasm:import', 'napi.callbackStructureError')
+external WasmExternRef _callbackStructureError(WasmExternRef path, WasmExternRef message, WasmI32 range);
+
+final class _CallbackThrown implements Exception {
+  final WasmExternRef envelope;
+  _CallbackThrown(this.envelope);
+}
+''';
+
+/// Only callback modules need the private exception branch. Successful calls
+/// and all emitted code of ordinary modules retain their existing path.
+String withCallbackErrors(String source) => source
+    .replaceFirst(
+      'WasmExternRef? _normalizeError(Object error) {\n',
+      'WasmExternRef? _normalizeError(Object error) {\n'
+          '  if (error is _CallbackThrown) return _throwCallbackError(error.envelope);\n',
+    )
+    .replaceFirst(
+      'void _failFuture(WasmExternRef capability, Object error, StackTrace stack, String context) {\n',
+      'void _failFuture(WasmExternRef capability, Object error, StackTrace stack, String context) {\n'
+          '  if (error is _CallbackThrown) { _rejectCallbackPromise(capability, error.envelope); return; }\n',
+    )
+    .replaceFirst(
+      '    _throwFutureError(',
+      '    error is _CallbackThrown ? _throwCallbackError(error.envelope) : _throwFutureError(',
+    );
+
 /// Future payload conversion is invoked under the host's exception handler so
 /// JS boundary failures retain their original value instead of Dart boxing.
 const futureEntrypointPrelude = r'''

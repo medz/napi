@@ -1,5 +1,5 @@
-// Compiler-private bridge ABI, version 12. Keep generated Dart in lockstep.
-// Version 12 adds owner-bound persistent host values.
+// Compiler-private bridge ABI, version 13. Keep generated Dart in lockstep.
+// Version 13 adds scoped synchronous borrowed callbacks.
 #pragma once
 #include <node_api.h>
 #include <stdint.h>
@@ -85,8 +85,18 @@ enum BridgeApiSlot {
   bridge_own_host_value = 46,
   bridge_host_value = 47,
   bridge_release_host_value = 48,
-  bridge_api_count = 49,
+  bridge_open_callback_handles = 49,
+  bridge_close_callback_handles = 50,
+  bridge_call_borrowed = 51,
+  bridge_take_callback_exception = 52,
+  bridge_api_count = 53,
 };
+// Each invocation's scope encloses argument conversion, JS execution and result
+// conversion. A pending exception must be cleared and owned before closing it.
+// Borrowed function handles never outlive the enclosing exported Dart call.
+typedef napi_status (*BridgeCallBorrowed)(
+    napi_env, napi_value function, size_t argc, const napi_value* argv,
+    napi_value* result);
 // Slots are local to the active Owner and never reused. The holder is private;
 // arbitrary payloads are retained without inspecting or coercing them. Get
 // returns a borrowed handle valid only in the current Node callback scope.

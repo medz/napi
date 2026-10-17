@@ -6,6 +6,7 @@ import '../emit/dart/entrypoint.dart' show renderDartDefault;
 import '../ir/model.dart';
 import '../lowering/plan.dart'
     show
+        CallbackConversion,
         DictionaryConversion,
         ListConversion,
         MapConversion,
@@ -29,6 +30,9 @@ String _quote(String value) => jsonEncode(value).replaceAll(r'$', r'\$');
 /// Generate business-specific Dart only. The Node-API bridge stays generic.
 String emitNativeDart(NativeModulePlan plan) {
   final hasFutures = plan.calls.any((call) => call.returnsFuture);
+  final hasCallbacks = plan.calls.any(
+    (call) => call.inputs.any((value) => value is CallbackConversion),
+  );
   final hasOpaque =
       plan.classes.any(
         (binding) => binding.binding.typeParameters.any((type) => type.opaque),
@@ -44,14 +48,16 @@ String emitNativeDart(NativeModulePlan plan) {
     for (final binding in plan.classes) binding.shape,
   ]);
   final hasStructures = plan.calls.any(
-    (call) => [...call.inputs, if (call.output != null) call.output!].any(
-      (value) =>
-          value is ListConversion ||
-          value is RecordConversion ||
-          value is MapConversion ||
-          value is DictionaryConversion ||
-          value is ValueClassConversion,
-    ),
+    (call) =>
+        conversionGraph([...call.inputs, if (call.output != null) call.output!])
+            .any(
+              (value) =>
+                  value is ListConversion ||
+                  value is RecordConversion ||
+                  value is MapConversion ||
+                  value is DictionaryConversion ||
+                  value is ValueClassConversion,
+            ),
   );
   final hasDictionary = plan.calls.any(
     (call) => [
@@ -66,7 +72,7 @@ String emitNativeDart(NativeModulePlan plan) {
     code.writeln("import 'dart:convert' show jsonEncode;");
     code.writeln("import 'package:napi/napi.dart' as napi;");
   }
-  if (hasStructures || hasFutures || hasOpaque) {
+  if (hasStructures || hasFutures || hasOpaque || hasCallbacks) {
     code.writeln("import 'dart:ffi';");
   }
   code.write('''
@@ -165,12 +171,16 @@ ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int toke
     final hasOpaqueInputs = call.inputs.any(
       (value) => value is OpaqueConversion,
     );
+    final hasCallbackInputs = call.inputs.any(
+      (value) => value is CallbackConversion,
+    );
     final positionalCount = parameters.where((p) => !_named(p)).length;
     final named = parameters.where(_named).toList();
     final capacity = positionalCount + (named.isEmpty ? 0 : 1);
     final rawStructuralArguments =
         !retainsResources &&
         !hasOpaqueInputs &&
+        !hasCallbackInputs &&
         !call.returnsFuture &&
         call.function != null &&
         parameters.every((p) => p.kind == ParameterKind.requiredPositional) &&
@@ -184,6 +194,9 @@ ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int toke
       if (call.returnsFuture) {
         code.writeln('  _api.attachOperation(token, operation);');
       }
+    }
+    if (hasCallbackInputs) {
+      code.writeln('  final borrowed = NativeBorrowFrame(_api, envAddress);');
     }
     code.writeln('  try {');
     code.writeln(
@@ -225,6 +238,7 @@ ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int toke
         !rawStructuralArguments &&
         (retainsResources ||
             hasOpaqueInputs ||
+            hasCallbackInputs ||
             call.returnsFuture ||
             call.inputs.any(containsValueClass));
     if (preflight) {
@@ -274,6 +288,17 @@ ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int toke
         );
         if (_optional(parameter)) code.writeln('    }');
       }
+      for (final (index, parameter) in parameters.indexed) {
+        final conversion = call.inputs[index];
+        if (conversion is! CallbackConversion) continue;
+        final skipped = [
+          if (_optional(parameter)) 'default$index',
+          if (conversion.nullable) '_api.isNull(call.env, raw$index)',
+        ].join(' || ');
+        code.writeln(
+          '    final callback$index = ${skipped.isEmpty ? '' : '$skipped ? -1 : '}borrowed.bind(raw$index, ${_quote(conversion.context)});',
+        );
+      }
     }
     var namedIndex = 0;
     for (final (index, parameter) in parameters.indexed) {
@@ -317,6 +342,8 @@ ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int toke
         _readReference(code, conversion, index, 'a$index', retainsResources);
       } else if (conversion is OpaqueConversion) {
         code.writeln('    a$index = _api.ownHostValue(call.env, raw$index);');
+      } else if (conversion is CallbackConversion) {
+        _readCallback(code, conversion, index, structures, hasResources);
       } else if (conversion is ScalarConversion) {
         final converted =
             '_api.${nativeScalarReader(conversion)}(call.env, raw$index, $path)';
@@ -397,7 +424,7 @@ ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int toke
         _writeResult(code, call.output, structures, 'call.env');
       }
       code.writeln(
-        '  } catch (error) {\n    return _api.fail(envAddress, error);\n  }${retainsResources ? ' finally {\n    operation.release();\n  }' : ''}\n}',
+        '  } catch (error) {\n    return _api.fail(envAddress, error);\n  }${retainsResources || hasCallbackInputs ? ' finally {\n${hasCallbackInputs ? '    borrowed.close();\n' : ''}${retainsResources ? '    operation.release();\n' : ''}  }' : ''}\n}',
       );
     }
   }
@@ -415,6 +442,60 @@ ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int toke
     code.write(structures.source);
   }
   return code.toString();
+}
+
+void _readCallback(
+  StringBuffer code,
+  CallbackConversion conversion,
+  int index,
+  NativeStructuralEmitter structures,
+  bool hasResources,
+) {
+  if (conversion.nullable) {
+    code.writeln('    if (callback$index < 0) { a$index = null; } else {');
+  }
+  final parameters = [
+    for (final (i, input) in conversion.inputs.indexed) '${input.dartType} c$i',
+  ].join(', ');
+  code.writeln(
+    '''    a$index = ($parameters) {
+      return borrowed.invoke<${conversion.output?.dartType ?? 'void'}>(callback$index, ${conversion.inputs.length}, ${_quote(conversion.context)}, (env, argv) {''',
+  );
+  for (final (i, input) in conversion.inputs.indexed) {
+    if (input is ScalarConversion) continue;
+    code.writeln(
+      '        final snapshot$i = ${structures.snapshotOutput(input)}(c$i, _NativeWriteState(), ${_quote(input.context)}, 0);',
+    );
+  }
+  for (final (i, input) in conversion.inputs.indexed) {
+    final String value;
+    if (input is ScalarConversion) {
+      final context = input.kind == ScalarKind.integer && !input.usesBigInt
+          ? ', ${_quote(input.context)}'
+          : '';
+      value =
+          '${input.nullable ? 'c$i == null ? _api.nullResult(env) : ' : ''}'
+          '_api.${nativeScalarWriter(input)}(env, c$i$context)';
+    } else {
+      value =
+          '${structures.writeSnapshot(input)}(env, snapshot$i, _NativeWriteState(), ${_quote(input.context)})';
+    }
+    code.writeln('        argv[$i] = Pointer<Void>.fromAddress($value);');
+  }
+  code.writeln('      }, (env, result) {');
+  final output = conversion.output;
+  if (output is ScalarConversion) {
+    code.writeln(
+      '        return ${output.nullable ? '_api.isNull(env, result) ? null : ' : ''}'
+      '_api.${nativeScalarReader(output)}(env, result, ${_quote(output.context)});',
+    );
+  } else if (output != null) {
+    code.writeln(
+      '        return ${structures.read(output)}(env, result, _NativeReadState(${hasResources ? 'null' : ''}), ${_quote(output.context)}, 0);',
+    );
+  }
+  code.writeln('      });\n    };');
+  if (conversion.nullable) code.writeln('    }');
 }
 
 void _writeResult(
