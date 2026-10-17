@@ -34,7 +34,7 @@ final class NativeStructuralEmitter {
   final _snapshotWriters = Map<ValueConversion, String>.identity();
 
   String read(ValueConversion conversion) {
-    if (!containsValueClass(conversion)) return _emit(conversion, false);
+    if (!containsValueClass(conversion)) return _read(conversion);
     final normalize = _normalize(conversion);
     final materialize = _materialize(conversion);
     final name = '_readNativeValueRoot${_next++}';
@@ -48,11 +48,10 @@ final class NativeStructuralEmitter {
   }
 
   String write(ValueConversion conversion) {
-    if (!containsValueClass(conversion)) return _emit(conversion, true);
     if (_writes[conversion] case final previous?) return previous;
     final snapshot = _snapshotOutput(conversion);
     final hostWrite = _writeSnapshot(conversion);
-    final name = '_writeNativeValueRoot${_next++}';
+    final name = '_writeNativeOutput${_next++}';
     _writes[conversion] = name;
     _code.writeln(
       '''int $name(Pointer<Void> env, ${conversion.dartType} value, _NativeWriteState state, String path, int depth) {
@@ -65,80 +64,35 @@ final class NativeStructuralEmitter {
 
   String get source => _code.toString();
 
-  String _emit(ValueConversion conversion, bool output) {
-    final cache = output ? _writes : _reads;
-    final previous = cache[conversion];
+  String _read(ValueConversion conversion) {
+    final previous = _reads[conversion];
     if (previous != null) return previous;
-    final name = '_${output ? 'write' : 'read'}NativeStructure${_next++}';
-    cache[conversion] = name;
-    final children = switch (conversion) {
-      ListConversion(:final element) => [element],
-      MapConversion(:final key, :final value) => [key, value],
-      DictionaryConversion(:final value) => [value],
-      RecordConversion() => conversion.fields.values.toList(),
-      ValueClassConversion() => [
-        for (final field in conversion.fields) field.conversion,
-      ],
-      ScalarConversion() || ReferenceConversion() => <ValueConversion>[],
-    };
-    final functions = [for (final child in children) _emit(child, output)];
+    final name = '_readNativeStructure${_next++}';
+    _reads[conversion] = name;
+    final functions = [for (final child in _children(conversion)) _read(child)];
     _code.writeln(
-      output
-          ? 'int $name(Pointer<Void> env, ${conversion.dartType} value, _NativeWriteState state, String path, int depth) {'
-          : '${conversion.dartType} $name(Pointer<Void> env, Pointer<Void> value, _NativeReadState state, String path, int depth) {',
+      '${conversion.dartType} $name(Pointer<Void> env, Pointer<Void> value, _NativeReadState state, String path, int depth) {',
     );
     _code.writeln('  state.visit(path);');
     if (conversion.nullable) {
-      _code.writeln(
-        output
-            ? '  if (value == null) return _api.nullResult(env);'
-            : '  if (_api.isNull(env, value)) return null;',
-      );
+      _code.writeln('  if (_api.isNull(env, value)) return null;');
     }
     switch (conversion) {
       case ReferenceConversion():
-        if (output) {
-          _code.writeln(
-            '  return _api.referenceResult(env, value, ${conversion.classId}, path, state.pending);',
-          );
-        } else {
-          _code.writeln(
-            '  final object = _api.ownerValue(env, value, path, ${conversion.classId});',
-          );
-          _code.writeln(
-            "  if (object is! target.${conversion.classBinding.callPath}) throw NapiTypeError('\$path: expected ${conversion.classBinding.exportName}');",
-          );
-          _code.writeln('  return object;');
-        }
-      case ScalarConversion():
-        final context =
-            output &&
-                conversion.kind == ScalarKind.integer &&
-                !conversion.usesBigInt
-            ? ', path'
-            : '';
         _code.writeln(
-          output
-              ? '  return _api.${nativeScalarWriter(conversion)}(env, value$context);'
-              : '  return _api.${nativeScalarReader(conversion)}(env, value, path${conversion.nullable ? ', nullable: true' : ''});',
+          '  final object = _api.ownerValue(env, value, path, ${conversion.classId});',
+        );
+        _code.writeln(
+          "  if (object is! target.${conversion.classBinding.callPath}) throw NapiTypeError('\$path: expected ${conversion.classBinding.exportName}');",
+        );
+        _code.writeln('  return object;');
+      case ScalarConversion():
+        _code.writeln(
+          '  return _api.${nativeScalarReader(conversion)}(env, value, path${conversion.nullable ? ', nullable: true' : ''});',
         );
       case ListConversion(:final element):
-        if (output) {
-          _code.writeln('''  state.enter(value, path, depth);
-  try {
-    final length = value.length;
-    if (length < 0 || length > 0xffffffff) throw NapiTypeError('\$path.length: expected an Array length');
-    if (length > 10000 - state.work) throw NapiRangeError('\$path: structural work limit (10000) exceeded');
-    final result = _api.createContainer(env, true, length);
-    for (var i = 0; i < length; i++) {
-      final child = ${functions.single}(env, value[i], state, '\$path[\$i]', depth + 1);
-      _api.defineOwnValue(env, result, '\$i', child);
-    }
-    return result;
-  } finally { state.leave(value); }''');
-        } else {
-          _code.writeln(
-            '''  final length = _api.inspectShape(env, value, true, const [], path, 10000 - state.work, depth, state.contains(env, value));
+        _code.writeln(
+          '''  final length = _api.inspectShape(env, value, true, const [], path, 10000 - state.work, depth, state.contains(env, value));
   state.active.add(value);
   try {
     final result = <${element.dartType}>[];
@@ -149,35 +103,10 @@ final class NativeStructuralEmitter {
     }
     return result;
   } finally { state.active.removeLast(); }''',
-          );
-        }
+        );
       case MapConversion(:final key, :final value):
-        if (output) {
-          _code.writeln('''  state.enter(value, path, depth);
-  try {
-    final length = value.length;
-    if (length < 0 || length > 0xffffffff) throw NapiTypeError('\$path.length: expected a Map length');
-    if (length > (10000 - state.work) ~/ 2) throw NapiRangeError('\$path: structural work limit (10000) exceeded');
-    final entries = <(${key.dartType}, ${value.dartType})>[];
-    final iterator = value.entries.iterator;
-    for (var i = 0; i < length; i++) {
-      if (!iterator.moveNext()) throw NapiTypeError('\$path: Map length changed during iteration');
-      final entry = iterator.current;
-      entries.add((entry.key, entry.value));
-    }
-    if (iterator.moveNext()) throw NapiTypeError('\$path: Map length changed during iteration');
-    final result = _api.createMap(env);
-    for (var i = 0; i < entries.length; i++) {
-      final keyPath = '\$path[\$i].key';
-      final key = ${functions[0]}(env, entries[i].\$1, state, keyPath, depth + 1);
-      final child = ${functions[1]}(env, entries[i].\$2, state, '\$path[\$i].value', depth + 1);
-      _api.checkedInsertMap(env, result, key, child, keyPath);
-    }
-    return result;
-  } finally { state.leave(value); }''');
-        } else {
-          _code.writeln(
-            '''  final (entries, length) = _api.snapshotMap(env, value, path, 10000 - state.work, depth, state.contains(env, value));
+        _code.writeln(
+          '''  final (entries, length) = _api.snapshotMap(env, value, path, 10000 - state.work, depth, state.contains(env, value));
   state.active.add(value);
   try {
     final result = <${key.dartType}, ${value.dartType}>{};
@@ -193,38 +122,10 @@ final class NativeStructuralEmitter {
     }
     return result;
   } finally { state.active.removeLast(); }''',
-          );
-        }
+        );
       case DictionaryConversion(:final value):
-        if (output) {
-          _code.writeln('''  state.enter(value, path, depth);
-  try {
-    final length = value.length;
-    if (length < 0 || length > 0xffffffff) throw NapiTypeError('\$path.length: expected a Dictionary length');
-    if (length > 10000 - state.work) throw NapiRangeError('\$path: structural work limit (10000) exceeded');
-    final entries = <(String, ${value.dartType})>[];
-    final keys = <String>{};
-    final iterator = value.entries.iterator;
-    for (var i = 0; i < length; i++) {
-      if (!iterator.moveNext()) throw NapiTypeError('\$path: Dictionary length changed during iteration');
-      final entry = iterator.current;
-      final key = entry.key;
-      final child = entry.value;
-      if (!keys.add(key)) throw NapiTypeError('\$path[\${jsonEncode(key)}]: duplicate Dictionary key');
-      entries.add((key, child));
-    }
-    if (iterator.moveNext()) throw NapiTypeError('\$path: Dictionary length changed during iteration');
-    final result = _api.createDictionary(env);
-    for (final entry in entries) {
-      final key = entry.\$1;
-      final child = ${functions.single}(env, entry.\$2, state, '\$path[\${jsonEncode(key)}]', depth + 1);
-      _api.defineOwnValue(env, result, key, child);
-    }
-    return result;
-  } finally { state.leave(value); }''');
-        } else {
-          _code.writeln(
-            '''  final (keys, length) = _api.dictionaryKeys(env, value, path, 10000 - state.work, depth, state.contains(env, value));
+        _code.writeln(
+          '''  final (keys, length) = _api.dictionaryKeys(env, value, path, 10000 - state.work, depth, state.contains(env, value));
   state.active.add(value);
   try {
     final result = <String, ${value.dartType}>{};
@@ -237,83 +138,35 @@ final class NativeStructuralEmitter {
     }
     return napi.Dictionary<${value.dartType}>(result);
   } finally { state.active.removeLast(); }''',
-          );
-        }
-      case ValueClassConversion():
-        if (!output) throw StateError('Value inputs require normalization');
-        _code.writeln('  state.enter(value, path, depth);\n  try {');
-        for (final (index, field) in conversion.fields.indexed) {
-          final member =
-              field.binding.callPath ?? field.binding.declaration.name;
-          _code.writeln('    final raw$index = value.$member;');
-        }
-        _code.writeln(
-          '    final result = _api.createContainer(env, false, 0);',
         );
-        for (final (index, field) in conversion.fields.indexed) {
-          final path = 'path + ${_quote('.${field.name}')}';
+      case ValueClassConversion():
+        throw StateError('Value inputs require normalization');
+      case RecordConversion():
+        final fields = conversion.fields.keys.toList();
+        _code.writeln(
+          '''  _api.inspectShape(env, value, false, const [${fields.map(_quote).join(', ')}], path, 10000 - state.work, depth, state.contains(env, value));
+  state.active.add(value);
+  try {''',
+        );
+        for (final (index, field) in fields.indexed) {
+          final path = 'path + ${_quote('.$field')}';
+          _code.writeln(
+            '    final raw$index = _api.readOwnValue(env, value, ${_quote(field)}, $path);',
+          );
           _code.writeln(
             '    final child$index = ${functions[index]}(env, raw$index, state, $path, depth + 1);',
           );
-          _code.writeln(
-            '    _api.defineOwnValue(env, result, ${_quote(field.name)}, child$index);',
-          );
         }
-        _code.writeln(
-          '    return result;\n  } finally { state.leave(value); }',
-        );
-      case RecordConversion():
-        final fields = conversion.fields.keys.toList();
-        if (output) {
-          _code.writeln('''  state.enter(value, path, depth);
-  try {
-    final result = _api.createContainer(env, false, 0);''');
-        } else {
-          final keys = fields.map(_quote).join(', ');
-          _code.writeln(
-            '''  _api.inspectShape(env, value, false, const [$keys], path, 10000 - state.work, depth, state.contains(env, value));
-  state.active.add(value);
-  try {''',
-          );
-        }
-        for (final (index, field) in fields.indexed) {
-          final path = 'path + ${_quote('.$field')}';
-          if (output) {
-            _code.writeln(
-              '    final child$index = ${functions[index]}(env, value.$field, state, $path, depth + 1);',
-            );
-            _code.writeln(
-              '    _api.defineOwnValue(env, result, ${_quote(field)}, child$index);',
-            );
-          } else {
-            _code.writeln(
-              '    final raw$index = _api.readOwnValue(env, value, ${_quote(field)}, $path);',
-            );
-            _code.writeln(
-              '    final child$index = ${functions[index]}(env, raw$index, state, $path, depth + 1);',
-            );
-          }
-        }
-        if (output) {
-          _code.writeln('    return result;');
-        } else {
-          final entries = <String>[];
-          for (var index = 0; index < conversion.positional.length; index++) {
-            entries.add('child$index');
-          }
-          for (final (index, field) in conversion.named.keys.indexed) {
-            entries.add('$field: child${conversion.positional.length + index}');
-          }
-          final trailing = entries.length == 1 && conversion.named.isEmpty
-              ? ','
-              : '';
-          _code.writeln('    return (${entries.join(', ')}$trailing);');
-        }
-        _code.writeln(
-          output
-              ? '  } finally { state.leave(value); }'
-              : '  } finally { state.active.removeLast(); }',
-        );
+        final entries = <String>[
+          for (var i = 0; i < conversion.positional.length; i++) 'child$i',
+          for (final (i, field) in conversion.named.keys.indexed)
+            '$field: child${conversion.positional.length + i}',
+        ];
+        final trailing = entries.length == 1 && conversion.named.isEmpty
+            ? ','
+            : '';
+        _code.writeln('    return (${entries.join(', ')}$trailing);');
+        _code.writeln('  } finally { state.active.removeLast(); }');
     }
     _code.writeln('}');
     return name;
@@ -337,63 +190,91 @@ final class NativeStructuralEmitter {
     switch (conversion) {
       case ScalarConversion() || ReferenceConversion():
         _code.writeln('  return value;');
-      case ListConversion():
-        _code.writeln('''  state.enter(value, path, depth);
+      case ListConversion(:final element):
+        _code.writeln(
+          '''  state.enter(value, path, depth);
   try {
     final length = value.length;
     if (length < 0 || length > 0xffffffff) throw NapiTypeError('\$path.length: expected an Array length');
-    if (length > 10000 - state.work) throw NapiRangeError('\$path: structural work limit (10000) exceeded');
-    return <Object?>[
+    if (length > 10000 - state.work) throw NapiRangeError('\$path: structural work limit (10000) exceeded');''',
+        );
+        if (element is ScalarConversion || element is ReferenceConversion) {
+          _code.writeln(
+            '''    final result = List<Object?>.filled(length, null);
+    for (var i = 0; i < length; i++) result[i] = value[i];
+    state.work += length;
+    return result;''',
+          );
+        } else {
+          _code.writeln('''    return <Object?>[
       for (var i = 0; i < length; i++)
         ${functions.single}(value[i], state, '\$path[\$i]', depth + 1),
-    ];
-  } finally { state.leave(value); }''');
+    ];''');
+        }
+        _code.writeln('  } finally { state.leave(value); }');
       case MapConversion(:final key, :final value):
-        _code.writeln('''  state.enter(value, path, depth);
+        _code.writeln(
+          '''  state.enter(value, path, depth);
   try {
     final length = value.length;
     if (length < 0 || length > 0xffffffff) throw NapiTypeError('\$path.length: expected a Map length');
     if (length > (10000 - state.work) ~/ 2) throw NapiRangeError('\$path: structural work limit (10000) exceeded');
-    final entries = <(${key.dartType}, ${value.dartType})>[];
+    final entries = List<Object?>.filled(length * 2, null);
     final iterator = value.entries.iterator;
     for (var i = 0; i < length; i++) {
       if (!iterator.moveNext()) throw NapiTypeError('\$path: Map length changed during iteration');
       final entry = iterator.current;
-      entries.add((entry.key, entry.value));
+      final ${key.dartType} key = entry.key;
+      final ${value.dartType} child = entry.value;
+      entries[2 * i] = key;
+      entries[2 * i + 1] = child;
     }
-    if (iterator.moveNext()) throw NapiTypeError('\$path: Map length changed during iteration');
-    return <Object?>[
-      for (var i = 0; i < entries.length; i++) ...[
-        ${functions[0]}(entries[i].\$1, state, '\$path[\$i].key', depth + 1),
-        ${functions[1]}(entries[i].\$2, state, '\$path[\$i].value', depth + 1),
-      ],
-    ];
-  } finally { state.leave(value); }''');
+    if (iterator.moveNext()) throw NapiTypeError('\$path: Map length changed during iteration');''',
+        );
+        if ((key is ScalarConversion || key is ReferenceConversion) &&
+            (value is ScalarConversion || value is ReferenceConversion)) {
+          _code.writeln('    state.work += length * 2;');
+        } else {
+          _code.writeln('''    for (var i = 0; i < length; i++) {
+      entries[2 * i] = ${functions[0]}(entries[2 * i] as ${key.dartType}, state, '\$path[\$i].key', depth + 1);
+      entries[2 * i + 1] = ${functions[1]}(entries[2 * i + 1] as ${value.dartType}, state, '\$path[\$i].value', depth + 1);
+    }''');
+        }
+        _code.writeln(
+          '    return entries;\n  } finally { state.leave(value); }',
+        );
       case DictionaryConversion(:final value):
-        _code.writeln('''  state.enter(value, path, depth);
+        _code.writeln(
+          '''  state.enter(value, path, depth);
   try {
     final length = value.length;
     if (length < 0 || length > 0xffffffff) throw NapiTypeError('\$path.length: expected a Dictionary length');
     if (length > 10000 - state.work) throw NapiRangeError('\$path: structural work limit (10000) exceeded');
-    final entries = <(String, ${value.dartType})>[];
+    final entries = List<Object?>.filled(length * 2, null);
     final keys = <String>{};
     final iterator = value.entries.iterator;
     for (var i = 0; i < length; i++) {
       if (!iterator.moveNext()) throw NapiTypeError('\$path: Dictionary length changed during iteration');
       final entry = iterator.current;
-      final key = entry.key;
-      final child = entry.value;
+      final String key = entry.key;
+      final ${value.dartType} child = entry.value;
       if (!keys.add(key)) throw NapiTypeError('\$path[\${jsonEncode(key)}]: duplicate Dictionary key');
-      entries.add((key, child));
+      entries[2 * i] = key;
+      entries[2 * i + 1] = child;
     }
-    if (iterator.moveNext()) throw NapiTypeError('\$path: Dictionary length changed during iteration');
-    return <Object?>[
-      for (var i = 0; i < entries.length; i++) ...[
-        entries[i].\$1,
-        ${functions.single}(entries[i].\$2, state, '\$path[\${jsonEncode(entries[i].\$1)}]', depth + 1),
-      ],
-    ];
-  } finally { state.leave(value); }''');
+    if (iterator.moveNext()) throw NapiTypeError('\$path: Dictionary length changed during iteration');''',
+        );
+        if (value is ScalarConversion || value is ReferenceConversion) {
+          _code.writeln('    state.work += length;');
+        } else {
+          _code.writeln('''    for (var i = 0; i < length; i++) {
+      final key = entries[2 * i] as String;
+      entries[2 * i + 1] = ${functions.single}(entries[2 * i + 1] as ${value.dartType}, state, '\$path[\${jsonEncode(key)}]', depth + 1);
+    }''');
+        }
+        _code.writeln(
+          '    return entries;\n  } finally { state.leave(value); }',
+        );
       case ValueClassConversion():
         _code.writeln('''  state.enter(value, path, depth);
   try {''');
@@ -413,14 +294,22 @@ final class NativeStructuralEmitter {
       case RecordConversion():
         _code.writeln('''  state.enter(value, path, depth);
   try {
-    return <Object?>[''');
-        for (final (index, field) in conversion.fields.keys.indexed) {
-          _code.writeln(
-            '      ${functions[index]}(value.$field, state, path + ${_quote('.$field')}, depth + 1),',
-          );
+    final result = List<Object?>.filled(${conversion.fields.length}, null);''');
+        for (final (index, field) in conversion.fields.entries.indexed) {
+          final child = field.value;
+          if (child is ScalarConversion || child is ReferenceConversion) {
+            _code.writeln('''    final raw$index = value.${field.key};
+    if (++state.work > 10000) throw NapiRangeError('\$path.${field.key.replaceAll(r'$', r'\$')}: structural work limit (10000) exceeded');
+    result[$index] = raw$index;''');
+          } else {
+            _code.writeln(
+              '    result[$index] = ${functions[index]}(value.${field.key}, state, path + ${_quote('.${field.key}')}, depth + 1);',
+            );
+          }
         }
-        _code.writeln('''    ];
-  } finally { state.leave(value); }''');
+        _code.writeln(
+          '    return result;\n  } finally { state.leave(value); }',
+        );
     }
     _code.writeln('}');
     return name;
@@ -519,7 +408,7 @@ final class NativeStructuralEmitter {
     final previous = _normalizers[conversion];
     if (previous != null) return previous;
     if (conversion is ScalarConversion || conversion is ReferenceConversion) {
-      return _normalizers[conversion] = _emit(conversion, false);
+      return _normalizers[conversion] = _read(conversion);
     }
     final name = '_normalizeNativeStructure${_next++}';
     _normalizers[conversion] = name;

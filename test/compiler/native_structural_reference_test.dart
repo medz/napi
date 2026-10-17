@@ -115,7 +115,7 @@ void main() {
       expect(dart, contains('is! target.DartBox'));
       expect(
         dart,
-        contains('_api.referenceResult(env, value, 0, path, state.pending)'),
+        contains('_api.referenceResult(env, value!, 0, path, state.pending)'),
       );
       expect(dart, contains('final pending = <(Object, int)>[];'));
 

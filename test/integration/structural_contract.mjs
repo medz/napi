@@ -1,6 +1,18 @@
 import assert from 'node:assert/strict';
 
 export function verifyStructures(api) {
+  // Complete Dart output snapshots precede host integer and Map-key checks.
+  for (const call of [api.structuralOutputOrder, api.structuralCollisionOrder]) {
+    assert.throws(() => call(true), error => error.constructor === Error &&
+      error.message.includes('later output getter failed'));
+    assert.equal(api.structuralOutputReads(), 1);
+  }
+  assert.throws(() => api.structuralOutputOrder(false), error =>
+    error instanceof RangeError && error.message.startsWith('structuralOutputOrder result.$1:'));
+  assert.equal(api.structuralOutputReads(), 1);
+  assert.throws(() => api.structuralCollisionOrder(false), error =>
+    error instanceof TypeError && error.message === 'structuralCollisionOrder result.$1[1].key: duplicate converted Map key');
+  assert.equal(api.structuralOutputReads(), 1);
   const {
   structuralCalls, structuralLists, structuralSaved, structuralRecords,
   structuralNamed, structuralSingle, structuralEmpty, structuralBooleans,

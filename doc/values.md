@@ -94,11 +94,11 @@ business function is called only after all parameters convert successfully.
 Domain exceptions remain ordinary JavaScript `Error` values, while generated
 shape/type/range errors retain their contextual property paths.
 
-Native inputs and outputs containing value classes use an intermediate snapshot
-and a second traversal to match Wasm's observable conversion order. This adds
-temporary storage proportional to the visited shape. Existing conversions without
-value classes keep their established paths. Work/depth/cycle validation runs once
-during the snapshot phase.
+Native inputs containing value classes and all structural outputs use an
+intermediate snapshot and a second traversal to match Wasm's observable
+conversion order. This adds temporary storage proportional to the visited shape.
+Inputs without value classes keep their established paths. Work/depth/cycle
+validation runs once during the snapshot phase.
 
 ## Output and composition
 

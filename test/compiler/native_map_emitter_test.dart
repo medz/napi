@@ -136,18 +136,17 @@ void main() {
     expect(dart, contains("\$path: Map length changed during iteration"));
     expect(dart, contains('if (length < 0 || length > 0xffffffff)'));
     expect(dart, contains('final iterator = value.entries.iterator;'));
-    expect(dart, contains('entries.add((entry.key, entry.value));'));
+    expect(dart, contains('entries[2 * i] = key;'));
+    expect(dart, contains('entries[2 * i + 1] = child;'));
     expect(
       dart,
-      contains(
-        "if (iterator.moveNext()) throw NapiTypeError('\$path: Map length changed during iteration');\n    final result = _api.createMap(env);",
-      ),
+      contains('final entries = List<Object?>.filled(length * 2, null);'),
     );
     expect(
       RegExp(
-        r'final key = _writeNativeStructure[^\n]+\n'
-        r'      final child = _writeNativeStructure[^\n]+\n'
-        r'      _api.checkedInsertMap\(env, result, key, child, keyPath\);',
+        r'final key = _writeNativeSnapshot[^\n]+\n'
+        r'    final child = _writeNativeSnapshot[^\n]+\n'
+        r'    _api.checkedInsertMap\(env, result, key, child, keyPath\);',
       ).hasMatch(dart),
       isTrue,
     );
@@ -161,7 +160,7 @@ void main() {
     expect(dart, contains('is! target.DartBox'));
     expect(
       dart,
-      contains('_api.referenceResult(env, value, 0, path, state.pending)'),
+      contains('_api.referenceResult(env, value!, 0, path, state.pending)'),
     );
     expect(dart, contains('finally { state.active.removeLast(); }'));
     expect(dart, contains('finally { state.leave(value); }'));
