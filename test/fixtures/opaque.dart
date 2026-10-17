@@ -178,3 +178,33 @@ class PlainStore<T> {
   PlainStore(this.value);
   Future<T> futureValue() => Future.value(value);
 }
+
+@NAPI()
+class SetterThenBox<T> {
+  T _value;
+  SetterThenBox(this._value);
+  set then(T value) => _value = value;
+  T get value => _value;
+  Future<SetterThenBox<T>> futureSelf() => Future.value(this);
+}
+
+@NAPI()
+class StaticSetterThenBox {
+  static set then(void Function() value) => value();
+}
+
+@NAPI()
+class GetterThenView<T> {
+  GetterThenView(this._value);
+  final T _value;
+  T get then => _value;
+}
+
+class _CompositeThen<T> extends SetterThenBox<T> implements GetterThenView<T> {
+  _CompositeThen(super.value);
+  @override
+  T get then => value;
+}
+
+@NAPI()
+SetterThenBox<T> compositeThen<T>(T value) => _CompositeThen(value);

@@ -162,6 +162,30 @@ async function futureValues(api) {
 }
 
 async function thenables(api) {
+  let setterCalls = 0;
+  const setterValue = resolve => { setterCalls++; resolve(42); };
+  const setterOnly = new api.SetterThenBox(setterValue);
+  assert.equal(setterOnly.then, undefined);
+  assert.equal(setterOnly.value, setterValue);
+  assert.equal(await setterOnly.futureSelf(), setterOnly);
+  assert.equal(await api.futureIdentity(setterOnly), setterOnly);
+  setterOnly.then = resolve => { setterCalls++; resolve(43); };
+  assert.equal(setterOnly.then, undefined);
+  assert.equal(await setterOnly.futureSelf(), setterOnly);
+  assert.equal(setterCalls, 0, 'Promise resolution never invokes a setter-only then');
+  let staticSetterCalls = 0;
+  api.StaticSetterThenBox.then = () => { staticSetterCalls++; };
+  assert.equal(staticSetterCalls, 1);
+  assert.equal(api.StaticSetterThenBox.then, undefined);
+  assert.equal(await api.futureIdentity(api.StaticSetterThenBox), api.StaticSetterThenBox);
+  assert.equal(staticSetterCalls, 1, 'Promise resolution does not invoke a static setter');
+  let compositeCalls = 0;
+  const compositeValue = resolve => { compositeCalls++; resolve(45); };
+  const composite = api.compositeThen(compositeValue);
+  assert.equal(composite.then, compositeValue, 'an unselected implementation composes getter and setter views');
+  assert.equal(await api.futureIdentity(composite), 45);
+  assert.equal(await composite.futureSelf(), 45);
+  assert.equal(compositeCalls, 2);
   const payload = {result: true};
   let gets = 0;
   let invokes = 0;
@@ -296,6 +320,10 @@ async function scenario(name) {
       assert.equal(store.value, undefined);
       assert.equal(await store.futureValue(), undefined);
       assert.throws(() => new external.PlainStore(), TypeError);
+      const setter = new external.SetterThenBox(resolve => resolve(46));
+      assert.equal(setter.then, undefined);
+      assert.equal(await setter.futureSelf(), setter);
+      assert.equal(await external.plainFuture(setter), setter);
       break;
     }
     case 'retention': {

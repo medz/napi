@@ -124,6 +124,14 @@ value, including callable/non-callable union branches. Synchronous opaque values
 and values nested inside returned containers retain their ordinary identity.
 See [the Promise contract](futures.md#promise-resolution-and-identity).
 
+Setter-only properties read `undefined`. Their declarations also include getters
+that compatible selected views may contribute, including through an unselected
+Dart implementation. Such ambiguous reads use a conservative union; a getter
+with unknown generic arguments can make the read and Promise result `unknown`.
+Without a compatible getter view, the read remains exactly `undefined`, so a
+setter-only `then` preserves the wrapper. Static setter-only reads are always
+`undefined` because static members do not participate in view composition.
+
 The unsupported generic combinations above remain tracked in #125 and the
 broader generics/composition issues.
 

@@ -3,6 +3,8 @@ import '../emit/typescript/declarations.dart'
         emitMemberName,
         emitParameterVariants,
         emitReferenceInheritance,
+        emitWriteOnlyReads,
+        emitViewGetterResult,
         emitResult,
         emitTypeParameters,
         emitOpaquePhantom,
@@ -95,6 +97,19 @@ String emitNativeDeclarations(NativeModulePlan plan) {
             throw StateError('Unsupported class declaration');
         }
       }
+    }
+    for (final declaration in emitWriteOnlyReads(
+      binding.shape,
+      plan.classes.map((binding) => binding.shape).toList(),
+      (ref) {
+        final member = plan.classes[ref.classId].members[ref.memberIndex];
+        return emitViewGetterResult(
+          member.output,
+          returnsFuture: member.returnsFuture,
+        );
+      },
+    )) {
+      code.writeln(declaration);
     }
     code.writeln('}');
     for (final declaration in emitReferenceInheritance(

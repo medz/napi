@@ -36,6 +36,7 @@ Future<void> main() async {
         ExternalFunction('plainEcho'),
         ExternalFunction('plainFuture'),
         ExternalClass('PlainStore'),
+        ExternalClass('SetterThenBox'),
       ]) : null,
       ${native ? 'target: BuildTarget.native,\n      nativeRuntime: Directory(${jsonEncode(nativeRuntime.absolute.path)}),' : ''}
     );

@@ -1,6 +1,6 @@
 import * as api from '@napi/opaque-fixture';
 import * as direct from '@napi/opaque-fixture/BACKEND';
-import {plainEcho, plainFuture, PlainStore} from '@napi/opaque-external';
+import {plainEcho, plainFuture, PlainStore, SetterThenBox as ExternalSetterThenBox} from '@napi/opaque-external';
 
 const item = {name: 'payload'};
 const same: typeof item = api.identity(item);
@@ -133,3 +133,40 @@ new PlainStore<string>();
 void [same, un, nullable, directValue, read, sameRouter, forwarded, readopted,
   optional, named, first, second, boundedNull, boundedUndefined, output, pending,
   external, stored, array, emptyRecord, emptyKey, globalResult, widened, narrowed, fake];
+
+const setterOnly = new api.SetterThenBox(thenable.then);
+const setterRead: unknown = setterOnly.then;
+setterOnly.then = thenable.then;
+const setterPromise: Promise<unknown> = setterOnly.futureSelf();
+const setterOpaque: Promise<unknown> = api.futureIdentity(setterOnly);
+// @ts-expect-error A composed getter can produce an unknown fulfillment value.
+const wrongSetter: Promise<number> = setterOnly.futureSelf();
+void [setterRead, setterPromise, setterOpaque, wrongSetter];
+
+api.StaticSetterThenBox.then = () => {};
+const staticSetterRead: undefined = api.StaticSetterThenBox.then;
+const staticSetterPromise: Promise<typeof api.StaticSetterThenBox> = api.futureIdentity(api.StaticSetterThenBox);
+// @ts-expect-error Reading static setter-only then must not assimilate its callback input.
+const wrongStaticSetter: Promise<never> = api.futureIdentity(api.StaticSetterThenBox);
+// @ts-expect-error An independent undefined read must preserve the setter input type.
+api.StaticSetterThenBox.then = 'wrong';
+void [staticSetterRead, staticSetterPromise, wrongStaticSetter];
+
+const composite = api.compositeThen(thenable.then);
+const compositeRead: unknown = composite.then;
+const compositeFuture: Promise<unknown> = composite.futureSelf();
+// @ts-expect-error Unselected implementations can add compatible getter views.
+const wrongCompositeRead: undefined = composite.then;
+// @ts-expect-error A composed then getter can assimilate instead of preserving the wrapper.
+const wrongCompositeFuture: Promise<typeof composite> = composite.futureSelf();
+const isolatedSetter = new ExternalSetterThenBox(thenable.then);
+isolatedSetter.then = thenable.then;
+const isolatedRead: undefined = isolatedSetter.then;
+const isolatedSelf: Promise<typeof isolatedSetter> = isolatedSetter.futureSelf();
+const isolatedOpaque: Promise<typeof isolatedSetter> = plainFuture(isolatedSetter);
+// @ts-expect-error A setter without a possible getter never assimilates its input type.
+const wrongIsolated: Promise<number> = isolatedSetter.futureSelf();
+// @ts-expect-error Exact read typing still preserves setter input validation.
+isolatedSetter.then = 'wrong';
+void [compositeRead, compositeFuture, wrongCompositeRead, wrongCompositeFuture,
+  isolatedRead, isolatedSelf, isolatedOpaque, wrongIsolated];
