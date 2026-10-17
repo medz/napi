@@ -33,6 +33,11 @@ String emitNativeDart(NativeModulePlan plan) {
   final hasCallbacks = plan.calls.any(
     (call) => call.inputs.any((value) => value is CallbackConversion),
   );
+  final hasAsyncCallbacks = plan.calls.any(
+    (call) => call.inputs.any(
+      (value) => value is CallbackConversion && value.returnsFuture,
+    ),
+  );
   final hasOpaque =
       plan.classes.any(
         (binding) => binding.binding.typeParameters.any((type) => type.opaque),
@@ -109,7 +114,7 @@ List<Object?> napiBindings(int apiTableAddress, int tableCount) {
 }
 @pragma('vm:entry-point')
 void releaseOwner(int id) => _api.releaseOwner(id);
-${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int token) => _api.releaseFuture(token);\n" : ''}void main() {}
+${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int token) => _api.releaseFuture(token);\n" : ''}${hasAsyncCallbacks ? "@pragma('vm:entry-point')\nFunction? acceptCallback(int env, int token, bool rejected, int value) => _api.acceptCallback(env, token, rejected, value);\n" : ''}void main() {}
 ''');
   if (plan.classes.isNotEmpty) {
     if (hasResources) {
@@ -194,9 +199,6 @@ ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int toke
       if (call.returnsFuture) {
         code.writeln('  _api.attachOperation(token, operation);');
       }
-    }
-    if (hasCallbackInputs) {
-      code.writeln('  final borrowed = NativeBorrowFrame(_api, envAddress);');
     }
     code.writeln('  try {');
     code.writeln(
@@ -296,7 +298,7 @@ ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int toke
           if (conversion.nullable) '_api.isNull(call.env, raw$index)',
         ].join(' || ');
         code.writeln(
-          '    final callback$index = ${skipped.isEmpty ? '' : '$skipped ? -1 : '}borrowed.bind(raw$index, ${_quote(conversion.context)});',
+          '    ${skipped.isEmpty ? '' : 'if (!($skipped)) '}_api.checkCallback(call.env, raw$index, ${_quote(conversion.context)});',
         );
       }
     }
@@ -424,7 +426,7 @@ ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int toke
         _writeResult(code, call.output, structures, 'call.env');
       }
       code.writeln(
-        '  } catch (error) {\n    return _api.fail(envAddress, error);\n  }${retainsResources || hasCallbackInputs ? ' finally {\n${hasCallbackInputs ? '    borrowed.close();\n' : ''}${retainsResources ? '    operation.release();\n' : ''}  }' : ''}\n}',
+        '  } catch (error) {\n    return _api.fail(envAddress, error);\n  }${retainsResources ? ' finally {\n    operation.release();\n  }' : ''}\n}',
       );
     }
   }
@@ -452,14 +454,21 @@ void _readCallback(
   bool hasResources,
 ) {
   if (conversion.nullable) {
-    code.writeln('    if (callback$index < 0) { a$index = null; } else {');
+    code.writeln(
+      '    if (_api.isNull(call.env, raw$index)) { a$index = null; } else {',
+    );
   }
   final parameters = [
     for (final (i, input) in conversion.inputs.indexed) '${input.dartType} c$i',
   ].join(', ');
+  final type = conversion.nullable
+      ? conversion.dartType.substring(0, conversion.dartType.length - 1)
+      : conversion.dartType;
   code.writeln(
-    '''    a$index = ($parameters) {
-      return borrowed.invoke<${conversion.output?.dartType ?? 'void'}>(callback$index, ${conversion.inputs.length}, ${_quote(conversion.context)}, (env, argv) {''',
+    '    a$index = _api.callback<$type>(call.env, raw$index, ${_quote(conversion.signatureKey)}, ${_quote(conversion.context)}, (callback) ${conversion.returnsFuture ? '{\n      late final $type adapter;\n      adapter =' : '=>'} ($parameters) {',
+  );
+  code.writeln(
+    "      return callback.${conversion.returnsFuture ? 'invokeFuture' : 'invoke'}<${conversion.output?.dartType ?? 'void'}>(${conversion.returnsFuture ? 'adapter, ' : ''}${conversion.inputs.length}, (env, argv) {",
   );
   for (final (i, input) in conversion.inputs.indexed) {
     if (input is ScalarConversion) continue;
@@ -494,7 +503,9 @@ void _readCallback(
       '        return ${structures.read(output)}(env, result, _NativeReadState(${hasResources ? 'null' : ''}), ${_quote(output.context)}, 0);',
     );
   }
-  code.writeln('      });\n    };');
+  code.writeln('      });');
+  if (conversion.returnsFuture) code.writeln('      };\n      return adapter;');
+  code.writeln('    }, prechecked: true);');
   if (conversion.nullable) code.writeln('    }');
 }
 

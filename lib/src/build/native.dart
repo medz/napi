@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import '../compiler/ir/model.dart';
+import '../compiler/lowering/plan.dart' show CallbackConversion;
 import '../compiler/native/plan.dart';
 import '../compiler/native/entrypoint.dart';
 import '../compiler/native/declarations.dart';
@@ -51,6 +52,14 @@ Future<BuiltModule> buildNativeModule({
         exports,
         classes: plan.classes,
         hasFutures: plan.calls.any((call) => call.returnsFuture),
+        hasCallbacks: plan.calls.any(
+          (call) => call.inputs.any((input) => input is CallbackConversion),
+        ),
+        hasAsyncCallbacks: plan.calls.any(
+          (call) => call.inputs.any(
+            (input) => input is CallbackConversion && input.returnsFuture,
+          ),
+        ),
       ),
     );
     await File('${artifact.path}/module.d.mts')

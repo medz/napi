@@ -9,7 +9,7 @@ void main() {
   final packages = File('.dart_tool/package_config.json').absolute.path;
 
   test(
-    'typed borrowed adapters compile with nullable and structural values',
+    'typed retained adapters compile with nullable and structural values',
     () async {
       final directory = await Directory.systemTemp.createTemp('napi-callback-');
       addTearDown(() => directory.delete(recursive: true));
@@ -19,6 +19,8 @@ import 'package:napi/napi.dart';
 @NAPI() int apply(int Function(int) callback) => callback(1);
 @NAPI() int optional([int? Function(int?)? callback]) => callback?.call(null) ?? 0;
 @NAPI() int notify(void Function() callback) { callback(); return 1; }
+@NAPI() Future<int> later(Future<int> Function(int) callback) => callback(42);
+@NAPI() Future<void> laterVoid(Future<void> Function() callback) => callback();
 @NAPI() int list(List<int> Function(List<int>) callback) => callback([1]).length;
 @NAPI() String record((int, {String label}) Function((int, {String label})) callback) => callback((1, label: 'a')).label;
 @NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
@@ -36,11 +38,16 @@ class Resource {
       );
       final generated = emitNativeDart(plan);
       expect(generated, contains('final int Function(int) a0;'));
-      expect(generated, contains('borrowed.invoke<void>'));
+      expect(generated, contains('callback.invoke<void>'));
+      expect(generated, contains('callback.invokeFuture<int>'));
+      expect(generated, isNot(contains('NativeBorrowFrame')));
+      expect(generated, contains('Function? acceptCallback('));
       expect(
         generated,
-        contains('borrowed.close();\n    operation.release();'),
+        contains('late final Future<int> Function(int) adapter'),
       );
+      expect(generated, contains('callback.invokeFuture<int>(adapter, '));
+      expect(generated, contains('_api.callback<int Function(int)>'));
       // Structures only occur inside callback signatures in this module.
       expect(generated, contains('final class _NativeReadState'));
       expect(generated, contains('callback argument 1'));

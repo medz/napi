@@ -41,11 +41,13 @@ final class _NapiHostValue {
 }
 ''';
 
-/// Borrowed adapters expire in the outer JS finally. Exception envelopes have
-/// their own traced lifetime and can survive Dart catch/save/rethrow across calls.
+/// Cached adapters retain their JS function while reachable from Dart. Exception
+/// envelopes have a separate traced lifetime across catch/save/rethrow calls.
 const callbackEntrypointPrelude = r'''
-@pragma('wasm:import', 'napi.callbackActive')
-external WasmI32 _callbackActive(WasmExternRef callback);
+@pragma('wasm:import', 'napi.findCallbackAdapter')
+external WasmExternRef? _findCallbackAdapter(WasmExternRef callback, WasmExternRef signature);
+@pragma('wasm:import', 'napi.cacheCallbackAdapter')
+external void _cacheCallbackAdapter(WasmExternRef callback, WasmExternRef signature, WasmExternRef adapter);
 @pragma('wasm:import', 'napi.invokeCallback')
 external WasmExternRef _invokeCallback(WasmExternRef callback, WasmExternRef arguments, WasmI32 context);
 @pragma('wasm:import', 'napi.callbackThrew')
@@ -63,6 +65,11 @@ final class _CallbackThrown implements Exception {
   final WasmExternRef envelope;
   _CallbackThrown(this.envelope);
 }
+''';
+
+const asyncCallbackEntrypointPrelude = r'''
+@pragma('wasm:import', 'napi.startCallback')
+external WasmExternRef? _startCallback(WasmExternRef callback, WasmExternRef arguments, WasmI32 context, WasmExternRef deliver, WasmExternRef roots);
 ''';
 
 /// Only callback modules need the private exception branch. Successful calls

@@ -4,6 +4,17 @@ import 'dart:ffi';
 
 import '../../runtime/resources.dart';
 
+typedef _CallbackHelperNative = Int32 Function(
+  Pointer<Void>,
+  Int32,
+  Pointer<Pointer<Void>>,
+);
+typedef _CallbackHelper = int Function(
+  Pointer<Void>,
+  int,
+  Pointer<Pointer<Void>>,
+);
+
 typedef _CallbackInfoNative = Int32 Function(
   Pointer<Void>,
   Pointer<Void>,
@@ -61,19 +72,31 @@ typedef _HostValueNative = Int32 Function(
 typedef _HostValue = int Function(Pointer<Void>, int, Pointer<Pointer<Void>>);
 typedef _ReleaseHostValueNative = Int32 Function(Pointer<Void>, Int64);
 typedef _ReleaseHostValue = int Function(Pointer<Void>, int);
-typedef _CallBorrowedNative = Int32 Function(
+typedef _CallCallbackNative = Int32 Function(
   Pointer<Void>,
   Pointer<Void>,
+  Int64,
   Size,
   Pointer<Pointer<Void>>,
   Pointer<Pointer<Void>>,
 );
-typedef _CallBorrowed = int Function(
+typedef _CallCallback = int Function(
   Pointer<Void>,
   Pointer<Void>,
   int,
+  int,
   Pointer<Pointer<Void>>,
   Pointer<Pointer<Void>>,
+);
+typedef _CallbackIdentityNative = Int32 Function(
+  Pointer<Void>,
+  Pointer<Void>,
+  Pointer<Int64>,
+);
+typedef _CallbackIdentity = int Function(
+  Pointer<Void>,
+  Pointer<Void>,
+  Pointer<Int64>,
 );
 
 typedef _TypeNative = Int32 Function(
@@ -485,66 +508,71 @@ final class _NativeJsException implements Exception {
   _NativeJsException(this.value);
 }
 
-/// One synchronous exported invocation, including all its borrowed callbacks.
-final class NativeBorrowFrame {
+// The typed adapter owns this handle by ordinary Dart reachability. The weak
+// identity cache never owns the adapter or the JavaScript function.
+final class NativeCallback {
   final NapiApi _api;
   final Pointer<Void> _env;
-  List<Pointer<Void>>? _functions = [];
-  NativeBorrowFrame(this._api, int envAddress)
-    : _env = Pointer.fromAddress(envAddress);
-
-  int bind(Pointer<Void> function, String path) {
-    final functions = _functions;
-    if (functions == null) throw StateError('Borrowed callback has expired');
-    if (_api.typeOf(_env, function) != 7) {
-      throw NapiTypeError('$path: expected function');
-    }
-    functions.add(function);
-    return functions.length - 1;
-  }
+  final NativeHostValue _function;
+  NativeCallback._(this._api, this._env, this._function);
 
   T invoke<T>(
-    int index,
     int argc,
-    String path,
+    void Function(Pointer<Void>, Pointer<Pointer<Void>>) write,
+    T Function(Pointer<Void>, Pointer<Void>) read,
+  ) => _api._invokeCallback(_env, nullptr, argc, write, read, owned: _function);
+
+  Future<T> invokeFuture<T>(
+    Function adapter,
+    int argc,
     void Function(Pointer<Void>, Pointer<Pointer<Void>>) write,
     T Function(Pointer<Void>, Pointer<Void>) read,
   ) {
-    final functions = _functions;
-    if (functions == null) {
-      throw StateError('$path: borrowed callback has expired');
+    final completion = Completer<T>();
+    final token = _api._nextCallback++;
+    if (token > 9007199254740991) {
+      throw StateError('Native callback token space exhausted');
     }
-    // Scope and result occupy the last two slots of one temporary buffer.
-    final buffer = _allocate<Pointer<Void>>(argc + 2, sizeOf<Pointer<Void>>());
-    final scope = buffer + argc;
-    final result = scope + 1;
-    var opened = false;
+    _api._pendingCallbacks[token] = _NativeCallbackPending(adapter, (
+      env,
+      value,
+      rejected,
+    ) {
+      try {
+        if (rejected) throw _NativeJsException(_api.ownHostValue(env, value));
+        completion.complete(read(env, value));
+      } catch (error, stack) {
+        completion.completeError(_api._callbackError(env, error), stack);
+      }
+    });
     try {
-      _api._check(_api._openCallbackHandles(_env, scope));
-      opened = true;
-      try {
-        write(_env, buffer);
-        _api._check(
-          _api._callBorrowed(_env, functions[index], argc, buffer, result),
+      final observer = _api._getCallbackHelper(_env, 1);
+      _api._invokeCallback<void>(_env, observer, argc + 2, (env, args) {
+        _api._borrowHostValue(env, _function, args);
+        args[1] = Pointer.fromAddress(
+          _api.integerResult(env, token, 'callback token'),
         );
-        return read(_env, result.value);
-      } catch (_) {
-        if (_api._hasPending(_env)) {
-          _api._check(_api._takeCallbackException(_env, result));
-          throw _NativeJsException(_api.ownHostValue(_env, result.value));
-        }
-        rethrow;
-      }
-    } finally {
-      try {
-        if (opened) _api._check(_api._closeCallbackHandles(_env, scope.value));
-      } finally {
-        _free(buffer.cast());
-      }
+        write(env, args + 2);
+      }, (_, _) {});
+    } catch (_) {
+      _api._pendingCallbacks.remove(token);
+      rethrow;
     }
+    return completion.future;
   }
+}
 
-  void close() => _functions = null;
+final class _NativeCallbackPending {
+  final Function adapter;
+  final void Function(Pointer<Void>, Pointer<Void>, bool) complete;
+  _NativeCallbackPending(this.adapter, this.complete);
+}
+
+final class _NativeCallbackCacheEntry {
+  final WeakReference<Function> adapter;
+  final int generation;
+  _NativeCallbackCacheEntry(Function value, this.generation)
+    : adapter = WeakReference(value);
 }
 
 /// Private Node-API table used by generated AOT entrypoints.
@@ -561,8 +589,8 @@ final class NapiApi {
     this.referenceViews,
     this.classMemberships = const [],
   }) : _table = Pointer.fromAddress(address) {
-    if (address == 0 || tableCount != 53) {
-      throw StateError('Incompatible native bridge ABI (expected 53 slots).');
+    if (address == 0 || tableCount != 55) {
+      throw StateError('Incompatible native bridge ABI (expected 55 slots).');
     }
   }
   late final _CallbackInfo _callbackInfo = _table[0]
@@ -704,12 +732,145 @@ final class NapiApi {
   late final _Throw _closeCallbackHandles = _table[50]
       .cast<NativeFunction<_ThrowNative>>()
       .asFunction<_Throw>();
-  late final _CallBorrowed _callBorrowed = _table[51]
-      .cast<NativeFunction<_CallBorrowedNative>>()
-      .asFunction<_CallBorrowed>();
+  late final _CallCallback _callCallback = _table[51]
+      .cast<NativeFunction<_CallCallbackNative>>()
+      .asFunction<_CallCallback>();
   late final _Simple _takeCallbackException = _table[52]
       .cast<NativeFunction<_SimpleNative>>()
       .asFunction<_Simple>();
+  late final _CallbackHelper _callbackHelper = _table[53]
+      .cast<NativeFunction<_CallbackHelperNative>>()
+      .asFunction<_CallbackHelper>();
+  late final _CallbackIdentity _callbackIdentity = _table[54]
+      .cast<NativeFunction<_CallbackIdentityNative>>()
+      .asFunction<_CallbackIdentity>();
+  late final _callbackAdapters =
+      <String, Map<int, _NativeCallbackCacheEntry>>{};
+  late final _callbackFinalizer = Zone.root.run(
+    () => Finalizer<(String, int, int)>((token) {
+      final entries = _callbackAdapters[token.$1];
+      if (entries?[token.$2]?.generation == token.$3) {
+        entries!.remove(token.$2);
+      }
+    }),
+  );
+  var _nextCallbackAdapter = 0;
+  var _nextCallback = 1;
+  late final _pendingCallbacks = <int, _NativeCallbackPending>{};
+
+  void checkCallback(Pointer<Void> env, Pointer<Void> value, String path) {
+    if (typeOf(env, value) != 7) {
+      throw NapiTypeError('$path: expected function');
+    }
+  }
+
+  T callback<T extends Function>(
+    Pointer<Void> env,
+    Pointer<Void> value,
+    String signature,
+    String path,
+    T Function(NativeCallback) create, {
+    bool prechecked = false,
+  }) {
+    if (!prechecked) checkCallback(env, value, path);
+    final int identity;
+    final out = _allocate<Int64>(1, sizeOf<Int64>());
+    try {
+      _check(_callbackIdentity(env, value, out));
+      identity = out.value;
+    } catch (error, stack) {
+      Error.throwWithStackTrace(_callbackError(env, error), stack);
+    } finally {
+      _free(out.cast());
+    }
+    // Signatures are bounded by this module's declarations. Separate integer
+    // keys avoid allocating a tuple on every cache hit.
+    final entries = _callbackAdapters[signature] ??= {};
+    final existing = entries[identity]?.adapter.target;
+    if (existing != null) return existing as T;
+    final function = NativeCallback._(this, env, ownHostValue(env, value));
+    try {
+      final adapter = create(function);
+      final entry = _NativeCallbackCacheEntry(adapter, ++_nextCallbackAdapter);
+      entries[identity] = entry;
+      _callbackFinalizer.attach(adapter, (
+        signature,
+        identity,
+        entry.generation,
+      ));
+      return adapter;
+    } catch (_) {
+      function._function.release();
+      rethrow;
+    }
+  }
+
+  /// Owner-pump entry only; no borrowed handle escapes this synchronous drain.
+  Function? acceptCallback(
+    int envAddress,
+    int token,
+    bool rejected,
+    int valueAddress,
+  ) {
+    final entry = _pendingCallbacks.remove(token);
+    if (entry == null) return null;
+    final env = Pointer<Void>.fromAddress(envAddress);
+    if (_hostEnv != env) {
+      throw StateError('Callback completed in a different environment');
+    }
+    entry.complete(env, Pointer<Void>.fromAddress(valueAddress), rejected);
+    // Return the typed adapter through the native root entrypoint so AOT cannot
+    // discard this root as a write-only field. The Dart API handle keeps it
+    // alive until the owner drain's scope exits, after payload conversion.
+    return entry.adapter;
+  }
+
+  Pointer<Void> _getCallbackHelper(Pointer<Void> env, int kind) =>
+      Pointer.fromAddress(_result((out) => _callbackHelper(env, kind, out)));
+
+  Object _callbackError(Pointer<Void> env, Object error) {
+    if (!_hasPending(env)) return error;
+    final value = Pointer<Void>.fromAddress(
+      _result((out) => _takeCallbackException(env, out)),
+    );
+    return _NativeJsException(ownHostValue(env, value));
+  }
+
+  T _invokeCallback<T>(
+    Pointer<Void> env,
+    Pointer<Void> function,
+    int argc,
+    void Function(Pointer<Void>, Pointer<Pointer<Void>>) write,
+    T Function(Pointer<Void>, Pointer<Void>) read, {
+    NativeHostValue? owned,
+  }) {
+    // Scope and result occupy the last two slots of one temporary buffer.
+    final buffer = _allocate<Pointer<Void>>(argc + 2, sizeOf<Pointer<Void>>());
+    final scope = buffer + argc;
+    final result = scope + 1;
+    var opened = false;
+    try {
+      _check(_openCallbackHandles(env, scope));
+      opened = true;
+      try {
+        if (owned != null) _checkHostValue(env, owned);
+        write(env, buffer);
+        _check(
+          _callCallback(env, function, owned?._slot ?? 0, argc, buffer, result),
+        );
+        return read(env, result.value);
+      } catch (error, stack) {
+        Error.throwWithStackTrace(_callbackError(env, error), stack);
+      }
+    } finally {
+      try {
+        if (opened) _check(_closeCallbackHandles(env, scope.value));
+      } finally {
+        _free(buffer.cast());
+      }
+    }
+  }
+
   Pointer<Void>? _hostEnv;
   late final _hostFinalizer = Zone.root.run(
     () => Finalizer<int>((slot) {
@@ -757,17 +918,29 @@ final class NapiApi {
 
   /// Borrow a live value only for the current Node callback's handle scope.
   Pointer<Void> hostValue(Pointer<Void> env, NativeHostValue value) {
-    if (!identical(value._api, this) || _hostEnv != env) {
-      throw StateError('Native host value belongs to a different owner.');
-    }
-    if (value._slot == 0) throw StateError('Native host value is released.');
     final out = _allocate<Pointer<Void>>(1, sizeOf<Pointer<Void>>());
     try {
-      _check(_hostValue(env, value._slot, out));
+      _borrowHostValue(env, value, out);
       return out.value;
     } finally {
       _free(out.cast());
     }
+  }
+
+  void _borrowHostValue(
+    Pointer<Void> env,
+    NativeHostValue value,
+    Pointer<Pointer<Void>> out,
+  ) {
+    _checkHostValue(env, value);
+    _check(_hostValue(env, value._slot, out));
+  }
+
+  void _checkHostValue(Pointer<Void> env, NativeHostValue value) {
+    if (!identical(value._api, this) || _hostEnv != env) {
+      throw StateError('Native host value belongs to a different owner.');
+    }
+    if (value._slot == 0) throw StateError('Native host value is released.');
   }
 
   int _result(int Function(Pointer<Pointer<Void>>) create) {

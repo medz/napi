@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import '../analysis/reference_views.dart' show hasCompositeReferenceViews;
+import '../emit/js/callbacks.dart';
 import '../emit/js/reference_views.dart';
 import '../emit/js/settlement.dart';
 import 'plan.dart';
@@ -10,6 +11,8 @@ String emitNativeLoader(
   List<String> exports, {
   List<NativeClassPlan> classes = const [],
   bool hasFutures = false,
+  bool hasCallbacks = false,
+  bool hasAsyncCallbacks = false,
 }) {
   final hasResources = classes.any((binding) => binding.shape.cleanup != null);
   final shapes = [for (final binding in classes) binding.shape];
@@ -47,12 +50,61 @@ function $napiCreatePromise() {
       ),
     );
   }
+  if (hasCallbacks) {
+    if (hasAsyncCallbacks) {
+      code.write(callbackPromisePolicy);
+    }
+    code.writeln(r'''const $napiCallbackWeakMap = WeakMap;
+const $napiCallbackGet = WeakMap.prototype.get;
+const $napiCallbackSet = WeakMap.prototype.set;
+''');
+    if (!hasAsyncCallbacks) {
+      code.writeln(r'const $napiCallbackApply = Reflect.apply;');
+    }
+    code.writeln(r'''function $napiCallbackHelper(kind, deliver) {
+  if (kind === 0) {
+    const functions = new $napiCallbackWeakMap();
+    let next = 0;
+    return function identify(callback) {
+      let id = $napiCallbackApply($napiCallbackGet, functions, [callback]);
+      if (id === undefined) {
+        if (next === 9007199254740991) throw new RangeError('Native callback identity space exhausted');
+        id = ++next;
+        $napiCallbackApply($napiCallbackSet, functions, [callback, id]);
+      }
+      return id;
+    };
+  }
+''');
+    if (hasAsyncCallbacks) {
+      code.writeln(r'''  return function observe(callback, token, ...args) {
+    const value = $napiCallbackApply(callback, undefined, args);
+    $napiObserveCallbackPromise(value,
+      value => deliver(token, false, value),
+      error => deliver(token, true, error));
+  };
+}''');
+    } else {
+      code.writeln(
+        "  throw new Error('Async callbacks were not generated');\n}",
+      );
+    }
+  }
+  final factories = hasCallbacks
+      ? [
+          hasCompositeViews ? r'$napiResolveReferenceShape' : 'null',
+          hasFutures ? r'$napiCreatePromise' : 'null',
+          hasResources ? r'$napiCreateSettlementObserver' : 'null',
+          r'$napiCallbackHelper',
+        ]
+      : [
+          if (hasCompositeViews || hasFutures)
+            hasCompositeViews ? r'$napiResolveReferenceShape' : 'null',
+          if (hasFutures) r'$napiCreatePromise',
+          if (hasResources) r'$napiCreateSettlementObserver',
+        ];
   code.writeln(
-    "const bindings = require('./bridge.node').load(fileURLToPath(new URL('./module.aot', import.meta.url))${hasCompositeViews
-        ? r', $napiResolveReferenceShape'
-        : hasFutures
-        ? ', null'
-        : ''}${hasFutures ? r', $napiCreatePromise' : ''}${hasResources ? r', $napiCreateSettlementObserver' : ''});",
+    "const bindings = require('./bridge.node').load(fileURLToPath(new URL('./module.aot', import.meta.url))${factories.isEmpty ? '' : ', ${factories.join(', ')}'});",
   );
   if (classes.any((binding) => binding.members.isNotEmpty)) {
     code.writeln(r'''const $napiApply = Reflect.apply;

@@ -38,8 +38,105 @@ import 'package:napi/napi.dart';
   test('function-only loaders have no class callable work', () {
     final loader = emitNativeLoader(['add']);
     expect(loader, isNot(contains(r'$napiCallable')));
+    expect(loader, isNot(contains(r'$napiCallback')));
     expect(loader, contains(r'export {$napi0 as add}'));
   });
+
+  test('synchronous callbacks do not emit Promise observers', () {
+    final loader = emitNativeLoader([], hasCallbacks: true);
+    expect(loader, contains(r'$napiCallbackHelper'));
+    expect(loader, isNot(contains(r'$napiObserveCallbackPromise')));
+    expect(loader, isNot(contains('node:util')));
+  });
+
+  test(
+    'private helpers preserve identity and strict Promise admission',
+    () async {
+      final helpers = await directory.createTemp('callback-helper-');
+      await File('${helpers.path}/module.mjs').writeAsString(
+        emitNativeLoader([], hasCallbacks: true, hasAsyncCallbacks: true),
+      );
+      await File('${helpers.path}/preload.cjs').writeAsString(r'''
+Object.defineProperty(process, 'platform', {value: 'darwin'});
+Object.defineProperty(process, 'arch', {value: 'arm64'});
+require.extensions['.node'] = require.extensions['.js'];
+''');
+      await File('${helpers.path}/bridge.node').writeAsString(r'''
+exports.load = (...args) => {
+  globalThis.callbackFactoryArguments = args;
+  return {};
+};
+''');
+      await File('${helpers.path}/check.mjs').writeAsString(r'''
+import assert from 'node:assert/strict';
+import vm from 'node:vm';
+import './module.mjs';
+const args = globalThis.callbackFactoryArguments;
+assert.equal(args.length, 5);
+assert.deepEqual(args.slice(1, 4), [null, null, null]);
+const factory = args[4];
+const intrinsics = [globalThis.WeakMap, WeakMap.prototype.get,
+  WeakMap.prototype.set, Reflect.apply];
+let identify;
+const broken = () => { throw new Error('patched intrinsic'); };
+try {
+  globalThis.WeakMap = broken;
+  intrinsics[0].prototype.get = broken;
+  intrinsics[0].prototype.set = broken;
+  Reflect.apply = broken;
+  identify = factory(0);
+  const first = () => {}, second = () => {};
+  assert.equal(identify(first), identify(first));
+  assert.notEqual(identify(first), identify(second));
+} finally {
+  globalThis.WeakMap = intrinsics[0];
+  WeakMap.prototype.get = intrinsics[1];
+  WeakMap.prototype.set = intrinsics[2];
+  Reflect.apply = intrinsics[3];
+}
+const results = [];
+const observe = factory(1, (...entry) => { results.push(entry); });
+const unhandled = [];
+process.on('unhandledRejection', error => { unhandled.push(error); });
+let reads = 0;
+const thenable = {get then() { reads++; throw new Error('then getter'); }};
+for (const value of [42, undefined, null, {}, thenable, Promise.prototype,
+  new Proxy(Promise.resolve(1), {})]) {
+  assert.throws(() => observe(() => value, 1), /callback result: expected a Promise/);
+}
+assert.equal(reads, 0);
+const symbol = Symbol('callback failure');
+for (const failure of [undefined, null, symbol, {exact: true}]) {
+  assert.throws(() => observe(() => { throw failure; }, 2), error => error === failure);
+}
+const speciesError = {species: true};
+const species = Promise.resolve(2);
+Object.defineProperty(species, 'constructor', {get() { throw speciesError; }});
+assert.throws(() => observe(() => species, 3), error => error === speciesError);
+assert.equal(results.length, 0);
+const ownThen = Promise.resolve(7);
+Object.defineProperty(ownThen, 'then', {get() { reads++; throw new Error('own then'); }});
+observe(() => ownThen, 4);
+observe(() => vm.runInNewContext('Promise.resolve(8)'), 5);
+class Subclass extends Promise {}
+observe(() => Subclass.resolve(9), 6);
+observe((value) => Promise.resolve(value + 1), 7, 9);
+observe(() => Promise.reject(symbol), 8);
+await new Promise(resolve => setImmediate(resolve));
+assert.deepEqual(results, [[4, false, 7], [5, false, 8], [6, false, 9],
+  [7, false, 10], [8, true, symbol]]);
+assert.equal(reads, 0);
+assert.deepEqual(unhandled, []);
+console.log('native callback private helper admission passed');
+''');
+      final result = await Process.run('node', [
+        '--require',
+        '${helpers.path}/preload.cjs',
+        '${helpers.path}/check.mjs',
+      ]);
+      expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
+    },
+  );
 
   test('a total selected hierarchy emits no composite resolver', () {
     final loader = emitNativeLoader(['Counter', 'add'], classes: plan.classes);

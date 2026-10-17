@@ -1,92 +1,164 @@
-# Synchronous borrowed callbacks
+# Callbacks
 
-A function-typed input lets Dart call JavaScript during one synchronous exported
-call. The ordinary Dart signature supplies the callback type:
+Ordinary typed Dart functions define callback arguments and results. No callback
+annotation, registration wrapper or name list is needed:
 
 ```dart
+final callbacks = <int Function(int)>[];
+
 @NAPI()
-int twice(int Function(int) callback, int value) =>
-    callback(value) + callback(value + 1);
+void register(int Function(int) callback) => callbacks.add(callback);
+
+@NAPI()
+bool unregister(int Function(int) callback) => callbacks.remove(callback);
+
+@NAPI()
+Future<int> run(Future<int> Function(int) callback) => callback(41);
 ```
 
 ```ts
-import {twice} from 'your-package';
-twice(value => value * 2, 3); // 14
+import {register, unregister, run} from 'your-package';
+const callback = (value: number) => value + 1;
+register(callback);
+unregister(callback); // true
+await run(async value => value + 1); // 42
 ```
 
-Both targets validate the callback before entering business code, convert each
-Dart argument to JavaScript, invoke it with an undefined receiver, and convert
-its result back to Dart. Scalar, nested List and record conversions follow the
-same precision, UTF-16, nullability and structural validation rules as exports.
-`@NAPI(bigint: true)` also applies to integers inside callback signatures.
+Both targets validate functions before business code, convert Dart arguments to
+JavaScript, invoke with an undefined receiver, and convert results back to Dart.
+Scalars, Lists and records follow the ordinary precision, UTF-16, nullability
+and structural validation rules. `@NAPI(bigint: true)` applies inside callbacks.
 
-## Lifetime and reentry
+## Ownership and identity
 
-The adapter is borrowed for the entire synchronous export, including its output
-conversion. Repeated calls and reentry into another export of the same module
-are supported. Nested calls own independent adapters. All adapters expire on
-normal or exceptional exit; storing one in a Dart field does not extend it.
-Calling it later, including from a microtask or timer, raises an expired-callback
-error before touching JavaScript. Expiry drops the borrowed function even if
-Dart keeps the expired adapter alive.
+A live Dart function reference retains its JS callback. Fields, collections,
+closures, timers and microtasks can keep it after the exported call returns.
+Within one module, the same JS function and conversion signature reuse the same
+Dart adapter. Parameter names and the export used to pass it do not change that
+identity; different scalar policies or synchronous/async results do.
 
-Resource operation leases remain held during callback execution and reentry.
-If a callback requests cleanup of the active resource, cleanup waits for the
-outer operation. Adapters expire before the binding releases that operation,
-so cleanup cannot reactivate an escaped callback.
+Business code decides registration behavior. In the example, duplicate entries
+are allowed and each `unregister` removes one entry. Removing one root does not
+invalidate another Dart reference. The bridge has no global unregister or
+implicit revocation. Keeping only the original JS function does not keep an
+unused Dart adapter alive: the adapter cache is weak. Native cross-heap cycles
+still require explicit business clear/unregister, as described in
+[generic payload ownership](opaque.md#ownership).
 
-Native supports same-module reentry on its owning thread. Reentry into a
-different active native Dart isolate remains the existing explicit limitation
-in [native.md](native.md). Worker environments own independent adapters and
-exception references; teardown does not invoke callbacks or business cleanup.
+An accepted async invocation retains its adapter, original JS function and
+completion state until settlement. Scalar/List/record arguments are already
+snapshotted by value; their original Dart objects need no additional lifetime.
+Success, rejection and startup failure release private invocation roots.
 
-## Results and errors
+Resource closing rejects new resource operations and waits for accepted ones,
+including an awaited callback result. Calling close or unregister from inside a
+callback preserves already accepted work. Resource cleanup may itself accept a
+callback. Teardown releases private state without invoking JS or business cleanup.
+Workers and separately loaded modules have independent caches and owners.
 
-A typed result must pass the declared conversion. A `void` callback discards its
-return value: the binding does not read `then`, await a returned Promise or add
-a rejection observer. Promise-returning callback signatures require a separate
-async contract and are currently rejected.
+## Promise results and errors
 
-Dart can catch a callback failure, recover, call another callback, replace the
-failure with a Dart error, or save and rethrow it later. JavaScript throws retain
-their exact original value, including objects, symbols, null and undefined.
-They cross Dart as a private exception carrier; business code must not interpret
-that carrier as the original JS object's Dart type. A saved exception also keeps
-its value when subsequently rejected by an exported Future.
+`Future<R> Function(...)` declares a JS callback returning a genuine
+`Promise<R>`, including Promise subclasses and cross-realm Promises. Plain values,
+raw thenables, Promise proxies and prototype/tag counterfeits fail before their
+properties are read. A caller can explicitly use `Promise.resolve(thenable)`.
+The fulfilled value must pass the ordinary strict input conversion for `R`.
 
-Conversion failures participate in the same recovery path. A JS exception while
-reading a callback result is cleared from Node's pending-exception state before
-Dart resumes. Native handles for each invocation cover argument conversion,
-invocation and result conversion, then close; saved exceptions use independently
-owned references. Their acyclic collection and explicit cross-heap-cycle
-ownership follow [the generic payload ownership contract](opaque.md#ownership).
+Consumption uses captured Promise intrinsics, so an own `then` override is not
+called. Intrinsic constructor/species access can still throw; that original
+value reaches Dart. A synchronous invocation, argument-conversion or Promise
+admission failure throws during the Dart callback call. A genuine Promise
+rejection or fulfillment-conversion failure completes its returned Future with
+an error. An enclosing exported Future maps either failure to JS rejection.
+
+`Future<void>` still requires a Promise and discards its fulfilled value.
+A synchronous `void` callback simply discards its return without reading `then`
+or observing a returned Promise; an unhandled rejection stays visible to JS.
+
+Dart can catch failures, recover, save them and rethrow them later. JS Error,
+object, symbol, number, null and undefined failures retain exact identity/value.
+They cross Dart in a private exception carrier, not as a converted Dart model.
+Native per-invocation handle scopes cover conversion and JS execution; saved
+exceptions own independent references.
+
+Native async delivery queues owned results for the correct isolate's existing
+event pump. It does not enter Dart directly from a Promise reaction, which may
+run while another isolate is active. The pump drains a bounded batch before
+Dart microtasks; unresolved callback Promises alone do not keep Node alive.
+Ordinary direct reentry into another active native isolate remains the
+[existing limitation](native.md).
 
 ## Supported signatures
 
-Callbacks are direct inputs to synchronous functions, constructors, methods
-and setters. Nullable inputs and optional/default-null outer parameters use the
-ordinary argument-presence rules. External selections use the same mapping.
-Callback signatures currently require positional parameters with no defaults;
-their inputs and result may contain supported scalars, Lists and records, and
-the result may be void.
+Callbacks are direct inputs to synchronous and Future-returning functions,
+constructors, methods, setters and resource cleanup. Nullable/default-null outer
+parameters preserve normal presence rules. External selections use the same
+mapping. Callback parameters currently require positional parameters without
+defaults, with scalar/List/record payloads and synchronous or Future results;
+void is also supported.
 
 Optional/named parameters inside a callback, generic callback signatures,
-callback outputs, nested callback values, Future/FutureOr callback results,
-callbacks passed into Future-returning exports or resource cleanup, and callback
-payloads containing bound instances, generic payloads, Maps or value classes
-receive generation diagnostics. Retained registrations, Promise callbacks and
-stream subscriptions remain separate work. A generic payload that happens to
-be a JS function is stored unchanged; it is never inferred to be a callback.
+callback outputs, nested callbacks, nullable outer Future results, FutureOr,
+and callback payloads containing bound instances, opaque values, Maps or value
+classes still receive diagnostics. Streams and cancellation remain separate
+requirements. A generic payload that happens to be a JS function stays an opaque
+value; it is never inferred to be a callback.
 
-## Verification and measured cost
+## Verification
 
-Dart 3.13.5, Node 24.19.0/26.11.1 and TypeScript 7.0.2 were tested on macOS
-arm64. Each backend/version passed 15 fresh-process scenarios and eight TS
-configurations using annotated and externally selected packages, packed and
-installed after removing their business/build sources. The complete existing
-native/Wasm consumer suites also passed, with 527 Dart tests (one Windows-only
-skip locally) and 23 Wasm resource-kernel tests. Native remains coupled to the
-experimental runtime documented in [native.md](native.md).
+The fixture builds annotated and externally selected packages, packs and installs
+them offline after removing the original business/build sources. It exercises
+identity, weak collection, delayed invocation, startup failures, strict Promise
+inputs, exact errors, concurrent results, resource closing, foreign-owner
+completion, normal/terminated Workers and queued teardown. TypeScript consumers
+run in eight strict/optional-property/function-variance configurations.
+Native currently requires the experimental macOS arm64 ABI14 runtime bundle;
+compiler/runtime versions and broader limits are in [native.md](native.md).
+
+The 2026-10-17 final validation passed 537 Dart tests (one Windows-only local
+skip), 23 Wasm resource tests, and full native/Wasm installed consumers on Node
+24.19.0 and 26.11.1. Each callback package ran 24 isolated scenarios and eight
+TypeScript configurations, using Dart 3.13.5 and TypeScript 7.0.2. Format,
+analysis and the clean package dry-run also passed.
+
+## Retained-callback cost
+
+The final ABI14 comparison used the same Dart callback source as the earlier
+borrowed fixture, on macOS arm64 with Node 24.19.0 and 26.11.1. Each case used
+fresh-process A/A samples and three balanced ABBA rounds. Median times in ns:
+
+| Path and unit | Node 24, borrowed → retained | Node 26, borrowed → retained |
+| --- | ---: | ---: |
+| Native Dart loop, per JS callback | 252 → 255 (+1.16%) | 250 → 257 (+2.83%) |
+| Native `callTwice`, per outer call | 1,414 → 1,558 (+10.15%) | 1,412 → 1,517 (+7.47%) |
+| Wasm Dart loop, per JS callback | 114 → 119 (+3.87%) | 109 → 109 (-0.16%) |
+| Wasm `callTwice`, per outer call | 563 → 316 (-43.91%) | 534 → 277 (-48.11%) |
+
+The loop invokes an already-converted callback 100,000 times. `callTwice` passes
+the same JS function into Dart on each call and invokes it twice, so it includes
+adapter lookup. Native identity maintenance adds a repeatable 105–144 ns per
+outer call; it is not cost-free. Direct function references, borrowing inside
+the local handle scope, combined native calls and allocation-free cache-hit keys
+removed the first implementation's approximately 37% regression. Ordinary native
+export controls changed between -2.23% and +1.13%, with no consistent slowdown
+across the independent runs. These results do not measure async callback
+throughput or establish a general application performance bound.
+
+The unchanged scalar/Counter native package adds 17,872 bytes (+0.271%). The
+same-source native callback package adds 21,251 bytes (+0.307%), or 2,456 bytes
+in its real npm tarball. The Wasm callback package shrinks by 9,882 raw bytes
+(-1.719%) but its tarball grows by 816 bytes. Callback source paths differ from
+the earlier installed fixture, so sizes compare complete generated packages,
+not isolated bridge instructions. The broader new conformance fixture is
+excluded from this comparison. The native bundle reuses all 1,052 VM objects;
+no SDK download or VM rebuild was needed. Raw samples, artifact hashes and
+superseded measurements remain in
+`.dart_tool/evidence/20261017-retained-callbacks/cost/`.
+
+## Earlier borrowed-callback cost baseline
+
+These measurements record PR #170's ABI13 borrowed-adapter implementation, before
+retained and async adapters. They are not cost measurements of the current path.
 
 The same scalar/Counter package grows from 6,588,276 to 6,588,516 bytes with
 ABI13: the bridge adds 240 bytes; loader/declarations are byte-identical and AOT

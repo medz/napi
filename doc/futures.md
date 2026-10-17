@@ -125,7 +125,7 @@ remaining requirements.
 
 The generated contract was tested on Dart 3.13.5 and Node 24.19.0/26.11.1,
 with TypeScript 7.0.2 in NodeNext and Bundler modes. Native execution uses the
-experimental macOS arm64 runtime bundle, private ABI 13 (53 slots), pinned to
+experimental macOS arm64 runtime bundle, private ABI 14 (55 slots), pinned to
 Dart revision `04bcd1036cdc799ac6564988f159ee454d42c822`. Wasm uses the matching
 SDK's version-specific compiler/host adapter; this is not a portable WASI ABI.
 
@@ -143,12 +143,12 @@ standard thenable adoption, exact getter/rejection values, nullable and undefine
 completion, selected `then` members, and preservation of synchronous/nested values.
 
 The standard-resolution update passed the complete native/Wasm suites on both
-Node versions, 527 Dart tests (one Windows-only skip locally), and 23 Wasm
+Node versions, 528 Dart tests (one Windows-only skip locally), and 23 Wasm
 resource-kernel tests. The opaque suite now has 13 fresh-process scenarios and
 eight TypeScript configurations per backend/version. The resource suite has 26
 scenarios, including nine opaque-result resolve/reject/getter-throw combinations
-that keep cleanup pending through GC and thenable settlement. Native reuses ABI13;
-its runtime binaries and settlement implementation did not change.
+that keep cleanup pending through GC and thenable settlement. That update reused
+ABI13; its runtime binaries and settlement implementation did not change.
 
 ## Measured update cost
 

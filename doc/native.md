@@ -79,8 +79,9 @@ Weak identity entries and zero-count Node-API references do not root wrappers.
 Environment, live lease and actual selected-class membership are checked before business calls.
 Readonly fields remain readonly and GC does not call business disposal methods.
 
-The private bridge table is ABI 13 (53 slots). It adds scoped borrowed callbacks
-to ABI 12's owned JS values and ABI 11's
+The private bridge table is ABI 14 (55 slots). It adds lazy retained-callback
+identity and owner-queued async completion helpers to ABI 13's scoped callback
+invocation and ABI 12's owned JS values and ABI 11's
 canonical resource cleanup Promises and resource-lease settlement observation;
 ABI 10 supplied Future delivery and ABI 9 supplied owner-thread event-loop integration. Older bundles are rejected before
 copying; maintainers rebuild the bridge/runtime bundle using their existing VM
@@ -134,17 +135,18 @@ outputs snapshot the complete Dart tree before host-side scalar, reference and
 Map-key checks. These paths use temporary snapshot storage; output getters are
 read once per occurrence before converting children.
 
-Generated [borrowed callbacks](callbacks.md) accept direct function-typed inputs
-to synchronous functions, constructors, methods and setters. Required positional
-scalar/List/record callback signatures share both targets' conversions, with void
-results discarded. Per-invocation handles cover conversion and JS execution;
-the adapter expires before the outer resource operation releases its leases.
-JS throws retain their exact values through Dart catch/rethrow and later Future
-rejection. Same-owner reentry is supported; late invocation fails before touching JS.
+Generated [callbacks](callbacks.md) retain ordinary typed functions through Dart
+reachability and preserve adapter identity in a weak cache. Synchronous and
+Future-returning exports accept them, including resource cleanup. A callback's
+Future result requires a genuine JS Promise; its completion is queued for the
+owning isolate without entering Dart from the JS reaction. Only async-callback
+modules initialize this queue and completion entry point. Scalar/List/record
+payloads share both targets' strict conversions. Exact JS failures survive Dart
+catch/rethrow; per-invocation handles close after conversion and execution.
 
 Unsupported shapes fail before output is created: general generic specialization
 beyond generic payload storage, non-null
-object defaults, Future inputs/FutureOr, retained/async callbacks, streams and
+object defaults, general Future inputs/FutureOr, streams and
 cancellation. Callback outputs, optional/named callback parameters and callback
 payloads beyond supported scalars/Lists/records also remain unsupported. The same reference
 contract runs on Wasm; see [reference classes](classes.md). A unique most-specific
@@ -152,7 +154,7 @@ selected class owns the canonical wrapper across base/interface views. Instance
 prototypes inherit without static inheritance. Compatible unrelated selected
 memberships use one private composite prototype with a complete instance
 surface; conflicting call contracts fail before exposing a wrapper. Custom JS
-prototypes retain priority. The remaining generic, retained/async callback, stream
+prototypes retain priority. The remaining generic, broader callback, stream
 and shared-buffer roadmap stays open.
 
 ## Runtime and verification
@@ -206,10 +208,10 @@ A further package checks the shared [Future contract](futures.md), including
 pending receiver/argument retention and ordinary Promise rejection behavior.
 The resource package adds cleanup identity, nested-resource leases, thenable
 settlement, failure rollback, wrapper readoption and teardown checks.
-The callback packages cover annotated and external selections with 15 isolated
-process scenarios and eight TypeScript configurations per Node version, including
-100,000 calls, structural conversions, exact throws, GC, reentry, expired adapters,
-constructors/setters, resource closing and normal/terminated Workers.
+The callback packages cover annotated and external selections, eight TypeScript
+configurations per Node version, 100,000 calls, weak adapter identity, retained
+functions, strict Promise inputs, exact failures, GC, reentry, resource closing,
+foreign-owner completion and normal/terminated Workers.
 General CI also checks native metadata, emission, AOT compilation and manifest validation;
 the full native execution check requires a maintainer bundle and is run locally.
 

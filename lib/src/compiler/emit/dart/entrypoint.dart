@@ -12,12 +12,16 @@ String emitDart(ModulePlan plan) {
     for (final (index, conversion) in plan.conversions.indexed)
       if (conversion is CallbackConversion) index: conversion,
   };
+  final asyncCallbacks = callbacks.values.any(
+    (callback) => callback.returnsFuture,
+  );
   final prelude = callbacks.isEmpty
       ? entrypointPrelude
       : withCallbackErrors(entrypointPrelude);
   final source = jsonEncode(plan.source.toString()).replaceAll(r'$', r'\$');
   final result = StringBuffer(
     "import $source as target;\n"
+    "${asyncCallbacks ? "import 'dart:async';\n" : ''}"
     "${resources ? "import 'package:napi/runtime.dart';\n" : ''}"
     "${plan.conversions.any(containsDictionary) ? "import 'package:napi/napi.dart' as napi;\nimport 'dart:convert' show jsonEncode;\n" : ''}"
     '$prelude\n',
@@ -36,6 +40,7 @@ String emitDart(ModulePlan plan) {
     );
   }
   if (callbacks.isNotEmpty) result.writeln(callbackEntrypointPrelude);
+  if (asyncCallbacks) result.writeln(asyncCallbackEntrypointPrelude);
   if (resources) {
     result.writeln(resourceEntrypointPrelude);
     _emitResourceControl(result, plan);
@@ -262,6 +267,9 @@ void _emitCallbackAdapter(
   int context,
 ) {
   String quote(String value) => jsonEncode(value).replaceAll(r'$', r'\$');
+  final adapterType = callback.nullable
+      ? callback.dartType.substring(0, callback.dartType.length - 1)
+      : callback.dartType;
   final parameters = [
     for (final (index, conversion) in callback.inputs.indexed)
       '${conversion.dartType} c$index',
@@ -271,28 +279,60 @@ void _emitCallbackAdapter(
       '${structural.write(conversion)}(c$index, _StructureState(), ${quote(conversion.context)}, 0)',
   ].join(', ');
   result.writeln(
-    '''${callback.dartType} _callback$context(WasmExternRef borrowed) {
-  return ($parameters) {
-    if (_callbackActive(borrowed).toIntSigned() == 0) {
-      throw StateError(${quote('${callback.context}: borrowed callback has expired')});
-    }
-    final JSArray<JSAny?> arguments;
+    '''${callback.dartType} _callback$context(WasmExternRef callback) {
+  final signature = externRefForJSAny(${quote(callback.signatureKey)}.toJS)!;
+  final cached = _findCallbackAdapter(callback, signature);
+  if (!cached.isNull) return cached!.internalize().toObject() as $adapterType;
+  late final $adapterType adapter;
+  adapter = ($parameters) {''',
+  );
+  result.writeln('''    final JSArray<JSAny?> arguments;
     try {
       arguments = <JSAny?>[$arguments].toJS;
     } on _StructureViolation catch (error) {
       throw _CallbackThrown(_callbackStructureError(externRefForJSAny(error.path.toJS)!, externRefForJSAny(error.message.toJS)!, WasmI32.fromInt(error.range ? 1 : 0)));
-    }
-    final envelope = _invokeCallback(borrowed, externRefForJSAny(arguments)!, WasmI32.fromInt($context));
-    if (_callbackThrew(envelope).toIntSigned() != 0) throw _CallbackThrown(envelope);''',
-  );
-  if (callback.output case final output?) {
-    final read = structural.read(output, bigintText: true);
+    }''');
+  if (callback.returnsFuture) {
     result.writeln(
-      '''    final value = _callbackValue(envelope);
-    return $read(value.isNull ? null : value!.toJS, ${quote(output.context)});''',
+      '''    final completer = Completer<${callback.output?.dartType ?? 'void'}>();
+    void deliver(JSAny result) {
+      try {
+        final envelope = externRefForJSAny(result)!;
+        if (_callbackThrew(envelope).toIntSigned() != 0) throw _CallbackThrown(envelope);''',
+    );
+  } else {
+    result.writeln(
+      '''    final envelope = _invokeCallback(callback, externRefForJSAny(arguments)!, WasmI32.fromInt($context));
+    if (_callbackThrew(envelope).toIntSigned() != 0) throw _CallbackThrown(envelope);''',
     );
   }
-  result.writeln('  };\n}');
+  if (callback.output case final output?) {
+    final read = structural.read(output, bigintText: true);
+    final converted =
+        '$read(value.isNull ? null : value!.toJS, ${quote(output.context)})';
+    result.writeln('    final value = _callbackValue(envelope);');
+    result.writeln(
+      callback.returnsFuture
+          ? '    completer.complete($converted);'
+          : '    return $converted;',
+    );
+  } else if (callback.returnsFuture) {
+    result.writeln('    completer.complete();');
+  }
+  if (callback.returnsFuture) {
+    result.writeln(
+      '''      } catch (error, stack) { completer.completeError(error, stack); }
+    }
+    final failure = _startCallback(callback, externRefForJSAny(arguments)!, WasmI32.fromInt($context), externRefForJSAny(deliver.toJS)!,
+        WasmAnyRef.fromObject(adapter).externalize());
+    if (!failure.isNull) throw _CallbackThrown(failure!);
+    return completer.future;''',
+    );
+  }
+  result.writeln('''  };
+  _cacheCallbackAdapter(callback, signature, WasmAnyRef.fromObject(adapter).externalize());
+  return adapter;
+}''');
 }
 
 void _emitResourceControl(StringBuffer result, ModulePlan plan) {

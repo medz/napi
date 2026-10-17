@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {Worker, isMainThread, parentPort, workerData} from 'node:worker_threads';
+import {runInNewContext} from 'node:vm';
 
 const packageName = '@napi/callback-fixture';
 const filename = fileURLToPath(import.meta.url);
@@ -76,9 +77,9 @@ function scalar(api) {
   let setterCalls = 0;
   named.callback = n => { setterCalls++; return n * 3; };
   assert.equal(named.value, 21);
-  assert.equal(setterCalls, 1, 'the setter invokes its borrowed callback synchronously');
-  assert.throws(() => named.invokeStored(), /borrow|expired|active/i);
-  assert.equal(setterCalls, 1, 'the saved setter callback expires when the setter returns');
+  assert.equal(setterCalls, 1);
+  assert.equal(named.invokeStored(), 63);
+  assert.equal(setterCalls, 2, 'the Dart field retains its callback');
   assert.equal(named.apply(n => n + 1), 22);
 }
 
@@ -180,7 +181,7 @@ function validation(api) {
   assert.equal(box.value, 4, 'a failed callback result does not update the scalar field');
   box.callback = n => n + 2;
   assert.equal(box.value, 6);
-  assert.throws(() => box.invokeStored(), /borrow|expired|active/i);
+  assert.equal(box.invokeStored(), 8);
 }
 
 function reentry(api) {
@@ -191,11 +192,11 @@ function reentry(api) {
   assert.equal(api.callTwice(value => {
     outer++;
     assert.equal(api.saveCallback(n => { inner++; return n + 2; }), 3);
-    assert.throws(() => api.invokeSaved(), /borrow|expired|active/i);
+    assert.equal(api.invokeSaved(), 7);
     return value;
   }, 2), 5);
-  assert.equal(outer, 2, 'closing an inner frame must preserve the outer callback');
-  assert.equal(inner, 2, 'expired inner callbacks never enter JS');
+  assert.equal(outer, 2, 'inner registrations preserve the outer callback');
+  assert.equal(inner, 4);
   api.clearSavedCallback();
 }
 
@@ -294,9 +295,251 @@ async function resources(api) {
   }
 }
 
-async function worker(held) {
+async function identity(api) {
+  const callback = n => n + 2;
+  assert.equal(api.sameCallback(callback, callback), true);
+  assert.equal(api.sameCallback(callback, n => n + 2), false);
+  assert.equal(api.registerCallback(callback), 1);
+  assert.equal(api.sameWideCallback(callback), false, 'bigint and number policies need different adapters');
+  assert.equal(api.registerCallback(callback), 2);
+  assert.equal(api.unregisterCallback(callback), true);
+  assert.equal(api.registeredCallbackCount(), 1);
+  assert.equal(api.invokeRegistered(0, 5), 7, 'removing one business root preserves the other');
+  assert.equal(api.unregisterCallback(callback), true);
+  assert.equal(api.unregisterCallback(callback), false);
+  assert.equal(api.registeredCallbackCount(), 0);
+  api.rememberCallbackWeakly(callback);
+  await collect(api, () => api.weakCallbackCount() === 0, 'JS function alone must not pin a Dart adapter');
+  assert.equal(callback(7), 9);
+  assert.equal(api.sameCallback(callback, callback), true, 'an adapter can be recreated after collection');
+  for (let i = 0; i < 1000; i++) api.rememberCallbackWeakly(n => n + i);
+  await collect(api, () => api.weakCallbackCount() === 0, 'temporary callback adapters');
+
+  let reentered = 0;
+  const removing = n => {
+    reentered++;
+    assert.equal(api.unregisterCallback(removing), reentered === 1);
+    return n + 1;
+  };
+  api.registerCallback(removing);
+  assert.equal(api.callTwice(removing, 2), 7);
+  assert.equal(api.registeredCallbackCount(), 0);
+}
+
+async function asyncValues(api) {
+  assert.equal(await api.callAfter(n => n + 1, 9), 10);
+  assert.equal(await api.callAsync(async n => n * 2, 7), 14);
+  assert.equal(await api.callAsync(function(n) {
+    assert.equal(this, undefined); assert.equal(arguments.length, 1);
+    return Promise.resolve(n + 1);
+  }, 4), 5);
+  const text = 'a\ud800\0\udfff雪😀';
+  assert.equal(await api.callAsyncString(async value => value, text), text);
+  assert.equal(await api.callAsyncWide(async n => n + 1n, 9007199254740993n), 9007199254740994n);
+  assert.deepEqual(await api.callAsyncRecord(async row => ({$1: [...row.$1, 3], label: row.label})),
+    {$1: [1, null, 3], label: 'row'});
+  assert.equal(await api.optionalAsyncCallback(), -1);
+  assert.equal(await api.optionalAsyncCallback(undefined), -1);
+  assert.equal(await api.optionalAsyncCallback(null), -1);
+  assert.equal(await api.optionalAsyncCallback(async n => n + 1), 4);
+  assert.equal(await api.callAsyncVoid(async () => {}), undefined);
+  assert.equal(await api.callAsyncVoid(() => Promise.resolve(17)), undefined);
+  const subclass = class extends Promise {};
+  assert.equal(await api.callAsync(n => subclass.resolve(n + 1), 1), 2);
+  assert.equal(await api.callAsync(() => runInNewContext('Promise.resolve(42)'), 1), 42);
+  let reads = 0;
+  const overridden = Promise.resolve(23);
+  Object.defineProperty(overridden, 'then', {get() { reads++; throw Error('own then'); }});
+  assert.equal(await api.callAsync(() => overridden, 1), 23);
+  const discarded = {};
+  const voidPromise = Promise.resolve(discarded);
+  Object.defineProperty(discarded, 'then', {get() { reads++; throw Error('discarded result'); }});
+  await api.callAsyncVoid(() => voidPromise);
+  assert.equal(reads, 0, 'intrinsic Promise consumption and void result discard avoid own then');
+  const calls = Array.from({length: 80}, (_, i) => api.callAsync(n =>
+    new Promise(resolve => setImmediate(() => resolve(n + 1))), i));
+  assert.deepEqual(await Promise.all(calls), Array.from({length: 80}, (_, i) => i + 1));
+  assert.equal(await api.callAsync(async n => await api.callAsync(async x => x + 2, n), 3), 5);
+}
+
+async function asyncValidation(api) {
+  let gets = 0;
+  const thenable = {get then() { gets++; return resolve => resolve(1); }};
+  const revoked = Proxy.revocable(Promise.resolve(1), {}); revoked.revoke();
+  for (const value of [undefined, null, 1, '1', {}, thenable,
+    Object.create(Promise.prototype), {[Symbol.toStringTag]: 'Promise'},
+    new Proxy(Promise.resolve(1), {}), revoked.proxy]) {
+    await assert.rejects(api.callAsync(() => value, 1), TypeError);
+    await assert.rejects(api.callAsyncVoid(() => value), TypeError);
+  }
+  assert.equal(gets, 0, 'non-Promise admission must not read a then getter');
+  assert.equal(await api.callAsync(() => Promise.resolve(thenable), 1), 1);
+  assert.equal(gets, 1);
+  await assert.rejects(api.callAsync(undefined, 1), TypeError);
+  await assert.rejects(api.callAsync(async n => n, '1'), TypeError);
+  for (const value of [undefined, null, '1', {}, true]) {
+    await assert.rejects(api.callAsync(() => Promise.resolve(value), 1), TypeError);
+  }
+  for (const value of [1.5, 9007199254740992, Infinity, NaN]) {
+    await assert.rejects(api.callAsync(() => Promise.resolve(value), 1), RangeError);
+  }
+  await assert.rejects(api.callAsyncWide(async () => 1n << 63n, 1n), RangeError);
+  await assert.rejects(api.callAsyncRecord(async () => ({$1: [1, 'bad'], label: 'row'})), TypeError);
+  assert.equal(await api.callAsync(async n => n + 1, 5), 6);
+}
+
+async function asyncErrors(api) {
+  let traps = 0;
+  const hostile = new Proxy({}, {get() { traps++; throw Error('inspected error'); }});
+  const revoked = Proxy.revocable({}, {}); revoked.revoke();
+  for (const error of [Error('async exact'), {exact: true}, 17, Symbol('async'), null, undefined, hostile, revoked.proxy]) {
+    assert.equal(api.catchCallbackStart(() => { throw error; }), 1,
+      'a Future-typed callback can throw synchronously before returning its Promise');
+    exact(() => api.rethrowSaved(), error);
+    api.clearSavedError();
+    await exactRejection(api.callAsync(() => { throw error; }, 1), error);
+    await exactRejection(api.callAsync(() => Promise.reject(error), 1), error);
+    assert.equal(await api.catchAsyncError(() => Promise.reject(error)), 1);
+    exact(() => api.rethrowSaved(), error);
+    await exactRejection(api.rethrowSavedFuture(), error);
+    api.clearSavedError();
+  }
+  assert.equal(traps, 0);
+  assert.equal(api.catchCallbackStart(() => 1), 1);
+  assert.throws(() => api.rethrowSaved(), TypeError);
+  api.clearSavedError();
+  for (const error of [Error('species'), Symbol('constructor'), null, undefined]) {
+    const constructorThrows = Promise.resolve(1);
+    Object.defineProperty(constructorThrows, 'constructor', {get() { throw error; }});
+    await exactRejection(api.callAsync(() => constructorThrows, 1), error);
+    const speciesThrows = Promise.resolve(2);
+    Object.defineProperty(speciesThrows, 'constructor', {value: {
+      get [Symbol.species]() { throw error; },
+    }});
+    await exactRejection(api.callAsync(() => speciesThrows, 1), error);
+    assert.equal(api.catchCallbackStart(() => speciesThrows), 1);
+    exact(() => api.rethrowSaved(), error); api.clearSavedError();
+  }
+  const weak = await (async () => {
+    const error = {pendingError: true};
+    assert.equal(await api.catchAsyncError(() => Promise.reject(error)), 1);
+    return new WeakRef(error);
+  })();
+  for (let i = 0; i < 6; i++) {
+    await turn(); global.gc(); api.callbackPressure(i); await turn();
+    assert(weak.deref()); exact(() => api.rethrowSaved(), weak.deref());
+  }
+  api.clearSavedError();
+  await collect(api, () => weak.deref() === undefined, 'saved async rejection');
+}
+
+async function asyncRetention(api) {
+  let complete;
+  const weak = (() => {
+    const fn = n => new Promise(resolve => { complete = () => resolve(n + 1); });
+    api.registerAsyncCallback(fn);
+    assert.equal(api.rememberAsyncCallbackWeakly(fn), 0);
+    return new WeakRef(fn);
+  })();
+  for (let i = 0; i < 6; i++) {
+    await turn(); global.gc(); api.callbackPressure(i); await turn();
+    assert(weak.deref(), 'Dart callback registration owns the JS function');
+  }
+  const result = api.invokeAsyncRegistered(0, 9);
+  assert.equal(api.unregisterAsyncCallback(weak.deref()), true);
+  assert.equal(api.unregisterAsyncCallback(weak.deref()), false);
+  for (let i = 0; i < 6; i++) {
+    await turn(); global.gc(); api.callbackPressure(i); await turn();
+    assert(weak.deref(), 'an accepted invocation retains its callback until settlement');
+    assert.equal(api.matchesWeakAsyncCallback(0, weak.deref()), true,
+      'the typed Dart adapter remains canonical while an invocation is pending');
+  }
+  complete(); complete = undefined;
+  assert.equal(await result, 10);
+  await collect(api, () => weak.deref() === undefined && api.weakCallbackCount() === 0,
+    'settled async callback and its typed adapter');
+
+  let invoked = 0;
+  const removing = n => {
+    invoked++; assert.equal(api.unregisterAsyncCallback(removing), invoked === 1);
+    return Promise.resolve(n + 1);
+  };
+  api.registerAsyncCallback(removing);
+  assert.equal(await api.invokeAsyncRegistered(0, 3), 4);
+  assert.equal(invoked, 1);
+  assert.equal(await api.callAsync(removing, 1), 2, 'unregister does not globally revoke the adapter');
+}
+
+async function asyncResources(api) {
+  for (const [id, fails] of [[11, false], [12, true]]) {
+    const resource = new api.CallbackResource(id);
+    const error = {resource: id};
+    let complete, closing;
+    const result = resource.applyAsync(value => {
+      assert.equal(value, id);
+      closing = resource.close();
+      assert.equal(api.callbackCleanups(id), 0);
+      return new Promise((resolve, reject) => { complete = () => fails ? reject(error) : resolve(value + 1); });
+    });
+    for (let i = 0; i < 4; i++) {
+      await turn(); global.gc(); api.callbackPressure(i); await turn();
+      assert.equal(api.callbackCleanups(id), 0, 'accepted async callback holds the resource lease');
+    }
+    await assert.rejects(resource.applyAsync(async n => n));
+    complete();
+    if (fails) await exactRejection(result, error);
+    else assert.equal(await result, id + 1);
+    await closing;
+    assert.equal(api.callbackCleanups(id), 1);
+    assert.equal(resource.close(), closing);
+  }
+  const later = new api.CallbackResource(13);
+  const operation = later.applyLater(n => n + 1);
+  const closing = later.close();
+  assert.equal(await operation, 14);
+  await closing;
+  assert.equal(api.callbackCleanups(13), 1);
+  for (const [id, fails] of [[14, false], [15, true]]) {
+    const cleanup = new api.CallbackCleanup(id);
+    const error = {cleanup: id};
+    let complete, calls = 0;
+    const close = cleanup.close(() => {
+      calls++;
+      return new Promise((resolve, reject) => { complete = () => fails ? reject(error) : resolve(); });
+    });
+    assert.equal(cleanup.close(() => { throw Error('second cleanup'); }), close);
+    for (let i = 0; i < 4; i++) {
+      await turn(); global.gc(); api.callbackPressure(i); await turn();
+      assert.equal(api.callbackCleanups(id), 0);
+    }
+    complete();
+    if (fails) await exactRejection(close, error); else await close;
+    assert.equal(calls, 1); assert.equal(api.callbackCleanups(id), 1);
+  }
+}
+
+async function foreignOwner(api) {
+  const other = await import('@napi/callback-external');
+  let complete;
+  const pending = api.callAsync(n => new Promise(resolve => { complete = () => resolve(n + 1); }), 41);
+  await until(() => complete !== undefined, 'first owner invokes its callback');
+  await new Promise((resolve, reject) => setImmediate(() => {
+    try {
+      assert.equal(other.plainCallback(n => {
+        complete();
+        process._tickCallback();
+        return n + 1;
+      }, 2), 3);
+      resolve();
+    } catch (error) { reject(error); }
+  }));
+  assert.equal(await pending, 42, 'foreign-owner Promise delivery must queue before Dart entry');
+  assert.equal(await other.plainAsyncCallback(async n => n + 2, 1), 3);
+}
+
+async function worker(held, queued = false) {
   await new Promise((resolve, reject) => {
-    const current = new Worker(new URL(import.meta.url), {workerData: {held}});
+    const current = new Worker(new URL(import.meta.url), {workerData: {held, queued}});
     const timeout = setTimeout(() => {
       current.terminate().catch(() => {});
       reject(Error('callback Worker timed out'));
@@ -319,6 +562,8 @@ async function scenario(name) {
     return;
   }
   const api = await import(packageName);
+  const hidden = [];
+  if (name !== 'void') process.on('unhandledRejection', error => hidden.push(error));
   switch (name) {
     case 'scalars': scalar(api); break;
     case 'structures': structures(api); break;
@@ -344,12 +589,14 @@ async function scenario(name) {
       await collect(api, () => weak.deref() === undefined, 'released saved error');
       break;
     }
-    case 'expired-gc': {
+    case 'retained-gc': {
       const weak = savedCallback(api);
-      assert.throws(() => api.invokeSaved(), /borrow|expired|active/i);
-      await collect(api, () => weak.deref() === undefined, 'expired callback function');
-      assert.throws(() => api.invokeSaved(), /borrow|expired|active/i);
+      for (let i = 0; i < 6; i++) {
+        await turn(); global.gc(); api.callbackPressure(i); await turn();
+        assert(weak.deref()); assert.equal(api.invokeSaved(), 6);
+      }
       api.clearSavedCallback();
+      await collect(api, () => weak.deref() === undefined, 'cleared callback function');
       assert.equal(api.callTwice(n => n, 1), 3);
       break;
     }
@@ -358,31 +605,47 @@ async function scenario(name) {
       assert.equal(api.scheduleMicrotaskCallback(n => { calls++; return n; }), 2);
       assert.equal(api.scheduleCallback(n => { calls++; return n; }), 2);
       await until(() => api.callbackMicrotaskState() !== 0 && api.callbackTimerState() !== 0, 'scheduled callbacks must complete');
-      assert.equal(api.callbackMicrotaskState(), 1);
-      assert.equal(api.callbackTimerState(), 1);
-      assert.equal(calls, 2, 'escaped microtask/Timer adapters fail before calling JS');
+      assert.equal(api.callbackMicrotaskState(), -1);
+      assert.equal(api.callbackTimerState(), -1);
+      assert.equal(calls, 4, 'microtask and Timer retain ordinary Dart callbacks');
       let queued = false;
       assert.equal(api.saveCallback(n => {
-        queueMicrotask(() => {
-          assert.throws(() => api.invokeSaved(), /borrow|expired|active/i);
+        if (n === 1) queueMicrotask(() => {
+          assert.equal(api.invokeSaved(), 5);
           queued = true;
         });
         return n;
       }), 1);
       assert.equal(queued, false, 'JS microtasks run after the binding call exits');
-      await until(() => queued, 'JS microtask must see the saved adapter expired');
+      await until(() => queued, 'JS microtask must be able to use the saved adapter');
       api.clearSavedCallback();
       break;
     }
     case 'resources': await resources(api); break;
+    case 'identity': await identity(api); break;
+    case 'async-values': await asyncValues(api); break;
+    case 'async-validation': await asyncValidation(api); break;
+    case 'async-errors': await asyncErrors(api); break;
+    case 'async-retention': await asyncRetention(api); break;
+    case 'async-resources': await asyncResources(api); break;
+    case 'foreign-owner': await foreignOwner(api); break;
+    case 'pending-natural-exit': {
+      api.registerAsyncCallback(() => new Promise(() => {}));
+      api.invokeAsyncRegistered(0, 1);
+      break;
+    }
+    case 'queued-teardown': await worker(false, true); break;
     case 'external': {
       const external = await import('@napi/callback-external');
-      assert.deepEqual(Object.keys(external), ['plainCallback']);
+      assert.deepEqual(Object.keys(external), ['plainAsyncCallback', 'plainCallback']);
       assert.equal(external.plainCallback(n => n + 1, 3), 4);
       assert.throws(() => external.plainCallback(), TypeError);
       assert.throws(() => external.plainCallback(n => 'bad', 1), TypeError);
       const error = {external: true};
       exact(() => external.plainCallback(() => { throw error; }, 1), error);
+      assert.equal(await external.plainAsyncCallback(async n => n + 1, 3), 4);
+      await exactRejection(external.plainAsyncCallback(() => Promise.reject(error), 1), error);
+      await assert.rejects(external.plainAsyncCallback(n => n, 1), TypeError);
       break;
     }
     case 'workers-with-main':
@@ -391,6 +654,10 @@ async function scenario(name) {
       assert.equal(api.callTwice(n => n, 3), 7);
       break;
     default: throw Error(`Unknown callback scenario: ${name}`);
+  }
+  if (name !== 'void') {
+    await turn(); await turn();
+    assert.deepEqual(hidden, [], `${name}: private Promise reactions must not reject unobserved`);
   }
 }
 
@@ -402,6 +669,14 @@ if (!isMainThread) {
   api.saveThrow(() => { throw error; });
   exact(() => api.rethrowSaved(), error);
   api.callbackPressure(1);
+  assert.equal(await api.callAsync(async n => n + 2, 5), 7);
+  api.registerAsyncCallback(() => new Promise(() => {}));
+  api.invokeAsyncRegistered(0, 1);
+  if (workerData.queued) {
+    for (let i = 0; i < 1000; i++) api.callAsync(() => Promise.resolve(i), i);
+    process._tickCallback();
+    process.exit(0);
+  }
   if (workerData.held) {
     setInterval(() => {}, 1000);
     parentPort.postMessage('ready');
@@ -410,8 +685,10 @@ if (!isMainThread) {
   await scenario(process.argv[2]);
 } else {
   const cases = ['scalars', 'structures', 'void', 'validation', 'many', 'reentry',
-    'exact-errors', 'conversion-errors', 'stored-errors', 'expired-gc', 'scheduled',
-    'resources', 'external', 'worker-only', 'workers-with-main'];
+    'exact-errors', 'conversion-errors', 'stored-errors', 'retained-gc', 'scheduled',
+    'resources', 'identity', 'async-values', 'async-validation', 'async-errors',
+    'async-retention', 'async-resources', 'foreign-owner', 'pending-natural-exit',
+    'queued-teardown', 'external', 'worker-only', 'workers-with-main'];
   for (const name of cases) {
     const result = spawnSync(process.execPath, ['--expose-gc', '--unhandled-rejections=throw', filename, name], {
       encoding: 'utf8', timeout: 30_000, maxBuffer: 4 * 1024 * 1024,

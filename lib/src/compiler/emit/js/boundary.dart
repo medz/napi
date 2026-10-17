@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import '../../lowering/plan.dart';
 import 'arguments.dart';
+import 'callbacks.dart';
 import 'structural.dart';
 import 'settlement.dart';
 
@@ -82,33 +83,68 @@ String _emitCallbacks(
   Map<int, CallbackConversion> callbacks, {
   required bool futures,
 }) {
+  final asynchronous = callbacks.values.any(
+    (callback) => callback.returnsFuture,
+  );
   final source = StringBuffer(r'''
 const callbackApply = Reflect.apply;
-export function borrowCallback(frame, value, nullable, path) {
+const callbackAdapters = new WeakMap();
+const callbackWeakMapGet = WeakMap.prototype.get;
+const callbackWeakMapSet = WeakMap.prototype.set;
+const callbackMap = Map;
+const callbackMapGet = Map.prototype.get;
+const callbackMapSet = Map.prototype.set;
+const callbackWeakRef = WeakRef;
+const callbackDeref = WeakRef.prototype.deref;
+export function checkCallback(value, nullable, path) {
   if (value === null && nullable) return null;
   if (typeof value !== 'function') throw new TypeError(path + ': expected function' + (nullable ? ' or null' : ''));
-  const state = {fn: value, path};
-  Object.defineProperty(frame, frame.length, {value: state, configurable: true});
-  return state;
+  return value;
 }
-export function expireCallbacks(frame) {
-  for (let i = 0; i < frame.length; i++) frame[i].fn = null;
-  frame.length = 0;
+export function findCallbackAdapter(callback, signature) {
+  const entries = callbackApply(callbackWeakMapGet, callbackAdapters, [callback]);
+  const reference = entries === undefined ? undefined : callbackApply(callbackMapGet, entries, [signature]);
+  return reference === undefined ? null : callbackApply(callbackDeref, reference, []) ?? null;
 }
-export function callbackActive(state) { return state.fn === null ? 0 : 1; }
+export function cacheCallbackAdapter(callback, signature, adapter) {
+  let entries = callbackApply(callbackWeakMapGet, callbackAdapters, [callback]);
+  if (entries === undefined) {
+    entries = new callbackMap();
+    callbackApply(callbackWeakMapSet, callbackAdapters, [callback, entries]);
+  }
+  callbackApply(callbackMapSet, entries, [signature, new callbackWeakRef(adapter)]);
+}
 export function callbackThrew(envelope) { return envelope.threw ? 1 : 0; }
 export function callbackValue(envelope) { return envelope.value; }
 export function throwCallbackError(envelope) { throw envelope.value; }
 export function callbackStructureError(path, message, range) {
   return {threw: true, value: range ? new RangeError(path + ': ' + message) : new TypeError(path + ': ' + message)};
 }
-export function invokeCallback(state, values, context) {
-  try {
-    const callback = state.fn;
-    if (callback === null) throw new Error(state.path + ': borrowed callback has expired');
-    switch (context) {
 ''');
-  final converters = StringBuffer();
+  if (asynchronous) {
+    source.writeln(callbackPromisePolicy);
+    source.writeln(r'''
+const pendingCallbacks = new Set();
+const pendingCallbackAdd = Set.prototype.add;
+const pendingCallbackDelete = Set.prototype.delete;
+function releaseCallback(record) {
+  record.done = true;
+  record.callback = null;
+  record.promise = null;
+  record.deliver = null;
+  record.roots = null;
+  callbackApply(pendingCallbackDelete, pendingCallbacks, [record]);
+}
+function settleCallback(record, envelope) {
+  if (record.done) return;
+  record.done = true;
+  try { record.deliver(envelope); }
+  finally { releaseCallback(record); }
+}
+''');
+  }
+  final synchronousCases = StringBuffer();
+  final asynchronousCases = StringBuffer();
   for (final entry in callbacks.entries) {
     final id = entry.key;
     final callback = entry.value;
@@ -119,13 +155,12 @@ export function invokeCallback(state, values, context) {
         prefix: 'callback${id}Argument$index',
         generateRead: false,
       );
-      converters.writeln(boundary.source);
+      source.writeln(boundary.source);
       arguments.add(
         '${boundary.write}(values[$index], ${jsonEncode(conversion.context)}, {work: 0, active: new Set(), pending: null}, 0)',
       );
     }
-    source.writeln('      case $id: {');
-    source.writeln('        const args = [${arguments.join(', ')}];');
+    var read = 'undefined';
     if (callback.output case final output?) {
       final boundary = emitStructuralBoundary(
         output,
@@ -133,31 +168,58 @@ export function invokeCallback(state, values, context) {
         leafAdapter: const BoundaryLeafAdapter(bigintText: true),
         generateWrite: false,
       );
-      converters.writeln(boundary.source);
-      source.writeln(
-        '        const value = callbackApply(callback, undefined, args);',
-      );
-      source.writeln(
-        '        return {threw: false, value: ${boundary.read}(value, ${jsonEncode(output.context)}, {work: 0, active: new Set()}, 0)};',
-      );
-    } else {
-      source.writeln('        callbackApply(callback, undefined, args);');
-      source.writeln('        return {threw: false, value: undefined};');
+      source.writeln(boundary.source);
+      read =
+          '${boundary.read}(value, ${jsonEncode(output.context)}, {work: 0, active: new Set()}, 0)';
     }
-    source.writeln('      }');
+    final cases = callback.returnsFuture ? asynchronousCases : synchronousCases;
+    cases.writeln('      case $id: {');
+    cases.writeln('        const args = [${arguments.join(', ')}];');
+    cases.writeln(
+      '        const value = callbackApply(callback, undefined, args);',
+    );
+    if (callback.returnsFuture) {
+      cases.writeln('''        record.promise = value;
+        \$napiObserveCallbackPromise(value, value => {
+          let envelope;
+          try { envelope = {threw: false, value: $read}; }
+          catch (value) { envelope = {threw: true, value}; }
+          settleCallback(record, envelope);
+        }, value => { settleCallback(record, {threw: true, value}); });
+        return null;''');
+    } else {
+      cases.writeln('        return {threw: false, value: $read};');
+    }
+    cases.writeln('      }');
   }
-  source.writeln(
-    '''      default: throw new Error('Unknown callback conversion context');
+  source.writeln('''
+export function invokeCallback(callback, values, context) {
+  try {
+    switch (context) {
+$synchronousCases      default: throw new Error('Unknown callback conversion context');
     }
   } catch (value) { return {threw: true, value}; }
-}''',
-  );
+}''');
+  if (asynchronous) {
+    source.writeln('''
+export function startCallback(callback, values, context, deliver, roots) {
+  const record = {callback, promise: null, deliver, roots, done: false};
+  callbackApply(pendingCallbackAdd, pendingCallbacks, [record]);
+  try {
+    switch (context) {
+$asynchronousCases      default: throw new Error('Unknown async callback conversion context');
+    }
+  } catch (value) {
+    releaseCallback(record);
+    return {threw: true, value};
+  }
+}''');
+  }
   if (futures) {
     source.writeln(
       'export function rejectCallbackPromise(capability, envelope) { rejectPromise(capability, envelope.value); }',
     );
   }
-  source.write(converters);
   return source.toString();
 }
 
