@@ -34,6 +34,11 @@ factory; normal Dart invariants and domain errors apply. Omitting
 `valueConstructor` makes a class output-only, including when nested inside a
 container. Such a type receives a source diagnostic if used as an input.
 
+[Concrete aliases](concrete-generics.md#structural-value-aliases) can fix real Dart
+type arguments before selecting the value policy. Each specialization keeps its
+own constructor, recursive field schemas and direction-specific TypeScript
+types. Ordinary open generic value classes remain unsupported.
+
 ## Mapping
 
 `valueConstructor` uses the original public Dart constructor name: `new` for

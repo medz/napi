@@ -41,7 +41,7 @@ another unselected equivalent typedef refer to the same selected `IntCell`.
 
 ## Handle identity and covariance
 
-A selected concrete class is an invariant JavaScript handle. Its TypeScript
+A selected concrete reference class is an invariant JavaScript handle. Its TypeScript
 class has a private declaration-only marker, so `IntCell` and `DoubleCell` cannot
 be interchanged even though their numeric fields both map to TypeScript `number`.
 Integer precision and fractional-value checks remain runtime checks.
@@ -84,17 +84,58 @@ contribute a second cleanup policy to a narrower selected instance. Different
 aliases may choose different cleanup methods; classification and cleanup use the
 same most-specific selected view. No cleanup runs automatically during GC.
 
+## Structural value aliases
+
+A concrete alias can use the existing value policy, including an explicit input
+constructor and parameter-to-field mapping:
+
+```dart
+class Box<T> {
+  final T value;
+  final Box<T>? next;
+  Box(this.value, {this.next});
+}
+
+@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+typedef IntBox = Box<int>;
+
+@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+typedef TextBox = Box<String>;
+```
+
+Both aliases have independent input/output schemas. Input materialization calls
+`IntBox(...)` or `TextBox(...)` with the actual Dart type arguments. Named and
+factory constructors, `valueFields`, member renames and exclusions follow the
+[existing value contract](values.md). `ExternalClass('IntBox', config:
+NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new'))` selects the same
+mapping without changing the business source.
+
+The public names are TypeScript data types; no JavaScript constructor or nominal
+handle brand is generated. Output projects the declared schema into a fresh
+plain object. A value alias and a reference alias with different arguments can
+coexist; each use selects its own conversion, and a plain object never becomes a
+reference handle. The reference-only runtime classification rules above do not
+restrict structural projections.
+
+Nullable uses, nested containers and finite recursive schemas retain each
+specialization. Every referenced value instance must be selected: `Box<Box<int>>`
+requires a selected `Box<int>` schema. An unselected expanding instance such as
+`Node<List<int>>` is diagnosed, not instantiated automatically. Omitting the
+constructor makes that specialization output-only, even if another alias of the
+same original class permits inputs. Defaults, bigint policy, copy semantics and
+whole-root validation before construction remain unchanged.
+
 ## Current scope
 
-This slice covers non-null, closed aliases of reference and resource classes.
+This slice covers non-null, closed aliases of reference, resource and value classes.
 Arguments containing `dynamic` or generic function types remain diagnosed even
 when Dart considers the surrounding alias closed. It preserves existing [open opaque generics](opaque.md). Selecting an open class and
 one of its concrete aliases together, multiple aliases for the same canonical
-specialization, mutually assignable but indistinguishable selections such as
-`Marker<void>` with `Marker<Object?>`, concrete value aliases and selected
-generic hierarchies
-remain diagnosed. Generic functions and methods that require real type arguments
-remain separate work in [#126](https://github.com/medz/napi/issues/126).
+specialization and selected generic reference
+hierarchies remain diagnosed. Reference selections that Dart type tests cannot
+distinguish, such as `Marker<void>` with `Marker<Object?>`, are also rejected;
+value projections do not use that runtime classification. Generic functions and
+methods that require real type arguments remain separate work in [#126](https://github.com/medz/napi/issues/126).
 
 Native `.node` and Dart Wasm share the substitutions and declarations; each
 backend keeps its existing identity and lifetime implementation. Future returns

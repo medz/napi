@@ -35,7 +35,7 @@ See [the architecture and delivery plan](doc/architecture.md) and
 - A pinned Dart SDK adapter and linker producing actual Wasm named exports
 - Generated reference classes, named/factory constructors and weak wrapper identity on both targets
 - Generic payload storage with identity, nullish presence and shared TypeScript relationships
-- Finite concrete reference/resource aliases with real Dart type arguments, nested substitutions and distinct typed handles
+- Finite concrete reference, resource and value aliases with real Dart type arguments, nested substitutions and policy-specific representations
 - Structural value classes with explicit constructors, recursive fields and direction-specific TypeScript
 - Future-returning functions/methods/getters, including generic payloads, with standard Promise resolution and shared error conversion
 - Resource cleanup with shared state, stable completion identity and operation leases through Promise settlement

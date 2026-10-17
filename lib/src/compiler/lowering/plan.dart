@@ -489,7 +489,7 @@ final class _ConversionBuilder {
   final bool bigint;
   final ValueDirection direction;
   final Set<DeclarationId> opaqueParameters;
-  final _nodes = <(DeclarationId, TypeNullability), ValueClassConversion>{};
+  final _nodes = <(ClassBinding, TypeNullability), ValueClassConversion>{};
   _ConversionBuilder(
     this.classes,
     this.values,
@@ -570,13 +570,13 @@ final class _ConversionBuilder {
     }
     if (isValueClassType(type, classes)) {
       final declared = type as DeclaredType;
-      final key = (declared.declaration, declared.nullability);
-      if (_nodes[key] case final existing?) return existing;
       final index = values.indexWhere(
-        (s) => s.binding.declaration == declared.declaration,
+        (s) => referenceClassMatches(s.binding, declared),
       );
       if (index < 0) throw StateError('A validated value schema is required.');
       final schema = values[index];
+      final key = (schema.binding, declared.nullability);
+      if (_nodes[key] case final existing?) return existing;
       if (direction == ValueDirection.input && schema.constructor == null) {
         throw StateError('Output-only value used as input.');
       }

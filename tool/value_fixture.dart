@@ -30,6 +30,15 @@ class ValueOnly {
   final ValueOnly? next;
   const ValueOnly(this.value, this.next);
 }
+class ConcreteValueOnly<T> {
+  final T value;
+  final ConcreteValueOnly<T>? next;
+  const ConcreteValueOnly(this.value, this.next);
+}
+@NAPI(classPolicy: ClassPolicy.value)
+typedef IntValueOnly = ConcreteValueOnly<int>;
+@NAPI(classPolicy: ClassPolicy.value)
+typedef TextValueOnly = ConcreteValueOnly<String>;
 ''');
   await File('${project.path}/build.dart').writeAsString('''
 import 'dart:io';
@@ -97,7 +106,7 @@ assert.equal(api, direct);
 console.log('Type-only $backend installed module: no public runtime bindings or value constructors passed');
 ''');
   await File('${consumer.path}/consumer.mts').writeAsString('''
-import {ValueOnly} from '@napi/value-only-fixture';
+import {ValueOnly, IntValueOnly, TextValueOnly} from '@napi/value-only-fixture';
 import type {ValueOnly as Direct} from '@napi/value-only-fixture/$subpath';
 const leaf: ValueOnly = {value: 1, next: null};
 const tree: Direct = {value: 2, next: leaf};
@@ -110,7 +119,15 @@ const missing: ValueOnly = {value: 3};
 const absent: ValueOnly = {value: 3, next: undefined};
 // @ts-expect-error recursion preserves strict scalar types.
 const wrong: Direct = {value: 3, next: {value: 'bad', next: null}};
-void [tree, number, missing, absent, wrong];
+const integer: IntValueOnly = {value: 1, next: {value: 2, next: null}};
+const text: TextValueOnly = {value: 'text', next: null};
+// @ts-expect-error concrete type-only aliases have no JS constructor.
+new IntValueOnly(1, null);
+// @ts-expect-error recursive specializations do not share a schema.
+const mixed: IntValueOnly = {value: 1, next: text};
+// @ts-expect-error text specialization retains its concrete field type.
+const wrongText: TextValueOnly = {value: 1, next: null};
+void [tree, number, missing, absent, wrong, integer, text, mixed, wrongText];
 ''');
   await run('node', ['test.mjs'], cwd: consumer.path);
   await typescript(consumer, 'consumer.mts');

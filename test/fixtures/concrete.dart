@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:napi/napi.dart';
 
@@ -198,6 +199,29 @@ typedef DoubleSession = Session<double>;
 @NAPI(classPolicy: ClassPolicy.resource, cleanup: 'shutdown')
 typedef NullableSession = Session<int?>;
 
+@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+typedef TextSessionValue = Session<String>;
+
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+typedef NullableTextSession = Session<String?>;
+
+@NAPI()
+NullableTextSession createTextSession(int id, String value) =>
+    Session<String>(id, value);
+@NAPI()
+TextSessionValue echoTextSessionValue(TextSessionValue value) => value;
+@NAPI()
+TextSessionValue projectTextSession(NullableTextSession owner) =>
+    owner as TextSessionValue;
+@NAPI()
+Future<TextSessionValue> delayedTextSession(
+  NullableTextSession owner,
+  int token,
+) async {
+  await _holdSession(token, owner);
+  return owner as TextSessionValue;
+}
+
 class Finish<T> {
   final int id;
   Finish(this.id);
@@ -254,3 +278,166 @@ int sessionPressure(int seed) {
   _sessionPressure = List<int>.generate(65536, (index) => index + seed);
   return _sessionPressure[seed & 65535];
 }
+
+int _valueConstructions = 0;
+int _valueCalls = 0;
+
+class ValueBox<T> {
+  T value;
+  ValueBox<T>? next;
+  final int tag;
+  ValueBox(this.value, {this.next, this.tag = 7}) {
+    _valueConstructions++;
+    if (value is int && (value as int) < 0) throw StateError('value-domain');
+  }
+  bool get isInt => T == int;
+  bool get isDouble => T == double;
+}
+
+@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+typedef IntValue = ValueBox<int>;
+@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+typedef TextValue = ValueBox<String>;
+@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+typedef DoubleValue = ValueBox<double>;
+@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+typedef NullableValue = ValueBox<String?>;
+@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+typedef NestedValue = ValueBox<IntValue>;
+@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+typedef LeafValue = ValueBox<Leaf>;
+@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+typedef BytesValue = ValueBox<Uint8List>;
+@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+typedef SharedValue = ValueBox<SharedBytes>;
+@NAPI()
+typedef ValueHandle = ValueBox<int?>;
+
+class ParsedValue<T extends num> {
+  final T value;
+  ParsedValue(this.value);
+  ParsedValue.parse(String source)
+    : value = (T == int ? int.parse(source) : double.parse(source)) as T;
+}
+
+@NAPI(
+  classPolicy: ClassPolicy.value,
+  valueConstructor: 'parse',
+  valueFields: {'source': 'value'},
+)
+typedef ParsedInteger = ParsedValue<int>;
+@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+typedef ParsedDouble = ParsedValue<double>;
+
+abstract class Projected<T> {
+  factory Projected(T value) = _Projected<T>;
+  T get value;
+}
+
+class _Projected<T> implements Projected<T> {
+  @override
+  final T value;
+  _Projected(this.value);
+}
+
+@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+typedef TextProjection = Projected<String>;
+
+typedef _NullableObject = Object?;
+
+class ValueMarker<T> {
+  ValueMarker();
+  bool get isObject => T == _NullableObject;
+}
+
+@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+typedef VoidValue = ValueMarker<void>;
+@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+typedef ObjectValue = ValueMarker<Object?>;
+
+@NAPI()
+IntValue echoIntValue(IntValue value) {
+  _valueCalls++;
+  return value;
+}
+
+@NAPI()
+(IntValue, TextValue, DoubleValue) valueTuple(
+  (IntValue, TextValue, DoubleValue) value,
+) => value;
+@NAPI()
+NullableValue? nullableValue(NullableValue? value) => value;
+@NAPI()
+NestedValue nestedValue(NestedValue value) => value;
+@NAPI()
+List<IntValue> repeatValue(IntValue value) => [value, value];
+@NAPI()
+Map<String, IntValue> valueMap(Map<String, IntValue> value) => value;
+@NAPI()
+Dictionary<TextValue> valueDictionary(Dictionary<TextValue> value) => value;
+@NAPI()
+LeafValue leafValue(LeafValue value) => value;
+@NAPI()
+BytesValue bytesValue(BytesValue value) => value;
+@NAPI()
+SharedValue sharedValue(SharedValue value) => value;
+@NAPI()
+ParsedInteger parseInteger(ParsedInteger value) => value;
+@NAPI()
+ParsedDouble parseDouble(ParsedDouble value) => value;
+@NAPI()
+TextProjection textProjection(TextProjection value) => value;
+@NAPI()
+(VoidValue, ObjectValue) valueMarkers(VoidValue first, ObjectValue second) =>
+    (first, second);
+@NAPI()
+ValueHandle echoValueHandle(ValueHandle value) => value;
+@NAPI()
+ValueHandle createValueHandle() => ValueBox<int>(3);
+@NAPI()
+int twoValues(IntValue first, IntValue second) {
+  _valueCalls++;
+  return first.value + second.value;
+}
+
+@NAPI(bigint: true)
+IntValue bigintValue(IntValue value) => value;
+@NAPI()
+int concreteValueConstructions() => _valueConstructions;
+@NAPI()
+int concreteValueCalls() => _valueCalls;
+@NAPI()
+IntValue cyclicValue() {
+  final value = IntValue(1);
+  value.next = value;
+  return value;
+}
+
+@NAPI()
+Future<IntValue> delayedValue(IntValue value) async {
+  await Future<void>.delayed(const Duration(milliseconds: 5));
+  return value;
+}
+
+@NAPI()
+Stream<IntValue> valueEvents() {
+  late StreamController<IntValue> controller;
+  controller = StreamController<IntValue>(
+    sync: true,
+    onListen: () {
+      scheduleMicrotask(() {
+        final value = IntValue(1);
+        controller.add(value);
+        value.value = 2;
+        controller.add(value);
+        unawaited(controller.close());
+      });
+    },
+  );
+  return controller.stream;
+}
+
+@NAPI()
+// The opaque name deliberately shadows a reference used inside the value schema.
+// ignore: avoid_types_as_parameter_names
+LeafValue valueShadow<Leaf>(LeafValue value, Leaf payload) => value;

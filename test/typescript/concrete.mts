@@ -75,3 +75,58 @@ new api.NullableSession(6);
 // @ts-expect-error Required nullable resource value does not accept undefined.
 new api.NullableSession(6, undefined);
 void [sessionCopy, sessionSelf, sessionValue, heldSession, resourceStream, closeSession, closeNullable, closeVoid, ordinaryClose];
+
+const textSession: api.NullableTextSession = api.createTextSession(7, 'text');
+const sessionProjection: api.TextSessionValue = api.projectTextSession(textSession);
+const sessionProjectionFuture: Promise<api.TextSessionValue> = api.delayedTextSession(textSession, 7);
+const sessionData: api.TextSessionValue = api.echoTextSessionValue({id: 8, value: 'data'});
+const externalSessionData: external.TextSessionValue = external.projectTextSession(external.createTextSession(9, 'external'));
+// @ts-expect-error The value specialization has no JavaScript constructor.
+new api.TextSessionValue(7, 'text');
+// @ts-expect-error A structural projection is not a resource handle.
+api.projectTextSession(sessionProjection);
+// @ts-expect-error Nullable resource fields do not satisfy the concrete value input.
+api.echoTextSessionValue(textSession);
+// @ts-expect-error Resource cleanup is not part of the projected value schema.
+sessionProjection.close();
+void [sessionProjectionFuture, sessionData, externalSessionData];
+
+const concreteValue: api.IntValue = api.echoIntValue({value: 1, next: {value: 2}});
+const requiredNext: api.IntValue | null = concreteValue.next;
+const valueTuple: {$1: api.IntValue; $2: api.TextValue; $3: api.DoubleValue} = api.valueTuple({$1: {value: 1}, $2: {value: 'two'}, $3: {value: 1.5}});
+const nestedValue: api.NestedValue = api.nestedValue({value: {value: 1}});
+const nullableValue: api.NullableValue | null = api.nullableValue({value: null});
+const valueReference: api.Leaf = api.leafValue({value: leaf}).value;
+const valueBytes: Uint8Array<ArrayBuffer> = api.bytesValue({value: new Uint8Array([1])}).value;
+const valueShared: Uint8Array<ArrayBuffer> = api.sharedValue({value: new Uint8Array([1])}).value;
+const parsed: number = api.parseInteger({value: '1'}).value;
+const typedFuture: Promise<api.IntValue> = api.delayedValue({value: 1});
+const typedStream: AsyncIterableIterator<api.IntValue> = api.valueEvents();
+const typedWide: bigint = api.bigintValue({value: 1n, next: {value: 2n}}).value;
+const copiedDirect: api.IntValue = direct.echoIntValue({value: 1});
+const externalValue: external.TextValue = external.valueTuple({$1: {value: 1}, $2: {value: 'two'}, $3: {value: 3}}).$2;
+api.echoIntValue({value: 1, tag: undefined, next: undefined});
+// @ts-expect-error A concrete value alias is a data type, without a JS constructor.
+new api.IntValue(1);
+// @ts-expect-error A concrete value alias has no free type argument.
+const freeValue: api.IntValue<string> = concreteValue;
+// @ts-expect-error Different specializations retain their field types within one root.
+api.valueTuple({$1: {value: 1}, $2: {value: 2}, $3: {value: 3}});
+// @ts-expect-error Output-only derived properties are not accepted input fields.
+api.echoIntValue({value: 1, isInt: true});
+// @ts-expect-error Public value output fields remain required.
+const incompleteValue: api.IntValue = {value: 1};
+// @ts-expect-error Nested specialization uses its own input schema.
+api.nestedValue({value: {value: 'wrong'}});
+// @ts-expect-error Required nullable leaves do not accept undefined.
+api.nullableValue({value: undefined});
+// @ts-expect-error Constructor input type differs from getter output type.
+api.parseInteger({value: 1});
+// @ts-expect-error Plain value input cannot masquerade as a handle of the same origin.
+api.echoValueHandle({value: 1});
+// @ts-expect-error Ordinary integer mode does not accept bigint.
+api.echoIntValue({value: 1n});
+void [concreteValue, requiredNext, valueTuple, nestedValue, nullableValue, valueReference, valueBytes, valueShared, parsed, typedFuture, typedStream, typedWide, copiedDirect, externalValue, freeValue, incompleteValue];
+
+const hiddenValueType: api.Leaf = api.valueShadow<string>({value: leaf}, 'payload').value;
+void hiddenValueType;

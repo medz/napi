@@ -652,11 +652,6 @@ class Cell<T> { T value; Cell(this.value); }
       'NAPI_GENERIC',
     ),
     (
-      'value policy',
-      'class Cell<T> {} @NAPI(classPolicy: ClassPolicy.value) typedef Selected = Cell<int>;',
-      'NAPI_GENERIC',
-    ),
-    (
       'bound',
       'class Cell<T extends num> {} @NAPI() typedef Selected = Cell<String>;',
       'NAPI_DART',

@@ -213,7 +213,130 @@ async function resources(api) {
   await unreadOwner.close();
   assert.equal((await unread.next()).done, true);
   assert.equal(api.sessionCancels(131), 0, 'closing before demand never listens');
+
+  const text = api.createTextSession(140, 'initial');
+  assert(text instanceof api.NullableTextSession,
+    'a selected value specialization must not exclude the matching resource handle');
+  assert.equal(text.self(), text);
+  assert.equal(Object.hasOwn(api, 'TextSessionValue'), false);
+  const shape = value => ({id: 140, value, isInt: false, isDouble: false});
+  const copied = api.projectTextSession(text);
+  assert.deepEqual(copied, shape('initial'));
+  assert.equal(Object.getPrototypeOf(copied), Object.prototype);
+  assert.equal(Object.hasOwn(copied, 'close'), false);
+  text.value = 'updated';
+  assert.equal(copied.value, 'initial');
+  copied.value = 'local';
+  assert.equal(text.value, 'updated');
+  assert.deepEqual(api.echoTextSessionValue({id: 140, value: 'input'}), shape('input'));
+  assert.throws(() => api.echoTextSessionValue(text), TypeError);
+  assert.throws(() => api.projectTextSession({id: 140, value: 'plain'}), TypeError);
+  const projected = api.delayedTextSession(text, 140);
+  const textClose = text.close();
+  assert.equal(text.close(), textClose);
+  await tick();
+  assert.equal(api.sessionCloses(140), 0, 'value-result work retains its resource input');
+  assert.throws(() => api.projectTextSession(text));
+  await assert.rejects(api.delayedTextSession(text, 141));
+  api.finishSession(140, 0);
+  const delivered = await projected;
+  assert.deepEqual(delivered, shape('updated'));
+  await textClose;
+  assert.equal(api.sessionCloses(140), 1);
+  assert.equal(text.close(), textClose);
+  delivered.value = 'still usable';
+  assert.equal(delivered.value, 'still usable', 'value output has no resource lifetime');
+  const nullableText = new api.NullableTextSession(142, null);
+  nullableText.value = 'text';
+  nullableText.value = null;
+  assert.equal(nullableText.value, null);
+  await nullableText.close();
+  assert.equal(api.sessionCloses(142), 1);
 }
+
+async function values(api) {
+  const shape = (value, kind = '', next = null, tag = 7) =>
+    ({value, next, tag, isInt: kind === 'int', isDouble: kind === 'double'});
+  assert.equal(Object.hasOwn(api, 'IntValue'), false);
+  assert.equal(Object.hasOwn(api, 'TextValue'), false);
+  assert.deepEqual(api.valueTuple({$1: {value: 1}, $2: {value: 'two'}, $3: {value: 1.5}}),
+    {$1: shape(1, 'int'), $2: shape('two'), $3: shape(1.5, 'double')});
+  assert.deepEqual(api.echoIntValue({value: 1, next: {value: 2}, tag: undefined}),
+    shape(1, 'int', shape(2, 'int')));
+  assert.equal(api.nullableValue(null), null);
+  assert.deepEqual(api.nullableValue({value: null}), shape(null));
+  assert.throws(() => api.nullableValue({}), TypeError);
+  assert.throws(() => api.nullableValue({value: undefined}), TypeError);
+  assert.throws(() => api.echoIntValue({value: null}), TypeError);
+  assert.throws(() => api.echoIntValue({value: 1.5}), RangeError);
+  assert.throws(() => api.echoIntValue({value: 1, next: {value: 'wrong'}}), TypeError);
+  assert.deepEqual(api.nestedValue({value: {value: 4}}), shape(shape(4, 'int')));
+  assert.deepEqual(api.parseInteger({value: '17'}), {value: 17});
+  assert.deepEqual(api.parseDouble({value: 1.25}), {value: 1.25});
+  assert.throws(() => api.parseInteger({value: 17}), TypeError);
+  assert.throws(() => api.parseInteger({value: 'wrong'}), /FormatException/);
+  assert.deepEqual(api.textProjection({value: 'private implementation'}), {value: 'private implementation'});
+  assert.deepEqual(api.valueMarkers({}, {}), {$1: {isObject: false}, $2: {isObject: true}});
+  const input = {value: 1}, repeated = api.repeatValue(input);
+  assert.deepEqual(repeated, [shape(1, 'int'), shape(1, 'int')]);
+  assert.notEqual(repeated[0], repeated[1]);
+  repeated[0].value = 9;
+  assert.equal(repeated[1].value, 1);
+  assert.equal(input.value, 1);
+  assert.deepEqual([...api.valueMap(new Map([['a', {value: 2}]]))], [['a', shape(2, 'int')]]);
+  const dictionary = api.valueDictionary({a: {value: 'text'}});
+  assert.equal(Object.getPrototypeOf(dictionary), null);
+  assert.deepEqual(dictionary.a, shape('text'));
+  const leaf = new api.Leaf(3), copiedLeaf = api.leafValue({value: leaf});
+  assert.equal(copiedLeaf.value, leaf);
+  assert.equal(api.valueShadow({value: leaf}, {}).value, leaf);
+  const bytes = new Uint8Array([1, 2, 3]);
+  const copiedBytes = api.bytesValue({value: bytes.subarray(1)}).value;
+  bytes[1] = 9;
+  assert.deepEqual([...copiedBytes], [2, 3]);
+  assert.notEqual(copiedBytes.buffer, bytes.buffer);
+  const shared = api.sharedValue({value: bytes.subarray(1)}).value;
+  bytes[1] = 4;
+  assert.equal(shared[0], 4);
+  shared[1] = 8;
+  assert.equal(bytes[2], 8);
+  const handle = new api.ValueHandle(null);
+  assert.equal(api.echoValueHandle(handle), handle);
+  assert.throws(() => api.echoValueHandle({value: 1}), TypeError);
+  assert.throws(() => api.echoIntValue(handle), TypeError);
+  const adopted = api.createValueHandle();
+  assert(adopted instanceof api.ValueHandle);
+  assert.equal(adopted.isInt, true, 'value specialization must not alter reference classification');
+  assert.equal(adopted.value, 3);
+  const before = api.concreteValueConstructions(), calls = api.concreteValueCalls();
+  assert.throws(() => api.valueTuple({$1: {value: 1}, $2: {value: 2}, $3: {value: 3}}), TypeError);
+  assert.equal(api.concreteValueConstructions(), before, 'the entire root is validated before constructors');
+  assert.throws(() => api.twoValues({value: 1}, {value: 'bad'}), TypeError);
+  assert.equal(api.concreteValueConstructions(), before + 1, 'parameters materialize left to right');
+  assert.equal(api.concreteValueCalls(), calls);
+  assert.throws(() => api.echoIntValue({value: -1}), /value-domain/);
+  assert.throws(() => api.echoIntValue({value: 1, isInt: true}), TypeError);
+  assert.throws(() => api.echoIntValue({get value() { throw Error('getter ran'); }}), TypeError);
+  const cycle = {value: 1}; cycle.next = cycle;
+  assert.throws(() => api.echoIntValue(cycle), TypeError);
+  assert.throws(() => api.cyclicValue(), TypeError);
+  let deep = {value: 1};
+  for (let i = 0; i < 70; i++) deep = {value: 1, next: deep};
+  assert.throws(() => api.echoIntValue(deep), RangeError);
+  assert.deepEqual(api.bigintValue({value: 9007199254740993n, next: {value: 2n}}),
+    {...shape(9007199254740993n, 'int', {...shape(2n, 'int'), tag: 7n}), tag: 7n});
+  assert.throws(() => api.bigintValue({value: 1}), TypeError);
+  const futureSource = {value: 5};
+  const future = api.delayedValue(futureSource);
+  futureSource.value = 99;
+  assert.deepEqual(await future, shape(5, 'int'));
+  const events = api.valueEvents();
+  const first = await events.next();
+  assert.deepEqual(first.value, shape(1, 'int'));
+  assert.deepEqual((await events.next()).value, shape(2, 'int'));
+  assert.equal((await events.next()).done, true);
+}
+
 
 if (!isMainThread) {
   const api = await import(typeof workerData === 'string' ? workerData : workerData.name);
@@ -226,6 +349,7 @@ if (!isMainThread) {
   } else {
     await contract(api);
     await resources(api);
+    await values(api);
     parentPort.postMessage('passed');
   }
 } else {
@@ -233,6 +357,7 @@ if (!isMainThread) {
     const api = await import(name);
     await contract(api);
     await resources(api);
+    await values(api);
     await new Promise((resolve, reject) => {
       const worker = new Worker(new URL(import.meta.url), {workerData: name});
       let passed = false;
@@ -250,6 +375,6 @@ if (!isMainThread) {
       worker.once('error', reject);
       worker.once('exit', code => code === 1 && pending ? resolve() : reject(Error(`teardown exit ${code}`)));
     });
-    console.log(`${name}: concrete substitution, identity, resource cleanup, asynchronous retention and workers passed`);
+    console.log(`${name}: concrete substitution, value projections, identity, resource cleanup, asynchronous retention and workers passed`);
   }
 }
