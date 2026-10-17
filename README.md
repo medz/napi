@@ -51,7 +51,8 @@ engines and replacement builds remain separate work in
 [reference classes](doc/classes.md), and
 [npm package assembly](doc/packaging.md).
 Annotated sources import `package:napi/napi.dart`; separate Dart VM build scripts
-use `buildLibrary` from `package:napi/build.dart`.
+use `buildPackage` from `package:napi/build.dart` for a fresh npm package, or
+`buildLibrary` for raw artifacts.
 
 ## Scalar conversions
 

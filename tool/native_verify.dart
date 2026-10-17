@@ -77,15 +77,14 @@ dependencies:
 import 'dart:io';
 import 'package:napi/build.dart';
 Future<void> main() async {
-  final built = await buildLibrary(
+  await buildPackage(
     library: File('business.dart').absolute.uri,
-    output: Directory('built'),
+    output: Directory('package'),
+    metadata: {'name': '@napi/path', 'version': '0.0.0'},
     packagesPath: File('.dart_tool/package_config.json').absolute.path,
     target: BuildTarget.native,
     nativeRuntime: Directory(${jsonEncode(bundle.path)}),
   );
-  await assembleNativePackage(module: built, output: Directory('package'),
-    metadata: {'name': '@napi/native-fixture', 'version': '0.0.0'});
 }
 ''');
   await run(Platform.resolvedExecutable, [
@@ -102,9 +101,8 @@ Future<void> main() async {
     '--ignore-scripts',
     '--silent',
   ], cwd: '${project.path}/package');
-  final archive = await File(
-    '${project.path}/package/napi-native-fixture-0.0.0.tgz',
-  ).copy('${root.path}/native.tgz');
+  final archive = await File('${project.path}/package/napi-path-0.0.0.tgz')
+      .copy('${root.path}/native.tgz');
   await project.delete(recursive: true);
   final consumer = await Directory('${root.path}/installed consumer 中文')
       .create();
@@ -144,56 +142,44 @@ Future<void> main() async {
   await typescript(consumer, 'consumer.mts');
   await File('${consumer.path}/shared_classes.mts').writeAsString(
     (await File('test/typescript/classes.mts').readAsString())
-        .replaceAll(
-          '@napi/class-fixture/module.wasm',
-          '@napi/native-fixture/native',
-        )
-        .replaceAll('@napi/class-fixture', '@napi/native-fixture'),
+        .replaceAll('@napi/class-fixture/module.wasm', '@napi/path/native')
+        .replaceAll('@napi/class-fixture', '@napi/path'),
   );
   await typescript(consumer, 'shared_classes.mts');
   await File('${consumer.path}/structures.mts').writeAsString(
     (await File(
       'test/typescript/structural_values.mts',
-    ).readAsString()).replaceAll('./module.wasm', '@napi/native-fixture'),
+    ).readAsString()).replaceAll('./module.wasm', '@napi/path'),
   );
   await typescript(consumer, 'structures.mts');
   await File('${consumer.path}/maps.mts').writeAsString(
     (await File('test/typescript/maps.mts').readAsString())
-        .replaceAll(
-          '@napi/class-fixture/module.wasm',
-          '@napi/native-fixture/native',
-        )
-        .replaceAll('@napi/class-fixture', '@napi/native-fixture'),
+        .replaceAll('@napi/class-fixture/module.wasm', '@napi/path/native')
+        .replaceAll('@napi/class-fixture', '@napi/path'),
   );
   await typescript(consumer, 'maps.mts');
   await File('${consumer.path}/dictionaries.mts').writeAsString(
     (await File('test/typescript/dictionaries.mts').readAsString())
-        .replaceAll(
-          '@napi/class-fixture/module.wasm',
-          '@napi/native-fixture/native',
-        )
-        .replaceAll('@napi/class-fixture', '@napi/native-fixture'),
+        .replaceAll('@napi/class-fixture/module.wasm', '@napi/path/native')
+        .replaceAll('@napi/class-fixture', '@napi/path'),
   );
   await typescript(consumer, 'dictionaries.mts');
   await File('${consumer.path}/value_classes.mts').writeAsString(
     (await File('test/typescript/value_classes.mts').readAsString())
-        .replaceAll(
-          '@napi/class-fixture/module.wasm',
-          '@napi/native-fixture/native',
-        )
-        .replaceAll('@napi/class-fixture', '@napi/native-fixture'),
+        .replaceAll('@napi/class-fixture/module.wasm', '@napi/path/native')
+        .replaceAll('@napi/class-fixture', '@napi/path'),
   );
   await typescript(consumer, 'value_classes.mts');
   await File('${consumer.path}/reference_hierarchy.mts').writeAsString(
     (await File(
       'test/typescript/reference_hierarchy.mts',
-    ).readAsString()).replaceAll('@napi/class-fixture', '@napi/native-fixture'),
+    ).readAsString()).replaceAll('@napi/class-fixture', '@napi/path'),
   );
   await typescript(consumer, 'reference_hierarchy.mts');
   await File('${consumer.path}/reference_views.mts').writeAsString(
     (await File(
       'test/typescript/reference_views.mts',
-    ).readAsString()).replaceAll('@napi/class-fixture', '@napi/native-fixture'),
+    ).readAsString()).replaceAll('@napi/class-fixture', '@napi/path'),
   );
   await typescript(consumer, 'reference_views.mts');
   await File('${consumer.path}/workers-only.mjs').writeAsString('''
