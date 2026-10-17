@@ -53,6 +53,18 @@ struct PendingFuture {
   napi_ref capability;
   bool queued = false;
   bool reject = false;
+  bool observed = false;
+  bool release_queued = false;
+};
+struct CleanupPromise {
+  Owner* owner;
+  int64_t id;
+  napi_ref reference = nullptr;
+};
+// A JS callback can outlive a failed load or the uv_close callback. Its finalizer
+// owns this sentinel; teardown invalidates the owner without invoking JS.
+struct FutureRelease {
+  Owner* owner;
 };
 struct ReferenceShape {
   std::vector<uint32_t> views;
@@ -75,9 +87,14 @@ struct Owner {
   Dart_PersistentHandle release_owner = nullptr;
   Dart_PersistentHandle release_future = nullptr;
   napi_ref promise_factory = nullptr;
+  napi_ref promise_observer = nullptr;
+  napi_ref release_callback = nullptr;
+  FutureRelease* future_release = nullptr;
   int64_t next_future = 1;
   std::map<int64_t, PendingFuture> futures;
+  std::map<int64_t, CleanupPromise*> cleanup_promises;
   std::deque<int64_t> settlements;
+  std::deque<int64_t> future_releases;
   bool flushing_futures = false;
   std::vector<Callback*> callbacks;
   std::vector<Property*> properties;
@@ -289,6 +306,151 @@ static napi_status queue_promise_settlement(napi_env env, int64_t token,
   return queue_future(owner, token, value, reject);
 }
 
+static void finalize_cleanup_promise(napi_env env, void* data, void*) {
+  auto cached = static_cast<CleanupPromise*>(data);
+  if (cached->reference) napi_delete_reference(env, cached->reference);
+  if (auto owner = cached->owner) {
+    auto found = owner->cleanup_promises.find(cached->id);
+    if (found != owner->cleanup_promises.end() && found->second == cached)
+      owner->cleanup_promises.erase(found);
+  }
+  delete cached;
+}
+
+// The raw ResourceControl owns the stable id, not any JS wrapper. Only a live
+// Promise is reused; the cache and its finalizer never retain the Dart object.
+static napi_status bind_cleanup_promise(napi_env env, int64_t token, int64_t id,
+                                        napi_value* result, bool* first) {
+  auto owner = active_owner;
+  if (!owner || owner->env != env || owner->closing || id <= 0 || !result || !first)
+    return napi_invalid_arg;
+  auto candidate = owner->futures.find(token);
+  if (candidate == owner->futures.end() || candidate->second.queued)
+    return napi_invalid_arg;
+  auto found = owner->cleanup_promises.find(id);
+  if (found != owner->cleanup_promises.end()) {
+    auto status = napi_get_reference_value(env, found->second->reference, result);
+    if (status != napi_ok) return status;
+    if (*result) {
+      napi_delete_reference(env, candidate->second.capability);
+      owner->futures.erase(candidate);
+      *first = false;
+      return napi_ok;
+    }
+    // Its finalizer may be delayed. Do not let it erase a replacement entry.
+    found->second->owner = nullptr;
+    owner->cleanup_promises.erase(found);
+  }
+  napi_value capability;
+  auto status = napi_get_reference_value(env, candidate->second.capability, &capability);
+  if (status == napi_ok) status = napi_get_element(env, capability, 0, result);
+  if (status != napi_ok) return status;
+  auto cached = new (std::nothrow) CleanupPromise{owner, id};
+  if (!cached) return napi_generic_failure;
+  try {
+    owner->cleanup_promises.emplace(id, cached);
+  } catch (const std::bad_alloc&) {
+    delete cached;
+    return napi_generic_failure;
+  }
+  status = napi_add_finalizer(env, *result, cached, finalize_cleanup_promise,
+                              nullptr, &cached->reference);
+  if (status != napi_ok) {
+    owner->cleanup_promises.erase(id);
+    delete cached;
+    return status;
+  }
+  *first = true;
+  return napi_ok;
+}
+
+// Merely mark under Dart. Register the host observer after leaving Dart and
+// before invoking either resolver, so arbitrary JS can never reenter this scope.
+static napi_status observe_future_settlement(napi_env env, int64_t token) {
+  auto owner = active_owner;
+  if (!owner || owner->env != env || owner->closing || !owner->promise_observer)
+    return napi_invalid_arg;
+  auto found = owner->futures.find(token);
+  if (found == owner->futures.end() || found->second.queued) return napi_invalid_arg;
+  found->second.observed = true;
+  return napi_ok;
+}
+
+static napi_value release_settled_future(napi_env env, napi_callback_info info) {
+  size_t count = 1;
+  napi_value argument, undefined;
+  void* data = nullptr;
+  if (napi_get_cb_info(env, info, &count, &argument, nullptr, &data) != napi_ok || !data)
+    return nullptr;
+  if (napi_get_undefined(env, &undefined) != napi_ok) return nullptr;
+  auto owner = static_cast<FutureRelease*>(data)->owner;
+  if (!owner || owner->closing) return undefined;
+  int64_t token;
+  bool lossless;
+  if (count != 1 || napi_get_value_bigint_int64(env, argument, &token, &lossless) != napi_ok || !lossless)
+    return fail_error(env, "Invalid native settlement acknowledgement");
+  auto found = owner->futures.find(token);
+  if (found == owner->futures.end() || found->second.release_queued) return undefined;
+  try {
+    owner->future_releases.push_back(token);
+  } catch (const std::bad_alloc&) {
+    return fail_error(env, "Cannot queue native settlement acknowledgement");
+  }
+  found->second.release_queued = true;
+  schedule_pump(owner);
+  return undefined;
+}
+
+static napi_status initialize_promise_observer(Owner* owner, napi_value factory) {
+  auto env = owner->env;
+  auto sentinel = new (std::nothrow) FutureRelease{owner};
+  if (!sentinel) return napi_generic_failure;
+  napi_value callback, receiver, observer, observe;
+  auto status = napi_create_function(env, "releaseDartOperation", NAPI_AUTO_LENGTH,
+                                     release_settled_future, sentinel, &callback);
+  if (status == napi_ok)
+    status = napi_add_finalizer(env, callback, sentinel,
+        [](napi_env, void* data, void*) {
+          auto sentinel = static_cast<FutureRelease*>(data);
+          if (sentinel->owner) sentinel->owner->future_release = nullptr;
+          delete sentinel;
+        }, nullptr, nullptr);
+  if (status != napi_ok) {
+    delete sentinel;
+    return status;
+  }
+  owner->future_release = sentinel;
+  status = napi_create_reference(env, callback, 1, &owner->release_callback);
+  if (status != napi_ok) return status;
+  status = napi_get_undefined(env, &receiver);
+  if (status == napi_ok) status = napi_call_function(env, receiver, factory, 1, &callback, &observer);
+  if (status == napi_ok) status = napi_get_named_property(env, observer, "observe", &observe);
+  napi_valuetype type;
+  if (status == napi_ok) status = napi_typeof(env, observe, &type);
+  if (status == napi_ok && type != napi_function) status = napi_function_expected;
+  if (status == napi_ok) status = napi_create_reference(env, observe, 1, &owner->promise_observer);
+  return status;
+}
+
+// Called only with this owner's Dart scope active. The release can start Dart
+// cleanup and enqueue messages, so normal pump draining follows it.
+static std::string drain_future_releases(Owner* owner) {
+  std::string error;
+  size_t count = 0;
+  while (!owner->future_releases.empty() && count++ < 64) {
+    const auto token = owner->future_releases.front();
+    owner->future_releases.pop_front();
+    auto found = owner->futures.find(token);
+    if (found == owner->futures.end()) continue;
+    napi_delete_reference(owner->env, found->second.capability);
+    owner->futures.erase(found);
+    Dart_Handle argument = Dart_NewInteger(token);
+    auto result = Dart_InvokeClosure(Dart_HandleFromPersistent(owner->release_future), 1, &argument);
+    if (Dart_IsError(result) && error.empty()) error = Dart_GetError(result);
+  }
+  return error;
+}
+
 static void flush_futures(Owner* owner) {
   if (active_owner || owner->closing || owner->flushing_futures) return;
   owner->flushing_futures = true;
@@ -305,10 +467,41 @@ static void flush_futures(Owner* owner) {
     if (status == napi_ok) status = napi_get_element(env, capability, future.reject ? 2 : 1, &resolver);
     if (status == napi_ok) status = napi_get_element(env, capability, 3, &value);
     if (status == napi_ok) status = napi_get_undefined(env, &receiver);
-    // Local handles retain the capability across resolver reentry. Mark terminal
-    // before user JS; Dart roots remain owned until the acknowledgement below.
-    owner->futures.erase(found);
-    napi_delete_reference(env, future.capability);
+    bool observed = false;
+    if (status == napi_ok && future.observed && !future.reject) {
+      napi_valuetype type;
+      status = napi_typeof(env, value, &type);
+      observed = status == napi_ok && (type == napi_object || type == napi_function);
+    }
+    if (status == napi_ok && observed) {
+      napi_value observe, promise = nullptr, token_value = nullptr;
+      status = napi_get_reference_value(env, owner->promise_observer, &observe);
+      if (status == napi_ok) status = napi_get_element(env, capability, 0, &promise);
+      if (status == napi_ok) status = napi_create_bigint_int64(env, token, &token_value);
+      napi_value arguments[] = {promise, token_value};
+      if (status == napi_ok) status = napi_call_function(env, receiver, observe, 2, arguments, &ignored);
+    }
+    if (observed && status != napi_ok) {
+      // An observer failure must reject without starting thenable assimilation.
+      // A partially installed observer may later acknowledge a removed token;
+      // that is harmless and never releases a lease twice.
+      bool pending = false;
+      napi_is_exception_pending(env, &pending);
+      if (pending) status = napi_get_and_clear_last_exception(env, &value);
+      else {
+        napi_value message;
+        status = napi_create_string_utf8(env, "Cannot observe native Promise settlement", NAPI_AUTO_LENGTH, &message);
+        if (status == napi_ok) status = napi_create_error(env, nullptr, message, &value);
+      }
+      if (status == napi_ok) status = napi_get_element(env, capability, 2, &resolver);
+      observed = false;
+    }
+    // The observer retains the capability until actual final settlement. Other
+    // calls need only local handles through resolver reentry and handoff.
+    if (!observed) {
+      owner->futures.erase(found);
+      napi_delete_reference(env, future.capability);
+    }
     if (status == napi_ok) status = napi_call_function(env, receiver, resolver, 1, &value, &ignored);
     if (owner->closing) break;
     if (status != napi_ok) {
@@ -322,6 +515,10 @@ static void flush_futures(Owner* owner) {
         uv_unref(reinterpret_cast<uv_handle_t*>(&owner->wakeup));
         return;
       }
+    }
+    if (observed) {
+      if (status != napi_ok) report_async_error(env, "Cannot observe or settle native Promise");
+      continue;
     }
     std::string error;
     {
@@ -400,6 +597,8 @@ static void pump(uv_async_t* wakeup) {
           return false;
         }
         drain_releases(owner);
+        auto released_error = drain_future_releases(owner);
+        if (error.empty()) error = released_error;
         char* failure = nullptr;
         if (!NapiDart_DrainMicrotasks(owner->isolate, &failure)) {
           if (error.empty()) error = failure ? failure : "Dart microtask failed";
@@ -428,7 +627,7 @@ static void pump(uv_async_t* wakeup) {
   if (handled < queued)
     owner->messages.fetch_add(queued - handled, std::memory_order_relaxed);
   if (retry_microtasks || owner->messages.load(std::memory_order_relaxed) ||
-      !owner->settlements.empty()) {
+      !owner->settlements.empty() || !owner->future_releases.empty()) {
     schedule_pump(owner);
   } else if (live) {
     uv_ref(reinterpret_cast<uv_handle_t*>(wakeup));
@@ -1283,6 +1482,8 @@ static void* api_table[] = {
     reinterpret_cast<void*>(&is_constructor_target),
     reinterpret_cast<void*>(&register_reference_shape),
     reinterpret_cast<void*>(&queue_promise_settlement),
+    reinterpret_cast<void*>(&bind_cleanup_promise),
+    reinterpret_cast<void*>(&observe_future_settlement),
 };
 static_assert(sizeof(api_table) / sizeof(*api_table) == bridge_api_count);
 
@@ -1320,7 +1521,7 @@ static napi_value invoke(napi_env env, napi_callback_info info, Callback* callba
           Dart_HandleFromPersistent(callback->closure), callback->returns_future ? 3 : 2, args);
       if (outer) drain_releases(owner);
       if (Dart_IsError(result)) fail_error(env, Dart_GetError(result));
-      else if (!callback->returns_future) {
+      else {
         auto error = Dart_IntegerToInt64(result, &address);
         if (Dart_IsError(error)) fail_error(env, Dart_GetError(error));
       }
@@ -1330,7 +1531,7 @@ static napi_value invoke(napi_env env, napi_callback_info info, Callback* callba
     bool pending = false;
     napi_is_exception_pending(env, &pending);
     if (pending && queue_future(owner, token, nullptr, true) != napi_ok) return nullptr;
-    return promise;
+    return address ? reinterpret_cast<napi_value>(static_cast<intptr_t>(address)) : promise;
   }
   if (!address) {
     bool pending = false;
@@ -1376,6 +1577,9 @@ static napi_value dispatch_set(napi_env env, napi_callback_info info) {
 
 static void destroy(Owner* owner) {
   owner->closing = true;
+  if (owner->future_release) owner->future_release->owner = nullptr;
+  for (const auto& cached : owner->cleanup_promises) cached.second->owner = nullptr;
+  owner->cleanup_promises.clear();
   for (auto wrapper : owner->wrappers) wrapper->owner = nullptr;
   owner->wrappers.clear();
   owner->references.clear();
@@ -1399,8 +1603,13 @@ static void destroy(Owner* owner) {
     napi_delete_reference(owner->env, future.second.capability);
   owner->futures.clear();
   owner->settlements.clear();
+  owner->future_releases.clear();
   if (owner->promise_factory)
     napi_delete_reference(owner->env, owner->promise_factory);
+  if (owner->promise_observer)
+    napi_delete_reference(owner->env, owner->promise_observer);
+  if (owner->release_callback)
+    napi_delete_reference(owner->env, owner->release_callback);
   if (owner->isolate) {
     {
       Scope scope(owner, false);
@@ -1739,23 +1948,28 @@ static void initialize_runtime() {
 static napi_value load(napi_env env, napi_callback_info info) {
   if (active_owner)
     return fail(env, "Cannot load a Dart isolate reentrantly");
-  size_t argc = 4;
-  napi_value args[4];
+  size_t argc = 5;
+  napi_value args[5];
   if (napi_get_cb_info(env, info, &argc, args, nullptr, nullptr) != napi_ok ||
-      (argc < 1 || argc > 3))
-    return fail(env, "load expects a snapshot path and optional private resolver/Promise factory");
+      (argc < 1 || argc > 4))
+    return fail(env, "load expects a snapshot path and optional private resolver/Promise/settlement factories");
   bool has_resolver = false;
   if (argc >= 2) {
     napi_valuetype type;
     if (napi_typeof(env, args[1], &type) != napi_ok ||
-        (type != napi_function && !(argc == 3 && type == napi_null)))
+        (type != napi_function && !(argc >= 3 && type == napi_null)))
       return fail(env, "Native reference resolver must be a function or null");
     has_resolver = type == napi_function;
   }
-  if (argc == 3) {
+  if (argc >= 3) {
     napi_valuetype type;
     if (napi_typeof(env, args[2], &type) != napi_ok || type != napi_function)
       return fail(env, "Native Promise factory must be a function");
+  }
+  if (argc == 4) {
+    napi_valuetype type;
+    if (napi_typeof(env, args[3], &type) != napi_ok || type != napi_function)
+      return fail(env, "Native settlement observer factory must be a function");
   }
   size_t size;
   if (napi_get_value_string_utf8(env, args[0], nullptr, 0, &size) != napi_ok)
@@ -1798,8 +2012,10 @@ static napi_value load(napi_env env, napi_callback_info info) {
   auto status = napi_create_object(env, &exports);
   if (status == napi_ok && has_resolver)
     status = napi_create_reference(env, args[1], 1, &owner->reference_resolver);
-  if (status == napi_ok && argc == 3)
+  if (status == napi_ok && argc >= 3)
     status = napi_create_reference(env, args[2], 1, &owner->promise_factory);
+  if (status == napi_ok && argc == 4)
+    status = initialize_promise_observer(owner, args[3]);
   if (status != napi_ok || capture_maps(owner) != napi_ok ||
       capture_dictionary(owner) != napi_ok ||
       !register_bindings(owner, exports)) {

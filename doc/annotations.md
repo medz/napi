@@ -67,8 +67,11 @@ Both targets generate [reference classes](classes.md), including
 own readable members by Dart name, with `valueFields` for different names.
 Without a selected constructor, a value class is output-only. Runtime generation
 validates these mappings before compilation. Ordinary reference classes do not
-gain disposal. Resource execution, cleanup API spelling, operation leases and
-repeated/failed cleanup remain #124.
+gain disposal. Both targets generate [resource bindings](resources.md): cleanup
+uses the selected method's export name and supported parameters, returns
+`Promise<void>` for Dart `void` or `Future<void>`, and waits for accepted operation
+leases. Excluding the cleanup method is descriptive metadata, but prevents a
+resource build; it does not silently expose a hidden method.
 
 ## Resolution and metadata
 
@@ -178,5 +181,5 @@ defaults, documentation and semantic IR as annotations. Public reexports respect
 `ExternalClass` and `ExternalMember.constructor`/`method`/`getter`/`setter`/`field`
 also describe class selections and overrides. Both annotation and external
 selections support scalar and structural functions, reference classes and value
-classes on both backends. Value construction uses the explicit mapping described
-above; resource runtime execution remains pending.
+classes and resources on both backends. Value construction and resource cleanup
+use the explicit mappings described above.

@@ -449,6 +449,90 @@ void main() {
     expect(control.state, ResourceState.closed);
     expect(uncaught, isEmpty);
   });
+
+  test('one operation deduplicates resource aliases until its final release', () async {
+    final first = ResourceControl.forObject(Object());
+    final second = ResourceControl.forObject(Object());
+    final operation = ResourceOperation();
+    operation.retain(first);
+    operation.retain(first);
+    operation.retain(second);
+    final cleaned = <String>[];
+    final a = first.dispose(() => cleaned.add('first'));
+    final b = second.dispose(() => cleaned.add('second'));
+    // An alias already accepted by this operation remains usable while closing.
+    operation.retain(first);
+    expect(operation.isEmpty, isFalse);
+    expect(cleaned, isEmpty);
+    operation.release();
+    operation.release();
+    await Future.wait([a, b]);
+    expect(cleaned, ['second', 'first']);
+    expect(operation.isEmpty, isTrue);
+    expect(operation.isReleased, isTrue);
+  });
+
+  test(
+    'later rejected acquisition leaves earlier leases for rollback',
+    () async {
+      final open = ResourceControl.forObject(Object());
+      final closed = ResourceControl.forObject(Object());
+      await closed.dispose(() {});
+      final operation = ResourceOperation();
+      operation.retain(open);
+      var cleaned = false;
+      final done = open.dispose(() => cleaned = true);
+      try {
+        expect(() => operation.retain(closed), throwsStateError);
+        expect(cleaned, isFalse);
+      } finally {
+        operation.release();
+      }
+      await done;
+      expect(cleaned, isTrue);
+    },
+  );
+
+  test(
+    'cleanup exempts only its own control and retains other arguments',
+    () async {
+      final self = ResourceControl.forObject(Object());
+      final other = ResourceControl.forObject(Object());
+      final operation = ResourceOperation(exempt: self);
+      operation.retain(null);
+      operation.retain(self);
+      expect(operation.isEmpty, isTrue);
+      operation.retain(other);
+      var cleanedOther = false;
+      final otherDone = other.dispose(() => cleanedOther = true);
+      await self.dispose(() {});
+      expect(self.state, ResourceState.closed);
+      expect(cleanedOther, isFalse);
+      operation.release();
+      await otherDone;
+      expect(cleanedOther, isTrue);
+    },
+  );
+
+  test('operation detaches before cleanup reentry', () async {
+    final first = ResourceControl.forObject(Object());
+    final second = ResourceControl.forObject(Object());
+    final operation = ResourceOperation();
+    operation.retain(first);
+    operation.retain(second);
+    var count = 0;
+    final a = first.dispose(() => count++);
+    final b = second.dispose(() {
+      expect(operation.isReleased, isTrue);
+      expect(operation.isEmpty, isTrue);
+      operation.release();
+      expect(() => operation.retain(first), throwsStateError);
+      count++;
+    });
+    operation.release();
+    await Future.wait([a, b]);
+    expect(count, 2);
+  });
 }
 
 final class _Wrapper {

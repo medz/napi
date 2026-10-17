@@ -2,6 +2,7 @@ export '../ir/model.dart' show ValueDirection;
 import '../../api/annotation.dart' show ClassPolicy;
 import '../analysis/result.dart';
 import '../analysis/validate.dart';
+import '../analysis/validate.dart' as analysis show resourcePolicies;
 import '../ir/model.dart';
 
 /// Both forms are actual exports of the consumer's Wasm module.
@@ -320,7 +321,7 @@ final class _ConversionBuilder {
     }
     if (isReferenceType(type, classes)) {
       final references = classes
-          .where((c) => c.classPolicy == ClassPolicy.reference)
+          .where((c) => c.classPolicy != ClassPolicy.value)
           .toList();
       final index = references.indexWhere(
         (c) => c.declaration == (type as DeclaredType).declaration,
@@ -423,13 +424,26 @@ abstract interface class CallPlan {
 /// Executable choices are separate from descriptive declaration metadata.
 final class FunctionPlan implements CallPlan {
   final FunctionBinding binding;
-  final ExportRepresentation representation;
+  final bool _hasResources;
+  final int _index;
+  late final ExportRepresentation representation =
+      returnsFuture ||
+          parameters.any((p) => p.kind != ParameterKind.requiredPositional) ||
+          inputs.any((c) => c is ReferenceConversion) ||
+          output is ReferenceConversion ||
+          (_hasResources &&
+              conversionGraph(inputs).any((c) => c is ReferenceConversion))
+      ? ExportRepresentation.callableGlobal
+      : ExportRepresentation.nativeFunction;
   @override
   final List<ValueConversion> inputs;
   @override
   final ValueConversion? output;
   @override
-  final String coreExportName;
+  late final String coreExportName =
+      representation == ExportRepresentation.callableGlobal
+      ? 'napi:call:$_index'
+      : binding.exportName;
   @override
   final List<int> inputContexts;
   @override
@@ -444,26 +458,8 @@ final class FunctionPlan implements CallPlan {
     int firstContext,
     List<ClassBinding> classes,
     List<ValueClassSchema> valueSchemas,
-  ) : representation =
-          (isFutureType(binding.result) ||
-              binding.parameters.any(
-                (p) =>
-                    p.kind != ParameterKind.requiredPositional ||
-                    isReferenceType(p.type, classes),
-              ) ||
-              isReferenceType(binding.result, classes))
-          ? ExportRepresentation.callableGlobal
-          : ExportRepresentation.nativeFunction,
-      coreExportName =
-          (isFutureType(binding.result) ||
-              binding.parameters.any(
-                (p) =>
-                    p.kind != ParameterKind.requiredPositional ||
-                    isReferenceType(p.type, classes),
-              ) ||
-              isReferenceType(binding.result, classes))
-          ? 'napi:call:$index'
-          : binding.exportName,
+  ) : _index = index,
+      _hasResources = classes.any((c) => c.classPolicy == ClassPolicy.resource),
       inputs = List.unmodifiable([
         for (final p in binding.parameters)
           conversionFor(
@@ -495,6 +491,7 @@ final class FunctionPlan implements CallPlan {
 typedef MemberCallKind = ReferenceMemberKind;
 
 final class MemberCallPlan implements CallPlan {
+  final bool isCleanup;
   @override
   final bool returnsFuture;
   final ClassBinding owner;
@@ -522,7 +519,8 @@ final class MemberCallPlan implements CallPlan {
     int firstContext,
     List<ClassBinding> classes,
     List<ValueClassSchema> valueSchemas,
-  ) : returnsFuture = isFutureType(member.result),
+  ) : isCleanup = member.isCleanup,
+      returnsFuture = member.returnsFuture,
       binding = member.binding,
       kind = member.kind,
       parameters = member.parameters,
@@ -581,6 +579,14 @@ final class ModulePlan {
   final List<ClassBinding> allClasses;
   final List<ValueClassSchema> valueSchemas;
   final List<int> referenceClassOrder;
+  late final Map<int, int> resourcePolicies = analysis.resourcePolicies(
+    classes.map((binding) => binding.shape).toList(),
+  );
+
+  bool needsResourceOperation(CallPlan call) =>
+      resourcePolicies.isNotEmpty &&
+      ((call is MemberCallPlan && !call.isStatic) ||
+          conversionGraph(call.inputs).any((c) => c is ReferenceConversion));
   ModulePlan._(
     this.source,
     Iterable<FunctionPlan> functions,

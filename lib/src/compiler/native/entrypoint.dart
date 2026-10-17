@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import '../analysis/reference_views.dart' show hasCompositeReferenceViews;
+import '../analysis/validate.dart' show resourcePolicies;
 import '../emit/dart/entrypoint.dart' show renderDartDefault;
 import '../ir/model.dart';
 import '../lowering/plan.dart'
@@ -15,7 +16,8 @@ import '../lowering/plan.dart'
         ValueClassConversion,
         ValueConversion,
         containsDictionary,
-        containsValueClass;
+        containsValueClass,
+        conversionGraph;
 import 'plan.dart';
 import 'structural.dart';
 
@@ -24,6 +26,10 @@ String _quote(String value) => jsonEncode(value).replaceAll(r'$', r'\$');
 /// Generate business-specific Dart only. The Node-API bridge stays generic.
 String emitNativeDart(NativeModulePlan plan) {
   final hasFutures = plan.calls.any((call) => call.returnsFuture);
+  final policies = resourcePolicies([
+    for (final binding in plan.classes) binding.shape,
+  ]);
+  final hasResources = policies.isNotEmpty;
   final hasCompositeViews = hasCompositeReferenceViews([
     for (final binding in plan.classes) binding.shape,
   ]);
@@ -43,8 +49,9 @@ String emitNativeDart(NativeModulePlan plan) {
       if (call.output != null) call.output!,
     ].any(containsDictionary),
   );
-  final structures = NativeStructuralEmitter();
+  final structures = NativeStructuralEmitter(hasResources: hasResources);
   final code = StringBuffer();
+  if (hasResources) code.writeln("import 'package:napi/runtime.dart';");
   if (hasDictionary) {
     code.writeln("import 'dart:convert' show jsonEncode;");
     code.writeln("import 'package:napi/napi.dart' as napi;");
@@ -86,15 +93,32 @@ List<Object?> napiBindings(int apiTableAddress, int tableCount) {
 }
 @pragma('vm:entry-point')
 void releaseOwner(int id) => _api.releaseOwner(id);
-${hasFutures ? "@pragma('vm:entry-point')\nvoid releaseFuture(int token) => _api.releaseFuture(token);\n" : ''}void main() {}
+${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int token) => _api.releaseFuture(token);\n" : ''}void main() {}
 ''');
   if (plan.classes.isNotEmpty) {
+    if (hasResources) {
+      code.writeln('''ResourceControl? _resourceControl(Object value) {
+  int? policy;''');
+      for (final entry in policies.entries) {
+        code.writeln(
+          '''  if (value is target.${plan.classes[entry.key].binding.callPath}) {
+    if (policy != null && policy != ${entry.value}) throw NapiTypeError('Resource has incompatible cleanup policies');
+    policy = ${entry.value};
+  }''',
+        );
+      }
+      code.writeln(
+        '''  return policy == null ? null : ResourceControl.forObject(value);
+}''',
+      );
+    }
     code.writeln('const _referenceMemberships = <Set<int>>[');
     for (final binding in plan.classes) {
       code.writeln('  {${binding.shape.memberships.join(', ')}},');
     }
     code.writeln('];');
     code.writeln('''int _referenceClass(Object value, String path) {
+  ${hasResources ? '_resourceControl(value);' : ''}
   int? canonical;''');
     for (final index in plan.referenceClassOrder) {
       code.writeln(
@@ -120,19 +144,34 @@ ${hasFutures ? "@pragma('vm:entry-point')\nvoid releaseFuture(int token) => _api
     }
   }
   for (final call in plan.calls) {
+    final hasReceiver =
+        call.owner != null && !call.isConstructor && !call.isStatic;
+    final retainsResources =
+        hasResources &&
+        (hasReceiver ||
+            conversionGraph(call.inputs)
+                .any((value) => value is ReferenceConversion));
     final parameters = call.parameters;
     final positionalCount = parameters.where((p) => !_named(p)).length;
     final named = parameters.where(_named).toList();
     final capacity = positionalCount + (named.isEmpty ? 0 : 1);
     final rawStructuralArguments =
+        !retainsResources &&
         !call.returnsFuture &&
         call.function != null &&
         parameters.every((p) => p.kind == ParameterKind.requiredPositional) &&
         !call.inputs.any((value) => value is ReferenceConversion) &&
         call.output is! ReferenceConversion;
     code.writeln(
-      'int ${call.callback}(int envAddress, int infoAddress${call.returnsFuture ? ', int token' : ''}) {\n${call.returnsFuture ? '  _api.beginFuture(token);\n' : ''}  try {',
+      'int ${call.callback}(int envAddress, int infoAddress${call.returnsFuture ? ', int token' : ''}) {\n${call.returnsFuture ? '  _api.beginFuture(token);\n' : ''}',
     );
+    if (retainsResources && !call.isCleanup) {
+      code.writeln('  final operation = ResourceOperation();');
+      if (call.returnsFuture) {
+        code.writeln('  _api.attachOperation(token, operation);');
+      }
+    }
+    code.writeln('  try {');
     code.writeln(
       '    final call = _api.call(envAddress, infoAddress, $capacity);',
     );
@@ -155,6 +194,13 @@ ${hasFutures ? "@pragma('vm:entry-point')\nvoid releaseFuture(int token) => _api
       code.writeln(
         '    if (object is! target.${call.owner!.callPath}) throw NapiTypeError(${_quote('${call.context}: invalid native receiver')});',
       );
+      if (call.isCleanup) {
+        code.writeln('''    final control = _resourceControl(object)!;
+    final operation = ResourceOperation(exempt: control);
+    _api.attachOperation(token, operation);''');
+      } else if (retainsResources) {
+        code.writeln('    operation.retain(_resourceControl(object));');
+      }
     }
     if (named.isNotEmpty) {
       code.writeln(
@@ -163,7 +209,9 @@ ${hasFutures ? "@pragma('vm:entry-point')\nvoid releaseFuture(int token) => _api
     }
     final preflight =
         !rawStructuralArguments &&
-        (call.returnsFuture || call.inputs.any(containsValueClass));
+        (retainsResources ||
+            call.returnsFuture ||
+            call.inputs.any(containsValueClass));
     if (preflight) {
       var option = 0;
       for (final (index, parameter) in parameters.indexed) {
@@ -201,7 +249,13 @@ ${hasFutures ? "@pragma('vm:entry-point')\nvoid releaseFuture(int token) => _api
             '    if (default$index) {\n      reference$index = ${renderDartDefault(parameter, conversion)};\n    } else {',
           );
         }
-        _readReference(code, conversion, index, 'reference$index');
+        _readReference(
+          code,
+          conversion,
+          index,
+          'reference$index',
+          retainsResources,
+        );
         if (_optional(parameter)) code.writeln('    }');
       }
     }
@@ -244,7 +298,7 @@ ${hasFutures ? "@pragma('vm:entry-point')\nvoid releaseFuture(int token) => _api
       }
       if (!preflight) code.writeln('    final raw$index = $raw;');
       if (conversion is ReferenceConversion) {
-        _readReference(code, conversion, index, 'a$index');
+        _readReference(code, conversion, index, 'a$index', retainsResources);
       } else if (conversion is ScalarConversion) {
         final converted =
             '_api.${nativeScalarReader(conversion)}(call.env, raw$index, $path)';
@@ -258,7 +312,11 @@ ${hasFutures ? "@pragma('vm:entry-point')\nvoid releaseFuture(int token) => _api
           conversion is ValueClassConversion) {
         final read = structures.read(conversion);
         code.writeln(
-          '    a$index = $read(call.env, raw$index, _NativeReadState(), $path, 0);',
+          '    a$index = $read(call.env, raw$index, _NativeReadState(${hasResources
+              ? retainsResources
+                    ? 'operation'
+                    : 'null'
+              : ''}), $path, 0);',
         );
       } else {
         throw StateError('Unsupported native input conversion');
@@ -286,12 +344,16 @@ ${hasFutures ? "@pragma('vm:entry-point')\nvoid releaseFuture(int token) => _api
       NativeCallKind.setter => '$receiver.$path = a0',
     };
     if (call.returnsFuture) {
+      if (call.isCleanup) {
+        code.writeln('''    final (promise, first) = _api.bindCleanupFuture(envAddress, token, control);
+    if (!first) return promise;''');
+      }
       code.writeln(
-        '    _api.retainFuture(token, [${[if (call.owner != null && !call.isStatic) 'object', for (var i = 0; i < parameters.length; i++) 'a$i'].join(', ')}]);',
+        '    _api.retainFuture(token, [${[if (call.owner != null && !call.isStatic) 'object', for (var i = 0; i < parameters.length; i++) 'a$i'].join(', ')}]${retainsResources && call.output != null && call.output is! ScalarConversion ? ', observeEnv: envAddress' : ''});',
       );
       code.writeln('    final env = Pointer<Void>.fromAddress(envAddress);');
       code.writeln(
-        '    _api.completeFuture(envAddress, token, $invocation, (value) {',
+        '    _api.completeFuture(envAddress, token, ${call.isCleanup ? 'control.dispose(() => $invocation)' : invocation}, (value) {',
       );
       _writeResult(code, call.output, structures, 'env');
       code.writeln('    }, ${_quote(call.context)});\n    return 0;');
@@ -314,12 +376,21 @@ ${hasFutures ? "@pragma('vm:entry-point')\nvoid releaseFuture(int token) => _api
         _writeResult(code, call.output, structures, 'call.env');
       }
       code.writeln(
-        '  } catch (error) {\n    return _api.fail(envAddress, error);\n  }\n}',
+        '  } catch (error) {\n    return _api.fail(envAddress, error);\n  }${retainsResources ? ' finally {\n    operation.release();\n  }' : ''}\n}',
       );
     }
   }
   if (hasStructures) {
-    code.writeln(nativeStructuralPrelude);
+    code.writeln(
+      hasResources
+          ? nativeStructuralPrelude.replaceFirst(
+              'final class _NativeReadState {',
+              '''final class _NativeReadState {
+  _NativeReadState(this.operation);
+  final ResourceOperation? operation;''',
+            )
+          : nativeStructuralPrelude,
+    );
     code.write(structures.source);
   }
   return code.toString();
@@ -375,6 +446,7 @@ void _readReference(
   ReferenceConversion conversion,
   int index,
   String destination,
+  bool retainsResources,
 ) {
   if (conversion.nullable) {
     code.writeln(
@@ -388,6 +460,9 @@ void _readReference(
     '    if (object$index is! target.${conversion.classBinding.callPath}) throw NapiTypeError(${_quote('${conversion.context}: expected ${conversion.classBinding.exportName}')});',
   );
   code.writeln('    $destination = object$index;');
+  if (retainsResources) {
+    code.writeln('    operation.retain(_resourceControl(object$index));');
+  }
   if (conversion.nullable) code.writeln('    }');
 }
 

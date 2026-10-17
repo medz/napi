@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
 
+import '../../runtime/resources.dart';
+
 typedef _CallbackInfoNative = Int32 Function(
   Pointer<Void>,
   Pointer<Void>,
@@ -25,6 +27,22 @@ typedef _QueuePromiseNative = Int32 Function(
   Bool,
 );
 typedef _QueuePromise = int Function(Pointer<Void>, int, Pointer<Void>, bool);
+typedef _BindCleanupNative = Int32 Function(
+  Pointer<Void>,
+  Int64,
+  Int64,
+  Pointer<Pointer<Void>>,
+  Pointer<Bool>,
+);
+typedef _BindCleanup = int Function(
+  Pointer<Void>,
+  int,
+  int,
+  Pointer<Pointer<Void>>,
+  Pointer<Bool>,
+);
+typedef _ObserveFutureNative = Int32 Function(Pointer<Void>, Int64);
+typedef _ObserveFuture = int Function(Pointer<Void>, int);
 
 typedef _TypeNative = Int32 Function(
   Pointer<Void>,
@@ -408,6 +426,7 @@ final class _ReferenceLease {
 // C acknowledges after calling the JS resolver, which can reenter Dart.
 final class _PendingFuture {
   List<Object?> roots = const [];
+  ResourceOperation? operation;
   bool claimed = false;
 }
 
@@ -425,8 +444,8 @@ final class NapiApi {
     this.referenceViews,
     this.classMemberships = const [],
   }) : _table = Pointer.fromAddress(address) {
-    if (address == 0 || tableCount != 44) {
-      throw StateError('Incompatible native bridge ABI (expected 44 slots).');
+    if (address == 0 || tableCount != 46) {
+      throw StateError('Incompatible native bridge ABI (expected 46 slots).');
     }
   }
   late final _CallbackInfo _callbackInfo = _table[0]
@@ -547,6 +566,14 @@ final class NapiApi {
       .cast<NativeFunction<_QueuePromiseNative>>()
       .asFunction<_QueuePromise>();
   late final _futures = <int, _PendingFuture>{};
+  late final _BindCleanup _bindCleanup = _table[44]
+      .cast<NativeFunction<_BindCleanupNative>>()
+      .asFunction<_BindCleanup>();
+  late final _ObserveFuture _observeFuture = _table[45]
+      .cast<NativeFunction<_ObserveFutureNative>>()
+      .asFunction<_ObserveFuture>();
+  late final _cleanupIds = Expando<int>('native resource cleanup');
+  var _nextCleanup = 1;
   // Only an attached JS lease retains its Dart value. The identity cache's
   // weak keys and primitive records cannot keep either heap alive by themselves.
   final _owners = <int, Object>{};
@@ -1222,11 +1249,54 @@ final class NapiApi {
 
   void beginFuture(int token) => _futures[token] = _PendingFuture();
 
-  void retainFuture(int token, List<Object?> values) {
-    _futures[token]!.roots = values;
+  void attachOperation(int token, ResourceOperation operation) {
+    _futures[token]!.operation = operation;
   }
 
-  void releaseFuture(int token) => _futures.remove(token);
+  void retainFuture(int token, List<Object?> values, {int? observeEnv}) {
+    final pending = _futures[token]!;
+    pending.roots = values;
+    if (observeEnv != null && pending.operation?.isEmpty == false) {
+      _check(_observeFuture(Pointer.fromAddress(observeEnv), token));
+    }
+  }
+
+  List<Object?>? releaseFuture(int token) {
+    final pending = _futures.remove(token);
+    if (pending == null) return null;
+    final roots = pending.roots;
+    pending.roots = const [];
+    final operation = pending.operation;
+    pending.operation = null;
+    operation?.release();
+    // Return through the native entry point: the owning Dart handle scope keeps
+    // these arguments until acknowledgement completes. A write-only Dart field
+    // is insufficient because AOT can remove its stores and collect the values.
+    return roots;
+  }
+
+  (int, bool) bindCleanupFuture(
+    int envAddress,
+    int token,
+    ResourceControl control,
+  ) {
+    final id = _cleanupIds[control] ??= _nextCleanup++;
+    if (id <= 0) throw StateError('Native cleanup identity exhausted');
+    Pointer<Pointer<Void>> result = nullptr;
+    Pointer<Bool> first = nullptr;
+    try {
+      result = _allocate<Pointer<Void>>(1, sizeOf<Pointer<Void>>());
+      first = _allocate<Bool>(1, sizeOf<Bool>());
+      _check(
+        _bindCleanup(Pointer.fromAddress(envAddress), token, id, result, first),
+      );
+      if (!first.value) releaseFuture(token);
+      return (result.value.address, first.value);
+    } finally {
+      _free(first.cast());
+      _free(result.cast());
+    }
+  }
 
   void completeFuture<T>(
     int envAddress,

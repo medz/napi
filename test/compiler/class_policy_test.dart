@@ -173,9 +173,9 @@ class HiddenCleanup {
           isA<BindingDiagnostic>().having(
             (error) => error.code,
             'code',
-            binding.declaration.name == 'Ordinary'
-                ? 'NAPI_GENERIC'
-                : 'NAPI_CLASS',
+            binding.declaration.name == 'HiddenCleanup'
+                ? 'NAPI_RESOURCE'
+                : 'NAPI_GENERIC',
           ),
         ),
       );

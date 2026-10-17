@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import '../analysis/reference_views.dart' show hasCompositeReferenceViews;
 import '../emit/js/reference_views.dart';
+import '../emit/js/settlement.dart';
 import 'plan.dart';
 
 /// Public export names are aliases, never local loader bindings.
@@ -10,6 +11,7 @@ String emitNativeLoader(
   List<NativeClassPlan> classes = const [],
   bool hasFutures = false,
 }) {
+  final hasResources = classes.any((binding) => binding.shape.cleanup != null);
   final shapes = [for (final binding in classes) binding.shape];
   final hasCompositeViews = hasCompositeReferenceViews(shapes);
   final code = StringBuffer('''
@@ -37,12 +39,20 @@ function $napiCreatePromise() {
 }
 ''');
   }
+  if (hasResources) {
+    code.write(
+      settlementObserver.replaceFirst(
+        'export function createSettlementObserver(',
+        r'function $napiCreateSettlementObserver(',
+      ),
+    );
+  }
   code.writeln(
     "const bindings = require('./bridge.node').load(fileURLToPath(new URL('./module.aot', import.meta.url))${hasCompositeViews
         ? r', $napiResolveReferenceShape'
         : hasFutures
         ? ', null'
-        : ''}${hasFutures ? r', $napiCreatePromise' : ''});",
+        : ''}${hasFutures ? r', $napiCreatePromise' : ''}${hasResources ? r', $napiCreateSettlementObserver' : ''});",
   );
   if (classes.any((binding) => binding.members.isNotEmpty)) {
     code.writeln(r'''const $napiApply = Reflect.apply;

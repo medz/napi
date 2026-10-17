@@ -201,9 +201,9 @@ import 'package:napi/napi.dart';
       'NAPI_VALUE',
     ),
     (
-      'resource policy',
-      "@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close') class Bad { void close() {} }",
-      'NAPI_CLASS',
+      'non-void resource cleanup',
+      "@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close') class Bad { int close() => 0; }",
+      'NAPI_RESOURCE',
     ),
   ]) {
     test('unsupported $label reports source before lowering', () async {

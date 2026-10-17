@@ -17,6 +17,7 @@ final class NativeCallPlan {
   final List<ValueConversion> inputs;
   final ValueConversion? output;
   final bool returnsFuture;
+  final bool isCleanup;
   final bool isStatic;
   final int? classId;
   NativeCallPlan._({
@@ -30,6 +31,7 @@ final class NativeCallPlan {
     this.owner,
     this.member,
     this.returnsFuture = false,
+    this.isCleanup = false,
     this.isStatic = false,
     this.classId,
   });
@@ -149,6 +151,7 @@ NativeModulePlan validateNative(BindingModule module) {
     ClassBinding? owner,
     MemberBinding? member,
     bool isStatic = false,
+    bool isCleanup = false,
     int? classId,
   }) {
     validateCallParameters(
@@ -180,7 +183,8 @@ NativeModulePlan validateNative(BindingModule module) {
             direction: ValueDirection.input,
           ),
       ]),
-      returnsFuture: isFutureType(result),
+      returnsFuture: isCleanup || isFutureType(result),
+      isCleanup: isCleanup,
       output: payload == null
           ? null
           : conversionFor(
@@ -250,6 +254,7 @@ NativeModulePlan validateNative(BindingModule module) {
       owner: binding,
       member: selected.binding,
       isStatic: !constructor && selected.isStatic,
+      isCleanup: selected.isCleanup,
       classId: classId,
     );
     classes.add(

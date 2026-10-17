@@ -51,7 +51,7 @@ String emitArgumentCalls(ModulePlan plan) {
   );
   final result = StringBuffer('''// Generated private callable dependency.
 import * as core from './core.wasm';
-import {useDefault, readOptions${plan.calls.any((call) => call.returnsFuture) ? ', createPromise, rejectPromise' : ''}} from './boundary.mjs';
+import {useDefault, readOptions${plan.calls.any((call) => call.returnsFuture) ? ', createPromise, rejectPromise' : ''}${plan.resourcePolicies.isNotEmpty ? ', createResourceCall, finishResourceCall, retainResourceReference' : ''}} from './boundary.mjs';
 ''');
   if (plan.classes.isNotEmpty) {
     result.writeln("import {registerReference} from './references.mjs';");
@@ -142,22 +142,29 @@ function intern(reference, expectedId, context, pending, receiver, newTarget) {
     if (function.representation != ExportRepresentation.callableGlobal) {
       continue;
     }
+    final resource = plan.needsResourceOperation(function);
     result.writeln('const call$index = (...args) => {');
+    if (resource && !function.returnsFuture) _beginResource(result, '  ');
     if (function.returnsFuture) _beginFuture(result, function.output, '  ');
+    if (resource) _prepareResource(result, 'null', false, '    ');
     final arguments = _arguments(
       result,
       function,
       function.binding.exportName,
       names[function],
-      indent: function.returnsFuture ? '    ' : '  ',
+      indent: function.returnsFuture || resource ? '    ' : '  ',
+      retainReferences: resource,
     );
     final invocation =
-        'core[${jsonEncode(function.coreExportName)}](${[if (function.returnsFuture) 'capability', if (arguments.isNotEmpty) arguments].join(', ')})';
+        'core[${jsonEncode(function.coreExportName)}](${[if (function.returnsFuture || resource) 'capability', if (resource) 'operation', if (arguments.isNotEmpty) arguments].join(', ')})';
     if (function.returnsFuture) {
       result.writeln('    $invocation;');
-      _endFuture(result, '  ');
+      _endFuture(result, '  ', resource: resource);
     } else {
-      result.writeln('  return ${_output(function.output, invocation)};');
+      result.writeln(
+        '${resource ? '    ' : '  '}return ${_output(function.output, invocation)};',
+      );
+      if (resource) _endResource(result, '  ');
     }
     result.writeln(
       '};\nexport {call$index as ${function.binding.exportName}};',
@@ -177,19 +184,28 @@ function intern(reference, expectedId, context, pending, receiver, newTarget) {
         '    throw new TypeError(${jsonEncode('${binding.binding.exportName}: no selected unnamed constructor')});',
       );
     } else {
+      final resource = plan.needsResourceOperation(constructor);
+      if (resource) _beginResource(result, '    ');
+      final indent = resource ? '      ' : '    ';
+      if (resource) _prepareResource(result, 'null', false, indent);
       final arguments = _arguments(
         result,
         constructor,
         binding.binding.exportName,
         names[constructor],
-        indent: '    ',
+        indent: indent,
+        retainReferences: resource,
       );
       result.writeln(
-        '    const reference = core[${jsonEncode(constructor.coreExportName)}]($arguments);',
+        '${indent}const reference = core[${jsonEncode(constructor.coreExportName)}](${[
+          if (resource) ...['capability', 'operation'],
+          if (arguments.isNotEmpty) arguments,
+        ].join(', ')});',
       );
       result.writeln(
-        '    return intern(reference, $index, ${jsonEncode(binding.binding.exportName)}, undefined, this, new.target);',
+        '${indent}return intern(reference, $index, ${jsonEncode(binding.binding.exportName)}, undefined, this, new.target);',
       );
+      if (resource) _endResource(result, '    ');
     }
     result.writeln('  }');
     for (final member in binding.members) {
@@ -201,13 +217,23 @@ function intern(reference, expectedId, context, pending, receiver, newTarget) {
         MemberCallKind.setter => '${prefix}set [$name](value)',
         MemberCallKind.constructor => 'static [$name](...args)',
       };
+      final resource = plan.needsResourceOperation(member);
       result.writeln('  $declaration {');
+      if (resource && !member.returnsFuture) _beginResource(result, '    ');
       if (member.returnsFuture) _beginFuture(result, member.output, '    ');
-      final indent = member.returnsFuture ? '      ' : '    ';
+      final indent = member.returnsFuture || resource ? '      ' : '    ';
       // Module ownership and Dart membership precede options and business calls.
       if (!member.isStatic) {
         result.writeln(
           '${indent}const reference = unwrap$index(this, ${jsonEncode(member.context)}, false);',
+        );
+      }
+      if (resource) {
+        _prepareResource(
+          result,
+          member.isStatic ? 'null' : 'reference',
+          member.isCleanup,
+          indent,
         );
       }
       if (member.kind == MemberCallKind.setter) {
@@ -219,20 +245,23 @@ function intern(reference, expectedId, context, pending, receiver, newTarget) {
         member.context,
         names[member],
         indent: indent,
+        retainReferences: resource,
       );
       final invocation =
-          'core[${jsonEncode(member.coreExportName)}](${[if (member.returnsFuture) 'capability', if (!member.isStatic) 'reference', if (arguments.isNotEmpty) arguments].join(', ')})';
+          'core[${jsonEncode(member.coreExportName)}](${[if (member.returnsFuture || resource) 'capability', if (resource) 'operation', if (!member.isStatic) 'reference', if (arguments.isNotEmpty) arguments].join(', ')})';
       final expression = member.kind == MemberCallKind.constructor
           ? 'wrap$index($invocation, ${jsonEncode(member.context)})'
           : _output(member.output, invocation);
       if (member.returnsFuture) {
         result.writeln('      $invocation;');
-        _endFuture(result, '    ');
+        _endFuture(result, '    ', resource: resource);
         result.writeln('  }');
       } else {
         result.writeln(
-          '    ${member.output == null && member.kind != MemberCallKind.constructor ? '' : 'return '}$expression;\n  }',
+          '$indent${member.output == null && member.kind != MemberCallKind.constructor ? '' : 'return '}$expression;',
         );
+        if (resource) _endResource(result, '    ');
+        result.writeln('  }');
       }
     }
     result.writeln('}');
@@ -320,6 +349,7 @@ String _arguments(
   String context,
   String? names, {
   String indent = '  ',
+  bool retainReferences = false,
 }) {
   final parameters = call.parameters;
   final positionalCount = parameters.where((p) => !_named(p)).length;
@@ -350,7 +380,7 @@ String _arguments(
     for (final (i, p) in parameters.indexed) ...[
       if (_optional(p)) 'd$i ? 1 : 0',
       call.inputs[i] is ReferenceConversion
-          ? '${_optional(p) ? 'd$i ? null : ' : ''}unwrap${(call.inputs[i] as ReferenceConversion).classId}(p$i, ${jsonEncode(call.inputs[i].context)}, ${call.inputs[i].nullable})'
+          ? '${_optional(p) ? 'd$i ? null : ' : ''}${retainReferences ? 'retainResourceReference(capability, ' : ''}unwrap${(call.inputs[i] as ReferenceConversion).classId}(p$i, ${jsonEncode(call.inputs[i].context)}, ${call.inputs[i].nullable})${retainReferences ? ')' : ''}'
           : 'p$i',
     ],
   ].join(', ');
@@ -369,12 +399,29 @@ void _beginFuture(StringBuffer result, ValueConversion? output, String indent) {
   result.writeln('${indent}try {');
 }
 
-void _endFuture(StringBuffer result, String indent) {
+void _endFuture(StringBuffer result, String indent, {bool resource = false}) {
   result.writeln(
-    '$indent} catch (error) { rejectPromise(capability, error); }',
+    '$indent} catch (error) { rejectPromise(capability, error); }${resource ? ' finally { finishResourceCall(capability); }' : ''}',
   );
   result.writeln('${indent}return capability.promise;');
 }
+
+void _beginResource(StringBuffer result, String indent) {
+  result.writeln('${indent}const capability = createResourceCall();');
+  result.writeln('${indent}try {');
+}
+
+void _prepareResource(
+  StringBuffer result,
+  String reference,
+  bool cleanup,
+  String indent,
+) => result.writeln(
+  "${indent}const operation = core['napi:resource:begin'](capability, $reference, ${cleanup ? 1 : 0});",
+);
+
+void _endResource(StringBuffer result, String indent) =>
+    result.writeln('$indent} finally { finishResourceCall(capability); }');
 
 int _arity(CallPlan call) =>
     call.parameters.any((p) => p.kind != ParameterKind.requiredPositional)
