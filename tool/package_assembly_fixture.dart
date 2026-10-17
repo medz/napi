@@ -3,9 +3,30 @@ import 'dart:io';
 
 import 'package:napi/build.dart';
 
+import 'package_contents.dart';
+
 /// Verify real build -> fresh npm package -> pack -> relocated install.
 Future<void> verifyPackageAssembly(Directory root) async {
   final canonical = Directory(await root.resolveSymbolicLinks());
+  // This fixture's optional argument requires the callable Wasm assets.
+  const expectedFiles = {
+    'package.json',
+    'module.wasm',
+    'module.d.wasm.ts',
+    'host.mjs',
+    'boundary.mjs',
+    'core.wasm',
+    'calls.mjs',
+    'references.mjs',
+    'DART_LICENSE',
+    'LICENSE',
+  };
+  final notices = {
+    'DART_LICENSE': await File(
+      '${File(Platform.resolvedExecutable).parent.parent.path}/LICENSE',
+    ).readAsBytes(),
+    'LICENSE': await File('LICENSE').readAsBytes(),
+  };
   final packaged = await buildPackage(
     library: File('test/compiler/package_assembly_fixtures.dart').absolute.uri,
     output: Directory('${canonical.path}/npm package'),
@@ -30,7 +51,11 @@ Future<void> verifyPackageAssembly(Directory root) async {
   if (pack.exitCode != 0) {
     throw StateError('npm pack failed: ${pack.stdout}${pack.stderr}');
   }
-  final packed = (jsonDecode(pack.stdout as String) as List).single as Map;
+  final packed =
+      (jsonDecode(pack.stdout as String) as List).single
+          as Map<String, dynamic>;
+  verifyPackedFiles(packed, expectedFiles);
+  stdout.writeln('Wasm tarball files: ${jsonEncode(packed['files'])}');
   final filename = packed['filename'] as String;
   final relocated = await Directory('${canonical.path}/relocated tarball space')
       .create();
@@ -52,6 +77,14 @@ Future<void> verifyPackageAssembly(Directory root) async {
     '${canonical.path}/npm cache',
     archive.path,
   ], cwd: consumer.path);
+  await verifyInstalledPackage(
+    Directory('${consumer.path}/node_modules/@napi/path'),
+    expectedFiles,
+    notices,
+  );
+  stdout.writeln(
+    'Wasm installed file inventory and exact license notices: passed',
+  );
   await File('${consumer.path}/test.mjs').writeAsString('''
 import assert from 'node:assert/strict';
 import {add, optional, echo} from '@napi/path';
@@ -73,9 +106,14 @@ console.log('Fresh assembled npm package root/subpath and relocation: passed');
   await File('${consumer.path}/consumer.mts').writeAsString('''
 import {add, optional, echo} from '@napi/path';
 import {add as subpath, optional as subOptional} from '@napi/path/module.wasm';
+import {add as relative, optional as relativeOptional, echo as relativeEcho}
+  from './node_modules/@napi/path/module.wasm';
 const number: number = add(subpath(1, 2), optional());
 const text: string = echo(String(number));
 const defaults: number = subOptional(undefined);
+const relativeResult: number = relative(number, relativeOptional());
+const relativeDefaults: number = relativeOptional(undefined);
+const relativeText: string = relativeEcho(text);
 // @ts-expect-error required arguments stay required through package exports
 add(1);
 // @ts-expect-error scalar types stay exact through the wasm subpath
@@ -84,7 +122,15 @@ subpath('1', 2);
 optional(null);
 // @ts-expect-error callable globals are not constructors
 new subOptional();
-void text; void defaults;
+// @ts-expect-error relative Wasm imports retain required argument presence
+relative(1);
+// @ts-expect-error relative Wasm imports retain strict scalar types
+relative('1', 2);
+// @ts-expect-error relative optional arguments do not accept null
+relativeOptional(null);
+// @ts-expect-error relative callable globals are not constructors
+new relativeOptional();
+void [text, defaults, relativeResult, relativeDefaults, relativeText];
 ''');
   await _run('node', ['test.mjs'], cwd: consumer.path);
   final tsc = File(

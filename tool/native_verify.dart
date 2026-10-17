@@ -2,12 +2,14 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:napi/build.dart';
+import 'package:napi/src/build/native_bundle.dart';
 
 import 'verify.dart' show run, typescript;
 import 'value_fixture.dart';
 import 'native_event_fixture.dart';
 import 'future_fixture.dart';
 import 'resource_fixture.dart';
+import 'package_contents.dart';
 
 /// Run explicitly with a maintainer-built runtime bundle. No native compiler,
 /// SDK-source checkout, network access or package publication is used here.
@@ -18,6 +20,19 @@ Future<void> main(List<String> args) async {
     );
   }
   final bundle = Directory(args.single).absolute;
+  final runtimeBundle = await NativeRuntimeBundle.read(bundle);
+  final expectedFiles = {
+    'package.json',
+    'module.mjs',
+    'module.d.mts',
+    'module.aot',
+    'runtime.json',
+    ...runtimeBundle.hashes.keys,
+  };
+  final notices = {
+    for (final name in ['DART_LICENSE', 'DART_AUTHORS', 'NAPI_LICENSE'])
+      name: await File('${bundle.path}/$name').readAsBytes(),
+  };
   final temporary = await Directory.systemTemp.createTemp('napi native 中文 ');
   final root = Directory(temporary.resolveSymbolicLinksSync());
   stdout.writeln('Native verification artifacts: ${root.path}');
@@ -99,12 +114,20 @@ Future<void> main() async {
     'run',
     'build.dart',
   ], cwd: project.path);
-  await run('npm', [
+  final pack = await Process.run('npm', [
     'pack',
     '--ignore-scripts',
-    '--silent',
-  ], cwd: '${project.path}/package');
-  final archive = await File('${project.path}/package/napi-path-0.0.0.tgz')
+    '--json',
+  ], workingDirectory: '${project.path}/package');
+  if (pack.exitCode != 0) {
+    throw StateError('npm pack failed: ${pack.stdout}${pack.stderr}');
+  }
+  final packed =
+      (jsonDecode(pack.stdout as String) as List).single
+          as Map<String, dynamic>;
+  verifyPackedFiles(packed, expectedFiles);
+  stdout.writeln('Native tarball files: ${jsonEncode(packed['files'])}');
+  final archive = await File('${project.path}/package/${packed['filename']}')
       .copy('${root.path}/native.tgz');
   await project.delete(recursive: true);
   final consumer = await Directory('${root.path}/installed consumer 中文')
@@ -119,6 +142,14 @@ Future<void> main() async {
     '--no-fund',
     archive.path,
   ], cwd: consumer.path);
+  await verifyInstalledPackage(
+    Directory('${consumer.path}/node_modules/@napi/path'),
+    expectedFiles,
+    notices,
+  );
+  stdout.writeln(
+    'Native installed file inventory and exact license notices: passed',
+  );
   await File('test/integration/native_classes.mjs')
       .copy('${consumer.path}/test.mjs');
   await File('test/integration/class_contract.mjs')
