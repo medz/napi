@@ -6,14 +6,10 @@ import 'package:napi/build.dart';
 /// Verify real build -> fresh npm package -> pack -> relocated install.
 Future<void> verifyPackageAssembly(Directory root) async {
   final canonical = Directory(await root.resolveSymbolicLinks());
-  final built = await buildLibrary(
+  final packaged = await buildPackage(
     library: File('test/compiler/package_assembly_fixtures.dart').absolute.uri,
-    output: Directory('${canonical.path}/compiled module'),
-    packagesPath: File('.dart_tool/package_config.json').absolute.path,
-  );
-  final packaged = await assembleWasmPackage(
-    module: built,
     output: Directory('${canonical.path}/npm package'),
+    packagesPath: File('.dart_tool/package_config.json').absolute.path,
     metadata: {
       'name': '@napi/path',
       'version': '0.0.0',
@@ -41,7 +37,6 @@ Future<void> verifyPackageAssembly(Directory root) async {
   final archive = await File('${packaged.path}/$filename')
       .copy('${relocated.path}/$filename');
   // Prove installed imports cannot find the compiler's old build directories.
-  await built.directory.delete(recursive: true);
   await packaged.delete(recursive: true);
   final consumer = await Directory('${canonical.path}/fresh consumer space 雪')
       .create();
@@ -61,6 +56,8 @@ Future<void> verifyPackageAssembly(Directory root) async {
 import assert from 'node:assert/strict';
 import {add, optional, echo} from '@napi/path';
 import {add as subpath, optional as subOptional} from '@napi/path/module.wasm';
+import {add as relative} from './node_modules/@napi/path/module.wasm';
+assert.equal(add, relative);
 assert.equal(add, subpath);
 assert.equal(optional, subOptional);
 assert(import.meta.resolve('@napi/path').endsWith('/module.wasm'));

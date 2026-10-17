@@ -1,13 +1,15 @@
 # Fresh npm packages
 
-`assembleWasmPackage` from `package:napi/build.dart` assembles an already built
-`BuiltModule` into a new npm directory. It does not compile again or replace an
-existing package. Root imports and the `./module.wasm` subpath both resolve to
-`module.wasm`, with the same generated TypeScript declarations.
+`buildPackage` from `package:napi/build.dart` validates npm metadata before source
+analysis or compilation, then builds and assembles a fresh package. It removes
+its temporary build files and never replaces existing output. The default Wasm
+target exports `module.wasm` from both the package root and `./module.wasm`, with
+the same generated TypeScript declarations.
 
 ```dart
-final package = await assembleWasmPackage(
-  module: built,
+final package = await buildPackage(
+  library: File('lib/math.dart').absolute.uri,
+  packagesPath: File('.dart_tool/package_config.json').absolute.path,
   output: Directory('npm-package'),
   metadata: {
     'name': '@scope/path',
@@ -23,7 +25,19 @@ Caller-owned JSON metadata, including `author`, `contributors`, `repository`,
 and `license`, is retained. Builder-owned `type`, `files`, `exports`, `imports`,
 `main`, `module`, `types`, `typings`, `browser`, and `bin` fields cause an explicit
 conflict error when supplied. Scoped names such as `@scope/path` are valid;
-unscoped Node built-in names are rejected using the installed Node runtime.
+unscoped Node built-in names are rejected without requiring Node to be installed.
+The rejection table covers the 42 legal bare-name collisions on Node 24.19.0 and
+26.11.1. Tests compare it with each tested runtime's actual `builtinModules` and
+`isBuiltin` inventory. Prefix-only names such as `test`, `sqlite`, `sea` and `ffi`
+remain valid. A collision reports the offending name and suggests `@scope/name`.
+See Node's [built-in module rules](https://nodejs.org/api/modules.html#built-in-modules-with-mandatory-node-prefix).
+
+Use `target: BuildTarget.native` with `nativeRuntime` for a native package. The
+same early metadata validation applies to both targets. `buildLibrary` remains
+available for raw artifacts; `assembleWasmPackage` and `assembleNativePackage`
+assemble an existing `BuiltModule` without recompiling. Those lower-level
+assembly calls validate metadata at assembly time, so use `buildPackage` when
+the npm name is known before compilation.
 
 The runtime file allowlist is `module.wasm`, `module.d.wasm.ts`, `host.mjs`,
 `boundary.mjs`, and `DART_LICENSE`, plus `core.wasm`, `calls.mjs` and
@@ -55,6 +69,6 @@ manifest-declared bridge/runtime/license files, validating their hashes again
 after copying. The initial native package is macOS arm64; conflicting `os` or
 `cpu` metadata is rejected. See [native setup and scope](native.md).
 
-These are single-target assembly APIs. Shared cross-backend selection/fallback,
+These are single-target build and assembly APIs. Shared cross-backend selection/fallback,
 runtime supply automation and other native platforms remain #134/#144;
 rebuild/replacement behavior remains #135.

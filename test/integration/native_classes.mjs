@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {Worker, isMainThread, parentPort, workerData} from 'node:worker_threads';
-import * as api from '@napi/native-fixture';
+import * as api from '@napi/path';
 import {verifyStructures} from './structural_contract.mjs';
 import {verifyClasses} from './class_contract.mjs';
 import {verifyHierarchy, verifyForeignHierarchy, verifyHierarchyRetention} from './hierarchy_contract.mjs';
@@ -28,9 +28,11 @@ function check() {
 }
 check();
 if (isMainThread) {
-  const again = await import('@napi/native-fixture/native');
+  const again = await import('@napi/path/native');
   assert.equal(again.Counter, Counter);
-  const independent = await import(import.meta.resolve('@napi/native-fixture') + '?independent');
+  const relative = await import('./node_modules/@napi/path/module.mjs');
+  assert.equal(relative.Counter, Counter);
+  const independent = await import(import.meta.resolve('@napi/path') + '?independent');
   verifyForeignReferences(api, independent);
   verifyForeignHierarchy(api, independent);
   verifyForeignReferenceViews(api, independent);

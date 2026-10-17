@@ -1,5 +1,5 @@
-import {Counter, Other, executable} from '@napi/native-fixture';
-import {Counter as Alias} from '@napi/native-fixture/native';
+import {Counter, Other, executable} from '@napi/path';
+import {Counter as Alias} from '@napi/path/native';
 const counter: Counter = new Alias();
 counter.value = counter.increment(undefined);
 counter.named({amount: undefined});

@@ -3,7 +3,9 @@ import 'dart:io';
 
 import 'package:path/path.dart' as path;
 
+import '../compiler/front_end/external.dart';
 import 'build.dart';
+import 'metadata.dart';
 import 'publish.dart';
 import 'native_bundle.dart';
 
@@ -26,18 +28,54 @@ const _assetNames = {
   'NOTICE.txt',
   'CHANGELOG.md',
 };
-const _generatedFields = {
-  'type',
-  'files',
-  'exports',
-  'imports',
-  'main',
-  'module',
-  'types',
-  'typings',
-  'browser',
-  'bin',
-};
+
+/// Build and assemble a fresh npm package in one operation.
+///
+/// Metadata is validated before source analysis, compilation or staging. Node
+/// is not required to validate package names. Native builds use [nativeRuntime]
+/// and [BuildTarget.native]; Wasm is the default. All intermediate build files
+/// are removed on success or failure. Existing [output] is never replaced.
+Future<Directory> buildPackage({
+  required Uri library,
+  required Directory output,
+  required Map<String, Object?> metadata,
+  Map<String, File> assets = const {},
+  String? packagesPath,
+  ExternalLibrary? external,
+  BuildTarget target = BuildTarget.wasm,
+  Directory? nativeRuntime,
+}) async {
+  final package = packageMetadata(
+    metadata,
+    native: target == BuildTarget.native,
+  );
+  final destination = output.absolute;
+  await _checkPath(destination.path);
+  if (await FileSystemEntity.type(destination.path, followLinks: false) !=
+      FileSystemEntityType.notFound) {
+    throw ArgumentError('Package output already exists: ${destination.path}');
+  }
+  await destination.parent.create(recursive: true);
+  final staging = await destination.parent.createTemp('.napi-package-build-');
+  try {
+    final module = await buildLibrary(
+      library: library,
+      output: Directory('${staging.path}/module'),
+      packagesPath: packagesPath,
+      external: external,
+      target: target,
+      nativeRuntime: nativeRuntime,
+    );
+    return await _assemblePackage(
+      module: module,
+      output: destination,
+      metadata: package,
+      assets: assets,
+    );
+  } finally {
+    if (await staging.exists()) await staging.delete(recursive: true);
+  }
+}
 
 /// Assemble a fresh npm package from an already built Dart Wasm module.
 ///
@@ -46,8 +84,8 @@ const _generatedFields = {
 /// contributors. Entrypoints, exports and the file list belong to this builder;
 /// supplying those fields is an error rather than a silent override.
 ///
-/// Existing output is never replaced. Native package assembly and replacement
-/// builds remain separate requirements; this function has no backend fallback.
+/// Existing output is never replaced. Use [assembleNativePackage] for native
+/// artifacts; this function has no backend fallback.
 Future<Directory> assembleWasmPackage({
   required BuiltModule module,
   required Directory output,
@@ -89,7 +127,10 @@ Future<Directory> _assemblePackage({
   required Map<String, Object?> metadata,
   required Map<String, File> assets,
 }) async {
-  final package = await _packageMetadata(metadata);
+  final package = packageMetadata(
+    metadata,
+    native: module.target == BuildTarget.native,
+  );
   final source = module.directory.absolute;
   final target = output.absolute;
   await _checkPath(source.path);
@@ -156,20 +197,6 @@ Future<Directory> _assemblePackage({
         },
     },
   });
-  if (native) {
-    for (final entry in {
-      'os': ['darwin'],
-      'cpu': ['arm64'],
-    }.entries) {
-      if (package.containsKey(entry.key) &&
-          jsonEncode(package[entry.key]) != jsonEncode(entry.value)) {
-        throw ArgumentError(
-          'Native package metadata ${entry.key} must match ${entry.value}.',
-        );
-      }
-      package[entry.key] = entry.value;
-    }
-  }
   final manifest = const JsonEncoder.withIndent('  ').convert(package);
   await target.parent.create(recursive: true);
   final staging = await target.parent.createTemp('.napi-package-');
@@ -188,72 +215,6 @@ Future<Directory> _assemblePackage({
       await staging.delete(recursive: true);
     }
   }
-}
-
-Future<Map<String, Object?>> _packageMetadata(
-  Map<String, Object?> metadata,
-) async {
-  // Detach caller-owned nested data before any asynchronous name check.
-  final package = (jsonDecode(jsonEncode(metadata)) as Map)
-      .cast<String, Object?>();
-  for (final field in _generatedFields) {
-    if (package.containsKey(field)) {
-      throw ArgumentError(
-        'Package metadata "$field" conflicts with generated $field.',
-      );
-    }
-  }
-  final name = package['name'];
-  // npm validates the whole unscoped name's initial character, while a scoped
-  // leaf only forbids an initial period. Scopes retain encodeURIComponent's
-  // unescaped ASCII characters; its special-character warning applies to the
-  // leaf, not the scope.
-  final unscoped = r'[a-z0-9][a-z0-9._-]*';
-  final scope = r"[a-z0-9._~!()*'-]+";
-  final leaf = r'[a-z0-9_-][a-z0-9._-]*';
-  if (name is! String ||
-      name.length > 214 ||
-      !RegExp('^(?:$unscoped|@$scope/$leaf)\$').hasMatch(name) ||
-      {'node_modules', 'favicon.ico'}.contains(name)) {
-    throw ArgumentError('Invalid npm package name: $name');
-  }
-  if (!name.startsWith('@')) {
-    // Query the installed Node runtime instead of freezing a built-in name list.
-    final result = await Process.run('node', [
-      '--input-type=module',
-      '-e',
-      "import {isBuiltin} from 'node:module'; "
-          'process.exit(isBuiltin(process.argv[1]) ? 1 : 0);',
-      '--',
-      name,
-    ]);
-    if (result.exitCode == 1) {
-      throw ArgumentError(
-        'Package name "$name" shadows a Node built-in. Use a scoped name such as @scope/$name.',
-      );
-    }
-    if (result.exitCode != 0) {
-      throw StateError(
-        'Cannot verify npm package name with Node: ${result.stderr}',
-      );
-    }
-  }
-  final version = package['version'];
-  if (version is! String ||
-      version.length > 256 ||
-      !RegExp(
-        r'^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)'
-        r'(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)'
-        r'(?:\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?'
-        r'(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$',
-      ).hasMatch(version) ||
-      version.split(RegExp(r'[-+]')).first.split('.').any((part) {
-        final value = int.tryParse(part);
-        return value == null || value > 9007199254740991;
-      })) {
-    throw ArgumentError('Invalid npm package version: $version');
-  }
-  return package;
 }
 
 Future<File> _regularFile(File file) async {
