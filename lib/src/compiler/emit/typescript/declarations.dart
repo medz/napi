@@ -15,9 +15,9 @@ String emitDeclarations(ModulePlan plan) => [
   '// Use allowArbitraryExtensions for relative .wasm imports.',
   for (final function in plan.functions)
     if (function.representation == ExportRepresentation.callableGlobal)
-      'export declare const ${function.binding.exportName}: (${emitParameters(function.binding.parameters, function.inputs)}) => ${function.output.typescriptType};'
+      'export declare const ${function.binding.exportName}: (${emitParameters(function.binding.parameters, function.inputs)}) => ${emitResult(function.output, returnsFuture: function.returnsFuture)};'
     else
-      'export declare function ${function.binding.exportName}(${emitParameters(function.binding.parameters, function.inputs)}): ${function.output.typescriptType};',
+      'export declare function ${function.binding.exportName}(${emitParameters(function.binding.parameters, function.inputs)}): ${emitResult(function.output, returnsFuture: function.returnsFuture)};',
   for (final binding in plan.classes) ...[
     'export declare class ${binding.binding.exportName} {',
     if (binding.constructor case final constructor?)
@@ -36,9 +36,9 @@ String emitDeclarations(ModulePlan plan) => [
     ])
       switch (member.kind) {
         MemberCallKind.method =>
-          '  ${member.isStatic ? 'static ' : ''}${emitMemberName(member.exportName)}(${emitParameters(member.parameters, member.inputs)}): ${member.output?.typescriptType ?? 'void'};',
+          '  ${member.isStatic ? 'static ' : ''}${emitMemberName(member.exportName)}(${emitParameters(member.parameters, member.inputs)}): ${emitResult(member.output, returnsFuture: member.returnsFuture)};',
         MemberCallKind.getter =>
-          '  ${member.isStatic ? 'static ' : ''}get ${emitMemberName(member.exportName)}(): ${member.output?.typescriptType ?? 'void'};',
+          '  ${member.isStatic ? 'static ' : ''}get ${emitMemberName(member.exportName)}(): ${emitResult(member.output, returnsFuture: member.returnsFuture)};',
         MemberCallKind.setter =>
           '  ${member.isStatic ? 'static ' : ''}set ${emitMemberName(member.exportName)}(${emitParameters(member.parameters, member.inputs)});',
         MemberCallKind.constructor =>
@@ -52,6 +52,12 @@ String emitDeclarations(ModulePlan plan) => [
   ],
   '',
 ].join('\n');
+
+/// Completion changes the result container, never the payload conversion.
+String emitResult(ValueConversion? output, {required bool returnsFuture}) {
+  final payload = output?.typescriptType ?? 'void';
+  return returnsFuture ? 'globalThis.Promise<$payload>' : payload;
+}
 
 /// Merge only the instance type. `class Child extends Base` would incorrectly
 /// expose inherited static methods and named constructors.

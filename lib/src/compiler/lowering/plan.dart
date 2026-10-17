@@ -1,5 +1,6 @@
 export '../ir/model.dart' show ValueDirection;
 import '../../api/annotation.dart' show ClassPolicy;
+import '../analysis/result.dart';
 import '../analysis/validate.dart';
 import '../ir/model.dart';
 
@@ -410,6 +411,7 @@ final class _ConversionBuilder {
 
 /// Ordered private Wasm calls share conversion indices, not declaration kinds.
 abstract interface class CallPlan {
+  bool get returnsFuture;
   List<ParameterBinding> get parameters;
   List<ValueConversion> get inputs;
   ValueConversion? get output;
@@ -425,13 +427,15 @@ final class FunctionPlan implements CallPlan {
   @override
   final List<ValueConversion> inputs;
   @override
-  final ValueConversion output;
+  final ValueConversion? output;
   @override
   final String coreExportName;
   @override
   final List<int> inputContexts;
   @override
-  final int outputContext;
+  final int? outputContext;
+  @override
+  bool get returnsFuture => isFutureType(binding.result);
   @override
   List<ParameterBinding> get parameters => binding.parameters;
   FunctionPlan._(
@@ -441,7 +445,8 @@ final class FunctionPlan implements CallPlan {
     List<ClassBinding> classes,
     List<ValueClassSchema> valueSchemas,
   ) : representation =
-          (binding.parameters.any(
+          (isFutureType(binding.result) ||
+              binding.parameters.any(
                 (p) =>
                     p.kind != ParameterKind.requiredPositional ||
                     isReferenceType(p.type, classes),
@@ -450,7 +455,8 @@ final class FunctionPlan implements CallPlan {
           ? ExportRepresentation.callableGlobal
           : ExportRepresentation.nativeFunction,
       coreExportName =
-          (binding.parameters.any(
+          (isFutureType(binding.result) ||
+              binding.parameters.any(
                 (p) =>
                     p.kind != ParameterKind.requiredPositional ||
                     isReferenceType(p.type, classes),
@@ -469,22 +475,28 @@ final class FunctionPlan implements CallPlan {
             direction: ValueDirection.input,
           ),
       ]),
-      output = conversionFor(
-        binding.result,
-        '${binding.exportName} result',
-        bigint: binding.bigint,
-        classes: classes,
-        valueSchemas: valueSchemas,
-      ),
+      output = resultPayload(binding.result) == null
+          ? null
+          : conversionFor(
+              resultPayload(binding.result)!,
+              '${binding.exportName} result',
+              bigint: binding.bigint,
+              classes: classes,
+              valueSchemas: valueSchemas,
+            ),
       inputContexts = List.unmodifiable([
         for (var i = 0; i < binding.parameters.length; i++) firstContext + i,
       ]),
-      outputContext = firstContext + binding.parameters.length;
+      outputContext = resultPayload(binding.result) == null
+          ? null
+          : firstContext + binding.parameters.length;
 }
 
 typedef MemberCallKind = ReferenceMemberKind;
 
 final class MemberCallPlan implements CallPlan {
+  @override
+  final bool returnsFuture;
   final ClassBinding owner;
   final MemberBinding binding;
   final MemberCallKind kind;
@@ -510,7 +522,8 @@ final class MemberCallPlan implements CallPlan {
     int firstContext,
     List<ClassBinding> classes,
     List<ValueClassSchema> valueSchemas,
-  ) : binding = member.binding,
+  ) : returnsFuture = isFutureType(member.result),
+      binding = member.binding,
       kind = member.kind,
       parameters = member.parameters,
       context = _memberContext(owner, member),
@@ -525,10 +538,10 @@ final class MemberCallPlan implements CallPlan {
             direction: ValueDirection.input,
           ),
       ]),
-      output = member.result == null
+      output = resultPayload(member.result) == null
           ? null
           : conversionFor(
-              member.result!,
+              resultPayload(member.result)!,
               '${_memberContext(owner, member)} result',
               bigint: false,
               classes: classes,
@@ -537,7 +550,7 @@ final class MemberCallPlan implements CallPlan {
       inputContexts = List.unmodifiable([
         for (var i = 0; i < member.parameters.length; i++) firstContext + i,
       ]),
-      outputContext = member.result == null
+      outputContext = resultPayload(member.result) == null
           ? null
           : firstContext + member.parameters.length;
 }

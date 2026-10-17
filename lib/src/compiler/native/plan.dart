@@ -1,10 +1,11 @@
+import '../analysis/result.dart';
 import '../analysis/validate.dart';
 import '../ir/model.dart';
 import '../lowering/plan.dart' show ValueConversion, conversionFor;
 
 enum NativeCallKind { function, constructor, method, getter, setter }
 
-/// Synchronous call metadata, without a Wasm export kind or externref ABI.
+/// Native call metadata, without a Wasm export kind or externref ABI.
 final class NativeCallPlan {
   final String callback;
   final String context;
@@ -15,6 +16,7 @@ final class NativeCallPlan {
   final List<ParameterBinding> parameters;
   final List<ValueConversion> inputs;
   final ValueConversion? output;
+  final bool returnsFuture;
   final bool isStatic;
   final int? classId;
   NativeCallPlan._({
@@ -27,6 +29,7 @@ final class NativeCallPlan {
     this.function,
     this.owner,
     this.member,
+    this.returnsFuture = false,
     this.isStatic = false,
     this.classId,
   });
@@ -129,7 +132,7 @@ const _reserved = {
   'arguments',
 };
 
-/// Select exactly the capabilities implemented by the synchronous native ABI.
+/// Select exactly the capabilities implemented by the native ABI.
 /// Unsupported declarations fail before generating or publishing artifacts.
 NativeModulePlan validateNative(BindingModule module) {
   validateDeclarations(module);
@@ -153,9 +156,14 @@ NativeModulePlan validateNative(BindingModule module) {
       source,
       referenceClasses: module.classes,
     );
-    if (result != null && result is! VoidType) {
-      validateValueType(result, source, referenceClasses: module.classes);
-    }
+    validateCallResult(
+      result,
+      source,
+      referenceClasses: module.classes,
+      isAsync: function?.isAsync ?? member?.isAsync ?? false,
+      isGenerator: function?.isGenerator ?? member?.isGenerator ?? false,
+    );
+    final payload = resultPayload(result);
     return NativeCallPlan._(
       callback: '_native${next++}',
       context: context,
@@ -172,10 +180,11 @@ NativeModulePlan validateNative(BindingModule module) {
             direction: ValueDirection.input,
           ),
       ]),
-      output: result == null || result is VoidType
+      returnsFuture: isFutureType(result),
+      output: payload == null
           ? null
           : conversionFor(
-              result,
+              payload,
               '$context result',
               bigint: bigint,
               classes: module.classes,
@@ -201,13 +210,7 @@ NativeModulePlan validateNative(BindingModule module) {
         binding.source,
       );
     }
-    _executable(
-      binding.typeParameters,
-      binding.isAsync,
-      binding.isGenerator,
-      binding.isExternal,
-      binding.source,
-    );
+    _executable(binding.typeParameters, binding.isExternal, binding.source);
     functions.add(
       call(
         context: binding.exportName,
@@ -295,8 +298,6 @@ void _path(String path, SourceLocation source) {
 
 void _executable(
   List<TypeParameterBinding> types,
-  bool async,
-  bool generator,
   bool external,
   SourceLocation source,
 ) {
@@ -304,13 +305,6 @@ void _executable(
     _reject(
       'NAPI_GENERIC',
       'Native generic specialization is not implemented.',
-      source,
-    );
-  }
-  if (async || generator) {
-    _reject(
-      'NAPI_TYPE',
-      'The native backend currently supports synchronous calls only.',
       source,
     );
   }

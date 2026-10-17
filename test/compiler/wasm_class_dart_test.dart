@@ -191,8 +191,8 @@ import 'package:napi/napi.dart';
       'NAPI_GENERIC',
     ),
     (
-      'async member',
-      '@NAPI() class Bad { Future<int> read() async => 1; }',
+      'async void member',
+      '@NAPI() class Bad { void read() async {} }',
       'NAPI_TYPE',
     ),
     (

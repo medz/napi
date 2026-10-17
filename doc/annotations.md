@@ -60,7 +60,8 @@ method by its original Dart name. Its existing member metadata retains the full
 signature, including generics, defaults and `Future` returns. Renaming or excluding
 that member from public exports does not change its cleanup identity.
 
-Both targets generate synchronous [reference classes](classes.md) and
+Both targets generate [reference classes](classes.md), including
+[Future-returning calls](futures.md), and
 [structural value classes](values.md). Value inputs require an explicit
 `valueConstructor` (`new` or the original named constructor); parameters match
 own readable members by Dart name, with `valueFields` for different names.

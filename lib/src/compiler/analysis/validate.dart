@@ -1,5 +1,6 @@
 import '../../api/annotation.dart' show ClassPolicy;
 import '../ir/model.dart';
+import 'result.dart';
 
 final dictionaryDeclaration = DeclarationId(
   Uri.parse('package:napi/src/api/dictionary.dart'),
@@ -716,9 +717,6 @@ ValidatedModule validate(BindingModule module) {
         'Generic functions require a generic-capable backend.',
       );
     }
-    if (function.isAsync || function.isGenerator) {
-      reject('NAPI_TYPE', 'Async and generator functions are not supported.');
-    }
     if (function.isExternal) {
       reject(
         'NAPI_EXTERNAL',
@@ -730,16 +728,19 @@ ValidatedModule validate(BindingModule module) {
       function.source,
       referenceClasses: module.classes,
     );
-    validateValueType(
+    validateCallResult(
       function.result,
       function.source,
       referenceClasses: module.classes,
+      isAsync: function.isAsync,
+      isGenerator: function.isGenerator,
+      allowVoid: false,
     );
   }
   return ValidatedModule._(declarations.bindings, classes, values);
 }
 
-/// The shared synchronous reference-class slice, without target ABI choices.
+/// Shared reference-class call contracts, without target ABI choices.
 List<ReferenceClassShape> validateReferenceClasses(BindingModule module) {
   final result = <ReferenceClassShape>[];
   for (final binding in module.classes.where(
@@ -774,13 +775,13 @@ List<ReferenceClassShape> validateReferenceClasses(BindingModule module) {
         member.source,
         referenceClasses: module.classes,
       );
-      if (type != null && type is! VoidType) {
-        validateValueType(
-          type,
-          member.source,
-          referenceClasses: module.classes,
-        );
-      }
+      validateCallResult(
+        type,
+        member.source,
+        referenceClasses: module.classes,
+        isAsync: member.isAsync,
+        isGenerator: member.isGenerator,
+      );
       return ReferenceMemberShape._(
         member,
         kind,
@@ -795,13 +796,6 @@ List<ReferenceClassShape> validateReferenceClasses(BindingModule module) {
         reject(
           'NAPI_GENERIC',
           'Generic members are not implemented.',
-          member.source,
-        );
-      }
-      if (member.isAsync || member.isGenerator) {
-        reject(
-          'NAPI_TYPE',
-          'Only synchronous members are implemented.',
           member.source,
         );
       }
@@ -1084,6 +1078,9 @@ List<ReferenceClassShape> _referenceHierarchy(
           final actualVoid = actual.result is VoidType;
           final contractVoid = contract.result == null;
           if (!inheritedMember.isCompatible ||
+              actual.isGenerator ||
+              (actual.isAsync && !isFutureType(actual.result)) ||
+              isFutureType(actual.result) != isFutureType(contract.result) ||
               (contract.kind != ReferenceMemberKind.method &&
                   actualVoid != contractVoid)) {
             reject(
@@ -1197,6 +1194,7 @@ bool referenceMemberAccepts(
       _referenceSubtype(child, parent, ids, memberships);
   final output = implementation.result;
   final requiredOutput = contract.result;
+  if (isFutureType(output) != isFutureType(requiredOutput)) return false;
   // A void method contract discards its result. The derived binding retains
   // its own conversion, while explicitly borrowing the base still returns void.
   final discardsResult =
@@ -1264,6 +1262,7 @@ bool _referenceSubtype(
     return false;
   }
   if (child is SafeIntType && parent is SafeIntType) return true;
+  if (child is VoidType && parent is VoidType) return true;
   if (child is DeclaredType && parent is DeclaredType) {
     if (child.declaration != parent.declaration) {
       final childId = ids[child.declaration];
@@ -1335,6 +1334,37 @@ void _referencePath(String path, SourceLocation source) {
       source,
     );
   }
+}
+
+/// Validate the completion contract before lowering its ordinary payload.
+void validateCallResult(
+  BindingType? type,
+  SourceLocation source, {
+  List<ClassBinding> referenceClasses = const [],
+  bool isAsync = false,
+  bool isGenerator = false,
+  bool allowVoid = true,
+}) {
+  Never reject(String message) =>
+      throw BindingDiagnostic('NAPI_TYPE', message, source);
+  final future = isFutureType(type);
+  if (isGenerator) reject('Generator exports are not implemented.');
+  if (isAsync && !future) {
+    reject('An async export must declare a non-nullable Future<T> result.');
+  }
+  if (future &&
+      (type!.nullability != TypeNullability.nonNullable ||
+          (type as DeclaredType).typeArguments.length != 1)) {
+    reject('A Future result must be non-nullable with one payload type.');
+  }
+  final payload = resultPayload(type);
+  if (payload == null) {
+    if (!future && !allowVoid) {
+      reject('This backend does not support synchronous void functions.');
+    }
+    return;
+  }
+  validateValueType(payload, source, referenceClasses: referenceClasses);
 }
 
 /// Only direct references to selected public classes have a runtime mapping.

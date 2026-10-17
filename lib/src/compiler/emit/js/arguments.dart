@@ -51,7 +51,7 @@ String emitArgumentCalls(ModulePlan plan) {
   );
   final result = StringBuffer('''// Generated private callable dependency.
 import * as core from './core.wasm';
-import {useDefault, readOptions} from './boundary.mjs';
+import {useDefault, readOptions${plan.calls.any((call) => call.returnsFuture) ? ', createPromise, rejectPromise' : ''}} from './boundary.mjs';
 ''');
   if (plan.classes.isNotEmpty) {
     result.writeln("import {registerReference} from './references.mjs';");
@@ -143,15 +143,22 @@ function intern(reference, expectedId, context, pending, receiver, newTarget) {
       continue;
     }
     result.writeln('const call$index = (...args) => {');
+    if (function.returnsFuture) _beginFuture(result, function.output, '  ');
     final arguments = _arguments(
       result,
       function,
       function.binding.exportName,
       names[function],
+      indent: function.returnsFuture ? '    ' : '  ',
     );
     final invocation =
-        'core[${jsonEncode(function.coreExportName)}]($arguments)';
-    result.writeln('  return ${_output(function.output, invocation)};');
+        'core[${jsonEncode(function.coreExportName)}](${[if (function.returnsFuture) 'capability', if (arguments.isNotEmpty) arguments].join(', ')})';
+    if (function.returnsFuture) {
+      result.writeln('    $invocation;');
+      _endFuture(result, '  ');
+    } else {
+      result.writeln('  return ${_output(function.output, invocation)};');
+    }
     result.writeln(
       '};\nexport {call$index as ${function.binding.exportName}};',
     );
@@ -195,10 +202,12 @@ function intern(reference, expectedId, context, pending, receiver, newTarget) {
         MemberCallKind.constructor => 'static [$name](...args)',
       };
       result.writeln('  $declaration {');
+      if (member.returnsFuture) _beginFuture(result, member.output, '    ');
+      final indent = member.returnsFuture ? '      ' : '    ';
       // Module ownership and Dart membership precede options and business calls.
       if (!member.isStatic) {
         result.writeln(
-          '    const reference = unwrap$index(this, ${jsonEncode(member.context)}, false);',
+          '${indent}const reference = unwrap$index(this, ${jsonEncode(member.context)}, false);',
         );
       }
       if (member.kind == MemberCallKind.setter) {
@@ -209,16 +218,22 @@ function intern(reference, expectedId, context, pending, receiver, newTarget) {
         member,
         member.context,
         names[member],
-        indent: '    ',
+        indent: indent,
       );
       final invocation =
-          'core[${jsonEncode(member.coreExportName)}](${[if (!member.isStatic) 'reference', if (arguments.isNotEmpty) arguments].join(', ')})';
+          'core[${jsonEncode(member.coreExportName)}](${[if (member.returnsFuture) 'capability', if (!member.isStatic) 'reference', if (arguments.isNotEmpty) arguments].join(', ')})';
       final expression = member.kind == MemberCallKind.constructor
           ? 'wrap$index($invocation, ${jsonEncode(member.context)})'
           : _output(member.output, invocation);
-      result.writeln(
-        '    ${member.output == null && member.kind != MemberCallKind.constructor ? '' : 'return '}$expression;\n  }',
-      );
+      if (member.returnsFuture) {
+        result.writeln('      $invocation;');
+        _endFuture(result, '    ');
+        result.writeln('  }');
+      } else {
+        result.writeln(
+          '    ${member.output == null && member.kind != MemberCallKind.constructor ? '' : 'return '}$expression;\n  }',
+        );
+      }
     }
     result.writeln('}');
     if (!binding.members.any(
@@ -345,6 +360,21 @@ String _output(ValueConversion? output, String invocation) =>
     output is ReferenceConversion
     ? 'wrap${output.classId}($invocation, ${jsonEncode(output.context)})'
     : invocation;
+
+void _beginFuture(StringBuffer result, ValueConversion? output, String indent) {
+  final wrap = output is ReferenceConversion
+      ? 'value => ${_output(output, 'value')}'
+      : '';
+  result.writeln('${indent}const capability = createPromise($wrap);');
+  result.writeln('${indent}try {');
+}
+
+void _endFuture(StringBuffer result, String indent) {
+  result.writeln(
+    '$indent} catch (error) { rejectPromise(capability, error); }',
+  );
+  result.writeln('${indent}return capability.promise;');
+}
 
 int _arity(CallPlan call) =>
     call.parameters.any((p) => p.kind != ParameterKind.requiredPositional)

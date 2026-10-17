@@ -157,7 +157,7 @@ import 'package:napi/napi.dart';
     ),
     ('generic function', '@NAPI() T bad<T>(T value) => value;', 'NAPI_GENERIC'),
     ('generic class', '@NAPI() class Bad<T> {}', 'NAPI_GENERIC'),
-    ('async', '@NAPI() Future<int> bad() async => 1;', 'NAPI_TYPE'),
+    ('async void', '@NAPI() void bad() async {}', 'NAPI_TYPE'),
     (
       'value constructor missing a mapped field',
       "@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new') class Bad { Bad(int absent); }",

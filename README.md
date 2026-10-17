@@ -15,7 +15,7 @@ The product follows napi-rs's model: one Dart export declaration, generated
 bindings and TypeScript types, and npm packages for native and Wasm targets.
 Necessary JavaScript loaders and runtime helpers are allowed. Both targets must
 preserve the same supported calls, including `new Counter()` and argument
-presence. The experimental native target generates scalar, structural, value-class and reference-class AOT bindings
+presence. The experimental native target generates scalar, structural, value-class, reference-class and Future AOT bindings
 for macOS arm64; see [native builds](doc/native.md) for its explicit runtime-bundle requirement.
 See [the architecture and delivery plan](doc/architecture.md) and
 [#144](https://github.com/medz/napi/issues/144) for its validation gates.
@@ -32,6 +32,7 @@ See [the architecture and delivery plan](doc/architecture.md) and
 - A pinned Dart SDK adapter and linker producing actual Wasm named exports
 - Generated reference classes, named/factory constructors and weak wrapper identity on both targets
 - Structural value classes with explicit constructors, recursive fields and direction-specific TypeScript
+- Future-returning functions/methods/getters with genuine Promises and shared payload/error conversion
 - Direct imports, installed package resolution, artifact inspection, and strict TypeScript tests
 - Fresh Wasm and native npm assembly with explicit assets and atomic publication
 - Shared scalar/default/class consumer contracts for Wasm and native
@@ -42,13 +43,12 @@ The package entry may select and load a backend automatically; consumers should
 not need loader setup, registration, or a call to application `main`.
 
 The annotation frontend records complete declaration metadata; build-time checks
-reject unsupported signatures before writing output. Cross-type class identity
-remains work in [#123](https://github.com/medz/napi/issues/123); complete lifecycle
-engines and replacement builds remain separate work in
+reject unsupported signatures before writing output. Non-generic cross-type class identity is implemented; complete resource and
+async lifecycle engines, generic identity and replacement builds remain work in
 [#114](https://github.com/medz/napi/issues/114). See [annotation syntax and scope](doc/annotations.md) and the
 [scalar conversion contract](doc/scalars.md), [argument presence and defaults](doc/arguments.md),
 [structural values](doc/structural.md), [value classes](doc/values.md),
-[reference classes](doc/classes.md), and
+[reference classes](doc/classes.md), [Future exports](doc/futures.md), and
 [npm package assembly](doc/packaging.md).
 Annotated sources import `package:napi/napi.dart`; separate Dart VM build scripts
 use `buildPackage` from `package:napi/build.dart` for a fresh npm package, or

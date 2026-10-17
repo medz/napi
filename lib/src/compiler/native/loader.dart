@@ -8,6 +8,7 @@ import 'plan.dart';
 String emitNativeLoader(
   List<String> exports, {
   List<NativeClassPlan> classes = const [],
+  bool hasFutures = false,
 }) {
   final shapes = [for (final binding in classes) binding.shape];
   final hasCompositeViews = hasCompositeReferenceViews(shapes);
@@ -27,8 +28,21 @@ function $napiResolveReferenceShape(views, context) {
 }
 ''');
   }
+  if (hasFutures) {
+    code.writeln(r'''const $napiPromise = globalThis.Promise;
+function $napiCreatePromise() {
+  let resolve, reject;
+  const promise = new $napiPromise((yes, no) => { resolve = yes; reject = no; });
+  return [promise, resolve, reject, undefined];
+}
+''');
+  }
   code.writeln(
-    "const bindings = require('./bridge.node').load(fileURLToPath(new URL('./module.aot', import.meta.url))${hasCompositeViews ? r', $napiResolveReferenceShape' : ''});",
+    "const bindings = require('./bridge.node').load(fileURLToPath(new URL('./module.aot', import.meta.url))${hasCompositeViews
+        ? r', $napiResolveReferenceShape'
+        : hasFutures
+        ? ', null'
+        : ''}${hasFutures ? r', $napiCreatePromise' : ''});",
   );
   if (classes.any((binding) => binding.members.isNotEmpty)) {
     code.writeln(r'''const $napiApply = Reflect.apply;

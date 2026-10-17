@@ -79,7 +79,7 @@ void main() {
         );
         final plan = lower(validate(module([binding])));
         final input = plan.functions.single.inputs.single;
-        final output = plan.functions.single.output;
+        final output = plan.functions.single.output!;
         expect(input.jsType, output.jsType);
         expect(input.dartType, output.dartType);
         expect(

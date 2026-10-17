@@ -13,6 +13,9 @@ String emitDart(ModulePlan plan) {
     "${plan.conversions.any(containsDictionary) ? "import 'package:napi/napi.dart' as napi;\nimport 'dart:convert' show jsonEncode;\n" : ''}"
     '$entrypointPrelude\n',
   );
+  if (plan.calls.any((call) => call.returnsFuture)) {
+    result.writeln(futureEntrypointPrelude);
+  }
   if (plan.classes.isNotEmpty) {
     final candidates = [for (final _ in plan.classes) <int>[]];
     for (final binding in plan.classes) {
@@ -67,13 +70,19 @@ WasmExternRef _referenceViews(WasmExternRef reference) {
   for (final (index, call) in plan.calls.indexed) {
     final parameters = call.parameters;
     final output = call.output;
+    final errorContext = jsonEncode(
+      call is FunctionPlan
+          ? call.binding.exportName
+          : (call as MemberCallPlan).context,
+    ).replaceAll(r'$', r'\$');
     final constructor =
         call is MemberCallPlan && call.kind == MemberCallKind.constructor;
     final instance = call is MemberCallPlan && !constructor && !call.isStatic;
-    final returnsVoid = output == null && !constructor;
+    final returnsVoid = call.returnsFuture || (output == null && !constructor);
     result.writeln("@pragma('wasm:export', '${call.coreExportName}')");
     result.writeln(
       '${returnsVoid ? 'void' : 'WasmExternRef?'} _export$index(${[
+        if (call.returnsFuture) 'WasmExternRef capability',
         if (instance) 'WasmExternRef reference',
         for (var i = 0; i < parameters.length; i++) ...[if (_optional(parameters[i])) 'WasmI32 d$i', 'WasmExternRef? p$i'],
       ].join(', ')}) {',
@@ -111,9 +120,13 @@ WasmExternRef _referenceViews(WasmExternRef reference) {
                 ? '    _reportStructureError(error);\n    return;'
                 : '    return _reportStructureError(error);',
           );
-          result.writeln('  } catch (error) {');
           result.writeln(
-            returnsVoid
+            '  } catch (error${call.returnsFuture ? ', stack' : ''}) {',
+          );
+          result.writeln(
+            call.returnsFuture
+                ? '    _failFuture(capability, error, stack, $errorContext);\n    return;'
+                : returnsVoid
                 ? '    _normalizeError(error);\n    return;'
                 : '    return _normalizeError(error);',
           );
@@ -122,7 +135,11 @@ WasmExternRef _referenceViews(WasmExternRef reference) {
       }
       if (_optional(parameters[i])) result.writeln('  }');
     }
-    if (output != null) result.writeln('  ${output.dartType} value;');
+    if (call.returnsFuture) {
+      result.writeln('  Future<${output?.dartType ?? 'void'}> value;');
+    } else if (output != null) {
+      result.writeln('  ${output.dartType} value;');
+    }
     result.writeln('  try {');
     if (instance) {
       final owner = call.owner;
@@ -131,7 +148,12 @@ WasmExternRef _referenceViews(WasmExternRef reference) {
       );
     }
     final invocation = _invocation(call);
-    if (constructor) {
+    if (call.returnsFuture) {
+      result.writeln(
+        '    _retainPromise(capability, WasmAnyRef.fromObject(<Object?>[${[if (instance) 'object', for (var i = 0; i < parameters.length; i++) 'a$i'].join(', ')}]).externalize());',
+      );
+      result.writeln('    value = $invocation;');
+    } else if (constructor) {
       result.writeln('    final value = $invocation;');
       result.writeln('    return WasmAnyRef.fromObject(value).externalize();');
     } else if (returnsVoid) {
@@ -139,13 +161,27 @@ WasmExternRef _referenceViews(WasmExternRef reference) {
     } else {
       result.writeln('    value = $invocation;');
     }
-    result.writeln('  } catch (error) {');
+    result.writeln('  } catch (error${call.returnsFuture ? ', stack' : ''}) {');
     result.writeln(
-      returnsVoid
+      call.returnsFuture
+          ? '    _failFuture(capability, error, stack, $errorContext);\n    return;'
+          : returnsVoid
           ? '    _normalizeError(error);'
           : '    return _normalizeError(error);',
     );
     result.writeln('  }');
+    if (call.returnsFuture) {
+      result.writeln(
+        '  _observeFuture(value, capability, $errorContext, ${output == null ? 'null' : '(value) => _futureJSValue(_futureOutput$index(value))'});\n}',
+      );
+      if (output != null) {
+        result.writeln(
+          'WasmExternRef? _futureOutput$index(${output.dartType} value) {',
+        );
+      } else {
+        continue;
+      }
+    }
     if (output == null) {
       result.writeln('}');
       continue;
@@ -167,8 +203,8 @@ WasmExternRef _referenceViews(WasmExternRef reference) {
         '    serialized = $writer(value, _StructureState(), $path, 0);\n'
         '  } on _StructureViolation catch (error) {\n'
         '    return _reportStructureError(error);\n'
-        '  } catch (error) {\n'
-        '    return _normalizeError(error);\n'
+        '  } catch (error${call.returnsFuture ? ', stack' : ''}) {\n'
+        '    return ${call.returnsFuture ? '_normalizeFutureError(error, stack, $errorContext)' : '_normalizeError(error)'};\n'
         '  }\n'
         '  return _writeValue(externRefForJSAny(serialized!), WasmI32.fromInt($context));\n}',
       );

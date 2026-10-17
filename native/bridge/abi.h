@@ -1,5 +1,5 @@
-// Compiler-private bridge ABI, version 9. Keep generated Dart in lockstep.
-// Version 9 retains 43 slots and requires owner-thread event-loop integration.
+// Compiler-private bridge ABI, version 10. Keep generated Dart in lockstep.
+// Version 10 adds queued Promise capabilities to owner-thread event delivery.
 #pragma once
 #include <node_api.h>
 #include <stdint.h>
@@ -18,7 +18,11 @@
 // @pragma('vm:entry-point')
 // void releaseOwner(int ownerId)
 //
-// Every callback is int Function(int envAddress, int callbackInfoAddress).
+// Future callback metadata appends true after arity. These callbacks are
+// int Function(int envAddress, int callbackInfoAddress, int futureToken), and
+// return zero; C creates/returns the Promise before Dart validation. The root
+// releaseFuture(int futureToken) acknowledges resolver handoff outside Dart.
+// Other callbacks are int Function(int envAddress, int callbackInfoAddress).
 // Its returned int is a napi_value pointer, or zero with a pending exception.
 // ownerId is a positive isolate-local integer. A wrapper must use slots 14/15
 // rather than raw napi_wrap/napi_unwrap so the stable C finalizer owns tokens.
@@ -73,7 +77,8 @@ enum BridgeApiSlot {
   bridge_read_optional_own_value = 40,
   bridge_is_constructor_target = 41,
   bridge_register_reference_shape = 42,
-  bridge_api_count = 43,
+  bridge_queue_promise_settlement = 43,
+  bridge_api_count = 44,
 };
 typedef napi_status (*BridgeOwnerWrap)(napi_env, napi_value self, int64_t ownerId);
 typedef int64_t (*BridgeOwnerUnwrap)(napi_env, napi_value self);
@@ -137,3 +142,10 @@ typedef napi_status (*BridgeIsConstructorTarget)(
 typedef napi_status (*BridgeRegisterReferenceShape)(
     napi_env, uint32_t shapeId, const uint32_t* viewIds, size_t count,
     napi_value context);
+
+// Retain a result in the private capability and queue owner-thread settlement.
+// This never invokes a resolver under Dart. With reject=true, a pending JS
+// exception is captured/cleared verbatim; null value without one uses a fixed
+// Error fallback. Ordinary JS null/undefined have nonnull napi_value handles.
+typedef napi_status (*BridgeQueuePromiseSettlement)(
+    napi_env, int64_t futureToken, napi_value value, bool reject);

@@ -3,8 +3,9 @@
 The shared Dart runtime provides `ResourceControl` through
 `package:napi/runtime.dart`. This is the state kernel for #124, not generated
 resource support. Both backends still diagnose resource bindings; generated
-cleanup APIs, argument conversion and async settlement still need cross-backend
-consumer conformance. The native event pump is covered separately in
+cleanup APIs, resource argument checks and operation-lease integration still need
+cross-backend consumer conformance. Ordinary [Future bindings](futures.md) supply
+the Promise transport; they do not yet acquire resource leases. The native event pump is covered separately in
 [native bindings](native.md). Ordinary reference classes do not use this
 control and do not gain a `dispose` method.
 

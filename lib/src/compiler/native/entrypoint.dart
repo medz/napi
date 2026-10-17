@@ -13,6 +13,7 @@ import '../lowering/plan.dart'
         ScalarConversion,
         ScalarKind,
         ValueClassConversion,
+        ValueConversion,
         containsDictionary,
         containsValueClass;
 import 'plan.dart';
@@ -22,6 +23,7 @@ String _quote(String value) => jsonEncode(value).replaceAll(r'$', r'\$');
 
 /// Generate business-specific Dart only. The Node-API bridge stays generic.
 String emitNativeDart(NativeModulePlan plan) {
+  final hasFutures = plan.calls.any((call) => call.returnsFuture);
   final hasCompositeViews = hasCompositeReferenceViews([
     for (final binding in plan.classes) binding.shape,
   ]);
@@ -47,7 +49,9 @@ String emitNativeDart(NativeModulePlan plan) {
     code.writeln("import 'dart:convert' show jsonEncode;");
     code.writeln("import 'package:napi/napi.dart' as napi;");
   }
-  if (hasStructures) code.writeln("import 'dart:ffi';");
+  if (hasStructures || hasFutures) {
+    code.writeln("import 'dart:ffi';");
+  }
   code.write('''
 import 'package:napi/src/compiler/native/bindings.dart';
 import ${_quote(plan.bindings.importUri.toString())} as target;
@@ -60,7 +64,7 @@ List<Object?> napiBindings(int apiTableAddress, int tableCount) {
 ''');
   for (final function in plan.functions) {
     code.writeln(
-      "    ['function', ${_quote(function.function!.exportName)}, ${function.callback}, ${function.javascriptArity}],",
+      "    ['function', ${_quote(function.function!.exportName)}, ${function.callback}, ${function.javascriptArity}${function.returnsFuture ? ', true' : ''}],",
     );
   }
   for (final binding in plan.classes) {
@@ -73,7 +77,7 @@ List<Object?> napiBindings(int apiTableAddress, int tableCount) {
           ? 'static${kind[0].toUpperCase()}${kind.substring(1)}'
           : kind;
       code.writeln(
-        '      [${_quote(metadataKind)}, ${_quote(member.exportName)}, ${member.callback}, ${member.javascriptArity}],',
+        '      [${_quote(metadataKind)}, ${_quote(member.exportName)}, ${member.callback}, ${member.javascriptArity}${member.returnsFuture ? ', true' : ''}],',
       );
     }
     code.writeln('    ], ${binding.constructor.javascriptArity}],');
@@ -82,7 +86,7 @@ List<Object?> napiBindings(int apiTableAddress, int tableCount) {
 }
 @pragma('vm:entry-point')
 void releaseOwner(int id) => _api.releaseOwner(id);
-void main() {}
+${hasFutures ? "@pragma('vm:entry-point')\nvoid releaseFuture(int token) => _api.releaseFuture(token);\n" : ''}void main() {}
 ''');
   if (plan.classes.isNotEmpty) {
     code.writeln('const _referenceMemberships = <Set<int>>[');
@@ -121,12 +125,13 @@ void main() {}
     final named = parameters.where(_named).toList();
     final capacity = positionalCount + (named.isEmpty ? 0 : 1);
     final rawStructuralArguments =
+        !call.returnsFuture &&
         call.function != null &&
         parameters.every((p) => p.kind == ParameterKind.requiredPositional) &&
         !call.inputs.any((value) => value is ReferenceConversion) &&
         call.output is! ReferenceConversion;
     code.writeln(
-      'int ${call.callback}(int envAddress, int infoAddress) {\n  try {',
+      'int ${call.callback}(int envAddress, int infoAddress${call.returnsFuture ? ', int token' : ''}) {\n${call.returnsFuture ? '  _api.beginFuture(token);\n' : ''}  try {',
     );
     code.writeln(
       '    final call = _api.call(envAddress, infoAddress, $capacity);',
@@ -157,7 +162,8 @@ void main() {}
       );
     }
     final preflight =
-        !rawStructuralArguments && call.inputs.any(containsValueClass);
+        !rawStructuralArguments &&
+        (call.returnsFuture || call.inputs.any(containsValueClass));
     if (preflight) {
       var option = 0;
       for (final (index, parameter) in parameters.indexed) {
@@ -279,66 +285,89 @@ void main() {}
       NativeCallKind.getter => '$receiver.$path',
       NativeCallKind.setter => '$receiver.$path = a0',
     };
-    if (call.isConstructor) {
+    if (call.returnsFuture) {
       code.writeln(
-        '    return _api.wrap(call, $invocation, ${call.classId}, ${_quote(call.context)});',
+        '    _api.retainFuture(token, [${[if (call.owner != null && !call.isStatic) 'object', for (var i = 0; i < parameters.length; i++) 'a$i'].join(', ')}]);',
       );
-    } else if (call.output == null) {
+      code.writeln('    final env = Pointer<Void>.fromAddress(envAddress);');
       code.writeln(
-        '    $invocation;\n    return _api.undefinedResult(call.env);',
+        '    _api.completeFuture(envAddress, token, $invocation, (value) {',
+      );
+      _writeResult(code, call.output, structures, 'env');
+      code.writeln('    }, ${_quote(call.context)});\n    return 0;');
+      code.writeln(
+        '  } catch (error, stack) {\n'
+        '    _api.rejectFuture(envAddress, token, error, stack, ${_quote(call.context)});\n'
+        '    return 0;\n  }\n}',
       );
     } else {
-      final output = call.output!;
-      code.writeln('    final value = $invocation;');
-      if (output.nullable &&
-          output is! ListConversion &&
-          output is! RecordConversion &&
-          output is! MapConversion &&
-          output is! DictionaryConversion &&
-          output is! ValueClassConversion) {
+      if (call.isConstructor) {
         code.writeln(
-          '    if (value == null) return _api.nullResult(call.env);',
-        );
-      }
-      if (output is ReferenceConversion) {
-        code.writeln(
-          '    return _api.referenceResult(call.env, value, ${output.classId}, ${_quote(output.context)});',
-        );
-      } else if (output is ScalarConversion) {
-        final context = output.kind == ScalarKind.integer && !output.usesBigInt
-            ? ', ${_quote(output.context)}'
-            : '';
-        code.writeln(
-          '    return _api.${nativeScalarWriter(output)}(call.env, value$context);',
-        );
-      } else if (output is ListConversion ||
-          output is RecordConversion ||
-          output is MapConversion ||
-          output is DictionaryConversion ||
-          output is ValueClassConversion) {
-        final write = structures.write(output);
-        code.writeln(
-          '    final state = _NativeWriteState();\n'
-          '    try {\n'
-          '      return $write(call.env, value, state, ${_quote(output.context)}, 0);\n'
-          '    } catch (_) {\n'
-          '      _api.rollbackReferences(state.pending);\n'
-          '      rethrow;\n'
-          '    }',
+          '    return _api.wrap(call, $invocation, ${call.classId}, ${_quote(call.context)});',
         );
       } else {
-        throw StateError('Unsupported native output conversion');
+        code.writeln(
+          call.output == null
+              ? '    $invocation;'
+              : '    final value = $invocation;',
+        );
+        _writeResult(code, call.output, structures, 'call.env');
       }
+      code.writeln(
+        '  } catch (error) {\n    return _api.fail(envAddress, error);\n  }\n}',
+      );
     }
-    code.writeln(
-      '  } catch (error) {\n    return _api.fail(envAddress, error);\n  }\n}',
-    );
   }
   if (hasStructures) {
     code.writeln(nativeStructuralPrelude);
     code.write(structures.source);
   }
   return code.toString();
+}
+
+void _writeResult(
+  StringBuffer code,
+  ValueConversion? output,
+  NativeStructuralEmitter structures,
+  String env,
+) {
+  if (output == null) {
+    code.writeln('    return _api.undefinedResult($env);');
+    return;
+  }
+  if (output.nullable &&
+      (output is ReferenceConversion || output is ScalarConversion)) {
+    code.writeln('    if (value == null) return _api.nullResult($env);');
+  }
+  if (output is ReferenceConversion) {
+    code.writeln(
+      '    return _api.referenceResult($env, value, ${output.classId}, ${_quote(output.context)});',
+    );
+  } else if (output is ScalarConversion) {
+    final context = output.kind == ScalarKind.integer && !output.usesBigInt
+        ? ', ${_quote(output.context)}'
+        : '';
+    code.writeln(
+      '    return _api.${nativeScalarWriter(output)}($env, value$context);',
+    );
+  } else if (output is ListConversion ||
+      output is RecordConversion ||
+      output is MapConversion ||
+      output is DictionaryConversion ||
+      output is ValueClassConversion) {
+    final write = structures.write(output);
+    code.writeln(
+      '    final state = _NativeWriteState();\n'
+      '    try {\n'
+      '      return $write($env, value, state, ${_quote(output.context)}, 0);\n'
+      '    } catch (_) {\n'
+      '      _api.rollbackReferences(state.pending);\n'
+      '      rethrow;\n'
+      '    }',
+    );
+  } else {
+    throw StateError('Unsupported native output conversion');
+  }
 }
 
 void _readReference(
