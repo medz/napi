@@ -40,8 +40,10 @@ first is not acceptable.
 
 Cleanup starts once all accepted leases have been released. Synchronous cleanup
 closes immediately when invoked; asynchronous cleanup remains closing until its
-future settles. Either success or failure is terminal. Errors and stacks are
-preserved by the disposal future. Cleanup is never retried, and its errors do not
+future settles. Either success or failure is terminal. The disposal future
+forwards an asynchronous error and its stack without reapplying the Zone's error
+interception. A synchronous throw follows the usual Zone interception when it
+becomes an asynchronous error. Cleanup is never retried, and its errors do not
 escape a lease's `release()` call.
 
 The cleanup callback runs in the first disposal call's Zone, even if the last
@@ -85,3 +87,15 @@ Deterministic Dart tests cover multiple leases, aliases/replacement wrappers,
 synchronous and asynchronous cleanup, failure, reentry and differing release
 Zones. They do not depend on GC timing and do not establish native/Wasm generated
 resource conformance, native event-loop scheduling or runtime teardown behavior.
+
+The same runtime test suite can run on the Dart VM and compiled Wasm without a
+separate fixture or generated public API:
+
+```sh
+dart test test/runtime/resources_test.dart
+dart test --platform node --compiler dart2wasm test/runtime/resources_test.dart
+```
+
+This kernel was tested with Dart 3.13.5 and Node 24.19.0. The Wasm test uses the
+SDK's standard test runner loader; it does not validate the binding compiler's
+resource emission or native Node-API event-loop integration.

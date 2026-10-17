@@ -47,8 +47,8 @@ final class ResourceControl implements OperationOwner {
   ///
   /// The first call supplies the cleanup closure and its arguments. Later calls
   /// return the identical future and ignore their closure. Cleanup runs in the
-  /// first call's zone; synchronous exceptions and future errors complete this
-  /// future with the original error and stack. Both success and failure close
+  /// first call's zone. Future errors keep their error and stack; synchronous
+  /// exceptions follow that zone's error interception. Success and failure close
   /// the resource permanently. Releasing a lease does not throw cleanup errors.
   ///
   /// Cleanup may reenter [dispose], but must not await its own disposal. Returning
@@ -68,13 +68,9 @@ final class ResourceControl implements OperationOwner {
           throw StateError('Resource cleanup cannot await its own disposal.');
         }
         if (result is Future<void>) {
-          unawaited(
-            result.then<void>(
-              (_) => _finish(),
-              onError: (Object error, StackTrace stack) =>
-                  _finish(error, stack),
-            ),
-          );
+          // Forward an existing asynchronous error without invoking the
+          // disposal zone's errorCallback a second time.
+          completion.complete(result.whenComplete(() => _owner = null));
         } else {
           _finish();
         }
@@ -103,7 +99,7 @@ final class ResourceControl implements OperationOwner {
   }
 
   void _finish([Object? error, StackTrace? stack]) {
-    if (_owner == null) return;
+    if (_completion!.isCompleted) return;
     _owner = null;
     if (error == null) {
       _completion!.complete();

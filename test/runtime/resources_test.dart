@@ -170,6 +170,110 @@ void main() {
     },
   );
 
+  for (final asynchronous in [false, true]) {
+    test(
+      '${asynchronous ? "async" : "sync"} cleanup errors are zone-intercepted once',
+      () async {
+        var interceptions = 0;
+        final rewritten = StateError('rewritten once');
+        final rewrittenStack = StackTrace.fromString('rewritten stack');
+        await runZoned(
+          () async {
+            final control = ResourceControl.forObject(Object());
+            final pending = Completer<void>();
+            final original = StateError('original failure');
+            final originalStack = StackTrace.fromString('original stack');
+            final disposed = control.dispose(() {
+              if (asynchronous) return pending.future;
+              Error.throwWithStackTrace(original, originalStack);
+            });
+            if (asynchronous) pending.completeError(original, originalStack);
+            for (var attempt = 0; attempt < 2; attempt++) {
+              try {
+                await disposed;
+                fail('must fail');
+              } catch (error, stack) {
+                expect(error, same(rewritten));
+                expect(stack.toString(), rewrittenStack.toString());
+                expect(control.state, ResourceState.closed);
+                expect(
+                  control.dispose(() => fail('retry cleanup')),
+                  same(disposed),
+                );
+              }
+            }
+          },
+          zoneSpecification: ZoneSpecification(
+            errorCallback: (self, parent, zone, error, stack) {
+              interceptions++;
+              return interceptions == 1
+                  ? AsyncError(rewritten, rewrittenStack)
+                  : AsyncError(StateError('rewritten again'), StackTrace.empty);
+            },
+          ),
+        );
+        expect(interceptions, 1);
+      },
+    );
+  }
+
+  test('cleanup Future listener registration failure closes once', () async {
+    final control = ResourceControl.forObject(Object());
+    final pending = Completer<void>();
+    final error = StateError('registration failed');
+    var failRegistration = false;
+    final zone = Zone.current.fork(
+      specification: ZoneSpecification(
+        registerCallback: <R>(self, parent, zone, R Function() callback) {
+          if (failRegistration) {
+            failRegistration = false;
+            throw error;
+          }
+          return parent.registerCallback(zone, callback);
+        },
+      ),
+    );
+    final disposed = zone.run(
+      () => control.dispose(() {
+        failRegistration = true;
+        return pending.future;
+      }),
+    );
+    expect(control.state, ResourceState.closed);
+    await expectLater(disposed, throwsA(same(error)));
+    expect(control.dispose(() => fail('retry cleanup')), same(disposed));
+    pending.complete();
+  });
+
+  test(
+    'a zone wrapper cannot settle an accepted async cleanup twice',
+    () async {
+      final control = ResourceControl.forObject(Object());
+      final lease = control.retainOperation();
+      final pending = Completer<void>();
+      var throwAfterCleanup = false;
+      final zone = Zone.current.fork(
+        specification: ZoneSpecification(
+          run: <R>(self, parent, zone, R Function() body) {
+            final result = parent.run(zone, body);
+            if (throwAfterCleanup) {
+              throwAfterCleanup = false;
+              throw StateError('zone wrapper after cleanup');
+            }
+            return result;
+          },
+        ),
+      );
+      final disposed = zone.run(() => control.dispose(() => pending.future));
+      throwAfterCleanup = true;
+      expect(lease.release, returnsNormally);
+      expect(control.state, ResourceState.closing);
+      pending.complete();
+      await disposed;
+      expect(control.state, ResourceState.closed);
+    },
+  );
+
   test('cleanup can reenter dispose but cannot acquire work', () async {
     final control = ResourceControl.forObject(Object());
     final lease = control.retainOperation();
