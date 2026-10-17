@@ -1,5 +1,5 @@
-// Compiler-private bridge ABI, version 13. Keep generated Dart in lockstep.
-// Version 13 adds scoped synchronous borrowed callbacks.
+// Compiler-private bridge ABI, version 14. Keep generated Dart in lockstep.
+// Version 14 adds retained callbacks and queued Promise input completion.
 #pragma once
 #include <node_api.h>
 #include <stdint.h>
@@ -87,15 +87,30 @@ enum BridgeApiSlot {
   bridge_release_host_value = 48,
   bridge_open_callback_handles = 49,
   bridge_close_callback_handles = 50,
-  bridge_call_borrowed = 51,
+  bridge_call_callback = 51,
   bridge_take_callback_exception = 52,
-  bridge_api_count = 53,
+  bridge_callback_helper = 53,
+  bridge_callback_identity = 54,
+  bridge_api_count = 55,
 };
+// kind 0 returns a private weak-identity helper. kind 1 lazily initializes the
+// owner-local completion queue and returns a strict Promise callback observer.
+// The generated root acceptCallback(env, token, rejected, value) is required
+// only for kind 1. Incoming JS reactions enqueue owned payloads; only the owner
+// pump may call that Dart closure. Teardown makes the saved callback inert.
+typedef napi_status (*BridgeCallbackHelper)(napi_env, int32_t kind, napi_value* result);
+// Resolve an original JS function's module-local weak identity in a C-local
+// handle scope. This never retains the function and returns a positive ID.
+typedef napi_status (*BridgeCallbackIdentity)(napi_env, napi_value, int64_t* result);
 // Each invocation's scope encloses argument conversion, JS execution and result
 // conversion. A pending exception must be cleared and owned before closing it.
-// Borrowed function handles never outlive the enclosing exported Dart call.
-typedef napi_status (*BridgeCallBorrowed)(
-    napi_env, napi_value function, size_t argc, const napi_value* argv,
+// Retained callbacks obtain a borrowed function handle for each invocation;
+// that handle never outlives the current Node callback/pump scope.
+// Exactly one target is provided: a borrowed private helper (ownedSlot == 0),
+// or an owned function slot (function == nullptr). Owned functions are borrowed
+// and invoked inside the caller's already-open local handle scope.
+typedef napi_status (*BridgeCallCallback)(
+    napi_env, napi_value function, int64_t ownedSlot, size_t argc, const napi_value* argv,
     napi_value* result);
 // Slots are local to the active Owner and never reused. The holder is private;
 // arbitrary payloads are retained without inspecting or coercing them. Get

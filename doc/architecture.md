@@ -11,9 +11,9 @@ precompiled runtime bundle. Future exports share the [Promise boundary](futures.
 including [resource operation leases](resources.md).
 Both targets also generate [generic payload storage](opaque.md) with matching
 generic TypeScript declarations and actual omission detection.
-Both also generate [synchronous borrowed callbacks](callbacks.md), with shared
-scalar/List/record conversion rules, same-module reentry and exact JS throws.
-Retained/async callbacks, streams, shared-buffer lifetimes, other native targets and
+Both also generate [retained and async callbacks](callbacks.md), with shared
+scalar/List/record conversions, weak adapter identity and exact JS failures.
+Streams, shared-buffer lifetimes, other native targets and
 automatic runtime supply remain development work; see [native scope](native.md).
 
 ## Public contract
@@ -40,8 +40,8 @@ mandatory disposal method on every ordinary class replaces this contract.
 GC and environment teardown release references without running business cleanup.
 Wasm may collect such cycles automatically, but portable code must break them.
 Generated opaque bindings use the native owned-value primitive and direct
-traced externrefs on Wasm. Function-typed inputs use a separate borrowed callback
-adapter that expires on call exit; a generic payload containing a JS function
+traced externrefs on Wasm. Function-typed inputs use typed callback adapters whose
+lifetime follows Dart references; a generic payload containing a JS function
 remains an unchanged value and is never invoked by that adapter.
 
 Generated JavaScript is allowed for loading, conversion and runtime interop.

@@ -66,6 +66,23 @@ struct CleanupPromise {
 struct FutureRelease {
   Owner* owner;
 };
+struct IncomingCallbackResult {
+  int64_t token;
+  bool rejected;
+  napi_ref value;
+};
+struct HostValue {
+  napi_ref reference;
+  bool function;
+};
+// Lazily allocated only for modules that invoke Future-returning callbacks.
+struct IncomingCallbacks {
+  std::deque<IncomingCallbackResult> results;
+  napi_ref delivery = nullptr;
+  napi_ref observer = nullptr;
+  FutureRelease* sentinel = nullptr;
+  Dart_PersistentHandle completion = nullptr;
+};
 struct ReferenceShape {
   std::vector<uint32_t> views;
   napi_ref creator;
@@ -100,6 +117,9 @@ struct Owner {
   std::vector<Property*> properties;
   std::vector<napi_ref> constructors;
   napi_ref reference_resolver = nullptr;
+  napi_ref callback_factory = nullptr;
+  napi_ref callback_identity = nullptr;
+  IncomingCallbacks* incoming_callbacks = nullptr;
   std::map<uint32_t, ReferenceShape> reference_shapes;
   bool resolving_reference_shape = false;
   std::set<Wrapper*> wrappers;
@@ -109,7 +129,7 @@ struct Owner {
   napi_ref maps[map_intrinsic_count] = {};
   napi_ref dictionary_create = nullptr;
   int64_t next_host_value = 1;
-  std::map<int64_t, napi_ref> host_values;
+  std::map<int64_t, HostValue> host_values;
 };
 static thread_local Owner* active_owner = nullptr;
 
@@ -540,6 +560,145 @@ static void flush_futures(Owner* owner) {
   if (!owner->settlements.empty()) schedule_pump(owner);
 }
 
+// A Promise reaction may run while a different owner's Dart isolate is active.
+// It owns and queues the payload here; only the matching pump may enter Dart.
+static napi_value deliver_callback(napi_env env, napi_callback_info info) {
+  size_t count = 3;
+  napi_value args[3], undefined;
+  void* data = nullptr;
+  if (napi_get_cb_info(env, info, &count, args, nullptr, &data) != napi_ok || !data)
+    return nullptr;
+  if (napi_get_undefined(env, &undefined) != napi_ok) return nullptr;
+  auto owner = static_cast<FutureRelease*>(data)->owner;
+  if (!owner || owner->closing) return undefined;
+  double number;
+  bool rejected;
+  if (count != 3 || owner->env != env || !owner->incoming_callbacks ||
+      napi_get_value_double(env, args[0], &number) != napi_ok ||
+      !std::isfinite(number) || number < 1 || number > 9007199254740991.0 ||
+      std::trunc(number) != number ||
+      napi_get_value_bool(env, args[1], &rejected) != napi_ok)
+    return fail_error(env, "Invalid native callback completion");
+  napi_value holder;
+  napi_ref reference = nullptr;
+  napi_property_descriptor property = {"value", nullptr, nullptr, nullptr,
+      nullptr, args[2], napi_default, nullptr};
+  auto status = napi_create_object(env, &holder);
+  if (status == napi_ok) status = napi_define_properties(env, holder, 1, &property);
+  if (status == napi_ok) status = napi_create_reference(env, holder, 1, &reference);
+  if (status != napi_ok) return nullptr;
+  try {
+    owner->incoming_callbacks->results.push_back({static_cast<int64_t>(number), rejected, reference});
+  } catch (const std::bad_alloc&) {
+    napi_delete_reference(env, reference);
+    return fail_error(env, "Cannot enqueue native callback completion");
+  }
+  schedule_pump(owner);
+  return undefined;
+}
+
+static napi_status callback_helper(napi_env env, int32_t kind, napi_value* result) {
+  auto owner = active_owner;
+  if (!owner || owner->env != env || owner->closing || !owner->callback_factory ||
+      (kind != 0 && kind != 1)) return napi_invalid_arg;
+  napi_value args[2], factory, receiver;
+  auto status = napi_get_undefined(env, &receiver);
+  if (status != napi_ok) return status;
+  args[1] = receiver;
+  napi_ref* cached = &owner->callback_identity;
+  if (kind == 1) {
+    if (!owner->incoming_callbacks) {
+      owner->incoming_callbacks = new (std::nothrow) IncomingCallbacks;
+      if (!owner->incoming_callbacks) return napi_generic_failure;
+    }
+    auto incoming = owner->incoming_callbacks;
+    cached = &incoming->observer;
+    if (!incoming->completion) {
+      auto closure = Dart_GetField(Dart_RootLibrary(), Dart_NewStringFromCString("acceptCallback"));
+      if (Dart_IsError(closure) || !Dart_IsClosure(closure)) {
+        fail_error(env, Dart_IsError(closure) ? Dart_GetError(closure) : "acceptCallback must be a Dart function");
+        return napi_pending_exception;
+      }
+      incoming->completion = Dart_NewPersistentHandle(closure);
+    }
+    if (!incoming->delivery) {
+      auto sentinel = new (std::nothrow) FutureRelease{owner};
+      if (!sentinel) return napi_generic_failure;
+      status = napi_create_function(env, "completeDartCallback", NAPI_AUTO_LENGTH,
+          deliver_callback, sentinel, &args[1]);
+      if (status == napi_ok)
+        status = napi_add_finalizer(env, args[1], sentinel,
+            [](napi_env, void* data, void*) {
+              auto sentinel = static_cast<FutureRelease*>(data);
+              auto owner = sentinel->owner;
+              if (owner && owner->incoming_callbacks && owner->incoming_callbacks->sentinel == sentinel)
+                owner->incoming_callbacks->sentinel = nullptr;
+              delete sentinel;
+            }, nullptr, nullptr);
+      if (status != napi_ok) { delete sentinel; return status; }
+      incoming->sentinel = sentinel;
+      status = napi_create_reference(env, args[1], 1, &incoming->delivery);
+      if (status != napi_ok) {
+        // The function finalizer now owns this sentinel. It can run after a
+        // retry creates a replacement, or after failed-load owner teardown.
+        sentinel->owner = nullptr;
+        incoming->sentinel = nullptr;
+        return status;
+      }
+    } else {
+      status = napi_get_reference_value(env, incoming->delivery, &args[1]);
+    }
+    if (status != napi_ok) return status;
+  }
+  if (*cached) return napi_get_reference_value(env, *cached, result);
+  status = napi_create_int32(env, kind, &args[0]);
+  if (status == napi_ok) status = napi_get_reference_value(env, owner->callback_factory, &factory);
+  if (status == napi_ok) status = napi_call_function(env, receiver, factory, 2, args, result);
+  napi_valuetype type;
+  if (status == napi_ok) status = napi_typeof(env, *result, &type);
+  if (status == napi_ok && type != napi_function) status = napi_function_expected;
+  if (status == napi_ok) status = napi_create_reference(env, *result, 1, cached);
+  return status;
+}
+
+static napi_status callback_identity(napi_env env, napi_value function, int64_t* result) {
+  if (!function || !result) return napi_invalid_arg;
+  napi_handle_scope handles;
+  auto status = napi_open_handle_scope(env, &handles);
+  if (status != napi_ok) return status;
+  napi_value helper, receiver, value;
+  status = callback_helper(env, 0, &helper);
+  if (status == napi_ok) status = napi_get_undefined(env, &receiver);
+  if (status == napi_ok) status = napi_call_function(env, receiver, helper, 1, &function, &value);
+  if (status == napi_ok) status = napi_get_value_int64(env, value, result);
+  auto closed = napi_close_handle_scope(env, handles);
+  return status == napi_ok ? closed : status;
+}
+
+static std::string drain_callback_results(Owner* owner, size_t* budget) {
+  auto incoming = owner->incoming_callbacks;
+  if (!incoming) return {};
+  while (*budget && !incoming->results.empty()) {
+    --*budget;
+    const auto item = incoming->results.front();
+    incoming->results.pop_front();
+    napi_value holder, payload;
+    auto status = napi_get_reference_value(owner->env, item.value, &holder);
+    if (status == napi_ok) status = napi_get_named_property(owner->env, holder, "value", &payload);
+    std::string error;
+    if (status == napi_ok) {
+      Dart_Handle args[] = {Dart_NewInteger(reinterpret_cast<intptr_t>(owner->env)),
+        Dart_NewInteger(item.token), Dart_NewBoolean(item.rejected),
+        Dart_NewInteger(reinterpret_cast<intptr_t>(payload))};
+      auto result = Dart_InvokeClosure(Dart_HandleFromPersistent(incoming->completion), 4, args);
+      if (Dart_IsError(result)) error = Dart_GetError(result);
+    } else error = "Cannot read native callback completion";
+    napi_delete_reference(owner->env, item.value);
+    if (!error.empty()) return error;
+  }
+  return {};
+}
+
 static void pump(uv_async_t* wakeup) {
   auto owner = static_cast<Owner*>(wakeup->data);
   if (owner->closing) return;
@@ -588,6 +747,7 @@ static void pump(uv_async_t* wakeup) {
   bool retry_microtasks = false;
   const uint64_t queued = owner->messages.exchange(0, std::memory_order_relaxed);
   uint64_t handled = 0;
+  size_t incoming_budget = 64;
   {
     Scope scope(owner, true, false);
     if (scope.entered) {
@@ -599,6 +759,8 @@ static void pump(uv_async_t* wakeup) {
           return false;
         }
         drain_releases(owner);
+        auto callback_error = drain_callback_results(owner, &incoming_budget);
+        if (error.empty()) error = callback_error;
         auto released_error = drain_future_releases(owner);
         if (error.empty()) error = released_error;
         char* failure = nullptr;
@@ -629,7 +791,8 @@ static void pump(uv_async_t* wakeup) {
   if (handled < queued)
     owner->messages.fetch_add(queued - handled, std::memory_order_relaxed);
   if (retry_microtasks || owner->messages.load(std::memory_order_relaxed) ||
-      !owner->settlements.empty() || !owner->future_releases.empty()) {
+      !owner->settlements.empty() || !owner->future_releases.empty() ||
+      (owner->incoming_callbacks && !owner->incoming_callbacks->results.empty())) {
     schedule_pump(owner);
   } else if (live) {
     uv_ref(reinterpret_cast<uv_handle_t*>(wakeup));
@@ -1446,16 +1609,22 @@ static napi_status own_host_value(napi_env env, napi_value value, int64_t* slot)
     return napi_invalid_arg;
   // Node-API versions below 10 cannot reference every primitive directly.
   // An inaccessible own data property also avoids inherited setters and traps.
-  napi_value holder;
-  auto status = napi_create_object(env, &holder);
-  napi_property_descriptor property = {"value", nullptr, nullptr, nullptr,
-      nullptr, value, napi_default, nullptr};
-  if (status == napi_ok) status = napi_define_properties(env, holder, 1, &property);
+  napi_valuetype type;
+  auto status = napi_typeof(env, value, &type);
+  if (status != napi_ok) return status;
+  const bool function = type == napi_function;
+  napi_value holder = value;
+  if (!function) {
+    status = napi_create_object(env, &holder);
+    napi_property_descriptor property = {"value", nullptr, nullptr, nullptr,
+        nullptr, value, napi_default, nullptr};
+    if (status == napi_ok) status = napi_define_properties(env, holder, 1, &property);
+  }
   napi_ref reference = nullptr;
   if (status == napi_ok) status = napi_create_reference(env, holder, 1, &reference);
   if (status != napi_ok) return status;
   try {
-    owner->host_values.emplace(owner->next_host_value, reference);
+    owner->host_values.emplace(owner->next_host_value, HostValue{reference, function});
   } catch (const std::bad_alloc&) {
     napi_delete_reference(env, reference);
     return napi_generic_failure;
@@ -1471,7 +1640,11 @@ static napi_status host_value(napi_env env, int64_t slot, napi_value* result) {
   auto found = owner->host_values.find(slot);
   if (found == owner->host_values.end()) return napi_invalid_arg;
   napi_value holder;
-  auto status = napi_get_reference_value(env, found->second, &holder);
+  auto status = napi_get_reference_value(env, found->second.reference, &holder);
+  if (status == napi_ok && found->second.function) {
+    *result = holder;
+    return napi_ok;
+  }
   return status == napi_ok
       ? napi_get_named_property(env, holder, "value", result) : status;
 }
@@ -1481,16 +1654,21 @@ static napi_status release_host_value(napi_env env, int64_t slot) {
   if (!owner || owner->env != env || owner->closing) return napi_invalid_arg;
   auto found = owner->host_values.find(slot);
   if (found == owner->host_values.end()) return napi_ok;
-  auto status = napi_delete_reference(env, found->second);
+  auto status = napi_delete_reference(env, found->second.reference);
   if (status == napi_ok) owner->host_values.erase(found);
   return status;
 }
 
-static napi_status call_borrowed(napi_env env, napi_value function, size_t argc,
+static napi_status call_callback(napi_env env, napi_value function, int64_t owned_slot, size_t argc,
                                 const napi_value* argv, napi_value* result) {
   auto owner = active_owner;
-  if (!owner || owner->env != env || owner->closing || !function || !result)
+  if (!owner || owner->env != env || owner->closing || !result ||
+      ((function != nullptr) == (owned_slot != 0)))
     return napi_invalid_arg;
+  if (owned_slot != 0) {
+    auto status = host_value(env, owned_slot, &function);
+    if (status != napi_ok) return status;
+  }
   napi_value receiver;
   auto status = napi_get_undefined(env, &receiver);
   return status == napi_ok
@@ -1556,8 +1734,10 @@ static void* api_table[] = {
     reinterpret_cast<void*>(&release_host_value),
     reinterpret_cast<void*>(&napi_open_handle_scope),
     reinterpret_cast<void*>(&napi_close_handle_scope),
-    reinterpret_cast<void*>(&call_borrowed),
+    reinterpret_cast<void*>(&call_callback),
     reinterpret_cast<void*>(&take_callback_exception),
+    reinterpret_cast<void*>(&callback_helper),
+    reinterpret_cast<void*>(&callback_identity),
 };
 static_assert(sizeof(api_table) / sizeof(*api_table) == bridge_api_count);
 
@@ -1651,10 +1831,19 @@ static napi_value dispatch_set(napi_env env, napi_callback_info info) {
 
 static void destroy(Owner* owner) {
   owner->closing = true;
+  if (auto incoming = owner->incoming_callbacks) {
+    if (incoming->sentinel) incoming->sentinel->owner = nullptr;
+    for (const auto& item : incoming->results) napi_delete_reference(owner->env, item.value);
+    incoming->results.clear();
+    if (incoming->delivery) napi_delete_reference(owner->env, incoming->delivery);
+    if (incoming->observer) napi_delete_reference(owner->env, incoming->observer);
+  }
+  if (owner->callback_factory) napi_delete_reference(owner->env, owner->callback_factory);
+  if (owner->callback_identity) napi_delete_reference(owner->env, owner->callback_identity);
   // Core Finalizer callbacks are optional and do not run at isolate shutdown.
   // This owner-thread cleanup releases all remaining host roots without JS.
   for (const auto& value : owner->host_values)
-    napi_delete_reference(owner->env, value.second);
+    napi_delete_reference(owner->env, value.second.reference);
   owner->host_values.clear();
   if (owner->future_release) owner->future_release->owner = nullptr;
   for (const auto& cached : owner->cleanup_promises) cached.second->owner = nullptr;
@@ -1701,6 +1890,8 @@ static void destroy(Owner* owner) {
         delete callback;
       }
       for (auto property : owner->properties) delete property;
+      if (owner->incoming_callbacks && owner->incoming_callbacks->completion)
+        Dart_DeletePersistentHandle(owner->incoming_callbacks->completion);
       if (owner->release_owner) Dart_DeletePersistentHandle(owner->release_owner);
       if (owner->release_future) Dart_DeletePersistentHandle(owner->release_future);
     }
@@ -1711,6 +1902,8 @@ static void destroy(Owner* owner) {
       std::abort();
     }
   }
+  delete owner->incoming_callbacks;
+  owner->incoming_callbacks = nullptr;
   if (owner->async_context)
     napi_async_destroy(owner->env, owner->async_context);
   if (owner->async_resource)
@@ -2027,11 +2220,11 @@ static void initialize_runtime() {
 static napi_value load(napi_env env, napi_callback_info info) {
   if (active_owner)
     return fail(env, "Cannot load a Dart isolate reentrantly");
-  size_t argc = 5;
-  napi_value args[5];
+  size_t argc = 6;
+  napi_value args[6];
   if (napi_get_cb_info(env, info, &argc, args, nullptr, nullptr) != napi_ok ||
-      (argc < 1 || argc > 4))
-    return fail(env, "load expects a snapshot path and optional private resolver/Promise/settlement factories");
+      (argc < 1 || argc > 5))
+    return fail(env, "load expects a snapshot path and optional private resolver/Promise/settlement/callback factories");
   bool has_resolver = false;
   if (argc >= 2) {
     napi_valuetype type;
@@ -2040,15 +2233,14 @@ static napi_value load(napi_env env, napi_callback_info info) {
       return fail(env, "Native reference resolver must be a function or null");
     has_resolver = type == napi_function;
   }
-  if (argc >= 3) {
+  bool has_promise = false, has_settlement = false;
+  for (size_t i = 2; i < argc; ++i) {
     napi_valuetype type;
-    if (napi_typeof(env, args[2], &type) != napi_ok || type != napi_function)
-      return fail(env, "Native Promise factory must be a function");
-  }
-  if (argc == 4) {
-    napi_valuetype type;
-    if (napi_typeof(env, args[3], &type) != napi_ok || type != napi_function)
-      return fail(env, "Native settlement observer factory must be a function");
+    if (napi_typeof(env, args[i], &type) != napi_ok ||
+        (type != napi_function && !(argc == 5 && i < 4 && type == napi_null)))
+      return fail(env, "Native private factories must be functions or unused null placeholders");
+    if (i == 2) has_promise = type == napi_function;
+    if (i == 3) has_settlement = type == napi_function;
   }
   size_t size;
   if (napi_get_value_string_utf8(env, args[0], nullptr, 0, &size) != napi_ok)
@@ -2091,10 +2283,12 @@ static napi_value load(napi_env env, napi_callback_info info) {
   auto status = napi_create_object(env, &exports);
   if (status == napi_ok && has_resolver)
     status = napi_create_reference(env, args[1], 1, &owner->reference_resolver);
-  if (status == napi_ok && argc >= 3)
+  if (status == napi_ok && has_promise)
     status = napi_create_reference(env, args[2], 1, &owner->promise_factory);
-  if (status == napi_ok && argc == 4)
+  if (status == napi_ok && has_settlement)
     status = initialize_promise_observer(owner, args[3]);
+  if (status == napi_ok && argc == 5)
+    status = napi_create_reference(env, args[4], 1, &owner->callback_factory);
   if (status != napi_ok || capture_maps(owner) != napi_ok ||
       capture_dictionary(owner) != napi_ok ||
       !register_bindings(owner, exports)) {

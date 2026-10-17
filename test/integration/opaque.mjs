@@ -41,6 +41,15 @@ async function values(api) {
   });
   const revoked = Proxy.revocable({}, {});
   revoked.revoke();
+  const hostileFunction = new Proxy(() => {}, {
+    get() { traps++; throw Error('unexpected function payload get'); },
+    getPrototypeOf() { traps++; throw Error('unexpected function payload prototype'); },
+    ownKeys() { traps++; throw Error('unexpected function payload keys'); },
+    apply() { traps++; throw Error('unexpected function payload call'); },
+    construct() { traps++; throw Error('unexpected function payload construction'); },
+  });
+  const revokedFunction = Proxy.revocable(() => {}, {});
+  revokedFunction.revoke();
   const thenable = Object.defineProperty({}, 'then', {
     get() { traps++; throw Error('unexpected payload then'); },
   });
@@ -50,10 +59,11 @@ async function values(api) {
     (1n << 100n) + 3n, -(1n << 100n), null, undefined, -0, NaN,
     Infinity, -Infinity, true, false, 'a\ud800b\udfff', new Uint8Array([0, 255]),
     Buffer.from([3, 7]), [1, {x: 2}], Object.freeze({frozen: true}),
-    hostile, revoked.proxy, thenable, Promise.resolve(42),
+    hostile, revoked.proxy, hostileFunction, revokedFunction.proxy,
+    thenable, Promise.resolve(42),
     runInNewContext('({foreign: true})'), 0,
   ];
-  assert.equal(payloads.length, 25);
+  assert.equal(payloads.length, 27);
   for (const value of payloads) {
     assert(Object.is(api.identity(value), value));
     assert(Object.is(api.optional(value), value));

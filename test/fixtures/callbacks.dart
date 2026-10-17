@@ -10,6 +10,9 @@ int _calls = 0;
 int _timerState = 0;
 int _microtaskState = 0;
 final _cleanups = <int, int>{};
+final _registrations = <int Function(int)>[];
+final _asyncRegistrations = <Future<int> Function(int)>[];
+final _weakCallbacks = <WeakReference<Function>>[];
 
 @NAPI()
 int callbackCalls() => _calls;
@@ -161,6 +164,119 @@ int clearSavedCallback() {
 }
 
 @NAPI()
+bool sameCallback(int Function(int) first, int Function(int) second) =>
+    identical(first, second);
+
+@NAPI()
+int registerCallback(int Function(int) callback) {
+  _registrations.add(callback);
+  return _registrations.length;
+}
+
+@NAPI()
+bool unregisterCallback(int Function(int) callback) =>
+    _registrations.remove(callback);
+
+@NAPI()
+int registeredCallbackCount() => _registrations.length;
+
+@NAPI()
+int invokeRegistered(int index, int value) => _registrations[index](value);
+
+@NAPI(bigint: true)
+bool sameWideCallback(int Function(int) callback) =>
+    identical(_registrations.first, callback);
+
+@NAPI()
+int rememberCallbackWeakly(int Function(int) callback) {
+  _weakCallbacks.add(WeakReference(callback));
+  return _weakCallbacks.length;
+}
+
+@NAPI()
+int weakCallbackCount() =>
+    _weakCallbacks.where((entry) => entry.target != null).length;
+
+@NAPI()
+int rememberAsyncCallbackWeakly(Future<int> Function(int) callback) {
+  _weakCallbacks.add(WeakReference(callback));
+  return _weakCallbacks.length - 1;
+}
+
+@NAPI()
+bool matchesWeakAsyncCallback(int index, Future<int> Function(int) callback) =>
+    identical(_weakCallbacks[index].target, callback);
+
+@NAPI()
+Future<int> callAfter(int Function(int) callback, int value) async {
+  await Future<void>.delayed(Duration.zero);
+  return callback(value);
+}
+
+@NAPI()
+Future<int> callAsync(Future<int> Function(int) callback, int value) =>
+    callback(value);
+
+@NAPI()
+Future<void> callAsyncVoid(Future<void> Function() callback) => callback();
+
+@NAPI()
+Future<String> callAsyncString(
+  Future<String> Function(String) callback,
+  String value,
+) => callback(value);
+
+@NAPI(bigint: true)
+Future<int> callAsyncWide(Future<int> Function(int) callback, int value) =>
+    callback(value);
+
+@NAPI()
+Future<(List<int?>, {String label})> callAsyncRecord(
+  Future<(List<int?>, {String label})> Function((List<int?>, {String label}))
+  callback,
+) => callback(([1, null], label: 'row'));
+
+@NAPI()
+Future<int> optionalAsyncCallback([Future<int> Function(int)? callback]) =>
+    callback?.call(3) ?? Future.value(-1);
+
+@NAPI()
+int registerAsyncCallback(Future<int> Function(int) callback) {
+  _asyncRegistrations.add(callback);
+  return _asyncRegistrations.length;
+}
+
+@NAPI()
+bool unregisterAsyncCallback(Future<int> Function(int) callback) =>
+    _asyncRegistrations.remove(callback);
+
+@NAPI()
+Future<int> invokeAsyncRegistered(int index, int value) =>
+    _asyncRegistrations[index](value);
+
+@NAPI()
+Future<int> catchAsyncError(Future<void> Function() callback) async {
+  try {
+    await callback();
+    return 0;
+  } catch (error) {
+    _savedError = error;
+    return 1;
+  }
+}
+
+@NAPI()
+int catchCallbackStart(Future<int> Function(int) callback) {
+  try {
+    callback(1);
+    return 0;
+  } catch (error) {
+    _savedError = error;
+    return 1;
+  }
+}
+
+@NAPI()
 int scheduleCallback(int Function(int) callback) {
   _timerState = 0;
   Timer.run(() {
@@ -222,7 +338,26 @@ class CallbackResource {
   final int id;
   CallbackResource(this.id);
   int apply(int Function(int) callback) => callback(id);
+  Future<int> applyAsync(Future<int> Function(int) callback) => callback(id);
+  Future<int> applyLater(int Function(int) callback) async {
+    await Future<void>.delayed(Duration.zero);
+    return callback(id);
+  }
+
   void close() => _cleanups.update(id, (n) => n + 1, ifAbsent: () => 1);
+}
+
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+class CallbackCleanup {
+  final int id;
+  CallbackCleanup(this.id);
+  Future<void> close(Future<void> Function() finish) async {
+    try {
+      await finish();
+    } finally {
+      _cleanups.update(id, (n) => n + 1, ifAbsent: () => 1);
+    }
+  }
 }
 
 @NAPI()
@@ -230,3 +365,6 @@ int callbackCleanups(int id) => _cleanups[id] ?? 0;
 
 // Selected independently through ExternalLibrary without changing the library.
 int plainCallback(int Function(int) callback, int value) => callback(value);
+
+Future<int> plainAsyncCallback(Future<int> Function(int) callback, int value) =>
+    callback(value);

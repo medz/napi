@@ -3,7 +3,7 @@ import 'dart:io';
 
 import 'verify.dart' show run;
 
-/// Verifies generated borrowed callbacks in relocated, installed packages.
+/// Verifies generated callbacks in relocated, installed packages.
 Future<void> verifyCallbackFixture(
   Directory root, {
   Directory? nativeRuntime,
@@ -35,6 +35,7 @@ Future<void> main() async {
       packagesPath: File('.dart_tool/package_config.json').absolute.path,
       external: external ? const ExternalLibrary([
         ExternalFunction('plainCallback'),
+        ExternalFunction('plainAsyncCallback'),
       ]) : null,
       ${native ? 'target: BuildTarget.native,\n      nativeRuntime: Directory(${jsonEncode(nativeRuntime.absolute.path)}),' : ''}
     );

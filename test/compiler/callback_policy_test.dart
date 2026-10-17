@@ -14,7 +14,7 @@ final _packages = File('.dart_tool/package_config.json').absolute.path;
 void main() {
   late Directory directory;
   setUp(() async {
-    directory = await Directory.systemTemp.createTemp('napi-borrowed-policy-');
+    directory = await Directory.systemTemp.createTemp('napi-callback-policy-');
     addTearDown(() => directory.delete(recursive: true));
   });
   Future<BindingModule> read(String text) async {
@@ -44,11 +44,9 @@ typedef Transform = List<(int, String?)>? Function((bool, List<int?>) source);
         'List<(int, String?)>? Function((bool, List<int?>))',
       );
       expect(transform.jsType, 'function');
-      expect(
-        transform.inputs.single.context,
-        'run.callback callback argument 1',
-      );
-      expect(transform.output!.context, 'run.callback callback result');
+      expect(transform.returnsFuture, isFalse);
+      expect(transform.inputs.single.context, 'callback argument 1');
+      expect(transform.output!.context, 'callback result');
       expect(
         conversionGraph([transform]).whereType<ScalarConversion>(),
         hasLength(4),
@@ -69,6 +67,126 @@ typedef Transform = List<(int, String?)>? Function((bool, List<int?>) source);
       isTrue,
     );
   });
+
+  test('callback Future results carry their payload independently of the outer call', () async {
+    final module = await read('''
+typedef Later<T> = Future<T>;
+typedef Transform = Later<List<(int, String?)>?> Function((bool, List<int?>) source);
+@NAPI() Future<int> run(Transform callback) async => (await callback((true, [1])))?.length ?? 0;
+@NAPI(bigint: true) Future<int> big(Future<int> Function(int, List<int>) callback) => callback(1, [2]);
+@NAPI() Future<void> notify(Future<void> Function() callback) => callback();
+@NAPI() int accept(Future<int> Function(int) callback) => 1;
+@NAPI() Future<int> synchronous(int Function(int) callback) async => callback(1);
+@NAPI() Future<void> syncVoid(void Function() callback) async { callback(); }
+@NAPI() class Calls {
+  Calls();
+  Future<int> run(Future<int> Function(int) callback) => callback(1);
+}
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close') class Resource {
+  Resource();
+  void close(void Function() callback) { callback(); }
+}
+''');
+    final wasm = lower(validate(module));
+    final native = validateNative(module);
+    for (final inputs in [
+      wasm.functions.map((f) => f.inputs.single).toList(),
+      native.functions.map((f) => f.inputs.single).toList(),
+    ]) {
+      final transform = inputs[0] as CallbackConversion;
+      expect(transform.returnsFuture, isTrue);
+      expect(transform.output, isA<ListConversion>());
+      expect(transform.output!.nullable, isTrue);
+      expect(
+        transform.dartType,
+        'Future<List<(int, String?)>?> Function((bool, List<int?>))',
+      );
+      expect(
+        transform.typescriptType,
+        '(arg0: { \$1: boolean; \$2: Array<number | null> }) => globalThis.Promise<Array<{ \$1: number; \$2: string | null }> | null>',
+      );
+      final big = inputs[1] as CallbackConversion;
+      expect(big.returnsFuture, isTrue);
+      expect(big.output!.typescriptType, 'bigint');
+      expect(
+        big.typescriptType,
+        '(arg0: bigint, arg1: Array<bigint>) => globalThis.Promise<bigint>',
+      );
+      final notify = inputs[2] as CallbackConversion;
+      expect(notify.returnsFuture, isTrue);
+      expect(notify.output, isNull);
+      expect(notify.dartType, 'Future<void> Function()');
+      expect(notify.typescriptType, '() => globalThis.Promise<void>');
+      expect((inputs[3] as CallbackConversion).returnsFuture, isTrue);
+      expect((inputs[4] as CallbackConversion).returnsFuture, isFalse);
+      expect((inputs[5] as CallbackConversion).returnsFuture, isFalse);
+    }
+    for (final code in [
+      emitDeclarations(wasm),
+      emitNativeDeclarations(native),
+    ]) {
+      expect(code, contains('callback: () => globalThis.Promise<void>'));
+      expect(
+        code,
+        contains(
+          'run(callback: (arg0: number) => globalThis.Promise<number>): globalThis.Promise<number>',
+        ),
+      );
+      expect(
+        code,
+        contains('close(callback: () => void): globalThis.Promise<void>'),
+      );
+    }
+    expect(wasm.functions[3].returnsFuture, isFalse);
+    expect(native.functions[3].returnsFuture, isFalse);
+    expect(wasm.functions[4].returnsFuture, isTrue);
+    expect(native.functions[4].returnsFuture, isTrue);
+  });
+
+  test(
+    'callback cache signatures describe conversion semantics across call sites',
+    () async {
+      final module = await read('''
+@NAPI() int first(int Function(int named) callback) => 1;
+@NAPI() int renamed(int Function(int other) value) => 1;
+@NAPI() int nullable([int Function(int)? callback]) => 1;
+@NAPI() int nullableInput(int Function(int?) callback) => 1;
+@NAPI() int nullableOutput(int? Function(int) callback) => 1;
+@NAPI() int floating(int Function(double) callback) => 1;
+@NAPI(bigint: true) int wide(int Function(int) callback) => 1;
+@NAPI() int bigInteger(BigInt Function(BigInt) callback) => 1;
+@NAPI() int asyncResult(Future<int> Function(int) callback) => 1;
+@NAPI() int list(int Function(List<int>) callback) => 1;
+@NAPI() int listElement(int Function(List<int?>) callback) => 1;
+@NAPI() int listNullable(int Function(List<int>?) callback) => 1;
+@NAPI() int record(int Function(({int a, String b})) callback) => 1;
+@NAPI() int recordOrder(int Function(({String b, int a})) renamed) => 1;
+@NAPI() int recordName(int Function(({int a, String c})) callback) => 1;
+@NAPI() int recordOutput(({int a, String b}) Function(int) callback) => 1;
+''');
+      final wasm = lower(validate(module));
+      final native = validateNative(module);
+      final keys = <String>[];
+      for (final inputs in [
+        wasm.functions.map((f) => f.inputs.single).toList(),
+        native.functions.map((f) => f.inputs.single).toList(),
+      ]) {
+        final callbacks = inputs.cast<CallbackConversion>();
+        expect(callbacks[0].signatureKey, callbacks[1].signatureKey);
+        expect(callbacks[0].signatureKey, callbacks[2].signatureKey);
+        expect(callbacks[12].signatureKey, callbacks[13].signatureKey);
+        expect({
+          for (final i in [0, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15])
+            callbacks[i].signatureKey,
+        }, hasLength(13));
+        if (keys.isEmpty) {
+          keys.addAll(callbacks.map((callback) => callback.signatureKey));
+        } else {
+          expect(callbacks.map((callback) => callback.signatureKey), keys);
+        }
+      }
+    },
+  );
 
   test(
     'outer calls retain presence, defaults and selected class behavior',
@@ -134,6 +252,14 @@ typedef Transform = List<(int, String?)>? Function((bool, List<int?>) source);
 @NAPI() int optional([int Function(int)? callback]) => callback?.call(1) ?? 0;
 @NAPI(bigint: true) int big(int Function(int) callback) => callback(1);
 @NAPI() int record(List<int> Function((int, {String text})) callback) => callback((1, text: 'x')).length;
+@NAPI() Future<int> asynchronous(Future<int> Function(int) callback) => callback(1);
+@NAPI() Future<void> asyncVoid(Future<void> Function() callback) => callback();
+@NAPI(bigint: true) Future<int> asyncBig(Future<int> Function(int) callback) => callback(1);
+@NAPI() Future<List<int>> asyncRecord(Future<List<int>> Function((int, {String text})) callback) => callback((1, text: 'x'));
+@NAPI() Future<int> syncInFuture(int Function(int) callback) async => callback(1);
+@NAPI() Future<int> asyncOptional([Future<int> Function(int)? callback]) async => callback == null ? 0 : await callback(1);
+@NAPI() Future<int> globalName<globalThis>(globalThis value, Future<int> Function(int) callback) => callback(1);
+@NAPI(name: 'Promise') class PromiseName { PromiseName(); }
 @NAPI() class Calls {
   Calls(void Function() initialize) { initialize(); }
   int run(int Function(int) callback) => callback(1);
@@ -155,7 +281,15 @@ api.optional(); api.optional(undefined); api.optional(null);
 api.record(r => [r.$1, r.text.length]);
 const calls = new api.Calls(() => {});
 calls.run(n => n * 2);
-// @ts-expect-error A borrowed callback is required.
+const asynchronous: Promise<number> = api.asynchronous(async n => n + 1);
+const empty: Promise<void> = api.asyncVoid(async () => {});
+const wide: Promise<bigint> = api.asyncBig(async n => n + 1n);
+const record: Promise<number[]> = api.asyncRecord(async r => [r.$1, r.text.length]);
+const syncInFuture: Promise<number> = api.syncInFuture(n => n + 1);
+api.asyncOptional(); api.asyncOptional(null); api.asyncOptional(undefined);
+api.asyncOptional(async n => n);
+const globalName: Promise<number> = api.globalName('value', async n => n);
+// @ts-expect-error A callback is required.
 api.run();
 // @ts-expect-error Callback result must match its Dart result.
 api.run(() => 'wrong');
@@ -171,7 +305,21 @@ api.optional(() => null);
 api.record(r => [r.text]);
 // @ts-expect-error Members retain callback result validation.
 calls.run(() => 'wrong');
-void [value, big];
+// @ts-expect-error Future-returning callbacks require a Promise result.
+api.asynchronous(n => n);
+// @ts-expect-error A structural thenable is not a genuine Promise contract.
+api.asynchronous(n => ({then(resolve: (value: number) => void) { resolve(n); }}));
+// @ts-expect-error Future payload conversion remains strict.
+api.asynchronous(async n => String(n));
+// @ts-expect-error Future<void> also requires a Promise.
+api.asyncVoid(() => {});
+// @ts-expect-error Nullable outer callback does not make its Future payload nullable.
+api.asyncOptional(async () => null);
+// @ts-expect-error Future callback payloads retain the enclosing bigint policy.
+api.asyncBig(async (n: number) => n);
+// @ts-expect-error Async callbacks retain record/list child conversion.
+api.asyncRecord(async r => [r.text]);
+void [value, big, asynchronous, empty, wide, record, syncInFuture, globalName];
 '''
             .replaceAll('BACKEND', entry.key),
       );
@@ -180,25 +328,37 @@ void [value, big];
         Platform.environment['NAPI_TSC'] ??
         '${Directory.current.path}/.dart_tool/js/node_modules/typescript/bin/tsc';
     for (final mode in ['NodeNext', 'Bundler']) {
-      final result = await Process.run(Platform.environment['NODE'] ?? 'node', [
-        tsc,
-        '--ignoreConfig',
-        '--noEmit',
-        '--strict',
-        '--target',
-        'ES2022',
-        '--module',
-        mode == 'NodeNext' ? 'NodeNext' : 'ESNext',
-        '--moduleResolution',
-        mode,
-        for (final backend in declarations.keys)
-          '${directory.path}/$backend-consumer.mts',
-      ]);
-      expect(
-        result.exitCode,
-        0,
-        reason: '$mode: ${result.stdout}${result.stderr}',
-      );
+      for (final exact in ['true', 'false']) {
+        for (final indexed in ['true', 'false']) {
+          final result = await Process.run(
+            Platform.environment['NODE'] ?? 'node',
+            [
+              tsc,
+              '--ignoreConfig',
+              '--noEmit',
+              '--strict',
+              '--target',
+              'ES2022',
+              '--module',
+              mode == 'NodeNext' ? 'NodeNext' : 'ESNext',
+              '--moduleResolution',
+              mode,
+              '--exactOptionalPropertyTypes',
+              exact,
+              '--noUncheckedIndexedAccess',
+              indexed,
+              for (final backend in declarations.keys)
+                '${directory.path}/$backend-consumer.mts',
+            ],
+          );
+          expect(
+            result.exitCode,
+            0,
+            reason:
+                '$mode exact=$exact indexed=$indexed: ${result.stdout}${result.stderr}',
+          );
+        }
+      }
     }
   });
 
@@ -220,14 +380,23 @@ void [value, big];
         '@NAPI() int run(int Function({required int value}) callback) => 1;',
     'generic callback': '@NAPI() int run(T Function<T>(T) callback) => 1;',
     'untyped Function': '@NAPI() int run(Function callback) => 1;',
-    'callback Future result':
-        '@NAPI() int run(Future<int> Function(int) callback) => 1;',
     'callback FutureOr result': "import 'dart:async'; @NAPI() int run(FutureOr<int> Function(int) callback) => 1;",
-    'outer Future': '@NAPI() Future<int> run(int Function(int) callback) => Future.value(1);',
-    'async outer':
-        '@NAPI() Future<void> run(void Function() callback) async {}',
-    'outer Future member': '@NAPI() class Bad { Bad(); Future<int> run(int Function(int) callback) => Future.value(1); }',
-    'cleanup delayed by mapping': "@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close') class Bad { Bad(); void close(void Function() callback) {} }",
+    'nullable callback Future':
+        '@NAPI() int run(Future<int>? Function(int) callback) => 1;',
+    'nested callback Future':
+        '@NAPI() int run(Future<Future<int>> Function(int) callback) => 1;',
+    'callback Future argument':
+        '@NAPI() int run(int Function(Future<int>) callback) => 1;',
+    'callback FutureOr argument': "import 'dart:async'; @NAPI() int run(int Function(FutureOr<int>) callback) => 1;",
+    'Future nested callback result':
+        '@NAPI() int run(Future<int Function()> Function() callback) => 1;',
+    'Future reference callback result': '@NAPI() class Box { Box(); } @NAPI() int run(Future<Box> Function() callback) => 1;',
+    'Future dynamic callback result':
+        '@NAPI() int run(Future<dynamic> Function() callback) => 1;',
+    'Future List dynamic callback result':
+        '@NAPI() int run(Future<List<dynamic>> Function() callback) => 1;',
+    'Future Map callback result':
+        '@NAPI() int run(Future<Map<String, int>> Function() callback) => 1;',
     'Map callback parameter':
         '@NAPI() int run(int Function(Map<String, int>) callback) => 1;',
     'Dictionary callback result':

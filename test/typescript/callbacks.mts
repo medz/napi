@@ -1,6 +1,6 @@
 import * as api from '@napi/callback-fixture';
 import * as direct from '@napi/callback-fixture/BACKEND';
-import {plainCallback} from '@napi/callback-external';
+import {plainCallback, plainAsyncCallback} from '@napi/callback-external';
 
 const twice: number = api.callTwice(n => n + 1, 3);
 const string: string = api.callString(s => s + '!', 'hello');
@@ -35,6 +35,39 @@ const closing: Promise<void> = resource.close();
 const directResult: number = direct.callTwice(n => n, 1);
 const external: number = plainCallback(n => n, 1);
 const saved: Promise<number> = api.rethrowSavedFuture();
+const after: Promise<number> = api.callAfter(n => n + 1, 3);
+const asyncValue: Promise<number> = api.callAsync(async n => n + 1, 3);
+const asyncVoid: Promise<void> = api.callAsyncVoid(async () => {});
+const asyncWide: Promise<bigint> = api.callAsyncWide(async n => n + 1n, 1n);
+const asyncRecord: Promise<{$1: Array<number | null>; label: string}> =
+  api.callAsyncRecord(async row => ({$1: [...row.$1, null], label: row.label}));
+const asyncExternal: Promise<number> = plainAsyncCallback(async n => n + 1, 3);
+const asyncResource: Promise<number> = resource.applyAsync(async n => n + 1);
+const asyncCleanup: Promise<void> = new api.CallbackCleanup(2).close(async () => {});
+const same: boolean = api.sameCallback(n => n, n => n);
+api.optionalAsyncCallback(); api.optionalAsyncCallback(undefined); api.optionalAsyncCallback(null);
+api.optionalAsyncCallback(async n => n + 1);
+const registered: number = api.registerAsyncCallback(async n => n);
+const removed: boolean = api.unregisterAsyncCallback(async n => n);
+
+// @ts-expect-error Future callback results require a Promise, not a plain scalar.
+api.callAsync(n => n + 1, 3);
+// @ts-expect-error Promise payloads use the declared strict input type.
+api.callAsync(async () => 'bad', 3);
+// @ts-expect-error Future<void> still requires an outer Promise.
+api.callAsyncVoid(() => {});
+declare const like: PromiseLike<number>;
+// @ts-expect-error A raw PromiseLike is not the declared genuine Promise.
+api.callAsync(() => like, 3);
+api.callAsync(() => Promise.resolve(like), 3);
+// @ts-expect-error Integer policy applies inside Promise callback results.
+api.callAsyncWide(async () => 1, 1n);
+// @ts-expect-error Record element types remain strict after Promise fulfillment.
+api.callAsyncRecord(async row => ({$1: ['bad'], label: row.label}));
+// @ts-expect-error Future-returning exports may take a synchronous callback without changing its type.
+api.callAfter(async n => n, 3);
+// @ts-expect-error External async callbacks have the same Promise result contract.
+plainAsyncCallback(n => n, 3);
 
 // @ts-expect-error A callback and scalar argument are both required.
 api.callTwice();
@@ -77,4 +110,6 @@ box.apply(() => undefined);
 // @ts-expect-error External selection preserves the same callback signature.
 plainCallback(() => 'bad', 1);
 void [twice, string, bigint, wide, bool, number, list, record, nested, ordered, applied,
-  closing, directResult, external, saved, named, setterValue, storedInvocation, notCallback];
+  closing, directResult, external, saved, named, setterValue, storedInvocation, notCallback,
+  after, asyncValue, asyncVoid, asyncWide, asyncRecord, asyncExternal, asyncResource, asyncCleanup, same,
+  registered, removed];

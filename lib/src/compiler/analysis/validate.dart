@@ -731,7 +731,6 @@ ValidatedModule validate(BindingModule module) {
       function.source,
       referenceClasses: module.classes,
       opaqueParameters: opaque,
-      returnsFuture: isFutureType(function.result),
     );
     validateCallResult(
       function.result,
@@ -801,7 +800,6 @@ List<ReferenceClassShape> validateReferenceClasses(BindingModule module) {
         member.source,
         referenceClasses: module.classes,
         opaqueParameters: opaque,
-        returnsFuture: isCleanup || isFutureType(type),
       );
       validateCallResult(
         type,
@@ -1581,7 +1579,7 @@ void validateValueType(
   if (allowCallback &&
       direction == ValueDirection.input &&
       type is FunctionTypeBinding) {
-    _validateBorrowedCallback(type, source);
+    _validateCallback(type, source);
     return;
   }
   if (_containsCallback(type)) {
@@ -1635,10 +1633,7 @@ bool _containsCallback(BindingType type) => switch (type) {
   _ => false,
 };
 
-void _validateBorrowedCallback(
-  FunctionTypeBinding type,
-  SourceLocation source,
-) {
+void _validateCallback(FunctionTypeBinding type, SourceLocation source) {
   Never reject(String message) =>
       throw BindingDiagnostic('NAPI_CALLBACK', message, source);
   if (type.typeParameters.isNotEmpty) {
@@ -1653,26 +1648,35 @@ void _validateBorrowedCallback(
         'Callback signatures require positional parameters without defaults.',
       );
     }
-    if (!_isBorrowedCallbackValue(parameter.type)) {
+    if (!_isCallbackValue(parameter.type)) {
       reject(
         'Callback arguments support only scalars, Lists and records; references, opaque payloads and nested callbacks are not supported.',
       );
     }
   }
-  if (type.result is VoidType) return;
-  if (!_isBorrowedCallbackValue(type.result)) {
+  final result = type.result;
+  if (isFutureType(result) &&
+      (result.nullability != TypeNullability.nonNullable ||
+          (result as DeclaredType).typeArguments.length != 1)) {
     reject(
-      'Callback results must be synchronous scalars, Lists, records or void; Future, FutureOr, references, opaque payloads and nested callbacks are not supported.',
+      'A callback Future result must be non-nullable with one payload type.',
+    );
+  }
+  final payload = resultPayload(result);
+  if (payload == null) return;
+  if (!_isCallbackValue(payload)) {
+    reject(
+      'Callback results support scalars, Lists, records or void, synchronously or inside Future; FutureOr, references, opaque payloads and nested callbacks are not supported.',
     );
   }
 }
 
-bool _isBorrowedCallbackValue(BindingType type) {
+bool _isCallbackValue(BindingType type) {
   if (_isBackendScalar(type)) return true;
   if (type.nullability == TypeNullability.legacy) return false;
   if (type is RecordTypeBinding) {
-    return type.positional.every(_isBorrowedCallbackValue) &&
-        type.named.values.every(_isBorrowedCallbackValue);
+    return type.positional.every(_isCallbackValue) &&
+        type.named.values.every(_isCallbackValue);
   }
   return type is DeclaredType &&
       type.semantics == ValueSemantics.structural &&
@@ -1683,7 +1687,7 @@ bool _isBorrowedCallbackValue(BindingType type) {
             kind: DeclarationKind.classType,
           ) &&
       type.typeArguments.length == 1 &&
-      _isBorrowedCallbackValue(type.typeArguments.single);
+      _isCallbackValue(type.typeArguments.single);
 }
 
 /// Export renames may collide even when the original Dart names are distinct.
@@ -1746,15 +1750,7 @@ void validateCallParameters(
   bool scalarOnly = false,
   List<ClassBinding> referenceClasses = const [],
   Set<DeclarationId> opaqueParameters = const {},
-  bool returnsFuture = false,
 }) {
-  if (returnsFuture && parameters.any((p) => _containsCallback(p.type))) {
-    throw BindingDiagnostic(
-      'NAPI_CALLBACK',
-      'Borrowed callbacks require a synchronous binding call; Future results and resource cleanup are not supported.',
-      source,
-    );
-  }
   var optionalPositional = false;
   var named = false;
   for (final parameter in parameters) {

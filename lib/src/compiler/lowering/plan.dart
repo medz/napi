@@ -1,4 +1,7 @@
 export '../ir/model.dart' show ValueDirection;
+
+import 'dart:convert';
+
 import '../../api/annotation.dart' show ClassPolicy;
 import '../analysis/result.dart';
 import '../analysis/validate.dart';
@@ -41,31 +44,71 @@ final class OpaqueConversion extends ValueConversion {
   String get typescriptType => '${parameter.name}${nullable ? ' | null' : ''}';
 }
 
-/// A direct input borrowed for one synchronous binding call. Its arguments
-/// leave Dart, while its result enters Dart; neither uses the outer direction.
+/// A function input retained while its Dart adapter is reachable. Arguments
+/// leave Dart; its synchronous or Future payload result enters Dart.
 final class CallbackConversion extends ValueConversion {
   final List<ParameterBinding> parameters;
   final List<ValueConversion> inputs;
   final ValueConversion? output;
+  final bool returnsFuture;
   CallbackConversion._(
     FunctionTypeBinding super.type,
     super.context, {
     required Iterable<ValueConversion> inputs,
     required this.output,
-  }) : parameters = type.parameters,
+  }) : returnsFuture = isFutureType(type.result),
+       parameters = type.parameters,
        inputs = List.unmodifiable(inputs);
   @override
-  String get dartType =>
-      '${output?.dartType ?? 'void'} Function(${inputs.map((c) => c.dartType).join(', ')})${nullable ? '?' : ''}';
+  String get dartType {
+    final payload = output?.dartType ?? 'void';
+    final result = returnsFuture ? 'Future<$payload>' : payload;
+    return '$result Function(${inputs.map((c) => c.dartType).join(', ')})${nullable ? '?' : ''}';
+  }
+
   @override
   String get jsType => 'function';
   @override
   String get typescriptType {
+    final payload = output?.typescriptType ?? 'void';
+    final result = returnsFuture ? 'globalThis.Promise<$payload>' : payload;
     final signature =
-        '(${[for (final (i, c) in inputs.indexed) 'arg$i: ${c.typescriptType}'].join(', ')}) => ${output?.typescriptType ?? 'void'}';
+        '(${[for (final (i, c) in inputs.indexed) 'arg$i: ${c.typescriptType}'].join(', ')}) => $result';
     return nullable ? '($signature) | null' : signature;
   }
+
+  /// The same JavaScript function has one adapter per conversion contract.
+  /// Call-site names and nullable admission do not change an accepted adapter.
+  String get signatureKey => jsonEncode([
+    returnsFuture,
+    inputs.map(_callbackValueSignature).toList(),
+    _callbackValueSignature(output),
+  ]);
 }
+
+Object? _callbackValueSignature(ValueConversion? conversion) =>
+    switch (conversion) {
+      null => null,
+      ScalarConversion(:final kind, :final bigint, :final nullable) => [
+        'scalar',
+        kind.name,
+        bigint,
+        nullable,
+      ],
+      ListConversion(:final element, :final nullable) => [
+        'list',
+        nullable,
+        _callbackValueSignature(element),
+      ],
+      RecordConversion(:final positional, :final named, :final nullable) => [
+        'record',
+        nullable,
+        positional.map(_callbackValueSignature).toList(),
+        for (final name in named.keys.toList()..sort())
+          [name, _callbackValueSignature(named[name])],
+      ],
+      _ => throw StateError('Unsupported callback conversion signature'),
+    };
 
 String dartOpaqueTypeArguments(List<TypeParameterBinding> parameters) =>
     parameters.isEmpty
@@ -390,6 +433,7 @@ final class _ConversionBuilder {
       return OpaqueConversion(type as TypeParameterType, context);
     }
     if (type is FunctionTypeBinding) {
+      final payload = resultPayload(type.result);
       ValueConversion callbackValue(
         BindingType value,
         String path,
@@ -410,17 +454,13 @@ final class _ConversionBuilder {
           for (final (i, parameter) in type.parameters.indexed)
             callbackValue(
               parameter.type,
-              '$context callback argument ${i + 1}',
+              'callback argument ${i + 1}',
               ValueDirection.output,
             ),
         ],
-        output: type.result is VoidType
+        output: payload == null
             ? null
-            : callbackValue(
-                type.result,
-                '$context callback result',
-                ValueDirection.input,
-              ),
+            : callbackValue(payload, 'callback result', ValueDirection.input),
       );
     }
     ValueConversion child(BindingType value) => convert(value, context);

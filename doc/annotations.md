@@ -74,13 +74,13 @@ uses the selected method's export name and supported parameters, returns
 leases. Excluding the cleanup method is descriptive metadata, but prevents a
 resource build; it does not silently expose a hidden method.
 
-Direct function-typed inputs generate [synchronous borrowed callbacks](callbacks.md)
-on both targets, including constructors, methods and setters. Callback parameters
-must be required positional; parameters and results support scalars/Lists/records,
-with void results also allowed. The adapter expires when the outer call exits.
-Nullable/default-null inputs retain ordinary presence rules. Passing callbacks to
-Future-returning exports or resource cleanup, callback outputs and retained/async
-callbacks remain unsupported.
+Direct function-typed inputs generate [callbacks](callbacks.md) on both targets,
+including constructors, methods, setters, Future-returning exports and resource
+cleanup. The Dart function's reachability retains its JS callback, with weak
+adapter identity across calls. Callback parameters must be required positional;
+scalar/List/record or void results may be synchronous or Future-based. Nullable
+outer inputs preserve presence rules. Callback outputs, nested or generic
+callback signatures and broader payload types remain unsupported.
 
 ## Resolution and metadata
 
