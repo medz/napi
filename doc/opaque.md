@@ -134,7 +134,8 @@ Native and Wasm each passed Node 24.19.0 and 26.11.1: 25 payload categories,
 The complete existing native/Wasm consumers, 497 Dart tests and 23 Wasm resource
 kernel tests passed; one Windows-only Dart test was skipped on this macOS host.
 Both backends remain coupled to the qualified Dart 3.13.5 compiler; native used
-the existing ABI12 macOS arm64 bundle described in [native.md](native.md).
+the ABI13 macOS arm64 bundle described in [native.md](native.md). ABI12 introduced
+the owned-value kernel; current builds require the newer compatible compiler table.
 
 A local unchanged scalar/Counter sample before and after this generator change
 remained 6,588,276 bytes, with identical loader, declarations, bridge and runtime.
