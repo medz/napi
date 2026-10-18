@@ -2,3 +2,4 @@
 test/
 tool/
 AGENTS.md
+dart_test.yaml

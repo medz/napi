@@ -7,7 +7,8 @@ void main() {
   test('default invocation includes every registered fixture', () {
     final fixtures = consumerFixtures.keys.toList();
     expect(VerificationShard.parse([]).select(fixtures), fixtures);
-    expect(fixtures, hasLength(17));
+    expect(fixtures, hasLength(16));
+    expect(fixtures, isNot(contains('callback')));
     expect(fixtures, contains('js-collections'));
   });
 

@@ -161,6 +161,7 @@ npm install --prefix .dart_tool/js --no-save --no-package-lock --ignore-scripts 
 dart format --output=none --set-exit-if-changed lib test tool
 dart analyze --fatal-infos
 dart test
+dart test -P callback-wasm
 dart run tool/verify.dart
 dart run tool/check_package.dart
 ```
@@ -174,7 +175,12 @@ every selected Node. The same setting works for `tool/native_verify.dart`; an
 unset value uses `node` from PATH. Any selected runtime failure stops the run.
 CI checks the Wasm artifacts on Node 24.19.0 and 26.11.1. Independent Dart unit
 probes still use their configured/default Node; this setting controls the
-conformance tools.
+conformance tools. Callback consumers use the `callback-wasm` and
+`callback-native` package:test presets: each builds source/external once, then
+runs every scenario on each selected Node. Their eight TypeScript configurations
+run only on `NAPI_TEST_NODE` or PATH `node`, independently of the runtime matrix.
+See [Running tests](doc/testing.md) for the explicit native bundle command and
+single-scenario selection.
 
 It checks TypeScript in NodeNext and Bundler modes. `NAPI_TSC` can select an
 already installed TypeScript executable. Package validation permits only the

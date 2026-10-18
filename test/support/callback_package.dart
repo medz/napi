@@ -1,10 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'verify.dart' show run;
+import '../../tool/command.dart' show run;
 
-/// Verifies generated callbacks in relocated, installed packages.
-Future<void> verifyCallbackFixture(
+/// Build source/external callbacks once, then relocate and install both archives.
+/// Compiler/npm subprocess trees still use the existing build command path.
+Future<Directory> buildCallbackPackage(
   Directory root, {
   Directory? nativeRuntime,
 }) async {
@@ -82,47 +83,5 @@ Future<void> main() async {
   await File('${consumer.path}/consumer.mts').writeAsString(
     declarations.replaceAll('/BACKEND', native ? '/native' : '/module.wasm'),
   );
-  await run('node', ['--expose-gc', 'test.mjs'], cwd: consumer.path);
-  final tsc =
-      Platform.environment['NAPI_TSC'] ??
-      '${Directory.current.path}/.dart_tool/js/node_modules/typescript/bin/tsc';
-  for (final mode in ['NodeNext', 'Bundler']) {
-    for (final exact in ['true', 'false']) {
-      for (final strictFunctions in ['true', 'false']) {
-        await run('node', [
-          File(tsc).absolute.path,
-          '--ignoreConfig',
-          '--strict',
-          '--exactOptionalPropertyTypes',
-          exact,
-          '--strictFunctionTypes',
-          strictFunctions,
-          '--noEmit',
-          '--target',
-          'ES2022',
-          '--module',
-          mode == 'NodeNext' ? 'NodeNext' : 'ESNext',
-          '--moduleResolution',
-          mode,
-          '--allowArbitraryExtensions',
-          'consumer.mts',
-        ], cwd: consumer.path);
-      }
-    }
-  }
-  stdout.writeln('Callback $backend fresh packages and TypeScript: passed');
-}
-
-Future<void> main(List<String> args) async {
-  if (args.length > 1) {
-    throw ArgumentError(
-      'Usage: dart run tool/callback_fixture.dart [native-runtime-bundle]',
-    );
-  }
-  final root = await Directory('.dart_tool').createTemp('napi callback ');
-  stdout.writeln('Callback verification artifacts: ${root.absolute.path}');
-  await verifyCallbackFixture(
-    root,
-    nativeRuntime: args.isEmpty ? null : Directory(args.single),
-  );
+  return consumer;
 }
