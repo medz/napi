@@ -23,7 +23,11 @@ jobs:
       - run: git diff --check HEAD^ HEAD
 
   tests:
-    name: Dart tests
+    name: Dart tests (${{ matrix.shard }})
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -44,7 +48,7 @@ jobs:
       - run: node -p '"NAPI_NODE_EXECUTABLES=" + JSON.stringify([process.execPath, process.env.NAPI_NODE_26])' >> "$GITHUB_ENV"
       - run: dart pub get
       - run: npm install --prefix .dart_tool/js --no-save --no-package-lock --ignore-scripts --no-audit --no-fund typescript@7.0.2
-      - run: dart test
+      - run: dart test --total-shards 2 --shard-index ${{ matrix.shard }} --shard-by-suite
 
   wasm-runtime:
     name: Wasm runtime tests
@@ -70,7 +74,11 @@ jobs:
       - run: dart test --platform node --compiler dart2wasm test/runtime/resources_test.dart test/runtime/streams_test.dart test/runtime/cancellation_test.dart
 
   consumers:
-    name: Installed consumers
+    name: Installed consumers (${{ matrix.shard }})
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -91,7 +99,7 @@ jobs:
       - run: node -p '"NAPI_NODE_EXECUTABLES=" + JSON.stringify([process.execPath, process.env.NAPI_NODE_26])' >> "$GITHUB_ENV"
       - run: dart pub get
       - run: npm install --prefix .dart_tool/js --no-save --no-package-lock --ignore-scripts --no-audit --no-fund typescript@7.0.2
-      - run: dart run tool/verify.dart
+      - run: dart run tool/verify.dart --total-shards 2 --shard-index ${{ matrix.shard }}
 
   publication:
     name: Atomic publication (${{ matrix.os }})

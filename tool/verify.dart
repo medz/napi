@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'command.dart';
+import 'verification_shard.dart';
 import 'export_kind_fixture.dart';
 import 'scalar_fixture.dart';
 import 'argument_fixture.dart';
@@ -107,59 +108,102 @@ Future<void> installedConsumer(
   await typescript(consumer, 'consumer.mts');
 }
 
-Future<void> main() async {
+final consumerFixtures = <String, Future<void> Function(Directory)>{
+  'scalar': (root) async {
+    final scalar = Directory('${root.absolute.path}/scalars');
+    await buildScalarFixture(scalar);
+    await run('node', ['test.mjs'], cwd: scalar.path);
+    await typescript(scalar, 'consumer.mts');
+    await installedConsumer(scalar, root.absolute);
+  },
+  'arguments': (root) async {
+    final arguments = Directory('${root.absolute.path}/arguments');
+    await buildArgumentFixture(arguments);
+    await run('node', ['test.mjs'], cwd: arguments.path);
+    await typescript(arguments, 'consumer.mts');
+    await installedConsumer(
+      arguments,
+      root.absolute,
+      fixture: 'arguments_package',
+    );
+  },
+  'structural': (root) async {
+    final structural = Directory('${root.absolute.path}/structural');
+    await buildStructuralFixture(structural);
+    await run('node', ['--expose-gc', 'test.mjs'], cwd: structural.path);
+    await typescript(structural, 'consumer.mts');
+    await installedConsumer(
+      structural,
+      root.absolute,
+      fixture: 'structural_package',
+    );
+  },
+  'package-assembly': (root) async {
+    await verifyPackageAssembly(
+      await Directory('${root.absolute.path}/package assembly').create(),
+    );
+  },
+  'classes': (root) async {
+    final classes = await Directory('${root.absolute.path}/classes').create();
+    final sentinel = File('${classes.path}/business/keep.txt');
+    await sentinel.parent.create();
+    await sentinel.writeAsString('unrelated user file');
+    await verifyClassFixture(classes);
+    if (!await sentinel.exists() ||
+        await sentinel.readAsString() != 'unrelated user file') {
+      throw StateError(
+        'Class verification must preserve an existing business directory.',
+      );
+    }
+  },
+  'export-kinds': (root) async {
+    final kinds = await buildExportKindFixture();
+    await run('node', ['test.mjs'], cwd: kinds.path);
+    await typescript(kinds, 'consumer.mts');
+  },
+  'future': (root) async {
+    await verifyFutureFixture(root.absolute);
+  },
+  'void': (root) async {
+    await verifyVoidFixture(root.absolute);
+  },
+  'resource': (root) async {
+    await verifyResourceFixture(root.absolute);
+  },
+  'opaque': (root) async {
+    await verifyOpaqueFixture(root.absolute);
+  },
+  'callback': (root) async {
+    await verifyCallbackFixture(root.absolute);
+  },
+  'stream': (root) async {
+    await verifyStreamFixture(root.absolute);
+  },
+  'cancellation': (root) async {
+    await verifyCancellationFixture(root.absolute);
+  },
+  'binary': (root) async {
+    await verifyBinaryFixture(root.absolute);
+  },
+  'concrete': (root) async {
+    await verifyConcreteFixture(root.absolute);
+  },
+  'shared-bytes': (root) async {
+    await verifySharedBytesFixture(root.absolute);
+  },
+};
+
+Future<void> main(List<String> arguments) async {
+  final shard = VerificationShard.parse(arguments);
+  final selected = shard.select(consumerFixtures.keys.toList());
   await reportNodeVersions();
   stdout.writeln('Dart ${Platform.version}');
+  stdout.writeln('Consumer fixtures: ${selected.join(', ')}');
   final root = await Directory('.dart_tool').createTemp('napi conformance ');
-  final scalar = Directory('${root.absolute.path}/scalars');
-  await buildScalarFixture(scalar);
-  await run('node', ['test.mjs'], cwd: scalar.path);
-  await typescript(scalar, 'consumer.mts');
-  await installedConsumer(scalar, root.absolute);
-  final arguments = Directory('${root.absolute.path}/arguments');
-  await buildArgumentFixture(arguments);
-  await run('node', ['test.mjs'], cwd: arguments.path);
-  await typescript(arguments, 'consumer.mts');
-  await installedConsumer(
-    arguments,
-    root.absolute,
-    fixture: 'arguments_package',
-  );
-  final structural = Directory('${root.absolute.path}/structural');
-  await buildStructuralFixture(structural);
-  await run('node', ['--expose-gc', 'test.mjs'], cwd: structural.path);
-  await typescript(structural, 'consumer.mts');
-  await installedConsumer(
-    structural,
-    root.absolute,
-    fixture: 'structural_package',
-  );
-  await verifyPackageAssembly(
-    await Directory('${root.absolute.path}/package assembly').create(),
-  );
-  final classes = await Directory('${root.absolute.path}/classes').create();
-  final sentinel = File('${classes.path}/business/keep.txt');
-  await sentinel.parent.create();
-  await sentinel.writeAsString('unrelated user file');
-  await verifyClassFixture(classes);
-  if (!await sentinel.exists() ||
-      await sentinel.readAsString() != 'unrelated user file') {
-    throw StateError(
-      'Class verification must preserve an existing business directory.',
-    );
+  for (final name in selected) {
+    final timer = Stopwatch()..start();
+    await consumerFixtures[name]!(root.absolute);
+    stdout.writeln('Fixture $name passed in ${timer.elapsedMilliseconds} ms.');
   }
-  final kinds = await buildExportKindFixture();
-  await run('node', ['test.mjs'], cwd: kinds.path);
-  await typescript(kinds, 'consumer.mts');
-  await verifyFutureFixture(root.absolute);
-  await verifyVoidFixture(root.absolute);
-  await verifyResourceFixture(root.absolute);
-  await verifyOpaqueFixture(root.absolute);
-  await verifyCallbackFixture(root.absolute);
-  await verifyStreamFixture(root.absolute);
-  await verifyCancellationFixture(root.absolute);
-  await verifyBinaryFixture(root.absolute);
-  await verifyConcreteFixture(root.absolute);
-  await verifySharedBytesFixture(root.absolute);
   stdout.writeln('Direct-Wasm conformance passed. Artifacts: ${root.path}');
 }
