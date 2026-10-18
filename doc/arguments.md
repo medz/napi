@@ -44,15 +44,33 @@ rather than a positional hole or absent named property. Only omission selects
 its Dart default; see [opaque payloads](opaque.md).
 
 The frontend evaluates defaults in their declaring library. Generated Dart uses
-typed scalar literals, preserving private/imported constant expressions, exact
-UTF-16 strings, signed integer values, negative zero, NaN and infinities. No source
+typed scalar literals and built-in const graphs, preserving private/imported
+constant expressions, exact UTF-16 strings, signed integer values, negative zero,
+NaN and infinities. No source
 expression or private constant name is copied into generated calls. Omitted
 nullable parameters without an explicit default use Dart's implicit `null`.
 Internal int defaults retain Dart precision even when the JS input policy is
 safe-number; normal result range checks still apply. An unresolved, unsupported
 or type-incompatible scalar default produces `NAPI_DEFAULT` at the parameter
-before compilation or output creation. Unsupported value categories produce
-`NAPI_TYPE`; non-null structural and reference defaults are not supported.
+before compilation or output creation. Non-null `List`, `Map`, `Dictionary` and
+record defaults are supported when both the declared type and the complete
+constant graph contain only structural containers and scalar/null leaves.
+Actual constant types are preserved, including `const <Never>[]`, nested
+Dictionary representations, map insertion order and canonical const identity.
+Defaults stay in Dart; returning one still uses the normal output conversion.
+
+```dart
+const _fallbacks = <String, List<int>>{'small': [1, 2]};
+@NAPI()
+int first({Map<String, List<int>> values = _fallbacks}) => values['small']!.first;
+```
+
+Omission, `undefined` options and `{values: undefined}` select the same Dart
+constant. A supplied `null` remains invalid for this non-null parameter.
+Defaults containing reference, resource, opaque or value-class leaves remain
+unsupported, including empty constants whose declared type contains such a
+leaf. Custom constant objects are not reconstructed. Defaults exceeding the
+structural work/depth or generated-text limit produce `NAPI_DEFAULT`.
 
 Each optional value uses one branch in generated Dart; named arguments are passed
 with their Dart labels. Code size grows linearly with parameter count, without

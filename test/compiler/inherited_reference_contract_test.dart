@@ -163,11 +163,12 @@ class _Middle extends Base {
           (c) => c.binding.exportName == 'Base',
         );
         expect(
-          parent.members
-              .singleWhere((m) => m.exportName == 'defaults')
-              .parameters
-              .single
-              .defaultValue!
+          (parent.members
+                      .singleWhere((m) => m.exportName == 'defaults')
+                      .parameters
+                      .single
+                      .defaultValue
+                  as ScalarDefault)
               .value,
           1,
         );

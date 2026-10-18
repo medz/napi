@@ -4,6 +4,8 @@ import 'package:napi/src/build/build.dart';
 import 'package:napi/src/compiler/analysis/validate.dart';
 import 'package:napi/src/compiler/emit/dart/entrypoint.dart';
 import 'package:napi/src/compiler/front_end/frontend.dart';
+import 'package:napi/src/compiler/front_end/external.dart';
+import 'package:napi/src/compiler/ir/defaults.dart';
 import 'package:napi/src/compiler/ir/model.dart';
 import 'package:napi/src/compiler/lowering/plan.dart';
 import 'package:napi/src/compiler/sdk_adapter/dart_sdk_adapter.dart';
@@ -119,7 +121,7 @@ const _private = 6 * 7;
     ).read(entry.uri);
     final parameter = module.functions.single.parameters.single;
     expect(parameter.defaultSource, '_private');
-    expect(parameter.defaultValue?.value, 42);
+    expect((parameter.defaultValue as ScalarDefault?)?.value, 42);
     final plan = lower(validate(module));
     expect(
       plan.functions.single.representation,
@@ -156,6 +158,172 @@ const _private = 6 * 7;
       expect(fullGrowth, lessThan(15000));
       expect(fullGrowth, lessThan(halfGrowth * 2.2));
       expect(dart, contains('value39: a39'));
+    },
+  );
+
+  test(
+    'built-in graph defaults retain actual const types in both frontends',
+    () async {
+      final root = await Directory.systemTemp.createTemp('napi-const-default-');
+      addTearDown(() => root.delete(recursive: true));
+      final file = File('${root.path}/entry.dart');
+      await file.writeAsString('''import 'package:napi/napi.dart';
+const _items = <Dictionary<int>>[Dictionary<int>(<String, Never>{})];
+@NAPI() bool run([
+  List<int> a = const <Never>[],
+  List<Dictionary<int>> b = _items,
+  List<int?> c = const <Null>[null],
+  (List<int>, {double zero}) d = (const <Never>[], zero: -0.0),
+]) => true;
+''');
+      for (final external in [false, true]) {
+        final module = await readLibraryBindings(
+          library: file.uri,
+          packagesPath: File('.dart_tool/package_config.json').absolute.path,
+          external: external
+              ? const ExternalLibrary([ExternalFunction('run')])
+              : null,
+        );
+        final parameters = module.functions.single.parameters;
+        expect(
+          constantDefaultSource(parameters[0].defaultValue!),
+          'const <Never>[]',
+        );
+        expect(
+          constantDefaultSource(parameters[1].defaultValue!),
+          'const <Map<String, int>>[const <String, Never>{}]',
+        );
+        final dart = emitDart(lower(validate(module)));
+        expect(dart, contains('(const <Never>[] as List<int>)'));
+        expect(dart, contains('as List<napi.Dictionary<int>>'));
+        expect(dart, contains('const <Null>[null]'));
+        expect(dart, contains('zero: -0.0'));
+      }
+    },
+  );
+
+  test(
+    'empty const graphs cannot bypass unsupported declared default leaves',
+    () async {
+      final root = await Directory.systemTemp.createTemp('napi-const-default-');
+      addTearDown(() => root.delete(recursive: true));
+      final file = File('${root.path}/entry.dart');
+      for (final declaration in [
+        '@NAPI() bool run<T>([List<T> value = const <Never>[]]) => true;',
+        '@NAPI() class Item { const Item(); } '
+            '@NAPI() bool run([List<Item> value = const <Never>[]]) => true;',
+        '@NAPI() class Item { const Item(); } '
+            '@NAPI() bool run([List<Item> value = const [Item()]]) => true;',
+      ]) {
+        await file.writeAsString(
+          "import 'package:napi/napi.dart';\n$declaration",
+        );
+        final module = await AnnotationFrontend(
+          packagesPath: File('.dart_tool/package_config.json').absolute.path,
+        ).read(file.uri);
+        expect(
+          () => validate(module),
+          throwsA(
+            isA<BindingDiagnostic>().having(
+              (e) => e.code,
+              'code',
+              'NAPI_DEFAULT',
+            ),
+          ),
+        );
+      }
+    },
+  );
+
+  test('shared constant graphs have bounded expansion before generation', () async {
+    final root = await Directory.systemTemp.createTemp('napi-const-budget-');
+    addTearDown(() => root.delete(recursive: true));
+    final file = File('${root.path}/entry.dart');
+    await file.writeAsString(
+      [
+        "import 'package:napi/napi.dart';",
+        'const a0 = <int>[0];',
+        for (var i = 1; i <= 14; i++) 'const a$i = [a${i - 1}, a${i - 1}];',
+        '@NAPI() bool run([${'List<' * 15}int${'>' * 15} value = a14]) => true;',
+      ].join('\n'),
+    );
+    final limit = throwsA(
+      isA<BindingDiagnostic>()
+          .having((e) => e.code, 'code', 'NAPI_DEFAULT')
+          .having((e) => e.message, 'message', contains('10000')),
+    );
+    await expectLater(
+      AnnotationFrontend(
+        packagesPath: File('.dart_tool/package_config.json').absolute.path,
+      ).read(file.uri),
+      limit,
+    );
+    BindingType type = const SafeIntType();
+    ConstantDefault value = const ScalarDefault(0);
+    for (var i = 0; i < 15; i++) {
+      type = DeclaredType(
+        DeclarationId(
+          Uri.parse('dart:core'),
+          'List',
+          kind: DeclarationKind.classType,
+        ),
+        ValueSemantics.structural,
+        typeArguments: [type],
+      );
+      value = ListDefault(type, [value, value]);
+    }
+    expect(
+      () => validateParameterDefault(
+        ParameterBinding(
+          'value',
+          type,
+          kind: ParameterKind.optionalPositional,
+          defaultValue: value,
+        ),
+        SourceLocation(file.uri, 0, 1),
+      ),
+      limit,
+    );
+  });
+
+  test(
+    'constant depth counts containers without rejecting the final scalar',
+    () {
+      BindingType type = const SafeIntType();
+      ConstantDefault value = const ScalarDefault(0);
+      for (var i = 1; i <= 65; i++) {
+        type = DeclaredType(
+          DeclarationId(
+            Uri.parse('dart:core'),
+            'List',
+            kind: DeclarationKind.classType,
+          ),
+          ValueSemantics.structural,
+          typeArguments: [type],
+        );
+        value = ListDefault(type, [value]);
+        if (i < 64) continue;
+        expect(
+          () => validateParameterDefault(
+            ParameterBinding(
+              'value',
+              type,
+              kind: ParameterKind.optionalPositional,
+              defaultValue: value,
+            ),
+            SourceLocation(_source, 0, 1),
+          ),
+          i == 64
+              ? returnsNormally
+              : throwsA(
+                  isA<BindingDiagnostic>().having(
+                    (e) => e.code,
+                    'code',
+                    'NAPI_DEFAULT',
+                  ),
+                ),
+        );
+      }
     },
   );
 }

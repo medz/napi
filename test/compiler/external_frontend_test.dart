@@ -80,7 +80,8 @@ class Box<T extends num> {
       expect(box.members.map((e) => e.kind), containsAll(MemberKind.values));
       expect(box.typeParameters.single.declaration.owner, box.declaration);
       expect(
-        external.functions.first.parameters.last.defaultValue!.value,
+        (external.functions.first.parameters.last.defaultValue as ScalarDefault)
+            .value,
         'default',
       );
       expect(box.documentation, contains('retains generic identity'));
@@ -131,7 +132,10 @@ int hidden() => 0;
       expect(function.exportSurface, input.uri);
       expect(function.declaration.library, origin.uri);
       expect(function.source.uri, origin.uri);
-      expect(function.parameters.single.defaultValue!.value, 42);
+      expect(
+        (function.parameters.single.defaultValue as ScalarDefault).value,
+        42,
+      );
       await _expectSource(function.source, 'exposed');
     },
   );

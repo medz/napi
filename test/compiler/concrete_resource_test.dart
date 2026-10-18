@@ -72,7 +72,11 @@ void main() {
         expect(shapes[0].binding.cleanup!.name, 'close');
         expect(shapes[1].binding.cleanup!.name, 'shutdown');
         expect(shapes[0].binding.cleanup!.owner, shapes[0].binding.declaration);
-        expect(shapes[0].cleanup!.parameters.single.defaultValue!.value, 7);
+        expect(
+          (shapes[0].cleanup!.parameters.single.defaultValue as ScalarDefault)
+              .value,
+          7,
+        );
         expect(shapes.every((shape) => shape.cleanup!.returnsFuture), isTrue);
         expect(resourcePolicies(shapes), {0: 0, 1: 1});
         final wasm = lower(validate(module));

@@ -63,3 +63,75 @@ class Resource {
     _cleanups++;
   }
 }
+
+const _empty = <Never>[];
+const _mapping = <String, List<int?>>{
+  'b': [null, 7],
+  'a': [],
+};
+const _dictionaries = <Dictionary<int>>[Dictionary<int>(<String, Never>{})];
+const _record = (<Never>[], label: 'a\ud800b\udfff\$');
+const _numbers = <double>[
+  1,
+  -0.0,
+  double.nan,
+  -double.nan,
+  double.infinity,
+  double.negativeInfinity,
+];
+
+@NAPI()
+bool structuralDefaults([
+  List<int> empty = _empty,
+  Map<String, List<int?>> mapping = _mapping,
+  List<Dictionary<int>> dictionaries = _dictionaries,
+  (List<int>, {String label}) record = _record,
+]) {
+  _calls++;
+  return identical(empty, _empty) &&
+      identical(mapping, _mapping) &&
+      mapping.keys.join() == 'ba' &&
+      identical(dictionaries, _dictionaries) &&
+      identical(dictionaries.single, _dictionaries.single) &&
+      identical(record.$1, _record.$1) &&
+      record.label == _record.label;
+}
+
+@NAPI()
+bool namedDefaults({
+  List<double> numbers = _numbers,
+  List<int> wide = const [9007199254740993],
+}) =>
+    identical(numbers, _numbers) &&
+    numbers[1].isNegative &&
+    identical(wide, const <int>[9007199254740993]);
+
+@NAPI()
+class DefaultBase {
+  final bool original;
+  DefaultBase([List<int> value = _empty]) : original = identical(value, _empty);
+  DefaultBase.named({List<int> value = _empty})
+    : original = identical(value, _empty);
+  bool check({List<int> value = _empty}) => identical(value, _empty);
+  Future<bool> later([List<int> value = _empty]) async =>
+      identical(value, _empty);
+  Stream<bool> sequence([List<int> value = _empty]) async* {
+    yield identical(value, _empty);
+  }
+
+  List<int> snapshot([List<int> value = const [1, 2]]) {
+    try {
+      value[0] = 3;
+    } on UnsupportedError {
+      return value;
+    }
+    throw StateError('Default must stay const');
+  }
+}
+
+@NAPI()
+class DefaultChild extends DefaultBase {
+  DefaultChild();
+  @override
+  bool check({List<int> value = const [7]}) => identical(value, _empty);
+}

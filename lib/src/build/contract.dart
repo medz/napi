@@ -5,6 +5,7 @@ import '../compiler/analysis/result.dart';
 import '../compiler/analysis/validate.dart';
 import '../compiler/emit/typescript/declarations.dart';
 import '../compiler/ir/model.dart';
+import '../compiler/ir/defaults.dart';
 import '../compiler/lowering/plan.dart';
 import '../compiler/native/plan.dart';
 
@@ -209,28 +210,12 @@ Object _views(List<ReferenceClassShape> classes) {
   ];
 }
 
-Object _parameter(ParameterBinding parameter) {
-  var value = parameter.defaultValue?.value;
-  if (value is int) {
-    if (parameter.type case DeclaredType(:final declaration)
-        when declaration.library == Uri.parse('dart:core') &&
-            declaration.name == 'double') {
-      value = value.toDouble();
-    }
-  }
-  return [
-    parameter.name,
-    parameter.kind.name,
-    parameter.presence.name,
-    // String encoding retains NaN/infinity and the sign of zero, unlike JSON
-    // numbers. Compare the actual omitted Dart value, including implicit null
-    // and an integer constant normalized to its declared double parameter type.
-    if (value != null)
-      [value.runtimeType.toString(), value.toString()]
-    else
-      null,
-  ];
-}
+Object _parameter(ParameterBinding parameter) => [
+  parameter.name,
+  parameter.kind.name,
+  parameter.presence.name,
+  parameterDefaultKey(parameter),
+];
 
 /// Finite conversion nodes keep recursive value classes bounded. This is a
 /// build-time comparison only, not a persisted schema or runtime registry.

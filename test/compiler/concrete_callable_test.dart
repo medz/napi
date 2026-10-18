@@ -70,7 +70,7 @@ const readText = Utility.read<String>;
       expect(integer.result, isA<SafeIntType>());
       expect(integer.parameters.first.type, isA<SafeIntType>());
       expect(integer.parameters.last.kind, ParameterKind.optionalNamed);
-      expect(integer.parameters.last.defaultValue!.value, 7);
+      expect((integer.parameters.last.defaultValue as ScalarDefault).value, 7);
       expect(integer.parameters.last.defaultSource, '7');
       expect(
         integer.documentation,
@@ -81,9 +81,17 @@ const readText = Utility.read<String>;
         input.readAsStringSync().substring(integer.source.offset),
         startsWith('readInt'),
       );
-      expect(module.functions[1].parameters.last.defaultValue!.value, 7);
+      expect(
+        (module.functions[1].parameters.last.defaultValue as ScalarDefault)
+            .value,
+        7,
+      );
       expect(module.functions[3].bigint, isTrue);
-      expect(module.functions.last.parameters.last.defaultValue!.value, 17);
+      expect(
+        (module.functions.last.parameters.last.defaultValue as ScalarDefault)
+            .value,
+        17,
+      );
       final plan = lower(validate(module));
       final vm = validateNative(module);
       expect(emitDeclarations(plan), emitNativeDeclarations(vm));
@@ -136,7 +144,10 @@ const selected = original.Utility.read<int>;
           expect(binding.source.uri, part.uri);
           expect(binding.declaration.library.path, endsWith('/library.dart'));
           expect(binding.exportSurface, input.uri);
-          expect(binding.parameters.last.defaultValue!.value, 19);
+          expect(
+            (binding.parameters.last.defaultValue as ScalarDefault).value,
+            19,
+          );
           validate(module);
           validateNative(module);
         }

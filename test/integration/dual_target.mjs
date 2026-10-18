@@ -54,6 +54,32 @@ async function check(name, selected) {
     assert.deepEqual(values, [9, 10]);
     await streamResource.close();
     assert.equal(current.cleanups(), 2);
+    assert.equal(current.structuralDefaults(), true);
+    assert.equal(current.structuralDefaults(undefined, undefined, undefined, undefined), true);
+    assert.equal(current.structuralDefaults([], undefined), false);
+    assert.equal(current.structuralDefaults(undefined, new Map()), false);
+    const beforeDefaults = current.calls();
+    assert.throws(() => current.structuralDefaults(null), TypeError);
+    assert.throws(() => current.structuralDefaults(undefined, new Map([['a', ['bad']]])), TypeError);
+    assert.equal(current.calls(), beforeDefaults);
+    for (const options of [undefined, {}, {numbers: undefined, wide: undefined}]) {
+      assert.equal(current.namedDefaults(options), true);
+    }
+    assert.equal(current.namedDefaults({numbers: [1]}), false);
+    const base = new current.DefaultBase();
+    assert.equal(base.original, true);
+    assert.equal(current.DefaultBase.named({value: undefined}).original, true);
+    assert.equal(new current.DefaultBase([]).original, false);
+    const child = new current.DefaultChild();
+    assert.equal(child.check(), false);
+    assert.equal(child.check({value: undefined}), false);
+    assert.equal(current.DefaultBase.prototype.check.call(child, {}), true);
+    assert.equal(current.DefaultBase.prototype.check.call(child, {value: []}), false);
+    assert.equal(await child.later(), true);
+    assert.deepEqual(await Array.fromAsync(child.sequence()), [true]);
+    const snapshot = base.snapshot();
+    snapshot[0] = 9;
+    assert.deepEqual(base.snapshot(), [1, 2]);
     assert.throws(() => current.identity({value: 4}), TypeError);
   }
   assert.throws(() => native.identity(wasm.singleton()), TypeError);

@@ -3,6 +3,7 @@ import 'dart:convert';
 import '../../analysis/reference_views.dart';
 import '../../lowering/plan.dart';
 import '../../ir/model.dart';
+import '../../ir/defaults.dart';
 import '../../sdk_adapter/entrypoint.dart';
 import '../../sdk_adapter/js_collections.dart';
 import 'structural.dart';
@@ -704,7 +705,13 @@ bool _named(ParameterBinding p) =>
     p.kind == ParameterKind.optionalNamed;
 
 String renderDartDefault(ParameterBinding p, ValueConversion conversion) {
-  final value = p.defaultValue?.value;
+  final constant = p.defaultValue;
+  if (constant != null && constant is! ScalarDefault) {
+    // Dictionary is an extension type: the const graph uses actual erased
+    // types, while this cast restores only the static boundary-facing type.
+    return '(${constantDefaultSource(constant)} as ${conversion.dartType})';
+  }
+  final value = (constant as ScalarDefault?)?.value;
   if (value == null) return 'null';
   if (value is String) return jsonEncode(value).replaceAll(r'$', r'\$');
   if (value is double) {
