@@ -1,15 +1,11 @@
 # Direct-Wasm foundation
 
-This document describes the existing Wasm development foundation. The
-[native and Wasm architecture](architecture.md) defines the current product
-direction. JavaScript host dependencies and callable globals remain valid Wasm
-implementation choices. This foundation does not implement the native backend.
-
-This implements the bounded foundation in #115, following #107 and #114. It
-removes the old implementation, tests, fixtures, benchmarks, examples, and
-historical documentation. The repository, Git history, MIT license, development
-instructions, package name/version, repository links, and topic metadata remain.
-No old compiler/runtime helper or baseline fixture is reused or relocated.
+This document describes the Wasm export representation, initialization and SDK
+boundary introduced by #115 and used by the current compiler. The
+[native and Wasm architecture](architecture.md) describes both backends;
+[native builds](native.md) have a separate ABI and runtime bundle. Generated
+JavaScript dependencies and callable Wasm globals preserve the public API.
+The earlier implementation and rebuild history remain available in Git.
 
 ## Compiler boundaries
 
@@ -18,8 +14,8 @@ BindingFrontend -> BindingModule -> validate -> ModulePlan -> emit
                                                         -> SDK adapter -> linker
 ```
 
-`front_end` defines the analyzer boundary. The foundation starts with handwritten
-IR; #116 supplies annotation discovery. Analyzer objects never enter the IR or
+`front_end` defines the analyzer boundary. Source annotations and external
+selections produce the shared semantic IR. Analyzer objects never enter the IR or
 runtime. Declaration identity is a library URI and source name; diagnostics retain
 original source locations. Dart type semantics are explicit: `SafeIntType` cannot
 be inferred from a JavaScript-platform analyzer view that erases int/double.
@@ -27,12 +23,13 @@ be inferred from a JavaScript-platform analyzer view that erases int/double.
 The IR describes types and parameter presence. Analysis rejects unsupported
 categories and duplicate/invalid names. Lowering chooses the export representation
 and conversions. Emitters consume that plan for Dart entrypoints, JS host imports,
-and TypeScript declarations. `DeclaredType` records structural, opaque, reference,
-and shared categories without pretending their conversion engines exist.
+and TypeScript declarations. `DeclaredType` records supported structural, opaque,
+reference and shared categories; validation rejects unsupported combinations.
 
-The runtime has a compiler-independent operation lease interface for future
-resource/callback retention. It implements no ownership, cancellation, or lifetime
-engine. No empty feature directories stand in for implementations.
+The shared runtime implements operation leases, resource state, Stream and
+cancellation coordination. Backend-specific code owns JS references, scheduling
+and teardown. See [resources](resources.md), [callbacks](callbacks.md),
+[streams](streams.md) and [cancellation](cancellation.md) for their contracts.
 
 ## Export representation
 
@@ -40,8 +37,8 @@ engine. No empty feature directories stand in for implementations.
 | --- | --- | --- |
 | Generated required scalar function | `function` | externref inputs; fixed arity; not constructible |
 | Generated optional/named scalar function | immutable externref `global` | captures argc and own named-property presence |
-| Presence-sensitive function proof | immutable externref `global` | original JS callable; captures actual argument count |
-| Class constructor proof | immutable externref `global` | original JS class; supports `new` and private receiver branding |
+| Handwritten presence-sensitive function fixture | immutable externref `global` | original JS callable; captures actual argument count |
+| Generated class constructor | immutable externref `global` | original JS class; supports `new` and private receiver branding |
 
 Native Wasm function parameters cannot recover whether a caller omitted an
 argument or explicitly passed `undefined`. Numeric Wasm inputs can coerce JS values
@@ -50,8 +47,8 @@ its host import validates primitive type and numeric policy before conversion to
 Dart. Invalid inputs never enter business code or invoke coercion hooks. Missing
 and explicit-undefined required scalars both reject, including nullable scalars.
 Dart output is also checked for the safe-integer range when using number-represented
-ints; Dart int canonicalizes negative zero to zero. #117 adds nullable and
-nonnullable `bool`, `String`, `double`, `BigInt`, and fixed bigint-represented
+ints; Dart int canonicalizes negative zero to zero. The compiler supports nullable
+and nonnullable `bool`, `String`, `double`, `BigInt`, and fixed bigint-represented
 `int` conversions. See [the scalar contract](scalars.md) for precise ranges,
 UTF-16 and IEEE-754 behavior.
 
@@ -69,12 +66,11 @@ Dart ABI. Required opaque omission fails; explicitly supplied `undefined` and
 Dart default. Extra arguments are ignored, consistent with the proof's chosen JS
 call convention.
 
-These fixtures validate the representation and linking route. They are not an
-annotation/class generator, general opaque storage engine, resource policy, or a
-claim of leak freedom. Generated optional and named scalar calls now use the same
-representation; see [the argument contract](arguments.md). Generated classes and
-opaque carriers follow #123 and #125. Those implementations
-must add their full ownership, identity, failure, and lifetime contracts.
+The handwritten fixture isolates the representation and linking route. It does
+not alone prove the generator or lifecycle contracts. Generated calls, classes
+and opaque class methods have separate conformance coverage; see [arguments](arguments.md),
+[classes](classes.md) and [opaque ownership](opaque.md). Their supported shapes
+use this representation without changing the public constructor/presence model.
 
 ## Linking and initialization
 
@@ -93,8 +89,9 @@ Repeated imports of one URL share exports and Dart state. Copying the complete
 artifact graph to a different directory creates independent module state and
 class identity. Adding a query only to the entry URL is not specified as an
 isolation mechanism. Missing dependencies fail the import before a usable
-namespace is returned. Package root/subpath resolution is verified with a
-handwritten npm fixture; production metadata generation remains #134/#135.
+namespace is returned. [Fresh package assembly](packaging.md) generates metadata
+and verifies root/subpath resolution through relocated installed consumers,
+including explicit dual-target packages. Output replacement remains #135.
 
 ## SDK compatibility boundary
 
@@ -131,10 +128,11 @@ hosts, missing native symbols, and filesystems without exclusive rename fail
 closed; there is no check-then-rename fallback. The host FFI is not imported by
 generated Dart or shipped in the Wasm artifacts. Linux runs full conformance;
 macOS/Windows CI separately exercises the publication primitive, which does not
-establish compiler/runtime support on those hosts. This is a conservative first-build boundary; incremental replacement,
-package-name validation, package assets/licenses, and consumer metadata assembly
-remain the scoped work in #134/#135 and #106.
+establish compiler/runtime support on those hosts. Package-name validation,
+explicit assets/licenses and consumer metadata assembly are implemented by
+[buildPackage](packaging.md). Ownership manifests and atomic replacement remain
+#135; fresh no-replace publication does not implement rebuilds.
 
-No release, backwards compatibility with the removed implementation, broader
-Node-version matrix, Bun/browser support, native addon ABI, async behavior, or
-performance improvement is claimed by this PR.
+The compiler is tested on the Node versions in [the test guide](testing.md).
+Bun/browser support and additional native profiles remain unqualified. Historical
+single-Wasm probes do not establish the complete API or a performance improvement.

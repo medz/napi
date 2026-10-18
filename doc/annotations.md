@@ -25,8 +25,10 @@ member annotations without an annotated owning class, and annotations on other
 syntax are diagnosed at source. An annotated field declaration must declare one
 field. `exclude` is only valid on class members.
 
-Inherited members are not automatically selected. An explicit override is an own
-declaration and is selected normally. Static and instance members retain that
+Discovery does not select every inherited declaration automatically. Generated
+classes do inherit the supported contracts of their selected ancestors; see
+[reference classes](classes.md) and [concrete hierarchies](concrete-generics.md).
+An explicit override is an own declaration and is selected normally. Static and instance members retain that
 distinction. Fields are represented once, rather than duplicated as synthetic
 getters/setters. Explicit getters and setters have separate declaration identities;
 a pair for the same property may share its public name. Excluding one accessor
@@ -100,11 +102,11 @@ Wildcard parameters retain their positional slots, including repeated wildcard
 type parameters. Synthetic callback parameters have no invented source span;
 their source is absent. No analyzer elements, AST nodes or types leave the frontend.
 
-The analyzer dependency is pinned. Its Wasm platform view is isolated in the
-frontend, matching the pinned Dart SDK rather than treating a JavaScript numeric
-view as the Dart type system. In particular, `typedef Count = int` remains an int;
-`double` is not accepted as int. Conditional exports are resolved for this Wasm
-platform.
+The analyzer dependency is pinned. Its target platform views are isolated in the
+frontend and match the pinned Dart SDK. `typedef Count = int` remains an int;
+`double` is not accepted as int. Conditional imports and exports resolve for the
+requested Dart Wasm or native AOT target. A [dual-target build](packaging.md)
+resolves both independently and compares their public contracts.
 
 ## Discovery versus building
 
@@ -130,8 +132,9 @@ See [scalar conversion semantics](scalars.md) and
 functions and unsupported class shapes produce source diagnostics; selected
 unsupported declarations are never dropped.
 
-`buildLibrary` connects discovery to the existing direct-Wasm build pipeline.
-Use its build-time entrypoint in a separate Dart VM script:
+Use `buildPackage` for a fresh npm package, as shown in [package assembly](packaging.md).
+`buildLibrary` produces raw artifacts and defaults to Wasm. Run either build API
+in a separate Dart VM script; this example selects the direct-Wasm path:
 
 ```dart
 import 'dart:io';
@@ -157,11 +160,11 @@ reexported entry library. Real Node consumers still use:
 import { add } from './module.wasm';
 ```
 
-The actual `.wasm` exports, direct installed-package entry, safe-integer checks,
-strict TypeScript checks and atomic output publication remain unchanged.
-Complete class/lifetime engines remain subsequent work; the current
-constructor/member and reference conversion contract is documented in
-[reference classes](classes.md).
+The direct-Wasm path retains actual `.wasm` exports, strict conversion and
+TypeScript checks, and atomic fresh-output publication. Both targets also
+implement the supported [reference classes](classes.md), [resource cleanup](resources.md),
+[Future](futures.md), [callback](callbacks.md) and [Stream](streams.md) contracts.
+Their remaining unsupported combinations produce build diagnostics.
 
 ## External selections
 
@@ -200,3 +203,19 @@ also describe class selections and overrides. Both annotation and external
 selections support scalar and structural functions, reference classes and value
 classes and resources on both backends. Value construction and resource cleanup
 use the explicit mappings described above.
+
+## Migrating earlier bindings
+
+The rebuild does not preserve every API from the removed implementation. Use
+these current contracts when adapting source and package consumers:
+
+| Earlier assumption | Current mapping |
+| --- | --- |
+| Lowercase `@napi` | Use `@NAPI()`, or select unchanged dependency declarations with `ExternalLibrary` in the build script. |
+| Zero JS or one shipped Wasm file | Keep generated target assets and licenses together. Package imports initialize the backend; business logic stays in Dart. |
+| Factory-only classes or explicit presence flags | Keep `new Counter()` and ordinary argument presence/defaults. See [arguments](arguments.md). |
+| Map means a plain object or shared storage | Ordinary List/Map bindings copy; Map maps to JS Map. Use explicit [Dictionary](structural.md) for objects, [JsArray/JsMap](collections.md) for supported JS handles, and [SharedBytes](shared-bytes.md) for checked byte views. |
+| Dart int accepts any JS number | Use safe integers by default, bounded signed-64-bit bigint with `bigint: true`, or Dart BigInt for arbitrary precision. See [scalars](scalars.md). |
+| Every supplied undefined means omission | Ordinary optional arguments default for omission/undefined. Direct [opaque payloads](opaque.md) preserve supplied undefined separately from omission. |
+| GC or abort disposes business work | [Resources](resources.md) use explicit cleanup and operation leases; [cancellation](cancellation.md) is cooperative. Native cross-heap ownership cycles require explicit breaking. |
+| Native automatically selects a platform or falls back | The current [package root](packaging.md) is selected at build time; explicit backend failures propagate. Automatic selection and broader runtime supply remain open. |

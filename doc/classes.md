@@ -151,7 +151,9 @@ synchronous call contract cannot silently become Promise-returning through an
 override; `Future<void>` remains a Promise contract, not synchronous result discard.
 [Resource classes](resources.md) additionally share state and operation leases;
 their selected cleanup maps both `void` and `Future<void>` to `Promise<void>`.
-General generic specialization and general cancellation remain unsupported.
+[Finite concrete aliases](concrete-generics.md) and [explicit cooperative
+cancellation](cancellation.md) are supported. Broader generic specialization
+remains separate work; an abort does not preempt arbitrary Dart execution.
 [Typed callback inputs](callbacks.md) and [Stream results](streams.md) use their
 documented supported signatures; other combinations produce build diagnostics. Non-null Dart
 object defaults are also rejected. A composite must have a selected operation

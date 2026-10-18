@@ -141,7 +141,9 @@ accepted delivery acknowledgements. Business cleanup errors take priority over
 cancellation errors; otherwise the first cancellation error in registration order
 is forwarded. [Explicit cancellation](cancellation.md) can request a Stream's
 subscription cancellation; ordinary Futures retain their leases until actual
-completion. Shared-buffer views remain separate work.
+completion. [SharedBytes](shared-bytes.md) retains accepted host views through
+these operation and delivery lifetimes; ordinary Dart byte storage is not
+implicitly shared.
 
 ## Settlement observer cost
 

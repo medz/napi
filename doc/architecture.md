@@ -2,7 +2,7 @@
 
 The product is a Dart counterpart to napi-rs: one annotation, one build command,
 one export model, and matching JavaScript/TypeScript APIs across native Node-API
-and Wasm targets. This is the target architecture. The current compiler generates
+and Wasm targets. The current compiler generates
 Wasm scalar and structural functions with positional and named parameters,
 reference classes with direct class values and weak wrapper identity, external selections, and fresh npm
 assembly. The experimental macOS arm64 native
@@ -89,19 +89,20 @@ native handles, JS references, scheduling and teardown in their respective
 backends. Extract shared code only when both backends need it; no plugin
 framework or generic runtime abstraction is required.
 
-The native candidate is a small Node-API bridge loading a pinned Dart AOT
-runtime and generated Dart entrypoints. The exact Dart embedding API and artifact
-layout require validation in #144. A `.node` binary alone does not prove that the
-Dart runtime and snapshot can be distributed or cleaned up correctly.
+The native implementation uses a small Node-API bridge loading a pinned Dart AOT
+runtime and generated Dart entrypoints. Its embedding API, asset layout and
+lifecycle are qualified for the documented macOS arm64 profile. Additional
+platforms and runtime supply remain #144; a `.node` binary alone does not qualify
+its Dart runtime or distribution.
 
 The Wasm backend uses Dart WasmGC and the SDK's host imports. napi-rs uses Rust
 WASI and emnapi for its Wasm target. We follow its binding and package model;
 its binary ABI is not interchangeable with Dart WasmGC. Retain the working
 SDK adapter and linker while reducing unnecessary wrappers with measurements.
 
-## Native feasibility gate
+## Qualifying a native profile
 
-Demonstrate a fresh npm consumer loading a real `.node` addon and invoking
+For each new profile, demonstrate a fresh npm consumer loading a real `.node` addon and invoking
 ordinary Dart AOT business code. Include a strict scalar function and a retained
 Dart class called with `new Counter()`. Record the exact SDK, Node, compiler,
 OS/architecture and redistributable files.
@@ -112,17 +113,18 @@ steady-state cost. Do not infer that native is faster or smaller from its name.
 
 Verify exceptions, UTF-16, integer boundaries, object lifetime, repeated imports,
 multiple addon packages, worker creation/termination and process exit. Determine
-runtime sharing, per-environment isolation and cleanup before extending to async
+runtime sharing, per-environment isolation and cleanup, including async
 work. A process-global runtime must not be disposed while another environment or
 package still uses it. A local scalar probe alone does not satisfy this gate.
 
 ## Package and validation policy
 
-The package should load a matching native artifact and expose a selectable Wasm
-target through the same API. Implement and test the selection policy in #134;
-tests must force each backend so fallback cannot hide a broken artifact. Only
-claim automatic fallback where backend capabilities and loading behavior are
-verified. Unsupported targets fail with an actionable diagnostic.
+[buildPackage](packaging.md) defaults to Wasm and can include both targets.
+`target` chooses the root at build time; `/native` and `/wasm` select explicitly.
+The root points directly to the chosen backend, and a broken backend fails
+without fallback. Both targets share declaration text in separate modules so
+runtime-specific brands remain isolated. Automatic platform selection and
+qualified runtime supply remain #134/#144; unsupported targets fail explicitly.
 
 Keep native OS/architecture/runtime files with their licenses and exact version
 metadata. Keep Wasm and its JS dependencies together. Verify packed installs
@@ -132,16 +134,18 @@ Dart runtime compatibility with Bun or other hosts.
 
 ## Delivery order
 
-1. Correct the roadmap and record native feasibility results in #144, with
-   shared architecture in #114 and the existing foundation in #115.
-2. Reuse the valid optional/default work for #118 and finish generated class
-   behavior in #123. Build the native scalar/class slice against the same
-   consumer assertions before expanding native features.
-3. Complete conversion, ownership and async requirements in #119-#133, including
-   cross-feature composition in #137. Keep platform limitations explicit.
-4. Finish packaging, atomic rebuilds, independent consumers and migration docs
-   in #134-#138. Include package-name safety (#106) and runtime qualification (#27).
-5. Prepare complete user-facing milestones with cumulative changelogs, final
+1. Preserve the delivered argument/default, class, ownership and async contracts
+   on both targets. Complete the remaining combinations in #119-#133 and
+   cross-feature acceptance in #137; no single slice closes the full API roadmap.
+2. Extend qualified native profiles and runtime supply in #144. Existing macOS
+   arm64 feasibility results are documented in [native builds](native.md). The
+   independent Node-API host research in #27 has its own qualification scope; it
+   is not a prerequisite for native platform support or runtime distribution.
+3. Keep explicit single-/dual-target packages and independent consumers working
+   while completing automatic selection (#134), safe rebuilds (#135) and
+   migration documentation (#138). Fresh packaging and package-name safety are
+   already implemented.
+4. Prepare complete user-facing milestones with cumulative changelogs, final
    Codex connector review, CI and fresh published-package verification.
 
 The final PR commit needs the GitHub Codex connector's completed review with no

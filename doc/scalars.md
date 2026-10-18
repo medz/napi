@@ -3,8 +3,9 @@
 Generated nongeneric top-level functions support scalar parameters and results,
 including [optional and named arguments](arguments.md). The annotation frontend, lowering, Dart/JavaScript
 boundary and generated TypeScript declarations share the same conversion policy.
-Every public binding remains a real named Wasm export; consumers import
-it directly from `.wasm`, without a JavaScript entrypoint or manual initialization.
+Both backends share these conversions. Wasm supports direct named `.wasm`
+imports; native packages use their generated ESM entry. Neither requires manual
+consumer initialization.
 
 ## Representations
 
@@ -104,8 +105,8 @@ the module: subsequent valid calls remain usable.
 Generated TypeScript declarations use the exact fixed representation, explicit
 `| null` where appropriate, and required parameters without `?` or `undefined`.
 Optional parameters and options properties follow the argument contract.
-The integration fixtures compile real annotated Dart to Wasm and test runtime
-behavior, including hostile inputs and recovery. Strict consumer tests exercise
-both TypeScript NodeNext and Bundler resolution. The currently tested toolchain
-is Dart 3.13.5 stable, Node 24.19.0 and TypeScript 7.0.2; the Dart Wasm interop
-mechanism is experimental.
+The integration fixtures compile real annotated Dart for both backends and test
+runtime behavior, including hostile inputs and recovery. Strict consumer tests
+exercise TypeScript NodeNext and Bundler resolution. The tested toolchain is
+Dart 3.13.5 stable, Node 24.19.0/26.11.1 and TypeScript 7.0.2. Wasm interop remains
+experimental; native execution requires the qualified macOS arm64 runtime bundle.

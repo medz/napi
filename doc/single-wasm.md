@@ -12,9 +12,9 @@ or production packaging. Those probes are not a delivery gate.
 
 Fixed-arity native Wasm functions cannot recover omitted versus explicitly
 undefined arguments and cannot serve as JavaScript constructors. Generated JS
-bindings can capture these semantics before calling Dart Wasm. The existing
-foundation demonstrates that route with handwritten ABI fixtures; generated
-functions and classes still require their own conformance tests.
+bindings capture these semantics before calling Dart Wasm. Generated
+[functions](arguments.md) and [classes](classes.md) use that route with their own
+conformance tests. The handwritten ABI fixture remains a representation regression.
 
 The earlier research and merged contract remain in Git history. Do not use that
 superseded contract to weaken requirements or block native/JS implementation.
