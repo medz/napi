@@ -118,6 +118,11 @@ Map<String, Object?> _contract(
         c.binding.classPolicy.name,
         c.memberships.toList()..sort(),
         c.superclassId,
+        if (c.ancestorArguments.isNotEmpty)
+          [
+            for (final id in c.ancestorArguments.keys.toList()..sort())
+              [id, c.ancestorArguments[id]],
+          ],
         owners[c.classId],
         if (c.constructor case final constructor?)
           call(

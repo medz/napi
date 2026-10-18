@@ -133,6 +133,14 @@ void main() {
       '@NAPI(classPolicy: ClassPolicy.value) class Value { final int n = 1; }',
       '@NAPI(classPolicy: ClassPolicy.value) class Value { final double n = 1; }',
     ),
+    'empty opaque ancestor permutation': (
+      '@NAPI() class Base<A, B> {} @NAPI() class Child<X, Y> extends Base<X, Y> {}',
+      '@NAPI() class Base<A, B> {} @NAPI() class Child<X, Y> extends Base<Y, X> {}',
+    ),
+    'empty opaque interface permutation': (
+      '@NAPI() class Base<A, B> {} @NAPI() class Child<X, Y> implements Base<X, Y> {}',
+      '@NAPI() class Base<A, B> {} @NAPI() class Child<X, Y> implements Base<Y, X> {}',
+    ),
     'export names': ('@NAPI() int run() => 1;', '@NAPI() int changed() => 1;'),
   };
   for (final item in incompatible.entries) {

@@ -109,6 +109,39 @@ optional. Required named properties retain their payload type without an added
 `undefined`, under either compiler setting. Ordinary optional scalar properties
 still allow `undefined` because it selects their Dart default.
 
+## Reference inheritance
+
+Selected ordinary reference classes may rename or permute all opaque parameters:
+
+```dart
+@NAPI()
+class Pair<A, B> {
+  A first;
+  B second;
+  Pair(this.first, this.second);
+}
+
+@NAPI()
+class Reversed<X, Y> extends Pair<Y, X> {
+  Reversed(super.first, super.second);
+}
+```
+
+`new Reversed<string, number>(7, 'value')` is a `Pair<number, string>` view of the
+same object. Parent and child methods share the canonical JavaScript wrapper and
+payload carriers. TypeScript preserves the parameter order, invariant payload
+types and nominal brands. Static members and named constructors belong to their
+own exported class.
+
+Every selected generic ancestor must use each child's parameter exactly once,
+without nesting or nullable arguments, and have the same parameter count.
+This applies through unselected intermediate classes and to selected interfaces.
+Own and inherited overrides retain their declaring defaults and argument presence.
+Fixed, repeated, omitted, extra or nullable ancestor arguments still receive build
+diagnostics. Generic resource/value classes and generic inheritance from a
+selected non-generic resource remain unsupported. Use a closed concrete alias for
+supported semantic specializations; opaque inheritance does not interpret payloads.
+
 ## Ownership
 
 Native carriers own strong JS references. Unreachable acyclic carriers release
@@ -144,7 +177,7 @@ the original JS values on access. Extracted values remain retained independently
 of their source slots; opaque Map keys keep JS identity. These handles do not copy
 or interpret their payloads. See [collection ownership](collections.md).
 
-Opaque leaves inside ordinary structural containers, open opaque selected hierarchies,
+Opaque leaves inside ordinary structural containers, non-bijective open hierarchies,
 independent generic member methods and generic resource/value classes remain
 unsupported. Concrete or erased specializations
 such as `Router<String>` or raw `Router` are not interchangeable with

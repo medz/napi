@@ -220,8 +220,9 @@ and explicitly specialized top-level callable consts.
 Arguments containing `dynamic` or generic function types remain diagnosed even
 when Dart considers the surrounding alias closed. It preserves existing [open opaque generics](opaque.md). Selecting an open class and
 one of its concrete aliases together, multiple aliases for the same canonical
-specialization remain diagnosed. Selected hierarchies require ordinary classes
-or closed aliases; open opaque hierarchies remain diagnosed. Reference selections
+specialization remain diagnosed. Selected hierarchies support ordinary classes,
+closed aliases and [bijective opaque parameter mappings](opaque.md#reference-inheritance).
+Other open ancestor mappings remain diagnosed. Reference selections
 that Dart type tests cannot distinguish, such as `Marker<void>` with `Marker<Object?>`, are also rejected;
 value projections do not use that runtime classification.
 
