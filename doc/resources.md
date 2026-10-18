@@ -1,8 +1,8 @@
 # Resource bindings and operation leases
 
 Both backends generate resource classes from the same declaration. A resource
-uses its own selected public cleanup method; ordinary reference classes do not
-gain a disposal API.
+uses a designated selected public cleanup method; ordinary reference classes do
+not gain a disposal API.
 
 ```dart
 import 'package:napi/napi.dart';
@@ -107,9 +107,9 @@ raw control. Partial conversion failures release every lease already acquired.
 Synchronous calls release after result conversion, including failure paths.
 Future calls retain their leases through result conversion and the public
 Promise's actual settlement. Dropping that Promise does not cancel Dart work or
-release its leases. The adapter strongly retains accepted pending calls, including cleanup of its
-own exempt receiver, even when the business Future itself does not capture its
-inputs or retain its completion callbacks.
+release its leases. Accepted pending calls retain their inputs, including
+cleanup's own exempt receiver, even when the business Future does not capture
+those inputs or retain its completion callbacks.
 
 A genuine Promise assimilates a callable `then` on its root result. For an object
 result with resource leases, the generated Node binding observes the public
@@ -124,8 +124,8 @@ returns to Dart through its owning event pump, not a reentrant V8 hook callback.
 The observer is private to each loaded module and is removed when its last
 observed operation has finished. While active, Node invokes it for other Promise
 settlements in that environment too. Independent active modules therefore have
-additive hook cost. This implementation is qualified for the Node versions below;
-it does not establish a browser contract. Environment teardown discards pending
+additive hook cost. See the [supported Node versions](../README.md#verify);
+this does not establish browser support. Environment teardown discards pending
 bindings and native owners without executing JavaScript or business cleanup in
 a dead realm.
 
@@ -145,44 +145,7 @@ completion. [SharedBytes](shared-bytes.md) retains accepted host views through
 these operation and delivery lifetimes; ordinary Dart byte storage is not
 implicitly shared.
 
-## Settlement observer cost
-
-A local isolated Promise-settlement microbenchmark used Node 24.19.0 and
-26.11.1 on macOS arm64, with three A/A and balanced A/B/B/A rounds. Each fresh
-process used four warmups and eight samples of 200,000 immediate settlements.
-On Node 24, no hook cost about 6.8–7.0 ns per settlement; one active observer
-cost about 14.2–14.4 ns (roughly +7 ns), and eight observers about 65–66 ns.
-Node 26 showed the same scale; A/A deviations stayed below 1.51%. This measures
-the host notification cost, not total binding latency or a real-workload
-slowdown. Only leased object results activate observation; applications with
-several such pending module graphs should account for the additive cost.
-
-## Generated operation cost
-
-A separate generated package contains ordinary `Plain` and resource `Resource`
-classes with identical getter, increment and Future bodies. Both live in the
-same resource-enabled module, so the ordinary class already pays the empty
-resource guard. This comparison isolates neither a resource-free module nor
-cross-backend business equivalence beyond these small calls. Each backend/Node
-combination used two A/A plus balanced A/B/B/A rounds in fresh processes; each
-process warmed and measured five samples of 100,000 synchronous or 1,000 awaited
-Future calls. The object Future allocates and returns a reference wrapper.
-
-| Backend / Node | Method ns, ordinary → resource | Scalar Future µs, ordinary → resource | Object Future µs, ordinary → resource |
-| --- | ---: | ---: | ---: |
-| Native / 24.19.0 | 823 → 931 | 3.82 → 4.03 | 5.31 → 6.06 |
-| Native / 26.11.1 | 819 → 912 | 3.56 → 3.67 | 5.09 → 5.57 |
-| Wasm / 24.19.0 | 122 → 230 | 1.00 → 1.03 | 1.32 → 1.85 |
-| Wasm / 26.11.1 | 106 → 189 | 0.97 → 0.98 | 1.16 → 1.48 |
-
-The tested resource methods add roughly 83–107 ns, and object Futures add
-0.32–0.75 µs including final-settlement observation. Same-target variation reached
-2.87% on native and 9.42% on Wasm; small scalar-Future differences are within that
-noise. These local microbenchmarks do not predict application throughput.
-Resource-free synchronous comparisons are in
-[native measurements](native.md#resource-bindings-and-synchronous-modules).
-
-## Shared Dart kernel
+## Dart lifetime controls
 
 The low-level controls are exported by `package:napi/runtime.dart`:
 
@@ -211,9 +174,6 @@ throws follow normal Zone interception when converted to asynchronous failures.
 
 ## Compatibility
 
-Resource bindings use Dart 3.13.5, Node 24.19.0/26.11.1 and TypeScript 7.0.2.
-Native requires the experimental macOS arm64 ABI 15 runtime bundle pinned to
-Dart revision `04bcd1036cdc799ac6564988f159ee454d42c822`. Wasm uses that SDK's
-version-specific compiler and host adapter, not WASI/emnapi. Other native targets
-and hosts remain unqualified. See [native requirements](native.md) and
-[repository test commands](testing.md).
+Resource bindings require the pinned Dart SDK and supported Node runtime.
+Native currently supports macOS arm64; Wasm uses Dart WasmGC. See
+[native requirements](native.md) and [supported toolchains](../README.md#verify).

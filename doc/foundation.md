@@ -91,8 +91,7 @@ root/subpath exports, including explicit dual-target packages and managed rebuil
 Only Dart 3.13.5 stable is accepted. Its internal dart2wasm snapshot, platform
 kernel, `--enable-experimental-wasm-interop`, `dart:_wasm`,
 `dart:_js_interop_wasm`, and `wasm:import`/`wasm:export` pragmas are experimental
-compiler coupling. They are isolated in `sdk_adapter`; this is not a claim that
-stable public Dart APIs alone provide direct native exports.
+compiler coupling. The `sdk_adapter` isolates these version-specific interfaces.
 
 The adapter verifies the compiler version and required SDK files. The linker
 validates the recognized generated host layout and supported Wasm import forms.
@@ -102,7 +101,7 @@ builtins remain native Wasm imports on the pinned Node version. Generated string
 constants and normal compiler host imports become named exports of a dependency.
 
 Generated artifact directories retain the SDK license as `DART_LICENSE`.
-Source maps are deliberately disabled for this foundation. The linker preserves
+Source maps are disabled. The linker preserves
 all non-import Wasm sections byte-for-byte; it does not rewrite function/global
 indices or reinterpret Dart GC instructions. A thin global-export facade avoids
 inserting globals into the compiled Dart module. Supporting a new compiler layout

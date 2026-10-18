@@ -75,13 +75,13 @@ shutdown before completing. An API that ignores or recovers from the request may
 still return a successful result. The binding never adds a `Promise.race`, a
 synthetic `.cancel()` member, or an extra signal parameter to ordinary exports.
 
-Tokens remain usable while Dart retains them in a field, collection, closure or
-listener-removal function. The end of one export call does not invalidate a token
+Signals remain usable while Dart retains them in a field, collection, closure or
+listener-removal function. The end of one export call does not invalidate a signal
 or remove another business registration. Remove business listeners when they are
 no longer needed. One module reuses a live adapter for the same source signal;
 separate modules have separate adapters and registrations.
 
-The source signal alone does not keep a Dart token or its callbacks alive. The
+The source signal alone does not keep its Dart adapter or callbacks alive. The
 host listener and identity cache hold weak references to the adapter. The last
 registration's removal detaches the host listener immediately; garbage collection
 can remove an unreachable adapter's leftover listener later. Finalizers perform
@@ -111,7 +111,7 @@ cancellation. Stream return and owner close share the same cancellation path.
 | Worker/environment teardown | Internal roots and pending deliveries are discarded or rendered inert. No business cancellation runs in a dead environment. |
 
 Stream termination removes only the binding's registrations. Other Dart listeners
-and retained tokens stay valid. Cancelling one subscription does not promise that
+and retained signals stay valid. Cancelling one subscription does not promise that
 a broadcast producer or another subscriber stopped. The full demand, buffering,
 error and acknowledgement rules remain in [Stream exports](streams.md).
 
@@ -124,20 +124,13 @@ shadow `AbortSignal`. Signals in containers, callback payloads or outputs receiv
 build diagnostics. A method named `cancel` or a parameter named `signal` does not
 enable this mapping by itself.
 
-The Node boundary captures the native AbortSignal getters and rejects proxies,
+The Node boundary uses the native AbortSignal brand checks and rejects proxies,
 plain objects and prototype-only impostors. Own properties named `aborted` or
-`reason` do not replace the captured getters. Node's public signal-brand checks
-are the capability boundary; copied Node-private symbol state is not an
-unforgeable security boundary. Manually dispatching an `abort` event without an
-actual state change does not notify Dart, consume the next real abort, or bypass
-another listener's `stopImmediatePropagation()` handling.
+`reason` do not replace the captured getters. Manually dispatching an `abort`
+event without an actual state change does not notify Dart or consume the next
+real abort. Another listener's `stopImmediatePropagation()` does not suppress a
+real abort notification.
 
-Both backends use the same host listener policy and Dart registration state.
-Wasm traces the host companion directly. Native uses owned values,
-weak adapter identity and its owning isolate's callback queue. An un-aborted
-signal never creates a permanently strong
-pending callback invocation.
-
-Both backends require Dart 3.13.5. The native distribution remains experimental
-and qualified only for macOS arm64. See [native builds](native.md) and
+Both backends require the pinned Dart SDK. Native currently supports macOS
+arm64; see [native builds](native.md) and
 [supported toolchains](../README.md#verify).

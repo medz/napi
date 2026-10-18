@@ -48,8 +48,8 @@ The default generic binding is a storage/forwarding contract, not general Dart
 runtime specialization. Generated Dart instantiates the declaration with a
 private carrier type. Business code may store, return or remove that carrier. It must
 not use casts, runtime type checks, payload method calls, equality or hash codes
-to interpret the original JS value. This is the binding contract for an exported generic declaration, not a
-whole-program proof that its implementation follows the rule. The same
+to interpret the original JS value. The compiler does not analyze the business
+implementation for compliance with this contract. The same
 requirement applies to external dependencies selected with `ExternalLibrary`;
 there is no additional generic configuration.
 
@@ -146,7 +146,9 @@ An object implementing unrelated selected interfaces can expose an equivalent
 generic method through both views. Incompatible method arity, presence, bounds or
 conversion contracts are rejected; conflicting composite defaults also remain an
 error. Actual inherited implementations still undergo Dart subtype validation.
-Generic cleanup methods and opaque callback signatures remain unsupported.
+Generic cleanup methods and bare opaque callback payloads remain unsupported.
+Callbacks can use JS collection handles whose elements are enclosing opaque
+parameters; see [typed callbacks](callbacks.md).
 
 ## Reference inheritance
 
@@ -196,7 +198,7 @@ added to ordinary classes, and GC never runs business cleanup. Wasm may collect
 more cycles automatically; portable code follows the same explicit ownership
 contract. Environment teardown releases remaining native references.
 
-## Current boundaries
+## Supported shapes and limits
 
 Generated bindings support ordinary generic reference classes, top-level generic
 functions and instance/static generic methods, including inherited instance
@@ -246,8 +248,10 @@ Native admission failures release newly created opaque carriers. Once business
 code starts, ordinary Dart reachability owns them even if the function saves an
 input and then throws. Clearing stored containers releases that ownership when
 their leaves become unreachable; cross-heap cycles still require the explicit
-break described above. Explicit `JsArray`/`JsMap` handle types and callbacks
-remain unsupported inside structural containers.
+break described above. `JsArray`/`JsMap` handles may be nested inside copied
+containers and value classes. Their adapters follow ordinary Dart reachability:
+a later conversion failure does not invalidate a handle already stored by Dart.
+Callbacks themselves cannot be nested inside structural containers.
 
 Setter-only properties read `undefined`. Their declarations also include getters
 that compatible selected views may contribute, including through an unselected
@@ -256,33 +260,3 @@ with unknown generic arguments can make the read and Promise result `unknown`.
 Without a compatible getter view, the read remains exactly `undefined`, so a
 setter-only `then` preserves the wrapper. Static setter-only reads are always
 `undefined` because static members do not participate in view composition.
-
-## Measured cost
-
-The following measurements cover the original synchronous opaque implementation
-on macOS arm64, Dart 3.13.5, Node 24.19.0/26.11.1 and native ABI 12. They do not
-establish costs for nested containers, generic methods, Future/Stream payloads
-or extracted JS collection values. Current native builds require ABI 15;
-see [native requirements](native.md).
-
-A scalar/Counter sample with no opaque operations before and after enabling
-opaque generation remained 6,588,276 bytes, with identical loader, declarations, bridge and runtime.
-The AOT size was unchanged, though its bytes differed. A/A and three balanced
-ABBA rounds on each Node version measured ordinary function/getter/method median
-changes from -1.08% to +0.50%; constructor changes were +2.59% (Node 24) and +0.38%
-(Node 26), with mixed individual pairs. These measurements do not establish zero
-regression or portability to another host.
-
-For the generated `identity`, `Router.set` and `Router.get` paths, a separate
-A/A plus three balanced ABBA comparison measured 100,000 calls per operation,
-with event-loop turns every 1,000 calls. The same payload object was retained:
-
-| Local median per call | Native Node 24 / 26 | Wasm Node 24 / 26 |
-| --- | --- | --- |
-| `identity(payload)` | 1,451 / 1,411 ns | 12.5 / 11.8 ns |
-| `router.set(key, payload)` | 1,795 / 1,849 ns | 74.7 / 63.3 ns |
-| `router.get(key)` | 1,236 / 1,217 ns | 61.8 / 48.8 ns |
-
-This measures these small operations on macOS arm64, not a general application
-speedup or a memory bound. Native creates an owned reference for accepted payload
-inputs; Wasm carries the externref directly.

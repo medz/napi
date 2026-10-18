@@ -5,13 +5,15 @@ contracts. The model follows napi-rs: convert ordinary owned values, retain a
 handle when accessing an existing JavaScript container, and export classes and
 methods when sharing application state owned by Dart.
 
-| Dart API | JavaScript value | Ownership | Status |
-| --- | --- | --- | --- |
-| `List<T>` | `Array<T>` | Independent container on each conversion | Implemented on both targets |
-| `Map<K, V>` | `Map<K, V>` | Independent container on each conversion | Implemented on both targets |
-| `Dictionary<V>` | String-keyed object | Independent container on each conversion | Implemented on both targets |
-| `JsArray<T>` / `JsMap<K, V>` | Original JS Array or Map | Retains the existing JS container | Scalar and direct opaque payloads on both targets |
-| Exported Dart reference class | Bound class instance | Dart owns its state; methods expose supported operations | Implemented on both targets |
+Both targets use these mappings:
+
+| Dart API | JavaScript value | Ownership |
+| --- | --- | --- |
+| `List<T>` | `Array<T>` | Independent container on each conversion |
+| `Map<K, V>` | `Map<K, V>` | Independent container on each conversion |
+| `Dictionary<V>` | String-keyed object | Independent container on each conversion |
+| `JsArray<T>` / `JsMap<K, V>` | Original JS Array or Map | Retains the existing JS container; scalar and direct opaque elements |
+| Exported Dart reference class | Bound class instance | Dart owns its state; methods expose supported operations |
 
 See [structural conversion](structural.md) for strict input validation, element
 policies, traversal limits and converted Map-key collisions. Copying a container
@@ -84,7 +86,7 @@ observes the current contents and validates only the values it accesses:
   reentry into the same owner is allowed; their exact thrown JS values, including
   null and undefined, are preserved. Direct synchronous entry into another native
   module's isolate while Dart is active remains rejected; see
-  [native runtime limitations](native.md#runtime-and-verification). No
+  [native runtime limitations](native.md#runtime-behavior). No
   transactional bulk mutation or snapshot rules are implied.
 - Map operations use captured native methods and SameValueZero keys. `get`
   returns Dart null for an absent key; `has` distinguishes absence from a stored
@@ -97,7 +99,6 @@ observes the current contents and validates only the values it accesses:
   JS Map iteration rules; an exhausted iterator stays exhausted. A conversion
   failure propagates through the Dart iterator. The iterator retains its handle.
 
-A native handle owns a host reference; a Wasm handle retains a traced externref.
 The same source and element policy reuse a still-reachable Dart handle within one
 module. A source alone does not pin an otherwise unreachable Dart handle, and
 different modules may independently retain the same source. Returning a handle
@@ -124,40 +125,6 @@ assimilation. Retention does not transfer a handle between workers or make
 concurrent access safe. Native cross-heap cycles follow the explicit
 [ownership contract](opaque.md).
 
-The host operations are captured per generated module and emitted only when a
-handle is used. Both backends reuse the existing owner/error transport; no C ABI
-or VM extension is added. Native calls still pay for scoped host invocation and
-scalar conversion or opaque ownership. Wasm still uses the pinned experimental Dart 3.13.5 SDK
-adapter. See [supported toolchains](../README.md#verify).
-
-## Measured cost
-
-A 2026-10-18 sample on Apple M3 Max, macOS 27.0.1 arm64, Dart 3.13.5 and the
-ABI 15 native runtime measured a retained 32-element `JsArray<int>` and a
-one-key `JsMap<String, int>`. Each operation crosses JS → Dart → JS container →
-Dart → JS, including strict scalar validation and ownership transport.
-
-| Backend / Node | Array get | Array set | Map get | Map set |
-| --- | ---: | ---: | ---: | ---: |
-| Native / 24.19.0 | 1,771.9 ns | 1,790.6 ns | 1,989.4 ns | 1,992.3 ns |
-| Native / 26.11.1 | 1,737.5 ns | 1,751.7 ns | 1,956.5 ns | 1,989.5 ns |
-| Wasm / 24.19.0 | 180.0 ns | 195.8 ns | 164.5 ns | 179.8 ns |
-| Wasm / 26.11.1 | 179.3 ns | 196.6 ns | 165.9 ns | 171.8 ns |
-
-Each fresh process warmed up for 10,000 calls and measured three 100,000-call
-batches. The table takes the median per process, then the median of two handle
-processes in a balanced control/handle/handle/control sequence. Separate repeated
-control runs estimated noise; output and mutations were checked outside timing.
-This small valid-scalar sample does not measure large collections, errors, GC
-pressure, memory footprint or other platforms. It predates opaque element
-support and does not measure extracted payload allocation or retention.
-
-An ordinary scalar-and-Counter fixture that never uses handles produced identical
-generated text and unchanged unpacked package sizes before and after this feature:
-6,654,143 bytes native and 129,075 bytes Wasm. The native AOT stayed 1,027,056
-bytes and Wasm core stayed 88,383 bytes. Binary hashes differed; these sample sizes
-do not imply deterministic binaries or a universal zero-cost guarantee.
-
 ## Dart-owned state
 
 Expose Dart-owned collections through an exported class and methods when callers
@@ -182,4 +149,4 @@ and [reference lifetime guide](https://napi.rs/docs/concepts/understanding-lifet
 
 We follow that ownership distinction. Existing Dart Map exports continue to use
 JavaScript Map; `Dictionary` is the explicit object representation. The comparison
-does not change those public mappings or copy napi-rs's backend ABI.
+does not change those public mappings.

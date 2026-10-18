@@ -33,8 +33,8 @@ git diff --check
 
 `dart test` discovers compiler, harness and runtime suites through
 `dart_test.yaml`. Callback consumers use separate presets; `tool/verify.dart`
-runs the other consumer fixtures. The explicit Node command runs the runtime
-suites compiled with Dart2Wasm.
+runs the other consumer fixtures. The `--platform node --compiler dart2wasm` command runs the shared runtime
+suites compiled to Wasm.
 
 ## Native consumers
 
@@ -64,31 +64,20 @@ NAPI_TEST_NATIVE_RUNTIME=/absolute/path/to/qualified-bundle \
 dart test -P callback-wasm --name '^callback wasm Node 1 exact-errors$'
 ```
 
-Each preset builds source and external packages once, packs them, removes the
-build project, and installs the relocated archives offline in `setUpAll`.
-Runtime scenarios run independently for each configured Node, including the
-expected late-rejection failure and Worker teardown. TypeScript checks
-NodeNext/Bundler × exact optional × strict function configurations once per
-backend.
-The TypeScript host is `NAPI_TEST_NODE`, or `node` from `PATH`; it is independent
-of `NAPI_NODE_EXECUTABLES` and its version is logged. CI uses Node 24 from `PATH`.
+Each preset builds and installs source and external packages once, then runs
+its scenarios on each configured Node executable. TypeScript checks run once
+per backend in NodeNext and Bundler modes. Set `NAPI_TEST_NODE` to choose the
+TypeScript host; otherwise it uses `node` from `PATH`, independently of
+`NAPI_NODE_EXECUTABLES`.
 
-The native preset fails if `NAPI_TEST_NATIVE_RUNTIME` is missing or its bundle
-validation fails; it does not skip, download an SDK, or build a VM. The existing
-native verification command still covers the other consumers and should be run
-with the same qualified bundle. Wasm callback CI runs the preset once in consumer
-shard 0. Run the native preset explicitly with a qualified runtime bundle.
+The native preset requires `NAPI_TEST_NATIVE_RUNTIME` to name a valid runtime
+bundle. Use the broader native verification command above for the other native
+consumers. CI runs the Wasm callback preset and native package checks; the full
+native callback suite currently needs an explicit local run.
 
-Each Node scenario runs with a 30-second command deadline, below the 45-second
-test timeout, and drains output/reaps the direct child before cleanup. Only the
-late-rejection case allows a positive nonzero exit, and it must contain its
-specific marker; a signal, startup failure or timeout cannot satisfy it. Owned
-fixture directories are removed after settled tests, including failures.
-Compiler/npm commands still use the existing build path; TypeScript 7 can also
-spawn its native compiler when execve is unavailable, so its fixed-host checks
-keep that path as well. Process-tree timeout and cancellation are not implemented.
-A test timeout does not imply those descendants have exited, so an unsettled
-build or typecheck retains its directory.
+Callback Node scenarios have command deadlines and clean up their child
+processes. Compiler/npm/TypeScript process-tree cancellation is not implemented;
+a test timeout may leave a build or typecheck process running.
 
 `tool/check_package.dart` performs a publication dry-run, not an upload. It
 accepts only the known warning about the intentionally pinned analyzer version;

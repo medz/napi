@@ -99,90 +99,34 @@ They cross Dart in a private exception carrier, not as a converted Dart model.
 Native per-invocation handle scopes cover conversion and JS execution; saved
 exceptions own independent references.
 
-Native async delivery queues owned results for the correct isolate's existing
-event pump. It does not enter Dart directly from a Promise reaction, which may
-run while another isolate is active. The pump drains a bounded batch before
-Dart microtasks; unresolved callback Promises alone do not keep Node alive.
-Ordinary direct reentry into another active native isolate remains the
-[existing limitation](native.md).
+Native async results are delivered in the owning Dart isolate. Unresolved
+callback Promises alone do not keep Node alive. Direct synchronous reentry into
+another active native isolate remains [unsupported](native.md).
 
 ## Supported signatures
 
-Callbacks are direct inputs to synchronous, Future-returning and Stream-returning functions,
-constructors, methods, setters and resource cleanup. Nullable/default-null outer
+Callbacks are direct inputs to synchronous, Future-returning and Stream-returning
+functions, constructors, methods, setters and resource cleanup. Nullable/default-null outer
 parameters preserve normal presence rules. External selections use the same
 mapping. Callback parameters currently require positional parameters without
-defaults, with scalar/List/record/JS-handle payloads and synchronous or Future results;
-void is also supported.
+defaults, with scalar/List/record/JS-handle payloads and synchronous or Future
+results; void is also supported.
 
 Optional/named parameters inside a callback, generic callback signatures,
 callback outputs, nested callbacks, nullable outer Future results, FutureOr,
-and callback payloads containing bound instances, bare opaque values, Maps or value
-classes still receive diagnostics. [Stream exports](streams.md) retain input
+and callback payloads containing bound instances, bare opaque values, Dart `Map`
+containers or value classes receive diagnostics. [Stream exports](streams.md) retain input
 callbacks through subscription completion. [Explicit cancellation](cancellation.md)
 never revokes a retained callback or cancels a JavaScript Promise returned by it.
 A generic payload that happens to be a JS function stays an opaque
 value; it is never inferred to be a callback.
 
-Native callbacks require the experimental macOS arm64 ABI 15 runtime bundle.
-See [native requirements](native.md) and [supported toolchains](../README.md#verify).
+Native callbacks currently support macOS arm64. See [native requirements](native.md)
+and [supported toolchains](../README.md#verify).
 
-## Retained-callback cost
+## Performance
 
-These ABI 14 measurements compare retained and borrowed adapters using the
-same Dart callback source on macOS arm64 with Node 24.19.0 and 26.11.1. Each case used
-fresh-process A/A samples and three balanced ABBA rounds. Median times in ns:
-
-| Path and unit | Node 24, borrowed → retained | Node 26, borrowed → retained |
-| --- | ---: | ---: |
-| Native Dart loop, per JS callback | 252 → 255 (+1.16%) | 250 → 257 (+2.83%) |
-| Native `callTwice`, per outer call | 1,414 → 1,558 (+10.15%) | 1,412 → 1,517 (+7.47%) |
-| Wasm Dart loop, per JS callback | 114 → 119 (+3.87%) | 109 → 109 (-0.16%) |
-| Wasm `callTwice`, per outer call | 563 → 316 (-43.91%) | 534 → 277 (-48.11%) |
-
-The loop invokes an already-converted callback 100,000 times. `callTwice` passes
-the same JS function into Dart on each call and invokes it twice, so it includes
-adapter lookup. Native identity maintenance adds a repeatable 105–144 ns per
-outer call. Ordinary native export controls changed between -2.23% and +1.13%, with no consistent slowdown
-across the independent runs. These results do not measure async callback
-throughput or establish a general application performance bound.
-
-The unchanged scalar/Counter native package adds 17,872 bytes (+0.271%). The
-same-source native callback package adds 21,251 bytes (+0.307%), or 2,456 bytes
-in its real npm tarball. The Wasm callback package shrinks by 9,882 raw bytes
-(-1.719%) but its tarball grows by 816 bytes. Callback source paths differ from
-the earlier installed fixture, so sizes compare complete generated packages,
-not isolated bridge instructions. The comparison excludes async callback
-throughput and broader payload shapes.
-
-## Earlier borrowed-callback cost baseline
-
-These measurements use the ABI 13 borrowed-adapter implementation, before
-retained and async adapters. They are not cost measurements of the current path.
-
-The same scalar/Counter package grows from 6,588,276 to 6,588,516 bytes with
-ABI13: the bridge adds 240 bytes; loader/declarations are byte-identical and AOT
-size is unchanged.
-
-Local ordinary native-path measurements used A/A and three balanced ABBA rounds
-per Node version. Initial median changes were -0.88% to +1.46% across functions,
-getters, methods, constructors and event-loop turns. The Node 24 getter's initial
-+11 ns result did not repeat in an independent one-million-call A/A/ABBA check:
-752.19 ns baseline versus 750.49 ns candidate (-0.23%). These measurements do not
-establish a universal performance bound.
-
-For active callbacks, a warmed Dart loop invoked `value => value + 1` 100,000
-times through the installed package, checking the sum. Median time per call:
-
-| Path | Node 24 | Node 26 |
-| --- | ---: | ---: |
-| Dart AOT to JS callback | 246 ns | 247 ns |
-| Dart Wasm to JS callback | 112 ns | 109 ns |
-| JS to Dart AOT `add` export, separate control | 912 ns | 895 ns |
-| Pure JS loop, lower-bound control | 3.24 ns | 2.45 ns |
-
-The native/control runs used A/A plus balanced repeated ordering; Wasm used A/A
-and six additional samples per version. The controls execute different paths,
-so subtracting them is not an isolated bridge-cost measurement. These scalar
-loops do not measure application throughput, structural payload costs or memory
-bounds.
+Each callback invocation crosses the Dart/JavaScript boundary. Lists and records
+are copied and validated on each call; JS handles retain their live containers.
+For repeated work, passing a batch can reduce invocation overhead. Reusing a
+callback preserves its adapter identity but does not remove per-call conversion.

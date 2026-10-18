@@ -104,9 +104,9 @@ Module instances and Workers have independent adapters and runtime owners.
 
 Nullable values, optional/default arguments, class members and supported
 structural containers use the existing conversion rules. `Future<SharedBytes>`
-retains the adapter through actual Promise settlement and uses standard Promise
-resolution, including an own `then` property on the returned view. Stream
-admission validates and retains the view; it does not freeze its bytes. Mutations
+hands the original view to the Promise resolver. A callable `then` on that view
+can determine a different fulfillment value under [standard Promise resolution](futures.md).
+Stream admission validates and retains the view; it does not freeze its bytes. Mutations
 before or after delivery remain visible. The IteratorResult wrapper keeps an
 item's `then` property from being assimilated. Resource close waits for accepted
 delivery acknowledgments and outstanding operations, and cancels subscriptions
@@ -119,8 +119,7 @@ collection does not invoke business cancellation or resource cleanup.
 
 Typed callback signatures containing `SharedBytes` remain unsupported. This
 type is a checked host adapter, not a `Uint8List` subclass; arbitrary ordinary
-Dart storage cannot be reinterpreted as shared host backing. Both backends use
-the same public model but retain their existing runtime coupling: Dart 3.13.5,
-Node 24.19.0/26.11.1, TypeScript 7.0.2 and the experimental native macOS arm64
-runtime profile. The automatic allocator adds code to ordinary modules too;
-its size and runtime cost are measured separately rather than treated as free.
+Dart storage cannot be reinterpreted as shared host backing. Allocator support
+is included in generated modules even when their exported signatures contain
+no `SharedBytes`. See [native requirements](native.md) and
+[supported toolchains](../README.md#verify).

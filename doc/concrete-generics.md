@@ -31,11 +31,10 @@ The external equivalent is `ExternalClass('IntCell')` and
 renaming or excluding a member on one alias does not change the other. External
 selection retains its existing rule of ignoring source annotations.
 
-Constructors, named constructors, fields and methods use Analyzer's resolved
-substitutions. These include nested containers, nullable type arguments and
+Constructors, named constructors, fields and methods use the selected Dart type
+arguments, including inside nested containers, nullable types and
 selected reference classes. Dart bounds and F-bounds remain Dart constraints;
-invalid aliases fail at their source locations before output is written. No
-runtime type descriptors, string type names or new annotation options are needed.
+invalid aliases fail at their source locations before output is written.
 An alias's spelling is not its identity: parameters spelled `Cell<int>` or with
 another unselected equivalent typedef refer to the same selected `IntCell`.
 
@@ -70,9 +69,8 @@ signature matches the initializer; widening or erasing it is diagnosed.
 
 Mutable and `final` variables, inferred instantiations, alias chains, closures,
 constructor tear-offs and bound instance methods remain diagnosed. Arguments
-containing `dynamic` or open generic function types are also unsupported. There
-is no runtime type descriptor or new annotation option. Ordinary open generic
-methods use the [opaque payload contract](opaque.md#generic-methods); automatic
+containing `dynamic` or open generic function types are also unsupported.
+Ordinary open generic methods use the [opaque payload contract](opaque.md#generic-methods); automatic
 concrete callable specialization is not supported.
 
 ## Handle identity and covariance
@@ -213,21 +211,20 @@ constructor makes that specialization output-only, even if another alias of the
 same original class permits inputs. Defaults, bigint policy, copy semantics and
 whole-root validation before construction remain unchanged.
 
-## Current scope
+## Supported shapes and limits
 
 Concrete exports support non-null, closed aliases of reference, resource and value classes,
 and explicitly specialized top-level callable consts.
 Arguments containing `dynamic` or generic function types remain diagnosed even
-when Dart considers the surrounding alias closed. It preserves existing [open opaque generics](opaque.md). Selecting an open class and
-one of its concrete aliases together, multiple aliases for the same canonical
-specialization remain diagnosed. Selected hierarchies support ordinary classes,
+when Dart considers the surrounding alias closed. [Open opaque generics](opaque.md)
+use a separate storage/forwarding contract. Selecting an open class and one of its
+concrete aliases together is rejected, as is selecting multiple aliases for the
+same canonical specialization. Selected hierarchies support ordinary classes,
 closed aliases and [bijective opaque parameter mappings](opaque.md#reference-inheritance).
 Other open ancestor mappings remain diagnosed. Reference selections
 that Dart type tests cannot distinguish, such as `Marker<void>` with `Marker<Object?>`, are also rejected;
 value projections do not use that runtime classification.
 
-Native `.node` and Dart Wasm share the substitutions and declarations; each
-backend keeps its existing identity and lifetime implementation. Future returns
+Native `.node` and Dart Wasm share these substitutions and declarations. Future returns
 use standard Promise resolution. Stream values keep their usual identity and
-retention rules. Compiler/runtime coupling remains the pinned Dart 3.13.5 setup
-documented in [native](native.md) and [architecture](architecture.md).
+retention rules. See the [compatibility requirements](../README.md#verify).
