@@ -589,9 +589,8 @@ async function scenario(name) {
     return;
   }
   const api = await import(packageName);
-  const hidden = [];
-  if (name !== 'void') process.on('unhandledRejection', error => hidden.push(error));
   switch (name) {
+    case 'late-rejection': break;
     case 'scalars': scalar(api); break;
     case 'structures': structures(api); break;
     case 'void': await voidResult(api); break;
@@ -685,7 +684,6 @@ async function scenario(name) {
   }
   if (name !== 'void') {
     await turn(); await turn();
-    assert.deepEqual(hidden, [], `${name}: private Promise reactions must not reject unobserved`);
   }
 }
 
@@ -711,8 +709,15 @@ if (!isMainThread) {
   }
 } else if (process.argv[2]) {
   await scenario(process.argv[2]);
+  if (process.argv[2] === 'late-rejection') {
+    const api = await import(packageName);
+    // Run after the scenario's final checks; an unexpected rejection must still fail.
+    setImmediate(() => {
+      api.callAsync(() => Promise.reject(new Error('callback-late-rejection')), 1);
+    });
+  }
 } else {
-  const cases = ['scalars', 'structures', 'void', 'validation', 'many', 'reentry',
+  const cases = ['late-rejection', 'scalars', 'structures', 'void', 'validation', 'many', 'reentry',
     'exact-errors', 'conversion-errors', 'scalar-intrinsics', 'stored-errors', 'retained-gc', 'scheduled',
     'resources', 'identity', 'async-values', 'async-validation', 'async-errors',
     'async-retention', 'async-resources', 'foreign-owner', 'pending-natural-exit',
@@ -723,7 +728,12 @@ if (!isMainThread) {
     });
     assert.ifError(result.error);
     assert.equal(result.signal, null, `${name}: ${result.stderr}`);
-    assert.equal(result.status, 0, `${name}: ${result.stdout}\n${result.stderr}`);
+    if (name === 'late-rejection') {
+      assert.notEqual(result.status, 0, 'late unhandled rejection must fail after the last scenario assertion');
+      assert.match(result.stderr, /callback-late-rejection/);
+    } else {
+      assert.equal(result.status, 0, `${name}: ${result.stdout}\n${result.stderr}`);
+    }
     console.log(`Callback contract: ${name} passed`);
   }
   console.log(`Callback contract: ${cases.length} fresh-process scenarios passed`);
