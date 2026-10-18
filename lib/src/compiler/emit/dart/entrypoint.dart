@@ -4,12 +4,16 @@ import '../../analysis/reference_views.dart';
 import '../../lowering/plan.dart';
 import '../../ir/model.dart';
 import '../../sdk_adapter/entrypoint.dart';
+import '../../sdk_adapter/js_collections.dart';
 import 'structural.dart';
 
 String emitDart(ModulePlan plan) {
   final resources = plan.resourcePolicies.isNotEmpty;
   final streams = plan.calls.any((call) => call.returnsStream);
   final signals = plan.conversions.any((c) => c is AbortSignalConversion);
+  final jsCollections = plan.conversions.any(
+    (c) => c is JsCollectionConversion,
+  );
   final binary = conversionGraph(plan.conversions)
       .any((c) => c is BinaryConversion);
   final callbacks = {
@@ -41,6 +45,7 @@ String emitDart(ModulePlan plan) {
   }
   if (streams) result.writeln(streamEntrypointPrelude);
   if (binary) result.writeln(binaryEntrypointPrelude);
+  if (jsCollections) result.writeln(jsCollectionsEntrypointPrelude);
   if (callbacks.isNotEmpty) result.writeln(callbackEntrypointPrelude);
   if (callbacks.isEmpty) result.writeln(callbackErrorEntrypointPrelude);
   result.writeln(sharedBytesEntrypointPrelude);
@@ -99,6 +104,7 @@ ${tests.declarations}  return externRefForJSAny(<JSAny?>[
         (c) =>
             c is BinaryConversion ||
             c is SharedBytesConversion ||
+            c is JsCollectionConversion ||
             c is ListConversion ||
             c is RecordConversion ||
             c is MapConversion ||

@@ -18,6 +18,7 @@ import '../lowering/plan.dart'
         ScalarConversion,
         ScalarKind,
         SharedBytesConversion,
+        JsCollectionConversion,
         ValueClassConversion,
         ValueConversion,
         containsDictionary,
@@ -89,7 +90,10 @@ String emitNativeDart(NativeModulePlan plan) {
   if (hasDictionary) {
     code.writeln("import 'dart:convert' show jsonEncode;");
   }
-  if (hasDictionary || hasSignals || hasSharedBytesTypes) {
+  if (hasDictionary ||
+      hasSignals ||
+      hasSharedBytesTypes ||
+      plan.jsCollections.isNotEmpty) {
     code.writeln("import 'package:napi/napi.dart' as napi;");
   }
   if (hasStructures ||
@@ -98,7 +102,8 @@ String emitNativeDart(NativeModulePlan plan) {
       hasCallbacks ||
       hasSignals ||
       hasBinary ||
-      hasSharedBytesTypes) {
+      hasSharedBytesTypes ||
+      plan.jsCollections.isNotEmpty) {
     code.writeln("import 'dart:ffi';");
   }
   code.write('''
@@ -414,6 +419,18 @@ ${tests.declarations}  int? canonical;''');
         code.writeln(
           '    a$index = ${conversion.nullable ? '_api.isNull(call.env, raw$index) ? null : ' : ''}_api.sharedBytes(call.env, raw$index, $path);',
         );
+      } else if (conversion is JsCollectionConversion) {
+        final method = conversion.isMap ? 'jsMap' : 'jsArray';
+        final scalars = [?conversion.key, conversion.value];
+        final policies = scalars
+            .map(
+              (c) =>
+                  'const NativeJsScalar<${c.dartType}>(${_quote(c.kind.name)}, nullable: ${c.nullable}, bigint: ${c.bigint})',
+            )
+            .join(', ');
+        code.writeln(
+          '    a$index = ${conversion.nullable ? '_api.isNull(call.env, raw$index) ? null : ' : ''}_api.$method(call.env, raw$index, ${_quote(conversion.signatureKey)}, $path, $policies);',
+        );
       } else if (conversion is ScalarConversion) {
         final converted =
             '_api.${nativeScalarReader(conversion)}(call.env, raw$index, $path)';
@@ -665,6 +682,7 @@ void _writeResult(
           output is ScalarConversion ||
           output is BinaryConversion ||
           output is SharedBytesConversion ||
+          output is JsCollectionConversion ||
           output is OpaqueConversion)) {
     code.writeln('    if (value == null) return _api.nullResult($env);');
   }
@@ -681,6 +699,10 @@ void _writeResult(
   } else if (output is SharedBytesConversion) {
     code.writeln(
       '    return _api.sharedBytesResult($env, value, ${_quote(output.context)});',
+    );
+  } else if (output is JsCollectionConversion) {
+    code.writeln(
+      '    return _api.jsCollectionResult($env, value, ${_quote(output.signatureKey)}, ${_quote(output.context)});',
     );
   } else if (output is ScalarConversion) {
     final context = output.kind == ScalarKind.integer && !output.usesBigInt

@@ -8,6 +8,7 @@ import 'cancellation.dart';
 import 'structural.dart';
 import 'settlement.dart';
 import 'shared_bytes.dart';
+import 'js_collections.dart';
 import 'streams.dart';
 
 String emitBoundary(ModulePlan plan) {
@@ -18,6 +19,10 @@ String emitBoundary(ModulePlan plan) {
   final sharedBytes = {
     for (final (index, conversion) in conversions.indexed)
       if (conversion is SharedBytesConversion) index: conversion,
+  };
+  final jsCollections = {
+    for (final (index, conversion) in conversions.indexed)
+      if (conversion is JsCollectionConversion) index: conversion,
   };
   final binaries = {
     for (final (index, conversion) in conversions.indexed)
@@ -51,7 +56,7 @@ String emitBoundary(ModulePlan plan) {
   };
   return '''// Generated JS imports for the Wasm boundary, not a consumer entry.
 ${plan.classes.isEmpty ? '' : "import {readReference, writeReference} from './references.mjs';"}
-$sharedBytesPolicy
+${jsCollections.isEmpty ? '' : '$jsCollectionsPolicy\nconst \$jcPolicies = ${jsCollectionPolicies(jsCollections.values)};\n$wasmJsCollectionsPolicy\n'}$sharedBytesPolicy
 $wasmSharedBytesPolicy
 ${signals ? '$cancellationPolicy\n$wasmCancellationPolicy' : ''}
 ${hasBinary ? '$binaryPolicy\n$wasmBinaryPolicy' : ''}
@@ -75,7 +80,7 @@ function checkedScalar(value, policy, path) {
 function checked(value, context) { return checkedScalar(value, policies[context], policies[context].context); }
 export function readValue(value, context${resources ? ', operation = null' : ''}) {
   switch (context) {
-${[for (final e in sharedBytes.entries) '    case ${e.key}: return \$napiReadSharedBytes(value, ${e.value.nullable}, ${jsonEncode(e.value.context)});'].join('\n')}
+${jsCollections.entries.map((e) => '    case ${e.key}: return \$jcAdmit(value, ${e.value.isMap}, ${e.value.nullable}, ${jsonEncode(e.value.context)});\n').join()}${[for (final e in sharedBytes.entries) '    case ${e.key}: return \$napiReadSharedBytes(value, ${e.value.nullable}, ${jsonEncode(e.value.context)});'].join('\n')}
 ${[for (final e in binaries.entries) '    case ${e.key}: return \$napiCopyBinary(value, ${e.value.kind.index}, ${e.value.nullable}, ${jsonEncode(e.value.context)}, true);'].join('\n')}
 ${[for (final e in structures.entries)
     if (e.value.read != null) '    case ${e.key}: return ${e.value.read}(value, ${jsonEncode(conversions[e.key].context)}, {work: 0, active: new Set()${resources ? ', operation' : ''}}, 0);'].join('\n')}
@@ -84,7 +89,7 @@ ${[for (final e in structures.entries)
 }
 export function writeValue(value, context) {
   switch (context) {
-${[for (final e in sharedBytes.entries) '    case ${e.key}: return \$napiReadSharedBytes(value, ${e.value.nullable}, ${jsonEncode(e.value.context)});'].join('\n')}
+${jsCollections.entries.map((e) => '    case ${e.key}: return \$jcAdmit(value, ${e.value.isMap}, ${e.value.nullable}, ${jsonEncode(e.value.context)});\n').join()}${[for (final e in sharedBytes.entries) '    case ${e.key}: return \$napiReadSharedBytes(value, ${e.value.nullable}, ${jsonEncode(e.value.context)});'].join('\n')}
 ${[for (final e in binaries.entries) '    case ${e.key}: return \$napiAdoptBinary(value, ${e.value.kind.index}, ${e.value.nullable}, ${jsonEncode(e.value.context)});'].join('\n')}
 ${[for (final e in structures.entries)
     if (e.value.write != null) '    case ${e.key}: {\n      const state = {work: 0, active: new Set(), pending: null};\n      try { return ${e.value.write}(value, ${jsonEncode(conversions[e.key].context)}, state, 0); }\n      catch (error) { if (state.pending !== null) { for (const undo of state.pending) undo(); } throw error; }\n    }'].join('\n')}
@@ -97,7 +102,7 @@ export function readBigInt(value) { return value.toString(); }
 export function writeBigInt(value, context) { return checked(BigInt(value), context); }
 export function throwDartError(message) { throw new Error(message); }
 ${plan.calls.any((call) => call.returnsFuture) || streams ? '${emitFuturePolicy(resources: resources, streams: streams)}\n' : ''}${resources ? resourcePolicy : ''}${streams ? streamBoundaryPolicy(references: plan.classes.isNotEmpty) : ''}${structures.isEmpty && callbacks.isEmpty
-      ? hasBinary || sharedBytes.isNotEmpty
+      ? hasBinary || sharedBytes.isNotEmpty || jsCollections.isNotEmpty
             ? structuralErrorPolicy
             : ''
       : structuralPolicy}

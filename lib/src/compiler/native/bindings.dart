@@ -4,9 +4,12 @@ import 'dart:ffi';
 import 'dart:typed_data';
 
 import '../../api/shared_bytes.dart';
+import '../../api/js_collections.dart';
 import '../../runtime/cancellation.dart';
 import '../../runtime/resources.dart';
 import '../../runtime/retention.dart';
+
+part 'js_collections.dart';
 
 typedef _ReadBinaryNative = Handle Function(
   Pointer<Void>,
@@ -1048,6 +1051,14 @@ final class NapiApi {
   }
 
   late final _sharedBytes = <int, _NativeSharedBytesEntry>{};
+  late final _jsCollections = <(int, String), _NativeJsEntry>{};
+  late final _jsCollectionFinalizer = Zone.root.run(
+    () => Finalizer<((int, String), _NativeJsEntry)>((token) {
+      if (identical(_jsCollections[token.$1], token.$2)) {
+        _jsCollections.remove(token.$1);
+      }
+    }),
+  );
   late final _sharedBytesFinalizer = Zone.root.run(
     () => Finalizer<(int, _NativeSharedBytesEntry)>((token) {
       // A dead adapter can be replaced before its finalizer runs.

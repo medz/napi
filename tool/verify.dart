@@ -19,6 +19,7 @@ import 'cancellation_fixture.dart';
 import 'binary_fixture.dart';
 import 'concrete_fixture.dart';
 import 'shared_bytes_fixture.dart';
+import 'js_collections_fixture.dart';
 
 export 'command.dart' show run;
 
@@ -190,6 +191,9 @@ final consumerFixtures = <String, Future<void> Function(Directory)>{
   },
   'shared-bytes': (root) async {
     await verifySharedBytesFixture(root.absolute);
+  },
+  'js-collections': (root) async {
+    await verifyJsCollectionsFixture(root.absolute);
   },
 };
 

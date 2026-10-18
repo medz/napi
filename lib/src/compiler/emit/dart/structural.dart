@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import '../../ir/model.dart';
 import 'entrypoint.dart' show renderDartDefault;
 import '../../lowering/plan.dart';
@@ -30,6 +32,7 @@ final class DartStructuralEmitter {
       ScalarConversion() ||
       BinaryConversion() ||
       SharedBytesConversion() ||
+      JsCollectionConversion() ||
       ReferenceConversion() ||
       OpaqueConversion() ||
       AbortSignalConversion() ||
@@ -69,6 +72,25 @@ final class DartStructuralEmitter {
               ? '  return _writeSharedBytes(value);'
               : '  return _sharedBytes(externRefForJSAny(value!)!);',
         );
+      case JsCollectionConversion():
+        final signature = jsonEncode(conversion.signatureKey)
+            .replaceAll(r'$', r'\$');
+        if (output) {
+          _code.writeln('  return _writeJsCollection(value, $signature);');
+        } else {
+          String read(ScalarConversion c) =>
+              '(value) => ${c.nullable ? 'value == null ? null : ' : ''}${_readScalar(c, bigintText: true)}';
+          String write(ScalarConversion c) =>
+              '(value) => ${c.nullable ? 'value == null ? null : ' : ''}${_writeScalar(c)}';
+          final factory = conversion.isMap
+              ? '_JsMap<${conversion.key!.dartType}, ${conversion.value.dartType}>(source, $signature, ${read(conversion.key!)}, ${write(conversion.key!)}, ${read(conversion.value)}, ${write(conversion.value)})'
+              : '_JsArray<${conversion.value.dartType}>(source, $signature, ${read(conversion.value)}, ${write(conversion.value)})';
+          final type = conversion.dartType.replaceFirst(RegExp(r'\?$'), '');
+          _code.writeln('  final source = externRefForJSAny(value!)!;');
+          _code.writeln(
+            '  return _jcAdapter<$type>(source, $signature, () => $factory);',
+          );
+        }
       case BinaryConversion(:final kind):
         if (output) {
           _code.writeln(

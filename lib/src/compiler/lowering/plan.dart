@@ -70,6 +70,43 @@ final class SharedBytesConversion extends ValueConversion {
       'globalThis.Uint8Array<globalThis.ArrayBuffer>${nullable ? ' | null' : ''}';
 }
 
+/// An explicit retained host container. Ordinary List/Map remain snapshots.
+final class JsCollectionConversion extends ValueConversion {
+  final bool isMap;
+  final ScalarConversion? key;
+  final ScalarConversion value;
+  JsCollectionConversion(
+    DeclaredType super.type,
+    super.context, {
+    required bool bigint,
+  }) : isMap = type.declaration == jsMapDeclaration,
+       key = type.declaration == jsMapDeclaration
+           ? ScalarConversion(
+               type.typeArguments.first,
+               'JsMap key',
+               bigint: bigint,
+             )
+           : null,
+       value = ScalarConversion(
+         type.typeArguments.last,
+         type.declaration == jsMapDeclaration ? 'JsMap value' : 'JsArray value',
+         bigint: bigint,
+       );
+  String get signatureKey => jsonEncode([
+    isMap,
+    if (key case final k?) [k.kind.name, k.bigint, k.nullable],
+    [value.kind.name, value.bigint, value.nullable],
+  ]);
+  @override
+  String get dartType =>
+      'napi.${isMap ? 'JsMap<${key!.dartType}, ${value.dartType}>' : 'JsArray<${value.dartType}>'}${nullable ? '?' : ''}';
+  @override
+  String get jsType => 'object';
+  @override
+  String get typescriptType =>
+      'globalThis.${isMap ? 'Map<${key!.typescriptType}, ${value.typescriptType}>' : 'Array<${value.typescriptType}>'}${nullable ? ' | null' : ''}';
+}
+
 /// An explicit cancellation input. Each backend retains the host signal while
 /// its Dart adapter is reachable; accepting it does not cancel ordinary work.
 final class AbortSignalConversion extends ValueConversion {
@@ -411,6 +448,7 @@ Iterable<ValueConversion> conversionGraph(
       ScalarConversion() ||
       BinaryConversion() ||
       SharedBytesConversion() ||
+      JsCollectionConversion() ||
       ReferenceConversion() ||
       AbortSignalConversion() ||
       OpaqueConversion() => <ValueConversion>[],
@@ -542,6 +580,13 @@ final class _ConversionBuilder {
       classes.any((binding) => binding.exportName == name);
 
   ValueConversion convert(BindingType type, String context) {
+    if (isJsCollectionType(type)) {
+      return JsCollectionConversion(
+        type as DeclaredType,
+        context,
+        bigint: bigint,
+      );
+    }
     if (isSharedBytesType(type)) return SharedBytesConversion(type, context);
     if (isBinaryType(type)) {
       return BinaryConversion(type as DeclaredType, context);

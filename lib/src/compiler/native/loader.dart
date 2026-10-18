@@ -7,6 +7,8 @@ import '../emit/js/cancellation.dart';
 import '../emit/js/reference_views.dart';
 import '../emit/js/settlement.dart';
 import '../emit/js/shared_bytes.dart';
+import '../emit/js/js_collections.dart';
+import '../lowering/plan.dart' show JsCollectionConversion;
 import 'plan.dart';
 
 /// Public export names are aliases, never local loader bindings.
@@ -18,6 +20,7 @@ String emitNativeLoader(
   bool hasAsyncCallbacks = false,
   bool hasSignals = false,
   bool hasBinary = false,
+  Iterable<JsCollectionConversion> jsCollections = const [],
   String? streamClassName,
 }) {
   final hasResources = classes.any((binding) => binding.shape.cleanup != null);
@@ -60,6 +63,12 @@ function $napiCreatePromise() {
   }
   if (hasSignals) code.write(cancellationPolicy);
   if (hasBinary) code.write(binaryPolicy);
+  if (jsCollections.isNotEmpty) {
+    code.write(jsCollectionsPolicy);
+    code.writeln(
+      'const \$jcPolicies = ${jsCollectionPolicies(jsCollections)};',
+    );
+  }
   code.write(sharedBytesPolicy);
   if (hasAsyncCallbacks) {
     code.write(callbackPromisePolicy);
@@ -80,6 +89,11 @@ const $napiCallbackSet = WeakMap.prototype.set;
   if (hasBinary) {
     code.writeln(
       r'      if (arguments.length === 4) return $napiBinaryView(callback, kind, nullable, path);',
+    );
+  }
+  if (jsCollections.isNotEmpty) {
+    code.writeln(
+      r'      if (arguments.length === 6 && kind === 4) return $jcCall(callback, $jcPolicies[nullable], path, arguments[4], arguments[5]);',
     );
   }
   code.writeln(r'''      if (arguments.length === 2 && kind === 3) {
