@@ -130,8 +130,9 @@ generated Dart or shipped in the Wasm artifacts. Linux runs full conformance;
 macOS/Windows CI separately exercises the publication primitive, which does not
 establish compiler/runtime support on those hosts. Package-name validation,
 explicit assets/licenses and consumer metadata assembly are implemented by
-[buildPackage](packaging.md). Ownership manifests and atomic replacement remain
-#135; fresh no-replace publication does not implement rebuilds.
+[buildPackage](packaging.md). Managed npm packages can be atomically rebuilt on
+local macOS APFS, preserving author content and metadata. Raw module replacement,
+legacy output adoption and broader platform qualification remain #135.
 
 The compiler is tested on the Node versions in [the test guide](testing.md).
 Bun/browser support and additional native profiles remain unqualified. Historical

@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:isolate';
 
 import 'package:napi/src/build/publish.dart';
+import 'package:path/path.dart' as path;
 import 'package:test/test.dart';
 
 void main() {
@@ -194,4 +195,213 @@ void main() {
     expect(await source.exists(), isTrue);
     expect(await target.exists(), isFalse);
   });
+
+  test(
+    'one exchange swaps populated directories without a missing name',
+    () async {
+      await target.create();
+      await File('${target.path}/marker').writeAsString('old');
+      checkPackageRebuildFilesystem(root);
+      exchangeDirectories(source, target);
+      expect(await File('${target.path}/marker').readAsString(), 'artifact');
+      expect(await File('${source.path}/marker').readAsString(), 'old');
+    },
+    skip: !Platform.isMacOS,
+  );
+
+  test(
+    'independent descriptors and isolates contend on one stable lock',
+    () async {
+      final lock = PackageLock.acquire(target);
+      final outputPath = target.path;
+      final lockFile = lock.file;
+      try {
+        expect(
+          () => PackageLock.acquire(target),
+          throwsA(isA<FileSystemException>()),
+        );
+        expect(
+          await Isolate.run(() {
+            try {
+              PackageLock.acquire(Directory(outputPath)).release();
+              return false;
+            } on FileSystemException {
+              return true;
+            }
+          }),
+          isTrue,
+        );
+        expect(await lockFile.exists(), isTrue);
+      } finally {
+        lock.release();
+      }
+      expect(await lockFile.exists(), isTrue);
+      final next = PackageLock.acquire(target);
+      try {
+        // A competitor opens the same retained inode, rather than a new lock at
+        // a name unlinked by the first builder.
+        expect(
+          () => PackageLock.acquire(target),
+          throwsA(isA<FileSystemException>()),
+        );
+      } finally {
+        next.release();
+      }
+      expect(await lockFile.exists(), isTrue);
+    },
+    skip: Platform.isWindows,
+  );
+
+  test('process exit releases a lock without deleting the inode', () async {
+    final script = File('${root.path}/lock.dart');
+    await script.writeAsString('''
+import 'dart:io';
+import 'package:napi/src/build/publish.dart';
+Future<void> main(List<String> args) async {
+  final lock = PackageLock.acquire(Directory(args.single));
+  stdout.writeln('locked');
+  await stdin.first;
+  lock.release();
+}
+''');
+    final child = await Process.start(Platform.resolvedExecutable, [
+      '--packages=${File('.dart_tool/package_config.json').absolute.path}',
+      script.path,
+      target.path,
+    ]);
+    addTearDown(() {
+      child.kill();
+    });
+    await child.stdout.first;
+    expect(
+      () => PackageLock.acquire(target),
+      throwsA(isA<FileSystemException>()),
+    );
+    expect(child.kill(ProcessSignal.sigkill), isTrue);
+    await child.exitCode;
+    final next = PackageLock.acquire(target);
+    next.release();
+    expect(await next.file.exists(), isTrue);
+    expect(await next.file.parent.exists(), isTrue);
+  }, skip: Platform.isWindows);
+
+  test('lock names reject symlinks without touching their targets', () async {
+    final external = File('${root.path}/external');
+    await Directory('${target.parent.path}/.napi-locks').create();
+    await Link(
+      '${target.parent.path}/.napi-locks/${path.basename(target.path)}',
+    ).create(external.path);
+    expect(
+      () => PackageLock.acquire(target),
+      throwsA(isA<FileSystemException>()),
+    );
+    expect(await external.exists(), isFalse);
+  }, skip: Platform.isWindows);
+
+  for (final names in [
+    ['CaseOutput', 'caseoutput'],
+    ['caf\u00e9', 'cafe\u0301'],
+  ]) {
+    test('filesystem-equivalent names share a lock: $names', () async {
+      final first = PackageLock.acquire(Directory('${root.path}/${names[0]}'));
+      try {
+        final equivalent = '${first.file.parent.path}/${names[1]}';
+        if (!await File(equivalent).exists() ||
+            !await FileSystemEntity.identical(first.file.path, equivalent)) {
+          markTestSkipped('This filesystem distinguishes these names.');
+          return;
+        }
+        expect(
+          () => PackageLock.acquire(Directory('${root.path}/${names[1]}')),
+          throwsA(isA<FileSystemException>()),
+        );
+      } finally {
+        first.release();
+      }
+      final second = PackageLock.acquire(Directory('${root.path}/${names[1]}'));
+      second.release();
+      expect(
+        await FileSystemEntity.identical(first.file.path, second.file.path),
+        isTrue,
+      );
+      expect(await first.file.parent.list().length, 1);
+    }, skip: Platform.isWindows);
+  }
+
+  for (final kind in ['file', 'symlink']) {
+    test(
+      'private lock directory rejects a $kind without changing it',
+      () async {
+        final privatePath = '${root.path}/.napi-locks';
+        final external = await Directory('${root.path}/external').create();
+        await File('${external.path}/keep').writeAsString('keep');
+        if (kind == 'file') {
+          await File(privatePath).writeAsString('author content');
+        } else {
+          await Link(privatePath).create(external.path);
+        }
+        expect(
+          () => PackageLock.acquire(target),
+          throwsA(isA<FileSystemException>()),
+        );
+        if (kind == 'file') {
+          expect(await File(privatePath).readAsString(), 'author content');
+        } else {
+          expect(await Link(privatePath).target(), external.path);
+        }
+        expect(await external.list().length, 1);
+        expect(await File('${external.path}/keep').readAsString(), 'keep');
+      },
+      skip: Platform.isWindows,
+    );
+  }
+
+  test(
+    'outputs cannot occupy the private lock directory or its descendants',
+    () async {
+      for (final name in [
+        '.napi-locks',
+        '.NAPI-LOCKS',
+        '.napi-locks/package',
+      ]) {
+        expect(
+          () => PackageLock.acquire(Directory('${root.path}/$name')),
+          throwsA(isA<FileSystemException>()),
+        );
+      }
+      expect(await Directory('${root.path}/.napi-locks').exists(), isFalse);
+    },
+    skip: Platform.isWindows,
+  );
+
+  test(
+    'postcommit cleanup failure succeeds; precommit cleanup still fails',
+    () async {
+      final residual = _DeleteFailure('${root.path}/build scratch');
+      await cleanPackageStaging(residual, committed: true);
+      expect(residual.attempts, 1);
+      await expectLater(
+        cleanPackageStaging(residual, committed: false),
+        throwsA(isA<FileSystemException>()),
+      );
+      expect(residual.attempts, 2);
+    },
+  );
+}
+
+final class _DeleteFailure implements Directory {
+  _DeleteFailure(this.path);
+  @override
+  final String path;
+  int attempts = 0;
+  @override
+  Future<bool> exists() async => true;
+  @override
+  Future<Directory> delete({bool recursive = false}) async {
+    attempts++;
+    throw FileSystemException('injected cleanup failure', path);
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

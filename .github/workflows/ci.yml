@@ -138,7 +138,7 @@ jobs:
         with:
           sdk: 3.13.5
       - run: dart pub get
-      - run: dart test test/compiler/publish_test.dart
+      - run: dart test test/compiler/publish_test.dart test/compiler/package_rebuild_test.dart
 
   # Preserve the required check name. Only confirmed docs PRs may skip heavy
   # jobs; static/package checks and classifier regression tests always run.

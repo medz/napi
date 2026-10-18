@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-const _generatedFields = {
+const generatedPackageFields = {
   'type',
   'files',
   'exports',
@@ -69,7 +69,7 @@ Map<String, Object?> packageMetadata(
   // Detach caller-owned nested data before analysis or compilation can yield.
   final package = (jsonDecode(jsonEncode(metadata)) as Map)
       .cast<String, Object?>();
-  for (final field in _generatedFields) {
+  for (final field in generatedPackageFields) {
     if (package.containsKey(field)) {
       throw ArgumentError(
         'Package metadata "$field" conflicts with generated $field.',

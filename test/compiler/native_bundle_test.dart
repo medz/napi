@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:napi/src/build/native_bundle.dart';
+import 'package:napi/src/build/metadata.dart';
+import 'package:napi/src/build/package_ownership.dart';
 import 'package:napi/build.dart';
 import 'package:napi/src/compiler/native/loader.dart';
 import 'package:napi/src/compiler/sdk_adapter/dart_aot_adapter.dart';
@@ -194,15 +196,75 @@ void main() {
         ),
         throwsArgumentError,
       );
-      await expectLater(
-        assembleNativePackage(
-          module: module,
-          output: output,
-          metadata: {'name': '@napi/fixture', 'version': '0.0.0'},
-        ),
-        throwsArgumentError,
+      final rebuild = assembleNativePackage(
+        module: module,
+        output: output,
+        metadata: {'name': '@napi/fixture', 'version': '0.0.0'},
       );
+      if (Platform.isMacOS) {
+        await rebuild;
+      } else {
+        await expectLater(rebuild, throwsUnsupportedError);
+      }
       expect(File('${output.path}/module.aot').readAsStringSync(), 'fixture');
     },
   );
+
+  for (final explicit in [false, true]) {
+    test(
+      'native ${explicit ? 'author' : 'automatic'} platform fields across target changes',
+      () async {
+        final bundle = await NativeRuntimeBundle.read(root);
+        final built = await Directory('${root.path}/built').create();
+        await bundle.copyTo(built);
+        for (final name in ['module.mjs', 'module.d.mts', 'module.aot']) {
+          await File('${built.path}/$name').writeAsString('fixture');
+        }
+        final module = BuiltModule(built, '3.13.5', target: BuildTarget.native);
+        final output = Directory('${root.path}/npm');
+        await assembleNativePackage(
+          module: module,
+          output: output,
+          metadata: {
+            'name': '@napi/fixture',
+            'version': '0.0.0',
+            if (explicit) 'os': ['darwin'],
+            if (explicit) 'cpu': ['arm64'],
+          },
+        );
+        final ownership = (await PackageOwnership.read(output))!;
+        // Dual assembly and single Wasm assembly both use this author metadata
+        // with native:false. The implicit native restrictions must not survive.
+        final dual = packageMetadata(ownership.metadata);
+        expect(dual.containsKey('os'), explicit);
+        expect(dual.containsKey('cpu'), explicit);
+        final wasm = await Directory('${root.path}/wasm').create();
+        for (final name in wasmPackageFiles) {
+          await File('${wasm.path}/$name').writeAsString('wasm $name');
+        }
+        await assembleWasmPackage(
+          module: BuiltModule(wasm, '3.13.5'),
+          output: output,
+          metadata: {'name': '@napi/fixture', 'version': '0.0.1'},
+        );
+        final package = jsonDecode(
+          await File('${output.path}/package.json').readAsString(),
+        ) as Map;
+        expect(package.containsKey('os'), explicit);
+        expect(package.containsKey('cpu'), explicit);
+        if (explicit) {
+          expect(package['os'], ['darwin']);
+          expect(package['cpu'], ['arm64']);
+        }
+        expect(await File('${output.path}/module.aot').exists(), isFalse);
+        expect(await File('${output.path}/$runtime').exists(), isFalse);
+        expect(
+          await File('${output.path}/module.wasm').readAsString(),
+          'wasm module.wasm',
+        );
+        await PackageOwnership.read(output);
+      },
+      skip: !Platform.isMacOS,
+    );
+  }
 }

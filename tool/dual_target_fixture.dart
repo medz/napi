@@ -242,9 +242,11 @@ import 'package:napi/napi.dart';
   }
   if (!rejected ||
       await output.exists() ||
-      await output.parent.list().length != 1 ||
+      await output.parent.list().length != (Platform.isWindows ? 1 : 2) ||
       await sentinel.readAsString() != 'unrelated author file') {
-    throw StateError('Failed second target must preserve only author files.');
+    throw StateError(
+      'Failed second target must preserve author files and its stable lock.',
+    );
   }
   stdout.writeln(
     'Dual contract preflight and second-target failure cleanup: passed',

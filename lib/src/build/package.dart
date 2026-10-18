@@ -9,34 +9,17 @@ import 'build.dart';
 import 'contract.dart';
 import 'metadata.dart';
 import 'publish.dart';
+import 'package_ownership.dart';
 import 'native_bundle.dart';
 
-const _requiredFiles = [
-  'module.wasm',
-  'module.d.wasm.ts',
-  'host.mjs',
-  'boundary.mjs',
-  'DART_LICENSE',
-];
-const _callFiles = ['core.wasm', 'calls.mjs', 'references.mjs'];
-const _assetNames = {
-  'README',
-  'README.md',
-  'LICENSE',
-  'LICENSE.md',
-  'LICENSE.txt',
-  'NOTICE',
-  'NOTICE.md',
-  'NOTICE.txt',
-  'CHANGELOG.md',
-};
-
-/// Build and assemble a fresh npm package in one operation.
+/// Build and assemble an npm package, or atomically rebuild a managed package.
 ///
 /// Metadata is validated before source analysis, compilation or staging. Node
 /// is not required to validate package names. Native builds use [nativeRuntime]
-/// and [BuildTarget.native]; Wasm is the default. All intermediate build files
-/// are removed on success or failure. Existing [output] is never replaced.
+/// and [BuildTarget.native]; Wasm is the default. Intermediate build files are
+/// cleaned up; a postcommit cleanup failure reports the retained path without
+/// changing the successful result. Managed output can be rebuilt on
+/// qualified macOS filesystems; legacy or unsupported output is preserved.
 /// With [targets], include both backends in one package; [target] chooses the
 /// root entrypoint. Explicit native/wasm subpaths never fall back to one another.
 Future<Directory> buildPackage({
@@ -51,8 +34,9 @@ Future<Directory> buildPackage({
   Directory? nativeRuntime,
 }) async {
   final selected = Set<BuildTarget>.of(targets ?? {target});
-  final package = packageMetadata(
-    metadata,
+  final supplied = packageMetadata(metadata);
+  packageMetadata(
+    supplied,
     native: selected.length == 1 && selected.contains(BuildTarget.native),
   );
   if (selected.isEmpty || !selected.contains(target)) {
@@ -64,18 +48,35 @@ Future<Directory> buildPackage({
     );
   }
   final destination = output.absolute;
-  await _checkPath(destination.path);
+  final packages = libraryPackagesPath(packagesPath, external);
+  await _checkInputs(destination, [
+    if (library.scheme == 'file') File.fromUri(library),
+    if (packages != null) File(packages),
+    ?nativeRuntime,
+    ...assets.values,
+  ]);
+  await _checkAssets(assets);
+  // Reject unsupported existing output before analysis. Fresh dual contracts
+  // still fail before creating an output parent or a stable lock inode.
+  _PackageUpdate? update;
   if (await FileSystemEntity.type(destination.path, followLinks: false) !=
       FileSystemEntityType.notFound) {
-    throw ArgumentError('Package output already exists: ${destination.path}');
+    update = await _PackageUpdate.open(destination);
   }
-  final bindings = <BuildTarget, BindingModule>{};
-  String? declarations;
-  final packages = libraryPackagesPath(packagesPath, external);
-  if (selected.length > 1) {
-    final bundle = await NativeRuntimeBundle.read(nativeRuntime!);
-    bundle.verifyHost();
-    for (final backend in BuildTarget.values) {
+  Directory? staging;
+  var committed = false;
+  try {
+    packageMetadata({
+      ...?update?.previous?.metadata,
+      ...supplied,
+    }, native: selected.length == 1 && selected.contains(BuildTarget.native));
+    final bindings = <BuildTarget, BindingModule>{};
+    String? declarations;
+    if (selected.length > 1) {
+      final bundle = await NativeRuntimeBundle.read(nativeRuntime!);
+      bundle.verifyHost();
+    }
+    for (final backend in BuildTarget.values.where(selected.contains)) {
       bindings[backend] = await readLibraryBindings(
         library: library,
         packagesPath: packages,
@@ -83,36 +84,29 @@ Future<Directory> buildPackage({
         target: backend,
       );
     }
-    declarations = validatePackageContracts(
-      bindings[BuildTarget.wasm]!,
-      bindings[BuildTarget.native]!,
-    );
-  }
-  await destination.parent.create(recursive: true);
-  final staging = await destination.parent.createTemp('.napi-package-build-');
-  try {
+    // External package: entrypoints resolve to physical files in the existing
+    // frontend. Reuse that result instead of duplicating package resolution.
+    await _checkInputs(destination, [
+      for (final binding in bindings.values) File.fromUri(binding.source),
+    ]);
+    if (selected.length > 1) {
+      declarations = validatePackageContracts(
+        bindings[BuildTarget.wasm]!,
+        bindings[BuildTarget.native]!,
+      );
+    }
+    update ??= await _PackageUpdate.open(destination);
+    await destination.parent.create(recursive: true);
+    staging = await destination.parent.createTemp('.napi-package-build-');
     final modules = <BuiltModule>[];
     for (final backend in BuildTarget.values.where(selected.contains)) {
-      final module = bindings.isEmpty
-          ? await buildLibrary(
-              library: library,
-              output: Directory('${staging.path}/${backend.name}'),
-              packagesPath: packages,
-              external: external,
-              target: backend,
-              nativeRuntime: backend == BuildTarget.native
-                  ? nativeRuntime
-                  : null,
-            )
-          : await buildModule(
-              bindings: bindings[backend]!,
-              output: Directory('${staging.path}/${backend.name}'),
-              packagesPath: packages,
-              target: backend,
-              nativeRuntime: backend == BuildTarget.native
-                  ? nativeRuntime
-                  : null,
-            );
+      final module = await buildModule(
+        bindings: bindings[backend]!,
+        output: Directory('${staging.path}/${backend.name}'),
+        packagesPath: packages,
+        target: backend,
+        nativeRuntime: backend == BuildTarget.native ? nativeRuntime : null,
+      );
       if (declarations != null) {
         final name = backend == BuildTarget.native
             ? 'module.d.mts'
@@ -127,26 +121,36 @@ Future<Directory> buildPackage({
       }
       modules.add(module);
     }
-    return await _assemblePackage(
+    final result = await _assemblePackage(
       modules: modules,
       rootTarget: target,
       output: destination,
-      metadata: package,
+      metadata: supplied,
       assets: assets,
+      update: update,
     );
+    committed = true;
+    return result;
   } finally {
-    if (await staging.exists()) await staging.delete(recursive: true);
+    try {
+      if (staging != null) {
+        await cleanPackageStaging(staging, committed: committed);
+      }
+    } finally {
+      update?.close();
+    }
   }
 }
 
-/// Assemble a fresh npm package from an already built Dart Wasm module.
+/// Assemble an npm package from an already built Dart Wasm module.
 ///
 /// Only the known runtime artifacts and explicitly selected documentation assets
 /// are copied. [metadata] retains caller-owned JSON fields, including author and
 /// contributors. Entrypoints, exports and the file list belong to this builder;
 /// supplying those fields is an error rather than a silent override.
 ///
-/// Existing output is never replaced. Use [assembleNativePackage] for native
+/// Existing managed output follows the same rebuild rules. Use
+/// [assembleNativePackage] for native
 /// artifacts; this function has no backend fallback.
 Future<Directory> assembleWasmPackage({
   required BuiltModule module,
@@ -191,19 +195,21 @@ Future<Directory> _assemblePackage({
   required Directory output,
   required Map<String, Object?> metadata,
   required Map<String, File> assets,
+  _PackageUpdate? update,
 }) async {
-  final package = packageMetadata(
-    metadata,
-    native: modules.length == 1 && rootTarget == BuildTarget.native,
-  );
+  final supplied = packageMetadata(metadata);
+  final nativeOnly = modules.length == 1 && rootTarget == BuildTarget.native;
+  packageMetadata(supplied, native: nativeOnly);
   final dual = modules.length > 1;
   final target = output.absolute;
-  await _checkPath(target.path);
-  if (await FileSystemEntity.type(target.path, followLinks: false) !=
-      FileSystemEntityType.notFound) {
-    throw ArgumentError('Package output already exists: ${target.path}');
-  }
+  await _checkInputs(target, [
+    for (final module in modules) module.directory,
+    ...assets.values,
+  ]);
+  await _checkAssets(assets);
   final files = <String, File>{};
+  String? runtime;
+  var calls = false;
   for (final module in modules) {
     final source = module.directory.absolute;
     await _checkPath(source.path);
@@ -211,17 +217,14 @@ Future<Directory> _assemblePackage({
         FileSystemEntityType.directory) {
       throw ArgumentError('Built module is not a directory: ${source.path}');
     }
-    if (path.isWithin(source.path, target.path) ||
-        path.equals(source.path, target.path)) {
-      throw ArgumentError('Package output must be outside the built module.');
-    }
     final prefix = dual ? '${module.target.name}/' : '';
     final native = module.target == BuildTarget.native;
     final bundle = native
         ? await NativeRuntimeBundle.read(source, built: true)
         : null;
+    if (bundle != null) runtime = bundle.runtime;
     final requiredFiles = bundle == null
-        ? _requiredFiles
+        ? wasmPackageFiles
         : [
             'module.mjs',
             'module.d.mts',
@@ -233,54 +236,57 @@ Future<Directory> _assemblePackage({
       files['$prefix$name'] = await _regularFile(File('${source.path}/$name'));
     }
     final callFiles = <String, File>{};
-    for (final name in native ? <String>[] : _callFiles) {
+    for (final name in native ? <String>[] : wasmCallFiles) {
       final file = File('${source.path}/$name');
       if (await FileSystemEntity.type(file.path, followLinks: false) !=
           FileSystemEntityType.notFound) {
         callFiles['$prefix$name'] = await _regularFile(file);
       }
     }
-    if (callFiles.isNotEmpty && callFiles.length != _callFiles.length) {
+    if (callFiles.isNotEmpty && callFiles.length != wasmCallFiles.length) {
       throw ArgumentError(
         'Callable artifacts require core.wasm, calls.mjs and references.mjs.',
       );
     }
+    calls = calls || callFiles.isNotEmpty;
     files.addAll(callFiles);
   }
+  final artifactNames = files.keys.toSet();
   for (final name in assets.keys.toList()..sort()) {
-    if (!_assetNames.contains(name)) {
+    if (!packageAssetNames.contains(name)) {
       throw ArgumentError('Unsupported package asset name: $name');
     }
     files[name] = await _regularFile(assets[name]!);
   }
 
-  Map<String, String> entry(BuildTarget backend) {
-    final prefix = dual ? './${backend.name}/' : './';
-    return {
-      'types':
-          '$prefix${backend == BuildTarget.native ? 'module.d.mts' : 'module.d.wasm.ts'}',
-      'import':
-          '$prefix${backend == BuildTarget.native ? 'module.mjs' : 'module.wasm'}',
-    };
-  }
-
-  package.addAll({
-    'type': 'module',
-    'files': files.keys.toList(),
-    'exports': {
-      '.': entry(rootTarget),
-      if (modules.any((m) => m.target == BuildTarget.native))
-        './native': entry(BuildTarget.native),
-      if (dual) './wasm': entry(BuildTarget.wasm),
-      if (modules.any((m) => m.target == BuildTarget.wasm))
-        './module.wasm': entry(BuildTarget.wasm),
-    },
-  });
-  final manifest = const JsonEncoder.withIndent('  ').convert(package);
-  await target.parent.create(recursive: true);
-  final staging = await target.parent.createTemp('.napi-package-');
+  final ownsUpdate = update == null;
+  update ??= await _PackageUpdate.open(target);
+  Directory? staging;
   var published = false;
+  var exchangeAttempted = false;
   try {
+    final previous = update.previous;
+    final author = {...?previous?.metadata, ...supplied};
+    final autoPlatform = <String>{
+      if (nativeOnly)
+        for (final field in ['os', 'cpu'])
+          if (!author.containsKey(field)) field,
+    };
+    final selectedAssets = {...?previous?.assets, ...assets.keys};
+    final package = packageMetadata(author, native: nativeOnly);
+    final targets = modules.map((module) => module.target.name).toSet();
+    package.addAll({
+      'type': 'module',
+      'files': [...artifactNames, ...selectedAssets],
+      'exports': packageEntrypoints(targets, rootTarget.name),
+    });
+    staging = await target.parent.createTemp('.napi-package-');
+    if (previous != null) {
+      await previous.copyAuthors(staging, {
+        ...artifactNames,
+        ...assets.keys.where((name) => !previous.assets.contains(name)),
+      });
+    }
     for (final entry in files.entries) {
       final destination = File('${staging.path}/${entry.key}');
       await destination.parent.create(recursive: true);
@@ -292,14 +298,126 @@ Future<Directory> _assemblePackage({
         built: true,
       );
     }
-    await File('${staging.path}/package.json').writeAsString('$manifest\n');
-    publishDirectory(staging, target);
+    await File(
+      '${staging.path}/package.json',
+    ).writeAsString('${const JsonEncoder.withIndent('  ').convert(package)}\n');
+    await writePackageOwnership(
+      staging,
+      targets: targets,
+      root: rootTarget.name,
+      runtime: runtime,
+      calls: calls,
+      assets: selectedAssets,
+      autoPlatform: autoPlatform,
+    );
+    previous?.copyDirectoryMetadata(staging);
+    await previous?.checkUnchanged();
+    if (previous == null) {
+      publishDirectory(staging, target);
+    } else {
+      exchangeAttempted = true;
+      exchangeDirectories(staging, target);
+    }
     published = true;
+    if (previous != null) {
+      await cleanPackageStaging(staging, committed: true);
+    }
     return target;
   } finally {
-    if (!published && await staging.exists()) {
-      await staging.delete(recursive: true);
+    try {
+      // Exchange errors retain both names for inspection; there is no fallback
+      // rename and no assumption that an ambiguous error means no commit.
+      if (!published && !exchangeAttempted && staging != null) {
+        await cleanPackageStaging(staging, committed: false);
+      }
+    } finally {
+      if (ownsUpdate) update.close();
     }
+  }
+}
+
+final class _PackageUpdate {
+  _PackageUpdate(this.previous, this.lock);
+  final PackageOwnership? previous;
+  final PackageLock? lock;
+
+  static Future<_PackageUpdate> open(Directory output) async {
+    await _checkPath(output.path);
+    final type = await FileSystemEntity.type(output.path, followLinks: false);
+    if (type != FileSystemEntityType.notFound) {
+      if (type != FileSystemEntityType.directory ||
+          await FileSystemEntity.type(
+                '${output.path}/$packageOwnershipFile',
+                followLinks: false,
+              ) !=
+              FileSystemEntityType.file) {
+        throw ArgumentError(
+          'Package output already exists without managed ownership: ${output.path}',
+        );
+      }
+      checkPackageRebuildFilesystem(output);
+    }
+    await output.parent.create(recursive: true);
+    final lock = Platform.isWindows ? null : PackageLock.acquire(output);
+    try {
+      final previous = await PackageOwnership.read(output);
+      if (previous != null) checkPackageRebuildFilesystem(output);
+      return _PackageUpdate(previous, lock);
+    } catch (_) {
+      lock?.release();
+      rethrow;
+    }
+  }
+
+  void close() => lock?.release();
+}
+
+Future<void> _checkInputs(
+  Directory output,
+  Iterable<FileSystemEntity> inputs,
+) async {
+  await _checkPath(output.absolute.path);
+  for (final input in inputs) {
+    final source = input.absolute.path;
+    await _checkPath(source);
+    if (path.equals(source, output.path) ||
+        path.isWithin(source, output.path) ||
+        path.isWithin(output.path, source) ||
+        await _containsExistingPath(source, output.absolute.path) ||
+        await _containsExistingPath(output.absolute.path, source)) {
+      throw ArgumentError(
+        'Package inputs and output must not contain one another: $source',
+      );
+    }
+  }
+}
+
+Future<bool> _containsExistingPath(String parent, String child) async {
+  if (await FileSystemEntity.type(parent, followLinks: false) ==
+      FileSystemEntityType.notFound) {
+    return false;
+  }
+  // realpath alone can preserve an alias's case/Unicode spelling. Identity of
+  // existing ancestors also covers outputs whose final segments do not exist.
+  var current = path.normalize(child);
+  while (true) {
+    if (await FileSystemEntity.type(current, followLinks: false) !=
+            FileSystemEntityType.notFound &&
+        await FileSystemEntity.identical(parent, current)) {
+      return true;
+    }
+    final next = path.dirname(current);
+    if (next == current) return false;
+    current = next;
+  }
+}
+
+Future<void> _checkAssets(Map<String, File> assets) async {
+  for (final entry in assets.entries) {
+    if (!packageAssetNames.contains(entry.key)) {
+      throw ArgumentError('Unsupported package asset name: ${entry.key}');
+    }
+    await _regularFile(entry.value);
   }
 }
 
