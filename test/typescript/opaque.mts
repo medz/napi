@@ -369,3 +369,55 @@ undefinedPair.writeMap(new Map(), undefined);
 // @ts-expect-error Transitive permutation preserves the map key and value order.
 transitive.writeMap(new Map<string, number>(), 9, 'value');
 void [inheritedArray, overriddenMap, leafArray, leafMap, externalArray, externalMap, directMap];
+
+const methodBox = new api.MethodBox({owner: true});
+const methodPayload = {value: 'method'};
+const methodInferred: {value: string} = methodBox.echo(methodPayload);
+const methodExplicit: number = methodBox.echo<number>(7);
+const methodStatic: string = api.MethodBox.staticEcho<string>('static');
+const methodOptional: number | null = methodBox.optional<number>();
+const methodUndefined: undefined | null = methodBox.optional<undefined>(undefined);
+const methodNamed: string | null = methodBox.named<string>(0, {second: 'named'});
+const methodRequired: undefined = methodBox.requiredNamed<undefined>({value: undefined});
+const methodBoth: {$1: {owner: boolean}; $2: string} = methodBox.both('method');
+const methodWrapped: api.Router<string> = methodBox.wrap('wrapped');
+const methodReferences: api.Router<string>[] = methodBox.references([methodWrapped]);
+const methodList: (string | null)[] = methodBox.list<string>(['value', null]);
+const methodDictionary: {[key: string]: string} = methodBox.dictionary({value: 'text'});
+const methodArray: (string | undefined)[] = methodBox.array<string | undefined>([undefined]);
+const methodMap: Map<{owner: boolean}, string> = methodBox.map(new Map([[{owner: true}, 'value']]));
+const methodThen: Promise<number> = methodBox.later((null as unknown) as PromiseLike<number>);
+const methodStream: AsyncIterableIterator<PromiseLike<number>> = methodBox.events((null as unknown) as PromiseLike<number>);
+const methodShadow: string = new api.MethodShadow<number>().echo('shadow');
+const methodAlias: {$1: number; $2: string} = new api.MethodInt(8).pair('pair');
+const methodExternal: string = new namedExternal.MethodBox<number>(8).echo('external');
+const methodExternalStatic: number = namedExternal.MethodBox.staticEcho(8);
+const methodDirect: api.MethodBox<{owner: boolean}> = methodBox;
+const methodCleanup: Promise<void> = new api.MethodSession().close();
+const methodWait: Promise<number> = new api.MethodSession().pending(methodPayload);
+const methodUnused: number = methodBox.unused<Symbol>();
+const methodA: string = new api.MethodA().echo('a');
+const methodB: number = new api.MethodB().echo(7);
+// @ts-expect-error Method generic arguments still constrain input types.
+methodBox.echo<number>('bad');
+// @ts-expect-error A required opaque method payload cannot be omitted.
+methodBox.echo();
+// @ts-expect-error Explicit undefined is not omitted optional input.
+methodBox.optional<string>(undefined);
+// @exact-optional-error
+methodBox.named<string>(0, {second: undefined});
+// @ts-expect-error Required named opaque input cannot be omitted.
+methodBox.requiredNamed<string>({});
+// @ts-expect-error The receiver owner parameter stays independent of method U.
+const badMethodOwner: {$1: string; $2: number} = methodBox.both(8);
+// @ts-expect-error Method U does not change the receiver's class parameter.
+const badMethodClass: api.MethodBox<string> = methodBox;
+// @ts-expect-error Separate backend modules keep their reference brands.
+const badMethodModule: namedExternal.MethodBox<{owner: boolean}> = methodBox;
+// @ts-expect-error Unrelated classes keep distinct brands despite generic same-named methods.
+const badMethodView: api.MethodA = new api.MethodB();
+void [methodInferred, methodExplicit, methodStatic, methodOptional, methodUndefined,
+  methodNamed, methodRequired, methodBoth, methodWrapped, methodReferences,
+  methodList, methodDictionary, methodArray, methodMap, methodThen, methodStream,
+  methodShadow, methodAlias, methodExternal, methodExternalStatic, methodDirect,
+  methodCleanup, methodWait, methodUnused, methodA, methodB];

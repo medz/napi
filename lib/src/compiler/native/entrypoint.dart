@@ -55,6 +55,10 @@ String emitNativeDart(NativeModulePlan plan) {
       ) ||
       plan.functions.any(
         (call) => call.function!.typeParameters.any((type) => type.opaque),
+      ) ||
+      plan.calls.any(
+        (call) =>
+            call.member?.typeParameters.any((type) => type.opaque) ?? false,
       );
   final policies = resourcePolicies([
     for (final binding in plan.classes) binding.shape,
@@ -487,7 +491,8 @@ ${tests.declarations}  int? canonical;''');
       NativeCallKind.function =>
         'target.$path${dartOpaqueTypeArguments(call.function!.typeParameters)}($arguments)',
       NativeCallKind.constructor => '$receiver($arguments)',
-      NativeCallKind.method => '$receiver.$path($arguments)',
+      NativeCallKind.method =>
+        '$receiver.$path${dartOpaqueTypeArguments(call.member!.typeParameters)}($arguments)',
       NativeCallKind.getter => '$receiver.$path',
       NativeCallKind.setter => '$receiver.$path = a0',
     };

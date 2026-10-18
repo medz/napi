@@ -1051,6 +1051,9 @@ final class _Reader {
         : configs[declaration];
     final kind = _memberKind(element);
     final executable = element is a.ExecutableElement ? element : null;
+    if (kind == MemberKind.method && config?.exclude != true) {
+      _opaqueParameters.addAll(executable!.typeParameters.map(_id));
+    }
     final field = element is a.FieldElement ? element : null;
     final constructor = element is a.ConstructorElement ? element : null;
     final node = _node(element);

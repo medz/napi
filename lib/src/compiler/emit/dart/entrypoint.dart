@@ -43,6 +43,10 @@ String emitDart(ModulePlan plan) {
       plan.classes.any((c) => c.binding.typeParameters.any((p) => p.opaque)) ||
       plan.functions.any(
         (f) => f.binding.typeParameters.any((p) => p.opaque),
+      ) ||
+      plan.classes.any(
+        (c) =>
+            c.members.any((m) => m.binding.typeParameters.any((p) => p.opaque)),
       )) {
     result.writeln(opaqueEntrypointPrelude);
   }
@@ -684,7 +688,8 @@ String _invocation(CallPlan call) {
       member.binding.declaration.name == 'new'
           ? '$receiver($arguments)'
           : '$receiver.$path($arguments)',
-    MemberCallKind.method => '$receiver.$path($arguments)',
+    MemberCallKind.method =>
+      '$receiver.$path${dartOpaqueTypeArguments(member.binding.typeParameters)}($arguments)',
     MemberCallKind.getter => '$receiver.$path',
     MemberCallKind.setter => '$receiver.$path = a0',
   };

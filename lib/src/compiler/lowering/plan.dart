@@ -886,7 +886,9 @@ final class MemberCallPlan implements CallPlan {
             classes: classes,
             valueSchemas: valueSchemas,
             direction: ValueDirection.input,
-            opaqueParameters: opaqueParameterIds(owner.typeParameters),
+            opaqueParameters: opaqueParameterIds(
+              referenceCallTypeParameters(owner, member.binding),
+            ),
           ),
       ]),
       output = resultPayload(member.result) == null
@@ -897,7 +899,9 @@ final class MemberCallPlan implements CallPlan {
               bigint: false,
               classes: classes,
               valueSchemas: valueSchemas,
-              opaqueParameters: opaqueParameterIds(owner.typeParameters),
+              opaqueParameters: opaqueParameterIds(
+                referenceCallTypeParameters(owner, member.binding),
+              ),
             ),
       inputContexts = List.unmodifiable([
         for (var i = 0; i < member.parameters.length; i++) firstContext + i,

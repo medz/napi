@@ -190,9 +190,9 @@ import 'package:napi/napi.dart';
       'NAPI_TYPE',
     ),
     (
-      'generic member',
-      '@NAPI() class Bad { T identity<T>(T value) => value; }',
-      'NAPI_GENERIC',
+      'semantic generic member',
+      '@NAPI() class Bad { T identity<T extends num>(T value) => value; }',
+      'NAPI_TYPE',
     ),
     (
       'async void member',

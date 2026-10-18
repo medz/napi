@@ -182,7 +182,10 @@ NativeModulePlan validateNative(BindingModule module) {
     int? classId,
   }) {
     final opaque = opaqueParameterIds(
-      function?.typeParameters ?? owner?.typeParameters ?? const [],
+      function?.typeParameters ??
+          (owner != null && member != null
+              ? referenceCallTypeParameters(owner, member)
+              : owner?.typeParameters ?? const []),
     );
     validateCallParameters(
       parameters,

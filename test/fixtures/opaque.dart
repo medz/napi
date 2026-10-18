@@ -300,3 +300,98 @@ class _CompositeThen<T> extends SetterThenBox<T> implements GetterThenView<T> {
 
 @NAPI()
 SetterThenBox<T> compositeThen<T>(T value) => _CompositeThen(value);
+
+@NAPI()
+class MethodBox<T> {
+  T value;
+  Object? _saved;
+  MethodBox(this.value);
+
+  U echo<U>(U value) => value;
+  U? optional<U>([U? value]) => value;
+  U? named<U>(int marker, {U? first, U? second, int choose = 7}) =>
+      marker == choose ? first : second;
+  U requiredNamed<U>({required U value}) => value;
+  (T, U) both<U>(U value) => (this.value, value);
+  Router<U> wrap<U>(U value) => Router<U>.withValue(value);
+  List<Router<U>> references<U>(List<Router<U>> value) => value;
+  List<U?> list<U>(List<U?> value) => value;
+  Dictionary<U> dictionary<U>(Dictionary<U> value) => value;
+  JsArray<U> array<U>(JsArray<U> value) => value;
+  JsMap<T, U> map<U>(JsMap<T, U> value) => value;
+  Future<U> later<U>(U value) async => value;
+  Future<Dictionary<U>> futureDictionary<U>(Dictionary<U> value) async => value;
+  Stream<U> events<U>(U value) => Stream.value(value);
+  Future<int> wait<U>(U ignored) => waitOpaque(ignored);
+  Stream<int> hold<U>(U ignored) => const Stream.empty();
+  U callback<U>(U value, void Function(int) callback) {
+    callback(7);
+    return value;
+  }
+
+  int checked<U>(List<({U value, int count})> values, int later) {
+    _calls++;
+    return values.length + later;
+  }
+
+  void saveThrow<U>(U value) {
+    _saved = value;
+    throw StateError('saved method input');
+  }
+
+  U saved<U>() => _saved as U;
+  void clear() => _saved = null;
+  int unused<U>() => 7;
+  @NAPI(name: 'staticEcho')
+  static U echoStatic<U>(U value) => value;
+}
+
+@NAPI()
+class MethodShadow<T> {
+  MethodShadow();
+  // ignore: avoid_shadowing_type_parameters
+  T echo<T>(T value) => value;
+}
+
+class MethodBusiness<T extends num> {
+  T value;
+  MethodBusiness(this.value);
+  (T, U) pair<U>(U value) => (this.value, value);
+}
+
+@NAPI()
+typedef MethodInt = MethodBusiness<int>;
+
+@NAPI()
+class MethodA {
+  MethodA();
+  U echo<U>(U value) => value;
+}
+
+@NAPI()
+class MethodB {
+  MethodB();
+  V echo<V>(V value) => value;
+}
+
+class _MethodComposite implements MethodA, MethodB {
+  @override
+  W echo<W>(W value) => value;
+}
+
+@NAPI()
+MethodA methodComposite() => _MethodComposite();
+
+int _methodCleanups = 0;
+
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+class MethodSession {
+  MethodSession();
+  Future<int> pending<U>(U ignored) => waitOpaque(ignored);
+  Future<U> later<U>(U value) async => value;
+  Stream<int> hold<U>(U ignored) => const Stream.empty();
+  void close() => _methodCleanups++;
+}
+
+@NAPI()
+int methodCleanups() => _methodCleanups;

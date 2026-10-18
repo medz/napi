@@ -630,9 +630,9 @@ const stream: AsyncIterableIterator<{ then: Then }, undefined, undefined> = stre
       "$router @NAPI() Router<T?> echo<T>(Router<T?> value) => value;",
       'NAPI_TYPE',
     ),
-    'generic method': (
-      "$router @NAPI() class Other { Other(); T echo<T>(T value) => value; }",
-      'NAPI_GENERIC',
+    'semantic generic method': (
+      "$router @NAPI() class Other { Other(); T echo<T extends num>(T value) => value; }",
+      'NAPI_TYPE',
     ),
     'selected generic hierarchy': (
       "$router @NAPI() class Child extends Router<String> { Child(); }",
