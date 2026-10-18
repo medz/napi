@@ -1,11 +1,14 @@
 import 'dart:io';
 
 import 'package:napi/src/compiler/analysis/validate.dart';
+import 'package:napi/src/compiler/emit/dart/entrypoint.dart';
+import 'package:napi/src/compiler/emit/js/boundary.dart';
 import 'package:napi/src/compiler/emit/typescript/declarations.dart';
 import 'package:napi/src/compiler/front_end/frontend.dart';
 import 'package:napi/src/compiler/ir/model.dart';
 import 'package:napi/src/compiler/lowering/plan.dart';
 import 'package:napi/src/compiler/native/declarations.dart';
+import 'package:napi/src/compiler/native/entrypoint.dart';
 import 'package:napi/src/compiler/native/plan.dart';
 import 'package:test/test.dart';
 
@@ -185,6 +188,84 @@ typedef Transform = Later<List<(int, String?)>?> Function((bool, List<int?>) sou
           expect(callbacks.map((callback) => callback.signatureKey), keys);
         }
       }
+    },
+  );
+
+  test(
+    'callback handles preserve element policies and enclosing opaque types',
+    () async {
+      final module = await read('''
+@NAPI() int first(JsArray<int> Function(JsArray<int>) callback) => 1;
+@NAPI() int renamed(JsArray<int> Function(JsArray<int> other) value) => 1;
+@NAPI() int nullableInput(JsArray<int> Function(JsArray<int>?) callback) => 1;
+@NAPI() int nullableElement(JsArray<int?> Function(JsArray<int?>) callback) => 1;
+@NAPI(bigint: true) int wide(JsArray<int> Function(JsArray<int>) callback) => 1;
+@NAPI() int map(JsMap<String,int> Function(JsMap<String,int>) callback) => 1;
+@NAPI() int opaque<T>(JsArray<T> Function(JsArray<T>) callback) => 1;
+@NAPI() int other<U>(JsArray<U> Function(JsArray<U>) callback) => 1;
+@NAPI() int nullableOpaque<T>(JsArray<T?> Function(JsArray<T?>) callback) => 1;
+@NAPI() int future<T>(Future<List<(JsArray<T>?, JsMap<String,T>)>> Function(List<JsArray<T>>) callback) => 1;
+@NAPI() class Calls<T> {
+  Calls();
+  int run(JsMap<String,T> Function(JsArray<T>) callback) => 1;
+}
+''');
+      final wasm = lower(validate(module));
+      final native = validateNative(module);
+      for (final conversions in [
+        wasm.functions.map((f) => f.inputs.single),
+        native.functions.map((f) => f.inputs.single),
+      ]) {
+        final callbacks = conversions.cast<CallbackConversion>().toList();
+        expect(callbacks[0].inputs.single, isA<JsCollectionConversion>());
+        expect(callbacks[0].signatureKey, callbacks[1].signatureKey);
+        expect(callbacks[6].signatureKey, callbacks[7].signatureKey);
+        expect({
+          for (final i in [0, 2, 3, 4, 5, 6, 8, 9]) callbacks[i].signatureKey,
+        }, hasLength(8));
+        expect(
+          callbacks[6].dartType,
+          'napi.JsArray<_NapiHostValue> Function(napi.JsArray<_NapiHostValue>)',
+        );
+        expect(
+          callbacks[9].typescriptType,
+          contains('globalThis.Promise<Array<'),
+        );
+        expect(
+          callbacks[9].typescriptType,
+          contains('globalThis.Array<T> | null'),
+        );
+      }
+      expect(emitDeclarations(wasm), emitNativeDeclarations(native));
+      expect(emitDeclarations(wasm), contains('globalThis.Map<string, T>'));
+      expect(emitDart(wasm), contains('_writeJsCollection(c0,'));
+      expect(
+        emitDart(wasm),
+        contains('c0 == null ? null : _writeJsCollection(c0,'),
+      );
+      expect(emitDart(wasm), contains('defer: true)'));
+      expect(emitBoundary(wasm), contains(r'const $jcPolicies ='));
+      expect(
+        emitDart(wasm),
+        isNot(contains('external WasmExternRef _boxOpaque')),
+      );
+
+      // With no structural or direct-handle export, callback results still need
+      // their native reader definitions and the Wasm handle carrier.
+      final direct = BindingModule(
+        source: module.source,
+        functions: [module.functions.first],
+      );
+      final nativeSource = emitNativeDart(validateNative(direct));
+      expect(nativeSource, contains('final class _NativeReadState'));
+      expect(
+        nativeSource,
+        matches(r'napi\.JsArray<int> _readNativeValueRoot\d+\('),
+      );
+      expect(
+        emitDart(lower(validate(direct))),
+        contains('final class _NapiHostValue'),
+      );
     },
   );
 
@@ -404,6 +485,15 @@ void [value, big, asynchronous, empty, wide, record, syncInFuture, globalName];
     'reference callback parameter': '@NAPI() class Box { Box(); } @NAPI() int run(int Function(Box) callback) => 1;',
     'reference callback result': '@NAPI() class Box { Box(); } @NAPI() int run(Box Function() callback) => 1;',
     'value callback result': '@NAPI(classPolicy: ClassPolicy.value) class Box { int value = 1; } @NAPI() int run(Box Function() callback) => 1;',
+    'generic handle callback':
+        '@NAPI() int run(JsArray<T> Function<T>(JsArray<T>) callback) => 1;',
+    'nested handle element':
+        '@NAPI() int run(JsArray<List<int>> Function() callback) => 1;',
+    'reference handle element': '@NAPI() class Box { Box(); } @NAPI() int run(JsArray<Box> Function() callback) => 1;',
+    'bare enclosing opaque':
+        '@NAPI() int run<T>(T Function(JsArray<T>) callback) => 1;',
+    'structural Map with handle':
+        '@NAPI() int run(Map<String,JsArray<int>> Function() callback) => 1;',
     'dynamic callback payload':
         '@NAPI() int run(dynamic Function(dynamic) callback) => 1;',
   };

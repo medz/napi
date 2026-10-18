@@ -2137,7 +2137,7 @@ void validateValueType(
   if (allowCallback &&
       direction == ValueDirection.input &&
       type is FunctionTypeBinding) {
-    _validateCallback(type, source);
+    _validateCallback(type, source, opaqueParameters);
     return;
   }
   if (_containsCallback(type)) {
@@ -2206,12 +2206,7 @@ void _validateJsCollection(
   SourceLocation source,
   Set<DeclarationId> opaqueParameters,
 ) {
-  if (collection.typeArguments.length !=
-          (collection.declaration == jsMapDeclaration ? 2 : 1) ||
-      !collection.typeArguments.every(
-        (type) =>
-            _isBackendScalar(type) || isOpaqueType(type, opaqueParameters),
-      )) {
+  if (!_supportedJsCollectionElements(collection, opaqueParameters)) {
     throw BindingDiagnostic(
       'NAPI_JS_COLLECTION',
       'JsArray/JsMap support scalar or direct opaque elements; nested, reference and resource elements are not supported.',
@@ -2219,6 +2214,17 @@ void _validateJsCollection(
     );
   }
 }
+
+bool _supportedJsCollectionElements(
+  DeclaredType collection,
+  Set<DeclarationId> opaqueParameters,
+) =>
+    collection.typeArguments.length ==
+        (collection.declaration == jsMapDeclaration ? 2 : 1) &&
+    collection.typeArguments.every(
+      (element) =>
+          _isBackendScalar(element) || isOpaqueType(element, opaqueParameters),
+    );
 
 bool _containsCallback(BindingType type) => switch (type) {
   FunctionTypeBinding() => true,
@@ -2232,7 +2238,11 @@ bool _containsCallback(BindingType type) => switch (type) {
   _ => false,
 };
 
-void _validateCallback(FunctionTypeBinding type, SourceLocation source) {
+void _validateCallback(
+  FunctionTypeBinding type,
+  SourceLocation source,
+  Set<DeclarationId> opaqueParameters,
+) {
   Never reject(String message) =>
       throw BindingDiagnostic('NAPI_CALLBACK', message, source);
   if (type.typeParameters.isNotEmpty) {
@@ -2250,9 +2260,9 @@ void _validateCallback(FunctionTypeBinding type, SourceLocation source) {
         'Callback signatures require positional parameters without defaults.',
       );
     }
-    if (!_isCallbackValue(parameter.type)) {
+    if (!_isCallbackValue(parameter.type, opaqueParameters)) {
       reject(
-        'Callback arguments support only scalars, Lists and records; references, opaque payloads and nested callbacks are not supported.',
+        'Callback arguments support scalars, JS collection handles, Lists and records; references, bare opaque payloads and nested callbacks are not supported.',
       );
     }
   }
@@ -2269,9 +2279,9 @@ void _validateCallback(FunctionTypeBinding type, SourceLocation source) {
   }
   final payload = resultPayload(result);
   if (payload == null) return;
-  if (!_isCallbackValue(payload)) {
+  if (!_isCallbackValue(payload, opaqueParameters)) {
     reject(
-      'Callback results support scalars, Lists, records or void, synchronously or inside Future; FutureOr, references, opaque payloads and nested callbacks are not supported.',
+      'Callback results support scalars, JS collection handles, Lists, records or void, synchronously or inside Future; FutureOr, references, bare opaque payloads and nested callbacks are not supported.',
     );
   }
 }
@@ -2289,12 +2299,20 @@ bool _containsTypedData(BindingType type) => switch (type) {
   _ => false,
 };
 
-bool _isCallbackValue(BindingType type) {
+bool _isCallbackValue(BindingType type, Set<DeclarationId> opaqueParameters) {
   if (_isBackendScalar(type)) return true;
   if (type.nullability == TypeNullability.legacy) return false;
+  if (isJsCollectionType(type)) {
+    return _supportedJsCollectionElements(
+      type as DeclaredType,
+      opaqueParameters,
+    );
+  }
   if (type is RecordTypeBinding) {
-    return type.positional.every(_isCallbackValue) &&
-        type.named.values.every(_isCallbackValue);
+    return type.positional.every(
+          (t) => _isCallbackValue(t, opaqueParameters),
+        ) &&
+        type.named.values.every((t) => _isCallbackValue(t, opaqueParameters));
   }
   return type is DeclaredType &&
       type.semantics == ValueSemantics.structural &&
@@ -2305,7 +2323,7 @@ bool _isCallbackValue(BindingType type) {
             kind: DeclarationKind.classType,
           ) &&
       type.typeArguments.length == 1 &&
-      _isCallbackValue(type.typeArguments.single);
+      _isCallbackValue(type.typeArguments.single, opaqueParameters);
 }
 
 /// Export renames may collide even when the original Dart names are distinct.

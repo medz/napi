@@ -542,6 +542,90 @@ async function asyncResources(api) {
   }
 }
 
+function handleValues(api) {
+  const original = [1], fresh = [2];
+  assert.equal(api.callHandle(value => {
+    assert.equal(value, original); value.push(3); return fresh;
+  }, original), fresh);
+  assert.deepEqual(original, [1, 3]); fresh[0] = 4;
+  assert.equal(api.readCallbackHandle(0), 4, 'Dart retains the new callback result adapter');
+  const identity = value => value;
+  assert.equal(api.callHandle(identity, original), original);
+  assert.equal(api.sameHandleSignature(identity), true);
+  assert.equal(api.sameWideHandleSignature(identity), false);
+  assert.equal(api.sameOpaqueHandleSignature(identity), false);
+  const wide = [9007199254740993n];
+  assert.equal(api.callWideHandle(identity, wide), wide);
+  assert.throws(() => api.callWideHandle(() => [1], wide), TypeError);
+
+  const map = new Map([['key', null]]), record = {arrays: [original, null], map};
+  const output = api.callHandles(value => {
+    assert.notEqual(value, record); assert.notEqual(value.arrays, record.arrays);
+    assert.equal(value.arrays[0], original); assert.equal(value.arrays[1], null);
+    assert.equal(value.map, map); value.map.set('key', 8);
+    return {arrays: [fresh, null], map: value.map};
+  }, record);
+  assert.equal(output.arrays[0], fresh); assert.equal(output.arrays[1], null);
+  assert.equal(output.map, map); assert.equal(map.get('key'), 8);
+  assert.equal(api.callNullableHandle(value => {assert.equal(value, null); return null;}, null), null);
+  assert.equal(api.callNullableHandle(identity, original), original);
+  assert.throws(() => api.callNullableHandle(() => undefined, null), TypeError);
+  assert.throws(() => api.callHandle(() => ({}), original), TypeError);
+  assert.throws(() => api.callHandles(() => ({arrays: [undefined], map}), record), TypeError);
+
+  const payload = {then() {throw Error('opaque payload then');}}, raw = [undefined, payload];
+  const payloadMap = new Map([[payload, undefined]]), outer = {arrays: [raw], map: payloadMap};
+  const opaque = api.callPayloadHandles(value => {
+    assert.notEqual(value, outer); assert.notEqual(value.arrays, outer.arrays);
+    assert.equal(value.arrays[0], raw); assert.equal(value.map, payloadMap);
+    value.arrays[0].push(payload); value.map.set(undefined, payload); return value;
+  }, outer);
+  assert.notEqual(opaque, outer); assert.equal(opaque.arrays[0], raw); assert.equal(raw[2], payload);
+  assert.equal(opaque.map, payloadMap); assert.equal(payloadMap.get(undefined), payload);
+  for (const error of [{handle: true}, Symbol('handle'), undefined]) {
+    exact(() => api.callHandle(() => {throw error;}, original), error);
+    const lazy = []; Object.defineProperty(lazy, '0', {get() {throw error;}});
+    assert.equal(api.callHandle(() => lazy, original), lazy);
+    exact(() => api.readCallbackHandle(0), error);
+  }
+  api.callHandle(identity, original);
+  let invoked = 0;
+  for (const fake of [false, true]) {
+    assert.throws(() => api.callbackHandleOrder(() => {invoked++; return 1n;}, fake, false), TypeError);
+    assert.throws(() => api.callbackHandleOrder(() => {invoked++; return 1n;}, fake, true),
+      error => !(error instanceof TypeError) && /callback argument getter/.test(error.message));
+  }
+  assert.equal(invoked, 0, 'Dart snapshots every callback argument before handle validation');
+  api.clearCallbackHandle();
+}
+
+async function asyncHandles(api) {
+  let complete, input = [7];
+  const weak = new WeakRef(input);
+  let callback = value => {
+    assert.equal(value, input);
+    return new Promise(resolve => {complete = resolve;});
+  };
+  const pending = api.callAsyncHandle(callback, input);
+  await until(() => complete !== undefined, 'handle callback starts');
+  input = undefined; callback = undefined;
+  for (let round = 0; round < 4; round++) {
+    await turn(); global.gc(); api.callbackPressure(round); await turn();
+    assert(weak.deref(), 'Dart keeps its handle input while the callback Promise is pending');
+  }
+  const retainedInput = weak.deref(); assert(retainedInput);
+  const fresh = [9]; complete(fresh); complete = undefined;
+  assert.equal(await pending, fresh); assert.equal(retainedInput[0], 8);
+  fresh[0] = 10; assert.equal(api.readCallbackHandle(0), 10);
+  for (const error of [{asyncHandle: true}, Symbol('async-handle'), undefined]) {
+    await exactRejection(api.callAsyncHandle(() => Promise.reject(error), [1]), error);
+    await exactRejection(api.callAsyncHandle(() => {throw error;}, [1]), error);
+  }
+  await assert.rejects(api.callAsyncHandle(() => Promise.resolve({}), [1]), TypeError);
+  await assert.rejects(api.callAsyncHandle(value => value, [1]), TypeError);
+  api.clearCallbackHandle();
+}
+
 async function foreignOwner(api) {
   const other = await import('@napi/callback-external');
   let complete;
@@ -652,6 +736,8 @@ async function scenario(name) {
     case 'async-errors': await asyncErrors(api); break;
     case 'async-retention': await asyncRetention(api); break;
     case 'async-resources': await asyncResources(api); break;
+    case 'js-handles': handleValues(api); break;
+    case 'async-handles': await asyncHandles(api); break;
     case 'foreign-owner': await foreignOwner(api); break;
     case 'pending-natural-exit': {
       api.registerAsyncCallback(() => new Promise(() => {}));
@@ -661,7 +747,12 @@ async function scenario(name) {
     case 'queued-teardown': await worker(false, true); break;
     case 'external': {
       const external = await import('@napi/callback-external');
-      assert.deepEqual(Object.keys(external), ['plainAsyncCallback', 'plainCallback']);
+      assert.deepEqual(Object.keys(external), [
+        'callAsyncHandle', 'callHandle', 'callHandles', 'callNullableHandle', 'callPayloadHandles',
+        'callWideHandle', 'callbackHandleOrder', 'callbackPressure', 'clearCallbackHandle',
+        'plainAsyncCallback', 'plainCallback', 'readCallbackHandle', 'sameHandleSignature',
+        'sameOpaqueHandleSignature', 'sameWideHandleSignature',
+      ]);
       assert.equal(external.plainCallback(n => n + 1, 3), 4);
       assert.throws(() => external.plainCallback(), TypeError);
       assert.throws(() => external.plainCallback(n => 'bad', 1), TypeError);
@@ -670,6 +761,7 @@ async function scenario(name) {
       assert.equal(await external.plainAsyncCallback(async n => n + 1, 3), 4);
       await exactRejection(external.plainAsyncCallback(() => Promise.reject(error), 1), error);
       await assert.rejects(external.plainAsyncCallback(n => n, 1), TypeError);
+      handleValues(external); await asyncHandles(external);
       break;
     }
     case 'workers-with-main':

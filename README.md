@@ -53,7 +53,7 @@ See [the architecture](doc/architecture.md) for backend boundaries and
 - Structural value classes with explicit constructors, recursive fields and direction-specific TypeScript
 - Future-returning functions/methods/getters, including generic payloads, with standard Promise resolution and shared error conversion
 - Resource cleanup with shared state, stable completion identity and operation leases through Promise settlement
-- Typed callbacks with scalar/List/record conversions, weak adapter identity, retained ownership and Promise results
+- Typed callbacks with scalar/List/record/JS-handle conversions, weak adapter identity, retained ownership and Promise results
 - Stream async iterators with FIFO reads, bounded snapshots, cancellation and resource cleanup integration
 - Explicit AbortSignal inputs with cooperative Future cancellation and once-only Stream subscription cancellation
 - Fresh single- or dual-target npm packages with explicit entries, assets and atomic no-replace publication

@@ -389,7 +389,10 @@ void _emitCallbackAdapter(
   ].join(', ');
   final arguments = [
     for (final (index, conversion) in callback.inputs.indexed)
-      '${structural.write(conversion)}(c$index, _StructureState(), ${quote(conversion.context)}, 0)',
+      if (conversion is JsCollectionConversion)
+        '${conversion.nullable ? 'c$index == null ? null : ' : ''}_writeJsCollection(c$index, ${quote(conversion.signatureKey)}, defer: true)'
+      else
+        '${structural.write(conversion)}(c$index, _StructureState(), ${quote(conversion.context)}, 0)',
   ].join(', ');
   result.writeln(
     '''${callback.dartType} _callback$context(WasmExternRef callback) {

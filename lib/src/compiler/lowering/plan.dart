@@ -201,6 +201,11 @@ Object? _callbackValueSignature(ValueConversion? conversion) =>
         bigint,
         nullable,
       ],
+      JsCollectionConversion() => [
+        'jsCollection',
+        conversion.nullable,
+        conversion.signatureKey,
+      ],
       ListConversion(:final element, :final nullable) => [
         'list',
         nullable,
