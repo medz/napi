@@ -264,10 +264,15 @@ void main() {
           );
           await author.parent.create(recursive: true);
           await author.writeAsString('keep');
-          if (!await FileSystemEntity.identical(
-            '${output.path}/WASM',
-            '${output.path}/wasm',
-          )) {
+          if (await FileSystemEntity.type(
+                    '${output.path}/wasm',
+                    followLinks: false,
+                  ) ==
+                  FileSystemEntityType.notFound ||
+              !await FileSystemEntity.identical(
+                '${output.path}/WASM',
+                '${output.path}/wasm',
+              )) {
             markTestSkipped('This filesystem distinguishes case.');
             return;
           }
