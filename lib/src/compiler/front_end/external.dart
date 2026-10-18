@@ -23,6 +23,7 @@ sealed class ExternalDeclaration {
   const ExternalDeclaration(this.name, {required this.config, this.source});
 }
 
+/// Select a top-level function or an explicitly specialized callable const.
 final class ExternalFunction extends ExternalDeclaration {
   const ExternalFunction(
     super.name, {

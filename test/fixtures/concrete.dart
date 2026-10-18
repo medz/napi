@@ -3,6 +3,12 @@ import 'dart:typed_data';
 
 import 'package:napi/napi.dart';
 
+import 'concrete_callables.dart' as callables;
+
+export 'concrete_callables.dart';
+
+part 'concrete_callable_part.dart';
+
 class Cell<T> {
   T value;
   Cell(this.value);

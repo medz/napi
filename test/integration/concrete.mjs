@@ -2,7 +2,51 @@ import assert from 'node:assert/strict';
 import {Worker, isMainThread, parentPort, workerData} from 'node:worker_threads';
 
 const tick = () => new Promise(resolve => setImmediate(resolve));
+async function concreteCallables(api) {
+  assert.equal(api.intTypeName(), 'int');
+  assert.equal(api.doubleTypeName(), 'double');
+  assert.equal(api.sumIntegers(2), 14);
+  assert.equal(api.sumIntegers(2, {}), 14);
+  assert.equal(api.sumIntegers(2, {extra: undefined, multiplier: undefined}), 14);
+  assert.equal(api.sumIntegers(2, {extra: null, multiplier: 3}), 6);
+  assert.equal(api.sumIntegers(2, {extra: 3, multiplier: 2}), 10);
+  assert.equal(api.sumDoubles(1.5, {extra: 0.5, multiplier: 2}), 4);
+  assert.equal(api.sumBigints(2n), 14n);
+  assert.equal(api.sumBigints(2n, {extra: 3n, multiplier: 2n}), 10n);
+  assert.equal(api.sumBigints(9007199254740993n, {multiplier: 1n}), 9007199254740993n);
+  assert.equal(api.typedDefault(1), 11);
+  assert.equal(api.typedDefault(1, undefined), 11);
+  assert.equal(api.typedDefault(1, 5), 5);
+  assert.equal(api.staticInteger(2), 38);
+  assert.equal(api.staticInteger(2, undefined), 38);
+  assert.equal(api.staticInteger(2, 3), 6);
+  assert.equal(api.nullableInteger(), null);
+  assert.equal(api.nullableInteger(undefined), null);
+  assert.equal(api.nullableInteger(null), null);
+  assert.equal(api.nullableInteger(3), 3);
+  assert.equal(await api.laterInteger(9), 9);
+  assert.deepEqual(api.recordIdentity({value: 7, label: null}), {value: 7, label: null});
+  assert.deepEqual(api.nestedIdentity([new Map([['value', 7], ['empty', null]])]),
+    [new Map([['value', 7], ['empty', null]])]);
+  for (const invalid of [0.5, 2 ** 53]) {
+    assert.throws(() => api.sumIntegers(invalid), RangeError);
+    assert.throws(() => api.sumIntegers(1, {extra: invalid}), RangeError);
+    assert.throws(() => api.recordIdentity({value: invalid, label: null}), RangeError);
+    assert.throws(() => api.nestedIdentity([new Map([['value', invalid]])]), RangeError);
+  }
+  assert.throws(() => api.sumIntegers(), TypeError);
+  assert.throws(() => api.sumIntegers(undefined), TypeError);
+  assert.throws(() => api.sumIntegers(null), TypeError);
+  assert.throws(() => api.sumIntegers('1'), TypeError);
+  assert.throws(() => api.sumIntegers(1, {multiplier: null}), TypeError);
+  assert.throws(() => api.typedDefault(1, null), TypeError);
+  assert.throws(() => api.sumBigints(2), TypeError);
+  assert.throws(() => api.sumBigints(2n, {multiplier: 2}), TypeError);
+  assert.throws(() => api.sumIntegers(Number.MAX_SAFE_INTEGER, {multiplier: 2}), RangeError);
+}
+
 async function contract(api) {
+  await concreteCallables(api);
   const integer = new api.IntCell(7);
   const decimal = new api.DoubleCell(1.5);
   assert.equal(integer.isInt, true);

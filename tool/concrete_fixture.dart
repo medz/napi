@@ -21,8 +21,15 @@ dependencies:
   napi:
     path: ${jsonEncode(Directory.current.path)}
 ''');
-  await File('test/fixtures/concrete.dart')
-      .copy('${project.path}/business.dart');
+  for (final name in [
+    'concrete.dart',
+    'concrete_callables.dart',
+    'concrete_callable_part.dart',
+  ]) {
+    await File('test/fixtures/$name').copy('${project.path}/$name');
+  }
+  await File('${project.path}/business.dart')
+      .writeAsString("export 'concrete.dart';\n");
   await File('${project.path}/build.dart').writeAsString('''
 import 'dart:io';
 import 'package:napi/build.dart';
@@ -35,6 +42,17 @@ Future<void> main() async {
       metadata: {'name': external ? '@napi/concrete-external' : '@napi/concrete-fixture', 'version': '0.0.0'},
       packagesPath: File('.dart_tool/package_config.json').absolute.path,
       external: external ? const ExternalLibrary([
+        ExternalFunction('sumIntegers'),
+        ExternalFunction('sumDoubles'),
+        ExternalFunction('sumBigints', config: NAPI(bigint: true)),
+        ExternalFunction('intTypeName'),
+        ExternalFunction('doubleTypeName'),
+        ExternalFunction('typedDefault'),
+        ExternalFunction('nullableInteger'),
+        ExternalFunction('recordIdentity'),
+        ExternalFunction('nestedIdentity'),
+        ExternalFunction('laterInteger'),
+        ExternalFunction('staticInteger'),
         ExternalFunction('echoInt'),
         ExternalFunction('echoDouble'),
         ExternalFunction('equivalent'),

@@ -604,7 +604,7 @@ final _invalidCases = <(String, String, String)>[
     'NAPI_SELECTION',
   ),
   ('typedef placement', '@NAPI() typedef Count = int;', 'NAPI_PLACEMENT'),
-  ('variable placement', '@NAPI() final int value = 1;', 'NAPI_PLACEMENT'),
+  ('non-callable variable', '@NAPI() final int value = 1;', 'NAPI_CALLABLE'),
   (
     'parameter placement',
     'int function(@NAPI() int value) => value;',
