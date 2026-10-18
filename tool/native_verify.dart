@@ -9,6 +9,7 @@ import 'command.dart' show reportNodeVersions;
 import 'value_fixture.dart';
 import 'native_event_fixture.dart';
 import 'native_host_value_fixture.dart';
+import 'dual_target_fixture.dart';
 import 'future_fixture.dart';
 import 'void_fixture.dart';
 import 'resource_fixture.dart';
@@ -254,6 +255,7 @@ console.log('Native Worker-only unload and reload: passed');
   await verifyConcreteFixture(root, nativeRuntime: bundle);
   await verifySharedBytesFixture(root, nativeRuntime: bundle);
   await verifyJsCollectionsFixture(root, nativeRuntime: bundle);
+  await verifyDualTargetFixture(root, bundle);
   await root.delete(recursive: true);
   stdout.writeln(
     'Generated native bindings, fresh npm install and TypeScript: passed',

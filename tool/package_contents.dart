@@ -11,20 +11,34 @@ void verifyPackedFiles(Map<String, dynamic> packed, Set<String> expected) {
   );
 }
 
-/// Generated packages contain flat regular files, including exact notices.
+/// Generated packages contain regular files, including exact notices.
 Future<void> verifyInstalledPackage(
   Directory directory,
   Set<String> expected,
-  Map<String, List<int>> notices,
-) async {
-  final entries = await directory.list(followLinks: false).toList();
+  Map<String, List<int>> notices, {
+  bool recursive = false,
+}) async {
+  final entries = await directory
+      .list(followLinks: false, recursive: recursive)
+      .toList();
   for (final entry in entries) {
+    if (recursive &&
+        entry is Directory &&
+        expected.any(
+          (name) => name.startsWith(
+            '${path.relative(entry.path, from: directory.path)}/',
+          ),
+        )) {
+      continue;
+    }
     if (entry is! File) {
       throw StateError('Installed package contains a non-file: ${entry.path}');
     }
   }
   _verifyFiles(
-    entries.map((entry) => path.basename(entry.path)),
+    entries.whereType<File>().map(
+      (entry) => path.relative(entry.path, from: directory.path),
+    ),
     expected,
     'installed package',
   );

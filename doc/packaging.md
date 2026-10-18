@@ -69,6 +69,71 @@ manifest-declared bridge/runtime/license files, validating their hashes again
 after copying. The initial native package is macOS arm64; conflicting `os` or
 `cpu` metadata is rejected. See [native setup and scope](native.md).
 
-These are single-target build and assembly APIs. Shared cross-backend selection/fallback,
-runtime supply automation and other native platforms remain #134/#144;
-rebuild/replacement behavior remains #135.
+## Explicit dual-target packages
+
+To include both backends, pass `targets` to `buildPackage`. `target` selects the
+package root, and defaults to Wasm:
+
+```dart
+await buildPackage(
+  library: File('lib/math.dart').absolute.uri,
+  output: Directory('npm-package'),
+  metadata: {'name': '@scope/math', 'version': '1.0.0'},
+  targets: {BuildTarget.wasm, BuildTarget.native},
+  target: BuildTarget.wasm,
+  nativeRuntime: Directory('runtime-bundle'),
+);
+```
+
+The package stores artifacts under `wasm/` and `native/`. Its root resolves
+directly to the selected backend, without another loader. `@scope/math/native`
+and `@scope/math/wasm` explicitly select a backend;
+`@scope/math/module.wasm` is an alias of the Wasm entry. Direct relative Wasm
+imports use the physical `wasm/module.wasm` path. Existing single-target packages
+retain their flat layout and entrypoints.
+
+Importing the root and its selected subpath shares functions, constructors and
+state. Importing the other backend creates a separate Dart runtime and state;
+reference objects and resources cannot cross between them. A missing or broken
+selected backend fails normally. No failure triggers an implicit fallback, and
+importing Wasm does not initialize native. CommonJS, browser initialization and
+automatic platform selection are outside this slice.
+
+Both targets resolve their own Dart conditional imports. Their ordered public
+declarations, strict conversion policies, parameter presence, evaluated defaults
+and resource cleanup contracts must match. Different private implementation
+names and source locations are allowed. Changed declaration order is rejected
+explicitly; this build does not reorder selected class IDs or infer equivalence
+between different public contracts. Reference-view composition and concrete
+alias ambiguity groups must also agree. Defaults compare their effective Dart
+values, so omitted nullable defaults equal explicit `null`, while signed zeros
+remain distinct.
+
+One emitter produces identical declaration text for both targets. The text is
+stored in separate declaration modules so class brands remain specific to each
+backend. Root types resolve to the selected module, preserving type identity
+with that subpath. A single shared physical declaration module would incorrectly
+allow foreign-runtime references. The default/presence and conversion comparison
+also catches differences such as `int` versus `double` that both spell `number`
+in TypeScript.
+
+Dual packages require the existing pinned macOS arm64 native runtime bundle and
+standard Dart SDK. They compile business code for each target sequentially,
+include both complete asset/license sets, and publish only after both succeed.
+The root does not receive native-only `os`/`cpu` metadata, so it can be installed
+for Wasm use on another supported host. Caller-provided host restrictions are
+retained. Including both targets increases download size; there is no optional
+platform package or install-time download.
+
+`dart run tool/dual_target_fixture.dart <native-runtime-bundle>` checks source
+and external builds, both root choices, fresh relocated npm installs, explicit
+subpaths, repeated imports, separate runtime identities, failed assets, Workers,
+resource/Future/Stream use and strict TypeScript. `NAPI_NODE_EXECUTABLES` runs the
+same installed artifacts with each configured Node runtime. A native AOT failure
+after a successful Wasm build verifies that no partial package is published and
+unrelated author files survive.
+
+Fresh assembly continues to reject existing output and uses atomic no-replace
+publication. Author-owned output merging and atomic rebuild/replacement remain
+#135. Automatic backend selection, runtime supply and other native platforms
+remain #134/#144; this explicit dual-target slice does not complete those issues.

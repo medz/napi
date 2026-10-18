@@ -58,4 +58,32 @@ void main() {
       throwsStateError,
     );
   });
+
+  test('nested inventory allows only expected artifact directories', () async {
+    final root = await Directory.systemTemp.createTemp('napi dual inventory ');
+    addTearDown(() => root.delete(recursive: true));
+    const files = {'package.json', 'wasm/module.wasm', 'native/DART_LICENSE'};
+    for (final name in files) {
+      final file = File('${root.path}/$name');
+      await file.parent.create(recursive: true);
+      await file.writeAsString(name);
+    }
+    final notices = {'native/DART_LICENSE': 'native/DART_LICENSE'.codeUnits};
+    await verifyInstalledPackage(root, files, notices, recursive: true);
+    await expectLater(
+      verifyInstalledPackage(root, files, notices),
+      throwsStateError,
+    );
+    final extra = await Directory('${root.path}/wasm/cache').create();
+    await expectLater(
+      verifyInstalledPackage(root, files, notices, recursive: true),
+      throwsStateError,
+    );
+    await extra.delete();
+    await File('${root.path}/native/DART_LICENSE').delete();
+    await expectLater(
+      verifyInstalledPackage(root, files, notices, recursive: true),
+      throwsStateError,
+    );
+  });
 }

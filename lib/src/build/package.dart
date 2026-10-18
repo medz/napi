@@ -4,7 +4,9 @@ import 'dart:io';
 import 'package:path/path.dart' as path;
 
 import '../compiler/front_end/external.dart';
+import '../compiler/ir/model.dart';
 import 'build.dart';
+import 'contract.dart';
 import 'metadata.dart';
 import 'publish.dart';
 import 'native_bundle.dart';
@@ -35,6 +37,8 @@ const _assetNames = {
 /// is not required to validate package names. Native builds use [nativeRuntime]
 /// and [BuildTarget.native]; Wasm is the default. All intermediate build files
 /// are removed on success or failure. Existing [output] is never replaced.
+/// With [targets], include both backends in one package; [target] chooses the
+/// root entrypoint. Explicit native/wasm subpaths never fall back to one another.
 Future<Directory> buildPackage({
   required Uri library,
   required Directory output,
@@ -43,31 +47,89 @@ Future<Directory> buildPackage({
   String? packagesPath,
   ExternalLibrary? external,
   BuildTarget target = BuildTarget.wasm,
+  Set<BuildTarget>? targets,
   Directory? nativeRuntime,
 }) async {
+  final selected = Set<BuildTarget>.of(targets ?? {target});
   final package = packageMetadata(
     metadata,
-    native: target == BuildTarget.native,
+    native: selected.length == 1 && selected.contains(BuildTarget.native),
   );
+  if (selected.isEmpty || !selected.contains(target)) {
+    throw ArgumentError('Package targets must contain the root target.');
+  }
+  if (selected.contains(BuildTarget.native) != (nativeRuntime != null)) {
+    throw ArgumentError(
+      'nativeRuntime is required exactly when the package includes native.',
+    );
+  }
   final destination = output.absolute;
   await _checkPath(destination.path);
   if (await FileSystemEntity.type(destination.path, followLinks: false) !=
       FileSystemEntityType.notFound) {
     throw ArgumentError('Package output already exists: ${destination.path}');
   }
+  final bindings = <BuildTarget, BindingModule>{};
+  String? declarations;
+  final packages = libraryPackagesPath(packagesPath, external);
+  if (selected.length > 1) {
+    final bundle = await NativeRuntimeBundle.read(nativeRuntime!);
+    bundle.verifyHost();
+    for (final backend in BuildTarget.values) {
+      bindings[backend] = await readLibraryBindings(
+        library: library,
+        packagesPath: packages,
+        external: external,
+        target: backend,
+      );
+    }
+    declarations = validatePackageContracts(
+      bindings[BuildTarget.wasm]!,
+      bindings[BuildTarget.native]!,
+    );
+  }
   await destination.parent.create(recursive: true);
   final staging = await destination.parent.createTemp('.napi-package-build-');
   try {
-    final module = await buildLibrary(
-      library: library,
-      output: Directory('${staging.path}/module'),
-      packagesPath: packagesPath,
-      external: external,
-      target: target,
-      nativeRuntime: nativeRuntime,
-    );
+    final modules = <BuiltModule>[];
+    for (final backend in BuildTarget.values.where(selected.contains)) {
+      final module = bindings.isEmpty
+          ? await buildLibrary(
+              library: library,
+              output: Directory('${staging.path}/${backend.name}'),
+              packagesPath: packages,
+              external: external,
+              target: backend,
+              nativeRuntime: backend == BuildTarget.native
+                  ? nativeRuntime
+                  : null,
+            )
+          : await buildModule(
+              bindings: bindings[backend]!,
+              output: Directory('${staging.path}/${backend.name}'),
+              packagesPath: packages,
+              target: backend,
+              nativeRuntime: backend == BuildTarget.native
+                  ? nativeRuntime
+                  : null,
+            );
+      if (declarations != null) {
+        final name = backend == BuildTarget.native
+            ? 'module.d.mts'
+            : 'module.d.wasm.ts';
+        final actual = await File('${module.directory.path}/$name')
+            .readAsString();
+        if (actual != declarations) {
+          throw StateError(
+            'Built $backend declarations changed after validation.',
+          );
+        }
+      }
+      modules.add(module);
+    }
     return await _assemblePackage(
-      module: module,
+      modules: modules,
+      rootTarget: target,
       output: destination,
       metadata: package,
       assets: assets,
@@ -96,7 +158,8 @@ Future<Directory> assembleWasmPackage({
     throw ArgumentError('assembleWasmPackage requires a Wasm module.');
   }
   return _assemblePackage(
-    module: module,
+    modules: [module],
+    rootTarget: module.target,
     output: output,
     metadata: metadata,
     assets: assets,
@@ -114,7 +177,8 @@ Future<Directory> assembleNativePackage({
     throw ArgumentError('assembleNativePackage requires a native module.');
   }
   return _assemblePackage(
-    module: module,
+    modules: [module],
+    rootTarget: module.target,
     output: output,
     metadata: metadata,
     assets: assets,
@@ -122,63 +186,67 @@ Future<Directory> assembleNativePackage({
 }
 
 Future<Directory> _assemblePackage({
-  required BuiltModule module,
+  required List<BuiltModule> modules,
+  required BuildTarget rootTarget,
   required Directory output,
   required Map<String, Object?> metadata,
   required Map<String, File> assets,
 }) async {
   final package = packageMetadata(
     metadata,
-    native: module.target == BuildTarget.native,
+    native: modules.length == 1 && rootTarget == BuildTarget.native,
   );
-  final source = module.directory.absolute;
+  final dual = modules.length > 1;
   final target = output.absolute;
-  await _checkPath(source.path);
-  if (await FileSystemEntity.type(source.path, followLinks: false) !=
-      FileSystemEntityType.directory) {
-    throw ArgumentError('Built module is not a directory: ${source.path}');
-  }
   await _checkPath(target.path);
   if (await FileSystemEntity.type(target.path, followLinks: false) !=
       FileSystemEntityType.notFound) {
     throw ArgumentError('Package output already exists: ${target.path}');
   }
-  if (path.isWithin(source.path, target.path) ||
-      path.equals(source.path, target.path)) {
-    throw ArgumentError('Package output must be outside the built module.');
-  }
-
   final files = <String, File>{};
-  final native = module.target == BuildTarget.native;
-  final bundle = native
-      ? await NativeRuntimeBundle.read(source, built: true)
-      : null;
-  final requiredFiles = bundle == null
-      ? _requiredFiles
-      : [
-          'module.mjs',
-          'module.d.mts',
-          'module.aot',
-          'runtime.json',
-          ...bundle.hashes.keys,
-        ];
-  for (final name in requiredFiles) {
-    files[name] = await _regularFile(File('${source.path}/$name'));
-  }
-  final callFiles = <String, File>{};
-  for (final name in native ? <String>[] : _callFiles) {
-    final file = File('${source.path}/$name');
-    if (await FileSystemEntity.type(file.path, followLinks: false) !=
-        FileSystemEntityType.notFound) {
-      callFiles[name] = await _regularFile(file);
+  for (final module in modules) {
+    final source = module.directory.absolute;
+    await _checkPath(source.path);
+    if (await FileSystemEntity.type(source.path, followLinks: false) !=
+        FileSystemEntityType.directory) {
+      throw ArgumentError('Built module is not a directory: ${source.path}');
     }
+    if (path.isWithin(source.path, target.path) ||
+        path.equals(source.path, target.path)) {
+      throw ArgumentError('Package output must be outside the built module.');
+    }
+    final prefix = dual ? '${module.target.name}/' : '';
+    final native = module.target == BuildTarget.native;
+    final bundle = native
+        ? await NativeRuntimeBundle.read(source, built: true)
+        : null;
+    final requiredFiles = bundle == null
+        ? _requiredFiles
+        : [
+            'module.mjs',
+            'module.d.mts',
+            'module.aot',
+            'runtime.json',
+            ...bundle.hashes.keys,
+          ];
+    for (final name in requiredFiles) {
+      files['$prefix$name'] = await _regularFile(File('${source.path}/$name'));
+    }
+    final callFiles = <String, File>{};
+    for (final name in native ? <String>[] : _callFiles) {
+      final file = File('${source.path}/$name');
+      if (await FileSystemEntity.type(file.path, followLinks: false) !=
+          FileSystemEntityType.notFound) {
+        callFiles['$prefix$name'] = await _regularFile(file);
+      }
+    }
+    if (callFiles.isNotEmpty && callFiles.length != _callFiles.length) {
+      throw ArgumentError(
+        'Callable artifacts require core.wasm, calls.mjs and references.mjs.',
+      );
+    }
+    files.addAll(callFiles);
   }
-  if (callFiles.isNotEmpty && callFiles.length != _callFiles.length) {
-    throw ArgumentError(
-      'Callable artifacts require core.wasm, calls.mjs and references.mjs.',
-    );
-  }
-  files.addAll(callFiles);
   for (final name in assets.keys.toList()..sort()) {
     if (!_assetNames.contains(name)) {
       throw ArgumentError('Unsupported package asset name: $name');
@@ -186,15 +254,26 @@ Future<Directory> _assemblePackage({
     files[name] = await _regularFile(assets[name]!);
   }
 
+  Map<String, String> entry(BuildTarget backend) {
+    final prefix = dual ? './${backend.name}/' : './';
+    return {
+      'types':
+          '$prefix${backend == BuildTarget.native ? 'module.d.mts' : 'module.d.wasm.ts'}',
+      'import':
+          '$prefix${backend == BuildTarget.native ? 'module.mjs' : 'module.wasm'}',
+    };
+  }
+
   package.addAll({
     'type': 'module',
     'files': files.keys.toList(),
     'exports': {
-      for (final key in ['.', native ? './native' : './module.wasm'])
-        key: {
-          'types': native ? './module.d.mts' : './module.d.wasm.ts',
-          'import': native ? './module.mjs' : './module.wasm',
-        },
+      '.': entry(rootTarget),
+      if (modules.any((m) => m.target == BuildTarget.native))
+        './native': entry(BuildTarget.native),
+      if (dual) './wasm': entry(BuildTarget.wasm),
+      if (modules.any((m) => m.target == BuildTarget.wasm))
+        './module.wasm': entry(BuildTarget.wasm),
     },
   });
   final manifest = const JsonEncoder.withIndent('  ').convert(package);
@@ -203,9 +282,16 @@ Future<Directory> _assemblePackage({
   var published = false;
   try {
     for (final entry in files.entries) {
-      await entry.value.copy('${staging.path}/${entry.key}');
+      final destination = File('${staging.path}/${entry.key}');
+      await destination.parent.create(recursive: true);
+      await entry.value.copy(destination.path);
     }
-    if (native) await NativeRuntimeBundle.read(staging, built: true);
+    for (final module in modules.where((m) => m.target == BuildTarget.native)) {
+      await NativeRuntimeBundle.read(
+        dual ? Directory('${staging.path}/${module.target.name}') : staging,
+        built: true,
+      );
+    }
     await File('${staging.path}/package.json').writeAsString('$manifest\n');
     publishDirectory(staging, target);
     published = true;

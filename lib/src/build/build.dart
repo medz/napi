@@ -45,15 +45,41 @@ Future<BuiltModule> buildLibrary({
   BuildTarget target = BuildTarget.wasm,
   Directory? nativeRuntime,
 }) async {
+  final effectivePackages = libraryPackagesPath(packagesPath, external);
+  return buildModule(
+    bindings: await readLibraryBindings(
+      library: library,
+      packagesPath: effectivePackages,
+      external: external,
+      frontend: frontend,
+      target: target,
+    ),
+    output: output,
+    sdk: sdk,
+    packagesPath: effectivePackages,
+    target: target,
+    nativeRuntime: nativeRuntime,
+  );
+}
+
+String? libraryPackagesPath(String? packagesPath, ExternalLibrary? external) {
+  final defaults = File('.dart_tool/package_config.json').absolute;
+  return packagesPath ??
+      (external != null && defaults.existsSync() ? defaults.path : null);
+}
+
+/// Resolve each backend's conditional imports before comparing package APIs.
+Future<BindingModule> readLibraryBindings({
+  required Uri library,
+  String? packagesPath,
+  ExternalLibrary? external,
+  BindingFrontend? frontend,
+  BuildTarget target = BuildTarget.wasm,
+}) async {
   if (external != null && frontend != null) {
     throw ArgumentError('Provide external selections or a frontend, not both.');
   }
-  final defaultPackages = File('.dart_tool/package_config.json').absolute;
-  final effectivePackages =
-      packagesPath ??
-      (external != null && defaultPackages.existsSync()
-          ? defaultPackages.path
-          : null);
+  final effectivePackages = libraryPackagesPath(packagesPath, external);
   final selectedFrontend =
       frontend ??
       (external == null
@@ -66,14 +92,7 @@ Future<BuiltModule> buildLibrary({
               packagesPath: effectivePackages,
               native: target == BuildTarget.native,
             ));
-  return buildModule(
-    bindings: await selectedFrontend.read(library),
-    output: output,
-    sdk: sdk,
-    packagesPath: effectivePackages,
-    target: target,
-    nativeRuntime: nativeRuntime,
-  );
+  return selectedFrontend.read(library);
 }
 
 /// Build fresh artifacts from semantic IR.
