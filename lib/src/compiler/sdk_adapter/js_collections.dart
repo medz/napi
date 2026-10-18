@@ -33,50 +33,66 @@ abstract class _JsCollection {
   final WasmExternRef? source;
   final String signature;
   _JsCollection(WasmExternRef source, this.signature) : source = source;
-  JSAny? invoke(int op, [JSAny? a, JSAny? b]) {
-    final envelope = _jcCall(source!, externRefForJSAny(signature.toJS)!, WasmI32.fromInt(op), _jcRef(a), _jcRef(b));
+  WasmExternRef? invoke(int op, WasmExternRef? a, WasmExternRef? b) {
+    final envelope = _jcCall(source!, externRefForJSAny(signature.toJS)!, WasmI32.fromInt(op), a, b);
     if (_jcThrew(envelope).toIntSigned() != 0) throw _CallbackThrown(envelope);
-    return _jcJS(_jcValue(envelope));
+    return _jcValue(envelope);
   }
 }
+// Raw externref cannot cross a Dart Function invocation in the pinned SDK.
+// Direct methods keep opaque fields raw; only scalar closures use JS interop.
+final class _JsElement<T> {
+  final bool opaque;
+  final T Function(JSAny?)? readScalar;
+  final JSAny? Function(T)? writeScalar;
+  const _JsElement(this.opaque, this.readScalar, this.writeScalar);
+  T read(WasmExternRef? value) => opaque
+      ? _NapiHostValue(value) as T
+      : readScalar!(_jcJS(value));
+  WasmExternRef? write(T value) => opaque
+      ? value == null ? WasmExternRef.nullRef : (value as _NapiHostValue).value
+      : _jcRef(writeScalar!(value));
+  T? readGet(WasmExternRef? value) => value.isNull ? null
+      : read(opaque ? _jcField(value!, WasmI32.fromInt(0)) : value);
+}
 final class _JsArray<T> extends _JsCollection implements napi.JsArray<T> {
-  final T Function(JSAny?) read;
-  final JSAny? Function(T) write;
-  _JsArray(super.source, super.signature, this.read, this.write);
+  final _JsElement<T> element;
+  _JsArray(super.source, super.signature, this.element);
   @override
-  int get length => (invoke(1) as JSNumber).toDartInt;
+  int get length => (invoke(1, WasmExternRef.nullRef, WasmExternRef.nullRef)!.toJS as JSNumber).toDartInt;
   @override
-  T? get(int index) { final value = invoke(2, index.toJS); return value == null ? null : read(value); }
+  T? get(int index) => element.readGet(invoke(2, _jcRef(index.toJS), WasmExternRef.nullRef));
   @override
-  void set(int index, T value) { invoke(3, index.toJS, write(value)); }
+  void set(int index, T value) { invoke(3, _jcRef(index.toJS), element.write(value)); }
 }
 final class _JsMap<K,V> extends _JsCollection implements napi.JsMap<K,V> {
-  final K Function(JSAny?) readKey;
-  final JSAny? Function(K) writeKey;
-  final V Function(JSAny?) readValue;
-  final JSAny? Function(V) writeValue;
-  _JsMap(super.source, super.signature, this.readKey, this.writeKey, this.readValue, this.writeValue);
+  final _JsElement<K> key;
+  final _JsElement<V> value;
+  _JsMap(super.source, super.signature, this.key, this.value);
   @override
-  int get size => (invoke(1) as JSNumber).toDartInt;
+  int get size => (invoke(1, WasmExternRef.nullRef, WasmExternRef.nullRef)!.toJS as JSNumber).toDartInt;
   @override
-  bool has(K key) => (invoke(4, writeKey(key)) as JSBoolean).toDart;
+  bool has(K item) => (invoke(4, key.write(item), WasmExternRef.nullRef)!.toJS as JSBoolean).toDart;
   @override
-  V? get(K key) { final value = invoke(2, writeKey(key)); return value == null ? null : readValue(value); }
+  V? get(K item) => value.readGet(invoke(2, key.write(item), WasmExternRef.nullRef));
   @override
-  void set(K key, V value) { invoke(3, writeKey(key), writeValue(value)); }
+  void set(K item, V entry) { invoke(3, key.write(item), value.write(entry)); }
   @override
-  bool delete(K key) => (invoke(5, writeKey(key)) as JSBoolean).toDart;
+  bool delete(K item) => (invoke(5, key.write(item), WasmExternRef.nullRef)!.toJS as JSBoolean).toDart;
   @override
-  void clear() { invoke(6); }
+  void clear() { invoke(6, WasmExternRef.nullRef, WasmExternRef.nullRef); }
+  (K,V) readEntry(JSAny entry) {
+    final raw = externRefForJSAny(entry)!;
+    return (key.read(_jcField(raw, WasmI32.fromInt(0))), value.read(_jcField(raw, WasmI32.fromInt(1))));
+  }
   @override
   Iterable<(K,V)> get entries sync* {
-    final iterator = invoke(7);
+    final iterator = invoke(7, WasmExternRef.nullRef, WasmExternRef.nullRef)!.toJS;
     while (true) {
       // The owner is an observable host argument on every step, retaining it.
-      final entry = invoke(8, iterator);
+      final entry = _jcJS(invoke(8, _jcRef(iterator), WasmExternRef.nullRef));
       if (entry == null) return;
-      final raw = externRefForJSAny(entry)!;
-      yield (readKey(_jcJS(_jcField(raw, WasmI32.fromInt(0)))), readValue(_jcJS(_jcField(raw, WasmI32.fromInt(1)))));
+      yield readEntry(entry);
     }
   }
 }

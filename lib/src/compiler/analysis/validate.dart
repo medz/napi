@@ -1892,10 +1892,13 @@ void validateValueType(
     final collection = type as DeclaredType;
     if (collection.typeArguments.length !=
             (collection.declaration == jsMapDeclaration ? 2 : 1) ||
-        !collection.typeArguments.every(_isBackendScalar)) {
+        !collection.typeArguments.every(
+          (type) =>
+              _isBackendScalar(type) || isOpaqueType(type, opaqueParameters),
+        )) {
       throw BindingDiagnostic(
         'NAPI_JS_COLLECTION',
-        'JsArray/JsMap currently support scalar elements only; nested, reference and resource elements are not supported.',
+        'JsArray/JsMap support scalar or direct opaque elements; nested, reference and resource elements are not supported.',
         source,
       );
     }

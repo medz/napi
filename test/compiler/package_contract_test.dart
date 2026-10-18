@@ -104,6 +104,14 @@ void main() {
       '@NAPI(bigint: true) JsArray<int> run(JsArray<int> value) => value;',
       '@NAPI() JsArray<BigInt> run(JsArray<BigInt> value) => value;',
     ),
+    'opaque collection leaf nullability': (
+      '@NAPI() JsArray<T> run<T>(JsArray<T> value) => value;',
+      '@NAPI() JsArray<T?> run<T>(JsArray<T?> value) => value;',
+    ),
+    'opaque collection logical parameter order': (
+      '@NAPI() JsMap<K,V> run<K,V>(JsMap<K,V> value) => value;',
+      '@NAPI() JsMap<V,K> run<K,V>(JsMap<V,K> value) => value;',
+    ),
     'cleanup ownership despite equal Promise declarations': (
       "@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close') "
           'class Box { Box(); Future<void> close() async {} }',
@@ -174,6 +182,17 @@ void main() {
           external: external,
         );
       }
+    }
+  });
+
+  test('opaque collection public contracts agree across targets', () async {
+    const source =
+        '@NAPI() JsMap<String,T> run<T>(JsMap<String,T> value) => value;';
+    for (final external in [false, true]) {
+      expect(
+        await compare(source, source, external: external),
+        contains('globalThis.Map<string, T>'),
+      );
     }
   });
 

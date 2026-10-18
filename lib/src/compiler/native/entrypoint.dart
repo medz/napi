@@ -421,11 +421,11 @@ ${tests.declarations}  int? canonical;''');
         );
       } else if (conversion is JsCollectionConversion) {
         final method = conversion.isMap ? 'jsMap' : 'jsArray';
-        final scalars = [?conversion.key, conversion.value];
-        final policies = scalars
+        final elements = [?conversion.key, conversion.value];
+        final policies = elements
             .map(
               (c) =>
-                  'const NativeJsScalar<${c.dartType}>(${_quote(c.kind.name)}, nullable: ${c.nullable}, bigint: ${c.bigint})',
+                  'const NativeJsElement<${c.dartType}>(${_quote(c is OpaqueConversion ? 'opaque' : (c as ScalarConversion).kind.name)}, nullable: ${c.nullable}, bigint: ${c is ScalarConversion && c.bigint})',
             )
             .join(', ');
         code.writeln(
