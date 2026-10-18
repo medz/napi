@@ -114,6 +114,42 @@ import 'package:napi/napi.dart';
     expect(code, contains('target.value(a0)'));
   });
 
+  test('nested-only opaque modules preserve raw leaves', () async {
+    final input = await File('${directory.path}/business.dart')
+        .writeAsString('''
+import 'package:napi/napi.dart';
+@NAPI() List<T> copy<T>(List<T> value) => value;
+@NAPI() List<bool> nulls<T>(List<T?> value) => [for (final item in value) item == null];
+@NAPI() List<T?> withNull<T>(List<T> value) => [null, ...value];
+@NAPI() Future<({T then})> thenRoot<T>(List<T> value) async => (then: value.first);
+''');
+    await buildLibrary(
+      library: input.uri,
+      output: Directory('${directory.path}/module'),
+      packagesPath: _packages,
+    );
+    await File('${directory.path}/check.mjs').writeAsString(r'''
+import assert from 'node:assert/strict';
+import * as api from './module/module.wasm';
+const hostile = new Proxy({}, { get() { throw Error('payload get'); } });
+for (const value of [undefined, null, -0, NaN, Symbol(), 1n << 100n, hostile]) {
+  const input = [value];
+  const result = api.copy(input);
+  assert.notEqual(result, input);
+  assert(Object.is(result[0], value));
+}
+assert.deepEqual(api.nulls([null, undefined]), [false, false]);
+assert.deepEqual(api.withNull([undefined]), [null, undefined]);
+assert.throws(() => api.copy(), TypeError);
+assert.throws(() => api.copy(Array(1)), TypeError);
+assert.equal(await api.thenRoot([resolve => resolve(42)]), 42);
+''');
+    final result = await Process.run('node', [
+      'check.mjs',
+    ], workingDirectory: directory.path);
+    expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
   test(
     'Future payloads preserve raw values through standard Promise resolution',
     () async {

@@ -2,6 +2,9 @@ import 'dart:io';
 
 import 'package:napi/src/compiler/analysis/validate.dart';
 import 'package:napi/src/compiler/emit/typescript/declarations.dart';
+import 'package:napi/src/compiler/emit/dart/entrypoint.dart';
+import 'package:napi/src/compiler/emit/js/boundary.dart';
+import 'package:napi/src/compiler/native/entrypoint.dart';
 import 'package:napi/src/compiler/front_end/external.dart';
 import 'package:napi/src/compiler/front_end/frontend.dart';
 import 'package:napi/src/compiler/ir/model.dart';
@@ -504,6 +507,80 @@ void [values, nested, empty, wrong];
     }
   });
 
+  test('nested opaque leaves preserve structural shape and logical arguments', () async {
+    final module = await read('''
+$router
+@NAPI() List<List<T?>> nested<T>(List<List<T?>> values) => values;
+@NAPI() Map<String,T> map<T>(Map<String,T> values) => values;
+@NAPI() Dictionary<T> dictionary<T>(Dictionary<T> values) => values;
+@NAPI() ({T value, List<T?> rest}) record<T>(({T value, List<T?> rest}) value) => value;
+@NAPI() List<Router<T>> references<T>(List<Router<T>> values) => values;
+@NAPI() Map<Router<T>, T> referenceKeys<T>(Map<Router<T>, T> values) => values;
+@NAPI() Future<({T then})> thenRoot<T>(T value) async => (then: value);
+@NAPI() Future<Dictionary<T>> thenDictionary<T>(Dictionary<T> value) async => value;
+@NAPI() Future<List<T>> futureList<T>(List<T> value) async => value;
+@NAPI() Stream<({T then})> streamThen<T>(T value) => Stream.value((then: value));
+''');
+    final wasm = lower(validate(module));
+    final native = validateNative(module);
+    final nested = wasm.functions.first.inputs.single as ListConversion;
+    expect((nested.element as ListConversion).element, isA<OpaqueConversion>());
+    expect((nested.element as ListConversion).element.nullable, isTrue);
+    expect(
+      wasm.functions.first.representation,
+      ExportRepresentation.nativeFunction,
+    );
+    expect(wasm.functions[4].inputs.single.typescriptType, 'Array<Router<T>>');
+    final types = emitDeclarations(wasm);
+    expect(emitNativeDeclarations(native), types);
+    expect(types, contains(r'globalThis.Promise<$napiAwaited<{ then: T }>>'));
+    expect(
+      types,
+      contains(r'globalThis.Promise<$napiAwaited<{ [key: string]: T }>>'),
+    );
+    expect(types, contains('globalThis.Promise<Array<T>>'));
+    expect(
+      types,
+      contains(
+        'globalThis.AsyncIterableIterator<{ then: T }, undefined, undefined>',
+      ),
+    );
+    // Exercise all emitter branches without treating generated-source reads as
+    // proof of runtime ownership.
+    expect(emitDart(wasm), contains('_boxOpaque'));
+    expect(emitBoundary(wasm), contains('function boxOpaque'));
+    expect(emitNativeDart(native), contains('pendingInputs'));
+    await File('${directory.path}/nested.d.mts').writeAsString(types);
+    await File('${directory.path}/consumer.mts').writeAsString('''
+import { thenRoot, thenDictionary, futureList, streamThen } from './nested.mjs';
+type Then = (resolve: (value: number) => void) => void;
+const then: Then = (resolve) => resolve(42);
+const record: Promise<number> = thenRoot<Then>(then);
+const absent: Promise<Record<string, Then> | number> = thenDictionary<Then>({ value: then });
+const present: Promise<Record<string, Then> | number> = thenDictionary<Then>({ then });
+// A dictionary index signature does not guarantee an own `then` property.
+// @ts-expect-error the absent-then branch may resolve to the dictionary itself
+const onlyNumber: Promise<number> = thenDictionary<Then>({ value: then });
+const list: Promise<Then[]> = futureList<Then>([then]);
+const stream: AsyncIterableIterator<{ then: Then }, undefined, undefined> = streamThen<Then>(then);
+''');
+    final tsc =
+        Platform.environment['NAPI_TSC'] ??
+        '${Directory.current.path}/.dart_tool/js/node_modules/typescript/bin/tsc';
+    final checked = await Process.run(Platform.environment['NODE'] ?? 'node', [
+      tsc,
+      '--ignoreConfig',
+      '--noEmit',
+      '--strict',
+      '--target',
+      'ES2022',
+      '--module',
+      'NodeNext',
+      '${directory.path}/consumer.mts',
+    ]);
+    expect(checked.exitCode, 0, reason: '${checked.stdout}${checked.stderr}');
+  });
+
   final rejected = <String, (String, String)>{
     'semantic bound': (
       "@NAPI() T echo<T extends num>(T value) => value;",
@@ -517,10 +594,25 @@ void [values, nested, empty, wrong];
       "@NAPI() U echo<T, U extends T>(U value) => value;",
       'NAPI_TYPE',
     ),
-    'nested input': ("@NAPI() int echo<T>(List<T> value) => 1;", 'NAPI_TYPE'),
-    'nested output': (
-      "@NAPI() List<T> echo<T>(T value) => [value];",
+    'opaque Map key': (
+      '@NAPI() Map<T,int> echo<T>(Map<T,int> values) => values;',
+      'NAPI_OPAQUE_KEY',
+    ),
+    'opaque nested Map key': (
+      '@NAPI() Map<(T,int),String> echo<T>(Map<(T,int),String> values) => values;',
+      'NAPI_OPAQUE_KEY',
+    ),
+    'reference with structural specialization': (
+      '$router @NAPI() List<Router<List<T>>> echo<T>(List<Router<List<T>>> values) => values;',
       'NAPI_TYPE',
+    ),
+    'nested reference with nullable specialization': (
+      '$router @NAPI() List<Router<T?>> echo<T>(List<Router<T?>> values) => values;',
+      'NAPI_TYPE',
+    ),
+    'nested opaque callback': (
+      '@NAPI() void echo<T>(void Function(List<T>) value) {}',
+      'NAPI_CALLBACK',
     ),
     'dynamic is not opaque': (
       "@NAPI() dynamic echo<T>(dynamic value) => value;",

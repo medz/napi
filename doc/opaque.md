@@ -162,6 +162,11 @@ contract. Environment teardown releases remaining native references.
 Generated bindings support ordinary generic reference classes, top-level generic
 functions, direct opaque inputs/results/fields, required and optional named
 inputs, optional positional inputs and matching selected generic class references.
+Lists, Dictionaries, records and Map values can recursively contain opaque
+`T`/`T?` leaves. Structural containers are independently converted; their opaque
+leaves preserve the original JS values. `List<Box<T>>` also preserves selected
+reference identity, including supported parameter-renaming/permutation inheritance.
+`Box<List<T>>` and `Box<T?>` remain unsupported generic specializations.
 Future results may also carry direct opaque payloads, including nullable payloads,
 with standard Promise resolution. Future calls retain opaque inputs until the
 Dart Future completes and its result is handed to the JS resolver. Waiting
@@ -177,8 +182,8 @@ the original JS values on access. Extracted values remain retained independently
 of their source slots; opaque Map keys keep JS identity. These handles do not copy
 or interpret their payloads. See [collection ownership](collections.md).
 
-Opaque leaves inside ordinary structural containers, non-bijective open hierarchies,
-independent generic member methods and generic resource/value classes remain
+Opaque keys in converted Dart Maps, non-bijective open hierarchies, independent
+generic member methods and generic resource/value classes remain
 unsupported. Concrete or erased specializations
 such as `Router<String>` or raw `Router` are not interchangeable with
 `Router<T>` under this carrier policy. They receive build diagnostics.
@@ -190,7 +195,19 @@ The fulfillment value can therefore differ from the original payload; getter
 errors reject with their exact thrown value. TypeScript describes the resolved
 value, including callable/non-callable union branches. Synchronous opaque values
 and values nested inside returned containers retain their ordinary identity.
+The same root rule applies to `Future<({T then})>` and `Future<Dictionary<T>>`.
+A Dictionary need not contain a `then` key, so its Promise declaration preserves
+both the dictionary and adopted-value branches, including recursively adopted
+dictionaries. Stream events and values inside
+Lists or non-`then` record fields are not deep-awaited.
 See [the Promise contract](futures.md#promise-resolution-and-identity).
+
+Native admission failures release newly created opaque carriers. Once business
+code starts, ordinary Dart reachability owns them even if the function saves an
+input and then throws. Clearing stored containers releases that ownership when
+their leaves become unreachable; cross-heap cycles still require the explicit
+break described above. Explicit `JsArray`/`JsMap` handle types and callbacks
+remain unsupported inside structural containers.
 
 Setter-only properties read `undefined`. Their declarations also include getters
 that compatible selected views may contribute, including through an unselected
@@ -204,6 +221,13 @@ The unsupported generic combinations above remain tracked in the broader
 generics/composition issues, including #110.
 
 ## Validation and cost
+
+The nested-opaque follow-up passes 19 fresh-process scenarios and eight TypeScript
+configurations per backend on Node 24.19.0/26.11.1, using Dart 3.13.5 and native
+ABI15. Annotated and external packages cover 27 payload categories, copied
+containers, generic inherited references, admission/output failure, and input
+retention through Future settlement or Stream return. The measurements below
+predate these nested paths and do not establish their cost.
 
 The optional named follow-up passes 15 fresh-process opaque scenarios and eight
 TypeScript configurations for each backend on Node 24.19.0/26.11.1. Annotated and

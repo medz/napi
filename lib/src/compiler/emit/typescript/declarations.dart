@@ -326,10 +326,14 @@ String emitResult(
 }
 
 bool _needsPromiseResolution(ValueConversion? output) =>
-    output is OpaqueConversion || output is ReferenceConversion;
+    output is OpaqueConversion ||
+    output is ReferenceConversion ||
+    output is DictionaryConversion && _needsPromiseResolution(output.value) ||
+    output is RecordConversion && _needsPromiseResolution(output.named['then']);
 
 /// Unlike TypeScript's Awaited, distribute a nullable or union-valued `then`:
 /// its callable branch resolves, while its non-callable branch returns T.
+/// An index signature does not require `then`; preserve absence at every level.
 /// Public export and generic identifiers cannot contain `$`.
 Iterable<String> emitPromiseResolutionDeclarations(
   Iterable<ValueConversion?> outputs,
@@ -337,12 +341,12 @@ Iterable<String> emitPromiseResolutionDeclarations(
   if (outputs.any(_needsPromiseResolution)) {
     yield r'''type $napiAwaited<T> = unknown extends T ? unknown : T extends object
   ? 'then' extends keyof T
-    ? T['then'] extends infer F
+    ? (T extends { then: unknown } ? never : T) | (T['then'] extends infer F
       ? unknown extends F ? unknown
         : F extends (onfulfilled: infer C, ...args: any[]) => any
           ? C extends (value: infer V, ...args: any[]) => any ? $napiAwaited<V> : never
           : F extends globalThis.Function ? unknown : T
-      : never
+      : never)
     : T
   : T;''';
   }

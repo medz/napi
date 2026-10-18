@@ -51,7 +51,9 @@ final class DartStructuralEmitter {
     if (conversion.nullable) _code.writeln('  if (value == null) return null;');
     switch (conversion) {
       case OpaqueConversion():
-        throw StateError('Opaque structural conversion is not supported.');
+        _code.writeln(
+          output ? '  return _boxOpaque(value.value).toJS;' : '  return _NapiHostValue(_unboxOpaque(externRefForJSAny(value!)!));',
+        );
       case CallbackConversion():
         throw StateError('Nested callback conversion is not supported.');
       case AbortSignalConversion():

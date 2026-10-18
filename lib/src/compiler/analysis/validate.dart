@@ -2129,8 +2129,15 @@ void validateValueType(
     referenceClasses,
     direction,
     <ClassBinding>{},
+    opaqueParameters,
   );
-  if (!_isBackendValue(type, referenceClasses, direction)) {
+  if (!_isBackendValue(
+    type,
+    referenceClasses,
+    direction,
+    null,
+    opaqueParameters,
+  )) {
     throw BindingDiagnostic(
       'NAPI_TYPE',
       'No scalar, structural or selected class reference conversion for this type.',
@@ -2511,7 +2518,22 @@ void _checkValueDirection(
   List<ClassBinding> classes,
   ValueDirection direction,
   Set<ClassBinding> visited,
-) {
+  Set<DeclarationId> opaqueParameters, {
+  bool mapKey = false,
+}) {
+  if (isOpaqueType(type, opaqueParameters)) {
+    if (mapKey) {
+      throw BindingDiagnostic(
+        'NAPI_OPAQUE_KEY',
+        'Opaque Map keys require an equality contract and are not supported; opaque values are supported.',
+        source,
+      );
+    }
+    return;
+  }
+  if (isReferenceType(type, classes, opaqueParameters: opaqueParameters)) {
+    return;
+  }
   if (isJsCollectionType(type)) {
     throw BindingDiagnostic(
       'NAPI_JS_COLLECTION',
@@ -2539,15 +2561,42 @@ void _checkValueDirection(
     }
     if (!visited.add(binding)) return;
     for (final child in _valueChildren(binding, direction)) {
-      _checkValueDirection(child, source, classes, direction, visited);
+      _checkValueDirection(
+        child,
+        source,
+        classes,
+        direction,
+        visited,
+        opaqueParameters,
+        mapKey: mapKey,
+      );
     }
   } else if (type is DeclaredType) {
-    for (final child in type.typeArguments) {
-      _checkValueDirection(child, source, classes, direction, visited);
+    final isMap =
+        type.declaration.library == Uri.parse('dart:core') &&
+        type.declaration.name == 'Map';
+    for (final (index, child) in type.typeArguments.indexed) {
+      _checkValueDirection(
+        child,
+        source,
+        classes,
+        direction,
+        visited,
+        opaqueParameters,
+        mapKey: mapKey || isMap && index == 0,
+      );
     }
   } else if (type is RecordTypeBinding) {
     for (final child in [...type.positional, ...type.named.values]) {
-      _checkValueDirection(child, source, classes, direction, visited);
+      _checkValueDirection(
+        child,
+        source,
+        classes,
+        direction,
+        visited,
+        opaqueParameters,
+        mapKey: mapKey,
+      );
     }
   }
 }
@@ -2557,17 +2606,19 @@ bool _isBackendValue(
   List<ClassBinding> classes = const [],
   ValueDirection direction = ValueDirection.output,
   Set<ClassBinding>? seen,
+  Set<DeclarationId> opaqueParameters = const {},
 ]) {
-  if (_isBackendScalar(type) ||
+  if (isOpaqueType(type, opaqueParameters) ||
+      _isBackendScalar(type) ||
       isBinaryType(type) ||
       isSharedBytesType(type) ||
-      isReferenceType(type, classes)) {
+      isReferenceType(type, classes, opaqueParameters: opaqueParameters)) {
     return true;
   }
   if (type.nullability == TypeNullability.legacy) return false;
   final visited = seen ?? <ClassBinding>{};
   bool child(BindingType value) =>
-      _isBackendValue(value, classes, direction, visited);
+      _isBackendValue(value, classes, direction, visited, opaqueParameters);
   if (_valueClassBinding(type, classes) case final binding?) {
     if (direction == ValueDirection.input && binding.valueConstructor == null) {
       return false;

@@ -45,6 +45,8 @@ Future<void> main() async {
         ExternalFunction('completeOpaque'),
         ExternalFunction('opaquePressure'),
         ExternalClass('NamedStore'),
+        ExternalClass('NestedStore'),
+        ExternalFunction('nestedPairs'),
         ExternalClass('PlainStore'),
         ExternalClass('SetterThenBox'),
         ExternalClass('OpaqueBase'),

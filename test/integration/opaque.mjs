@@ -57,6 +57,7 @@ async function values(api) {
     get() { traps++; throw Error('unexpected payload then'); },
   });
   const router = new api.Router();
+  const nestedStores = [new api.NestedStore(), new external.NestedStore()];
   const payloads = [
     {x: 1}, () => 19, Symbol('local'), Symbol.for('opaque'),
     (1n << 100n) + 3n, -(1n << 100n), null, undefined, -0, NaN,
@@ -68,6 +69,20 @@ async function values(api) {
   ];
   assert.equal(payloads.length, 27);
   for (const value of payloads) {
+    for (const nested of nestedStores) {
+      const input = [[value, value]];
+      const lists = nested.lists(input);
+      assert.notEqual(lists, input);
+      assert.notEqual(lists[0], input[0]);
+      assert(Object.is(lists[0][0], value));
+      assert(Object.is(lists[0][1], value));
+      assert(Object.is(nested.dictionary({value}).value, value));
+      assert(Object.is(nested.map(new Map([['value', [value]]])).get('value')[0], value));
+      const record = nested.record({value, rest: [value]});
+      assert(Object.is(record.value, value));
+      assert(Object.is(record.rest[0], value));
+      assert(Object.is((await nested.futureList([value]))[0], value));
+    }
     assert(Object.is(api.identity(value), value));
     assert(Object.is(api.optional(value), value));
     for (const entry of [api, external]) {
@@ -112,6 +127,94 @@ async function values(api) {
   assert.equal(await api.futureRouter(router), router);
   assert.throws(() => api.Router(), TypeError);
   assert.throws(() => new api.identity(1), TypeError);
+}
+
+async function nestedValues(api) {
+  const store = new api.NestedStore();
+  assert.deepEqual(store.nulls([null, undefined]), [false, false]);
+  assert.deepEqual(store.withNull([undefined]), [null, undefined]);
+  assert.throws(() => store.lists(), TypeError);
+  assert.throws(() => store.lists(undefined), TypeError);
+  assert.throws(() => store.lists([Array(1)]), TypeError);
+  assert.throws(() => store.record({rest: []}), TypeError);
+  assert.throws(() => store.record({value: 1, get rest() { throw Error('getter'); }}), TypeError);
+  const reference = new api.NamedStore({first: undefined});
+  const references = store.references([reference, reference]);
+  assert.equal(references[0], reference);
+  assert.equal(references[1], reference);
+  assert.throws(() => store.references([{}]), TypeError);
+  const pair = new api.OpaquePairChild('key', 7);
+  assert.equal(api.nestedPairs([pair])[0], pair);
+  assert.equal(api.nestedPairs([pair])[0].readSecond(), 7);
+  const value = {saved: true};
+  assert.throws(() => store.saveThrow([value]), /saved nested input/);
+  assert.equal(store.values[0], value);
+  assert.throws(() => store.badOutput([value]), RangeError);
+  assert.equal(store.values[0], value, 'output failure must not release stored inputs');
+  store.clear();
+  const calls = api.opaqueCalls();
+  assert.throws(() => store.checked([{value, count: 1}, {value, count: 'bad'}], 1), TypeError);
+  assert.throws(() => store.checked([{value, count: 1}], 'bad'), TypeError);
+  assert.equal(api.opaqueCalls(), calls);
+  let invoked = 0;
+  const then = (resolve, reject) => { invoked++; resolve(42); reject('late'); };
+  assert.equal(await store.futureThen([then]), 42);
+  assert.equal(await store.futureDictionary({then}), 42);
+  assert.equal((await store.futureDictionary({value: then})).value, then);
+  assert.equal((await store.futureList([then]))[0], then);
+  const iterator = store.streamThen([then]);
+  assert.equal((await iterator.next()).value.then, then);
+  assert.equal((await iterator.next()).done, true);
+  assert.equal(invoked, 2, 'nested values and Stream events never deep-await');
+  for (const present of [false, true]) {
+    const inner = present ? {then} : {value: then};
+    const outer = resolve => resolve(inner);
+    const expected = present ? 42 : inner;
+    assert.equal(await store.futureDictionary({then: outer}), expected);
+    assert.equal(await store.futureThen([outer]), expected);
+    assert.equal(await (api.futureIdentity ?? api.plainFuture)({then: outer}), expected);
+  }
+  for (const reason of [null, undefined, Symbol('nested then')]) {
+    await assert.rejects(store.futureThen([() => { throw reason; }]), error => Object.is(error, reason));
+  }
+}
+
+async function nestedRetention(api) {
+  const store = new api.NestedStore();
+  const saved = (() => {
+    const value = {saved: true};
+    assert.throws(() => store.saveThrow([value]), /saved nested input/);
+    return new WeakRef(value);
+  })();
+  await keep(api, () => saved.deref() !== undefined, 'saved nested input after throw');
+  store.clear();
+  await collect(api, () => saved.deref() === undefined, 'cleared nested input');
+  const failed = (() => {
+    const value = {failed: true};
+    assert.throws(() => store.checked([{value, count: 1}], 'bad'), TypeError);
+    assert.throws(() => store.checked([{value, count: 1}, {value, count: 'bad'}], 1), TypeError);
+    return new WeakRef(value);
+  })();
+  await collect(api, () => failed.deref() === undefined, 'partial nested admission');
+  let pending;
+  const held = (() => {
+    const value = {pending: true};
+    pending = store.wait([value]);
+    return new WeakRef(value);
+  })();
+  await keep(api, () => held.deref() !== undefined, 'pending nested Future input');
+  api.completeOpaque(7);
+  assert.equal(await pending, 7);
+  await collect(api, () => held.deref() === undefined, 'completed nested Future input');
+  let iterator;
+  const streamed = (() => {
+    const value = {stream: true};
+    iterator = store.hold([value]);
+    return new WeakRef(value);
+  })();
+  await keep(api, () => streamed.deref() !== undefined, 'unread Stream nested input');
+  await iterator.return();
+  await collect(api, () => streamed.deref() === undefined, 'returned Stream nested input');
 }
 
 function presence(api) {
@@ -425,6 +528,14 @@ async function scenario(name) {
   const api = await import(packageName);
   switch (name) {
     case 'values': await values(api); break;
+    case 'nested':
+      await nestedValues(api);
+      await nestedValues(await import('@napi/opaque-external'));
+      break;
+    case 'nested-retention':
+      await nestedRetention(api);
+      await nestedRetention(await import('@napi/opaque-external'));
+      break;
     case 'presence': presence(api); break;
     case 'named':
       await namedPresence(api);
@@ -539,6 +650,7 @@ async function scenario(name) {
       assert.equal(local.read(), foreignChild);
       assert.equal(other.opaqueAsBase(foreignChild), foreignChild);
       const foreign = new other.Router();
+      assert.throws(() => new api.NestedStore().references([new other.NamedStore()]), TypeError);
       assert.throws(() => api.forwardRouter(foreign), TypeError);
       assert.equal(api.identity(foreign), foreign, 'opaque storage does not inspect wrapper brands');
       assert.equal(other.forwardRouter(foreign), foreign);
@@ -563,6 +675,11 @@ if (!isMainThread) {
   assert.equal(await api.futureIdentity(value), value);
   assert.equal(await api.futureIdentity(undefined), undefined);
   assert.equal(await api.futureIdentity({then(resolve) { resolve(17); }}), 17);
+  const nested = new api.NestedStore();
+  nested.values = [value];
+  assert.equal(nested.lists([[undefined]])[0][0], undefined);
+  assert.equal((await nested.futureList([value]))[0], value);
+  nested.hold([value]);
   router.pin();
   const child = new api.OpaqueChild(value);
   assert.equal(api.opaqueAsBase(child), child);
@@ -576,7 +693,7 @@ if (!isMainThread) {
 } else if (process.argv[2]) {
   await scenario(process.argv[2]);
 } else {
-  const cases = ['values', 'presence', 'future-values', 'thenables', 'future-unhandled',
+  const cases = ['values', 'nested', 'nested-retention', 'presence', 'future-values', 'thenables', 'future-unhandled',
     'external', 'named', 'named-retention', 'retention', 'overwrite-remove',
     'cycles', 'pending', 'hierarchy', 'hierarchy-retention', 'independent', 'worker-only', 'workers-with-main'];
   for (const name of cases) {

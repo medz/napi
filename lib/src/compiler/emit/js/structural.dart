@@ -15,6 +15,7 @@ final class BoundaryLeafAdapter implements StructuralLeafAdapter {
   const BoundaryLeafAdapter({this.resources = false, this.bigintText = false});
   @override
   String read(ValueConversion leaf, String value, String path) {
+    if (leaf is OpaqueConversion) return 'boxOpaque($value)';
     if (leaf is SharedBytesConversion) {
       return '\$napiReadSharedBytes($value, ${leaf.nullable}, $path)';
     }
@@ -32,6 +33,7 @@ final class BoundaryLeafAdapter implements StructuralLeafAdapter {
 
   @override
   String write(ValueConversion leaf, String value, String path) {
+    if (leaf is OpaqueConversion) return 'unboxOpaque($value)';
     if (leaf is SharedBytesConversion) {
       return '\$napiReadSharedBytes($value, ${leaf.nullable}, $path)';
     }
@@ -95,16 +97,17 @@ StructuralBoundary emitStructuralBoundary(
     final converters = [for (final child in children) emit(child, output)];
     code.writeln('function $name(value, path, state, depth) {');
     code.writeln('  visitStructure(state, path);');
-    if (node.nullable) code.writeln('  if (value === null) return null;');
+    if (node.nullable && (output || node is! OpaqueConversion)) {
+      code.writeln('  if (value === null) return null;');
+    }
     switch (node) {
-      case OpaqueConversion():
-        throw StateError('Opaque structural conversion is not supported.');
       case CallbackConversion():
       case JsCollectionConversion():
         throw StateError('Nested callback conversion is not supported.');
       case AbortSignalConversion():
         throw StateError('Nested AbortSignal conversion is not supported.');
-      case ReferenceConversion() ||
+      case OpaqueConversion() ||
+          ReferenceConversion() ||
           ScalarConversion() ||
           BinaryConversion() ||
           SharedBytesConversion():
@@ -421,4 +424,10 @@ const structuralErrorPolicy = r'''
 export function failStructure(path, message, range) {
   throw range ? new RangeError(path + ': ' + message) : new TypeError(path + ': ' + message);
 }
+''';
+
+/// Compiler-private envelopes preserve nullish leaves through JSAny containers.
+const opaqueStructuralPolicy = r'''
+export function boxOpaque(value) { return {__proto__: null, value}; }
+export function unboxOpaque(envelope) { return envelope.value; }
 ''';

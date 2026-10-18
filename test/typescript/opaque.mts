@@ -49,6 +49,47 @@ const emptyRecord: Record<PropertyKey, never> = api.opaqueRecord(undefined);
 const emptyKey: Record<PropertyKey, never> = api.opaqueKey(null);
 const globalResult: Promise<Map<string, number>> = api.opaqueGlobal(Symbol());
 
+const nested = new api.NestedStore<typeof item>();
+const nestedList: (typeof item | null)[][] = nested.lists([[item, null]]);
+const nestedMap: Map<string, (typeof item | null)[]> = nested.map(new Map([['value', [item]]]));
+const nestedDictionary: Record<string, typeof item> = nested.dictionary({value: item});
+const nestedRecord: {value: typeof item; rest: typeof item[]} = nested.record({value: item, rest: [item]});
+const nestedReference: api.NamedStore<typeof item>[] = nested.references([new api.NamedStore({first: item})]);
+const nestedPair: api.OpaquePair<string, number>[] = api.nestedPairs([new api.OpaquePairChild<number, string>('key', 7)]);
+const nestedFuture: Promise<typeof item[]> = nested.futureList([item]);
+const nestedExternal: (typeof item | null)[][] = new namedExternal.NestedStore<typeof item>().lists([[item]]);
+type NestedThen = (resolve: (value: number) => void) => void;
+const nestedThen = new api.NestedStore<NestedThen>();
+const nestedHook: NestedThen = resolve => resolve(42);
+const nestedAdopted: Promise<number> = nestedThen.futureThen([nestedHook]);
+const nestedAbsentThen: Promise<Record<string, NestedThen> | number> = nestedThen.futureDictionary({value: nestedHook});
+const nestedPresentThen: Promise<Record<string, NestedThen> | number> = nestedThen.futureDictionary({then: nestedHook});
+const nestedStream: AsyncIterableIterator<{then: NestedThen}, undefined, undefined> = nestedThen.streamThen([nestedHook]);
+// @ts-expect-error Dictionary does not require a then key, so it can remain a dictionary.
+const onlyNestedNumber: Promise<number> = nestedThen.futureDictionary({value: nestedHook});
+type InnerDictionary = Record<string, NestedThen>;
+type OuterThen = (resolve: (value: InnerDictionary) => void) => void;
+const innerDictionary: InnerDictionary = {value: nestedHook};
+const outerHook: OuterThen = resolve => resolve(innerDictionary);
+const outerStore = new api.NestedStore<OuterThen>();
+const recursiveDictionary: Promise<Record<string, OuterThen> | InnerDictionary | number> = outerStore.futureDictionary({then: outerHook});
+const recursiveRecord: Promise<InnerDictionary | number> = outerStore.futureThen([outerHook]);
+const recursiveOpaque: Promise<InnerDictionary | number> = api.futureIdentity({then: outerHook});
+// @ts-expect-error Missing then remains possible at the recursive dictionary level.
+const missingRecursiveBranch: Promise<Record<string, OuterThen> | number> = outerStore.futureDictionary({then: outerHook});
+// @ts-expect-error A recursively resolved dictionary need not contain then.
+const missingRecordBranch: Promise<number> = outerStore.futureThen([outerHook]);
+// @ts-expect-error Mutable nested storage remains invariant.
+const widenedNested: api.NestedStore<typeof item | string> = nested;
+// @ts-expect-error A selected reference's logical T cannot change inside an Array.
+nested.references([new api.NamedStore<string>({first: 'wrong'})]);
+// @ts-expect-error Opaque input absence rules apply to the outer structural argument.
+nested.lists();
+void [nestedList, nestedMap, nestedDictionary, nestedRecord, nestedReference, nestedPair, nestedFuture,
+  nestedExternal, nestedAdopted, nestedAbsentThen, nestedPresentThen, nestedStream,
+  onlyNestedNumber, widenedNested, recursiveDictionary, recursiveRecord, recursiveOpaque,
+  missingRecursiveBranch, missingRecordBranch];
+
 const numbers: number[] = new api.Array('payload').numbers();
 const empty: Record<PropertyKey, never> = new api.Record().empty();
 const futureRouter: Promise<api.Router<string>> = api.futureRouter(router);
