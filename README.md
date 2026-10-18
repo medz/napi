@@ -57,7 +57,8 @@ identity, generic payload storage, retained/async callbacks and Stream iterators
 broader generic specialization and replacement builds remain work in
 [#114](https://github.com/medz/napi/issues/114). See [annotation syntax and scope](doc/annotations.md) and the
 [scalar conversion contract](doc/scalars.md), [argument presence and defaults](doc/arguments.md),
-[structural values](doc/structural.md), [binary snapshots](doc/binary.md),
+[structural values](doc/structural.md), [collection ownership](doc/collections.md),
+[binary snapshots](doc/binary.md),
 [shared byte views](doc/shared-bytes.md), [value classes](doc/values.md),
 [reference classes](doc/classes.md), [opaque payloads](doc/opaque.md),
 [concrete class aliases](doc/concrete-generics.md), [resource cleanup](doc/resources.md),

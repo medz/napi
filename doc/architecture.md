@@ -40,6 +40,13 @@ An unsupported feature fails during the build; it must not silently select a
 different public contract. Completion requires both target conformance and
 documented platform capabilities.
 
+[Collection ownership](collections.md) follows the napi-rs distinction between
+converted containers and explicit JS handles. Ordinary Dart List/Map values
+produce independent containers. Planned JS collection handles retain and return
+the original Array/Map; exported Dart classes and methods expose shared Dart
+state. Arbitrary Dart-owned live collection adapters are outside this scope.
+Existing Dart Map and Dictionary representations are unchanged.
+
 Persistent opaque values use explicit reference ownership, following napi-rs's
 model. An unreachable acyclic native carrier releases its JS reference; a Dart
 root keeps that reference alive. A cycle spanning a JS payload and its Dart
