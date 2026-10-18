@@ -2,9 +2,8 @@
 
 The experimental native target runs ordinary Dart business code through a
 precompiled Node-API bridge and a matching Dart AOT runtime. The current target
-is macOS arm64 with Dart 3.13.5 stable. A runtime bundle is supplied explicitly;
-automatic runtime downloads, platform selection and backend fallback are not
-implemented yet.
+is macOS arm64 with Dart 3.13.5 stable. The builder downloads and caches the
+matching runtime on first use; subsequent builds can use it offline.
 
 ```dart
 // counter.dart
@@ -29,7 +28,6 @@ Future<void> main() async {
     output: Directory('native-output'),
     packagesPath: File('.dart_tool/package_config.json').absolute.path,
     target: BuildTarget.native,
-    nativeRuntime: Directory('runtime-bundle'),
   );
   await assembleNativePackage(
     module: built,
@@ -60,6 +58,18 @@ licenses. npm root and `./native` exports point to the same entry. Package
 assembly sets `os: ["darwin"]` and `cpu: ["arm64"]`, rejects conflicting metadata,
 and rechecks copied runtime integrity. There is no install script or manual
 initialization. Preserve the Dart and napi licenses when redistributing.
+
+The runtime download is about 1.9 MB and is pinned to its full SHA-256, size and
+manifest hash. The cache defaults to `~/Library/Caches/napi`; set
+`NAPI_RUNTIME_CACHE` to use another directory. Every use verifies the cached
+files. A corrupt entry fails with its path so it can be removed before retrying;
+download failures do not replace package output or trigger a local VM build.
+
+For an offline build without a populated cache, pass
+`nativeRuntime: Directory('/absolute/path/to/runtime-bundle')` to `buildLibrary`
+or `buildPackage`. This override reads only that bundle. Native downloads happen
+on the package author's machine during the build, never during npm installation
+or import. The builder uses macOS's system `ditto` to extract the pinned archive.
 
 ## Supported bindings
 
@@ -192,24 +202,22 @@ Node 24.19.0 and 26.11.1, Dart 3.13.5, Apple clang 21.0.0 and TypeScript 7.0.2.
 The deployment target alone does not prove execution on older macOS releases.
 
 ```sh
+dart run tool/native_verify.dart --packages-only
 dart run tool/native_verify.dart /absolute/path/to/runtime-bundle
 NAPI_TEST_NATIVE_RUNTIME=/absolute/path/to/runtime-bundle \
   dart test -P callback-native
 ```
 
-These commands run installed native consumers and TypeScript checks with the
-supplied runtime bundle. General CI does not run the complete native runtime
-suite; its macOS/Windows publication checks also do not establish native runtime
-support on those platforms. See [Running tests](testing.md).
+The package-only command exercises automatic runtime acquisition and installed
+native/dual packages. The explicit-bundle command runs the broader native suite.
+CI runs the package-only checks on macOS arm64 with both Node versions; it does
+not yet run the complete native suite. See [Running tests](testing.md).
 
-The distribution tool is for maintainers and CI; ordinary application builds
-still receive `nativeRuntime` explicitly. It validates current bridge/runtime
-source provenance and every cached payload, and never downloads SDK sources or
-rebuilds the VM on a cache miss. See [locked distribution](../native/README.md#locked-distribution).
-The distribution lock is local-only: it fails on an empty cache without
-`--archive`. An archive hash identifies the exact payload; it does not establish
-a reproducible upstream VM/toolchain build. Automatic runtime supply and
-additional native targets are not yet supported.
+The [distribution tool](../native/README.md#locked-distribution) lets maintainers
+prepare a ZIP and lock for a runtime release. Its source provenance and archive
+hash identify the exact inputs and payload; they do not establish a reproducible
+upstream VM/toolchain build. Additional native platforms and automatic backend
+fallback are not supported.
 
 ## Measured cost
 

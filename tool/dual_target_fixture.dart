@@ -9,44 +9,17 @@ import 'command.dart';
 import 'package_contents.dart';
 
 /// One tarball contains both targets; every selected Node consumes the same bits.
-Future<void> verifyDualTargetFixture(Directory root, Directory runtime) async {
+Future<void> verifyDualTargetFixture(
+  Directory root, [
+  Directory? runtime,
+]) async {
   final directory = await Directory(await root.resolveSymbolicLinks())
       .createTemp('dual target 雪 ');
   await _verifyFailureCleanup(directory, runtime);
   final source = await File('test/fixtures/dual_target.dart')
       .copy('${directory.path}/business.dart');
-  final bundle = await NativeRuntimeBundle.read(runtime);
-  final expected = {
-    'package.json',
-    'LICENSE',
-    for (final name in [
-      'module.wasm',
-      'module.d.wasm.ts',
-      'host.mjs',
-      'boundary.mjs',
-      'core.wasm',
-      'calls.mjs',
-      'references.mjs',
-      'DART_LICENSE',
-    ])
-      'wasm/$name',
-    for (final name in [
-      'module.mjs',
-      'module.d.mts',
-      'module.aot',
-      'runtime.json',
-      ...bundle.hashes.keys,
-    ])
-      'native/$name',
-  };
-  final notices = <String, List<int>>{
-    'LICENSE': await File('LICENSE').readAsBytes(),
-    'wasm/DART_LICENSE': await File(
-      '${File(Platform.resolvedExecutable).parent.parent.path}/LICENSE',
-    ).readAsBytes(),
-    for (final name in ['DART_LICENSE', 'DART_AUTHORS', 'NAPI_LICENSE'])
-      'native/$name': await File('${runtime.path}/$name').readAsBytes(),
-  };
+  Set<String>? expected;
+  Map<String, List<int>>? notices;
   final archives = <String>[];
   String? declarations;
   for (final external in [false, true]) {
@@ -96,6 +69,40 @@ Future<void> verifyDualTargetFixture(Directory root, Directory runtime) async {
       target: external ? BuildTarget.native : BuildTarget.wasm,
       nativeRuntime: runtime,
     );
+    final native = Directory('${package.path}/native');
+    final bundle = await NativeRuntimeBundle.read(native, built: true);
+    expected ??= {
+      'package.json',
+      'LICENSE',
+      for (final name in [
+        'module.wasm',
+        'module.d.wasm.ts',
+        'host.mjs',
+        'boundary.mjs',
+        'core.wasm',
+        'calls.mjs',
+        'references.mjs',
+        'DART_LICENSE',
+      ])
+        'wasm/$name',
+      for (final name in [
+        'module.mjs',
+        'module.d.mts',
+        'module.aot',
+        'runtime.json',
+        ...bundle.hashes.keys,
+      ])
+        'native/$name',
+    };
+    notices ??= <String, List<int>>{
+      'LICENSE': await File('LICENSE').readAsBytes(),
+      'wasm/DART_LICENSE': await File(
+        '${File(Platform.resolvedExecutable).parent.parent.path}/LICENSE',
+      ).readAsBytes(),
+      for (final name in ['DART_LICENSE', 'DART_AUTHORS', 'NAPI_LICENSE'])
+        'native/$name': await File('${(runtime ?? native).path}/$name')
+            .readAsBytes(),
+    };
     final manifest = jsonDecode(
       await File('${package.path}/package.json').readAsString(),
     ) as Map;
@@ -149,8 +156,8 @@ Future<void> verifyDualTargetFixture(Directory root, Directory runtime) async {
   for (final name in ['fixture', 'external']) {
     await verifyInstalledPackage(
       Directory('${consumer.path}/node_modules/@napi/dual-$name'),
-      expected,
-      notices,
+      expected!,
+      notices!,
       recursive: true,
     );
   }
@@ -190,7 +197,7 @@ Future<void> verifyDualTargetFixture(Directory root, Directory runtime) async {
   stdout.writeln('Consumer: ${consumer.path}');
 }
 
-Future<void> _verifyFailureCleanup(Directory root, Directory runtime) async {
+Future<void> _verifyFailureCleanup(Directory root, Directory? runtime) async {
   final source = await Directory('${root.path}/failure sources').create();
   final entry = File('${source.path}/entry.dart');
   await entry.writeAsString(
@@ -258,12 +265,15 @@ import 'package:napi/napi.dart';
 }
 
 Future<void> main(List<String> args) async {
-  if (args.length != 1) {
+  if (args.length > 1) {
     throw ArgumentError(
-      'Usage: dart run tool/dual_target_fixture.dart <native-runtime-bundle>',
+      'Usage: dart run tool/dual_target_fixture.dart [native-runtime-bundle]',
     );
   }
   await reportNodeVersions();
   final root = await Directory('.dart_tool').createTemp('napi dual ');
-  await verifyDualTargetFixture(root, Directory(args.single).absolute);
+  await verifyDualTargetFixture(
+    root,
+    args.isEmpty ? null : Directory(args.single).absolute,
+  );
 }

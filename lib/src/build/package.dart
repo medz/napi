@@ -5,18 +5,22 @@ import 'package:path/path.dart' as path;
 
 import '../compiler/front_end/external.dart';
 import '../compiler/ir/model.dart';
+import '../compiler/native/declarations.dart';
+import '../compiler/native/plan.dart';
 import 'build.dart';
 import 'contract.dart';
 import 'metadata.dart';
 import 'publish.dart';
 import 'package_ownership.dart';
 import 'native_bundle.dart';
+import 'native_runtime.dart';
 
 /// Build and assemble an npm package, or atomically rebuild a managed package.
 ///
 /// Metadata is validated before source analysis, compilation or staging. Node
-/// is not required to validate package names. Native builds use [nativeRuntime]
-/// and [BuildTarget.native]; Wasm is the default. Intermediate build files are
+/// is not required to validate package names. Native builds obtain a pinned
+/// precompiled runtime, or use the explicit offline [nativeRuntime] override.
+/// Wasm is the default. Intermediate build files are
 /// cleaned up; a postcommit cleanup failure reports the retained path without
 /// changing the successful result. Managed output can be rebuilt on
 /// qualified macOS filesystems; legacy or unsupported output is preserved.
@@ -42,9 +46,9 @@ Future<Directory> buildPackage({
   if (selected.isEmpty || !selected.contains(target)) {
     throw ArgumentError('Package targets must contain the root target.');
   }
-  if (selected.contains(BuildTarget.native) != (nativeRuntime != null)) {
+  if (!selected.contains(BuildTarget.native) && nativeRuntime != null) {
     throw ArgumentError(
-      'nativeRuntime is required exactly when the package includes native.',
+      'nativeRuntime is only valid when the package includes native.',
     );
   }
   final destination = output.absolute;
@@ -72,10 +76,6 @@ Future<Directory> buildPackage({
     }, native: selected.length == 1 && selected.contains(BuildTarget.native));
     final bindings = <BuildTarget, BindingModule>{};
     String? declarations;
-    if (selected.length > 1) {
-      final bundle = await NativeRuntimeBundle.read(nativeRuntime!);
-      bundle.verifyHost();
-    }
     for (final backend in BuildTarget.values.where(selected.contains)) {
       bindings[backend] = await readLibraryBindings(
         library: library,
@@ -94,6 +94,17 @@ Future<Directory> buildPackage({
         bindings[BuildTarget.wasm]!,
         bindings[BuildTarget.native]!,
       );
+    } else if (selected.contains(BuildTarget.native)) {
+      declarations = emitNativeDeclarations(
+        validateNative(bindings[BuildTarget.native]!),
+      );
+    }
+    Directory? runtime;
+    if (selected.contains(BuildTarget.native)) {
+      runtime = (await resolveNativeRuntime(
+        runtime: nativeRuntime,
+        output: destination,
+      )).directory;
     }
     update ??= await _PackageUpdate.open(destination);
     await destination.parent.create(recursive: true);
@@ -105,7 +116,7 @@ Future<Directory> buildPackage({
         output: Directory('${staging.path}/${backend.name}'),
         packagesPath: packages,
         target: backend,
-        nativeRuntime: backend == BuildTarget.native ? nativeRuntime : null,
+        nativeRuntime: backend == BuildTarget.native ? runtime : null,
       );
       if (declarations != null) {
         final name = backend == BuildTarget.native

@@ -31,7 +31,7 @@ Necessary JavaScript loaders and runtime helpers are allowed. Both targets must
 preserve the same supported calls, including `new Counter()` and argument
 presence. The experimental native target generates scalar, structural, value-class,
 reference-class, resource, Future, Stream and retained/async-callback AOT bindings
-for macOS arm64; see [native builds](doc/native.md) for its explicit runtime-bundle requirement.
+for macOS arm64; see [native builds](doc/native.md) for runtime downloads and offline builds.
 See [the architecture](doc/architecture.md) for backend boundaries and
 [compatibility](#verify) for supported toolchains.
 
@@ -99,8 +99,8 @@ Future<void> main() async {
 Run `dart run tool/build.dart`, then pack/install `npm-package` in the Node
 consumer. Use a new output path, or follow the [managed rebuild rules](doc/packaging.md#managed-rebuilds)
 for a package created by this builder on local macOS APFS.
-For native, supply `target: BuildTarget.native` and `nativeRuntime` with the
-qualified runtime bundle. See [native prerequisites](doc/native.md) and
+For native, supply `target: BuildTarget.native`; the builder downloads and caches
+the matching precompiled runtime. See [native prerequisites](doc/native.md) and
 [explicit dual-target builds](doc/packaging.md#explicit-dual-target-packages).
 Use [external selections](doc/annotations.md#external-selections) for unmodified
 Dart dependencies, or `buildLibrary` when raw artifacts are wanted.

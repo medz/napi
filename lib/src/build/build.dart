@@ -109,11 +109,6 @@ Future<BuiltModule> buildModule({
   Directory? nativeRuntime,
 }) async {
   if (target == BuildTarget.native) {
-    if (nativeRuntime == null) {
-      throw ArgumentError(
-        'Native builds require a precompiled nativeRuntime bundle.',
-      );
-    }
     return buildNativeModule(
       bindings: bindings,
       output: output,

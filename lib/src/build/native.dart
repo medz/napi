@@ -11,12 +11,13 @@ import '../compiler/sdk_adapter/dart_aot_adapter.dart';
 import '../compiler/sdk_adapter/dart_sdk_adapter.dart';
 import 'build.dart';
 import 'native_bundle.dart';
+import 'native_runtime.dart';
 import 'publish.dart';
 
 Future<BuiltModule> buildNativeModule({
   required BindingModule bindings,
   required Directory output,
-  required Directory runtime,
+  Directory? runtime,
   String? packagesPath,
   String? executable,
 }) async {
@@ -31,8 +32,7 @@ Future<BuiltModule> buildNativeModule({
   if (!File.fromUri(bindings.source).existsSync()) {
     throw ArgumentError('Source library does not exist: ${bindings.source}');
   }
-  final bundle = await NativeRuntimeBundle.read(runtime);
-  bundle.verifyHost();
+  final bundle = await resolveNativeRuntime(runtime: runtime, output: target);
   await target.parent.create(recursive: true);
   final staging = await target.parent.createTemp('.napi-native-');
   try {

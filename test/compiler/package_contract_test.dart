@@ -12,6 +12,7 @@ void main() {
   final packages = File('.dart_tool/package_config.json').absolute.path;
   setUp(() async {
     root = await Directory.systemTemp.createTemp('napi package contract ');
+    root = Directory(await root.resolveSymbolicLinks());
   });
   tearDown(() => root.delete(recursive: true));
 
@@ -365,7 +366,6 @@ import 'package:napi/napi.dart';
       for (final targets in [
         <BuildTarget>{},
         {BuildTarget.native},
-        {BuildTarget.wasm, BuildTarget.native},
       ]) {
         await expectLater(
           buildPackage(
@@ -378,6 +378,72 @@ import 'package:napi/napi.dart';
         );
         expect(await root.list().length, 0);
       }
+    },
+  );
+
+  test(
+    'dual contract mismatch fails before automatic runtime acquisition',
+    () async {
+      final entry = await File('${root.path}/entry.dart').writeAsString(
+        "export 'wasm.dart' if (dart.library.ffi) 'native.dart';",
+      );
+      await File('${root.path}/wasm.dart').writeAsString(
+        "import 'package:napi/napi.dart'; @NAPI() int run() => 1;",
+      );
+      await File('${root.path}/native.dart').writeAsString(
+        "import 'package:napi/napi.dart'; @NAPI() String run() => 'one';",
+      );
+      final output = Directory('${root.path}/absent/package');
+      await HttpOverrides.runZoned(
+        () async {
+          await expectLater(
+            buildPackage(
+              library: entry.uri,
+              output: output,
+              metadata: {'name': 'test-dual', 'version': '0.0.0'},
+              packagesPath: packages,
+              targets: {BuildTarget.wasm, BuildTarget.native},
+            ),
+            throwsA(
+              isA<BindingDiagnostic>().having(
+                (e) => e.code,
+                'code',
+                'NAPI_PACKAGE_CONTRACT',
+              ),
+            ),
+          );
+        },
+        createHttpClient: (_) =>
+            throw StateError('Unexpected runtime download'),
+      );
+      expect(await output.parent.exists(), isFalse);
+    },
+  );
+
+  test(
+    'native declarations fail before automatic runtime acquisition',
+    () async {
+      final entry = await File('${root.path}/entry.dart').writeAsString(
+        "import 'package:napi/napi.dart'; @NAPI() Object run() => Object();",
+      );
+      final output = Directory('${root.path}/absent/package');
+      await HttpOverrides.runZoned(
+        () async {
+          await expectLater(
+            buildPackage(
+              library: entry.uri,
+              output: output,
+              metadata: {'name': 'test-native', 'version': '0.0.0'},
+              packagesPath: packages,
+              target: BuildTarget.native,
+            ),
+            throwsA(isA<BindingDiagnostic>()),
+          );
+        },
+        createHttpClient: (_) =>
+            throw StateError('Unexpected runtime download'),
+      );
+      expect(await output.parent.exists(), isFalse);
     },
   );
 }
