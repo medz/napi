@@ -1,89 +1,186 @@
+import '../../../api/annotation.dart' show ClassPolicy;
 import '../../analysis/validate.dart';
+import '../../analysis/result.dart';
 import '../../ir/model.dart';
 import '../../lowering/plan.dart';
 import 'values.dart';
 
-String emitDeclarations(ModulePlan plan) => [
-  ...emitPromiseResolutionDeclarations(
-    plan.calls.where((call) => call.returnsFuture).map((call) => call.output),
-  ),
-  if (plan.valueSchemas.isNotEmpty)
-    emitValueDeclarations(
-      plan.allClasses,
-      plan.valueSchemas,
-      plan.conversions,
-      reservedNames: {for (final f in plan.functions) f.binding.exportName},
+String emitDeclarations(ModulePlan plan) => emitBindingDeclarations(
+  functions: plan.functions.map((f) => f.binding).toList(),
+  classes: plan.allClasses,
+  references: plan.classes.map((c) => c.shape).toList(),
+  values: plan.valueSchemas,
+);
+
+typedef _DeclarationCall = ({
+  List<ParameterBinding> parameters,
+  List<ValueConversion> inputs,
+  ValueConversion? output,
+  bool returnsFuture,
+  bool returnsStream,
+});
+
+/// One declaration emitter consumes already-validated public shapes. It never
+/// applies one backend's name or execution restrictions to the other backend.
+String emitBindingDeclarations({
+  required List<FunctionBinding> functions,
+  required List<ClassBinding> classes,
+  required List<ReferenceClassShape> references,
+  required List<ValueClassSchema> values,
+}) {
+  _DeclarationCall call(
+    List<ParameterBinding> parameters,
+    BindingType? result,
+    List<TypeParameterBinding> types, {
+    bool bigint = false,
+    bool cleanup = false,
+  }) {
+    final opaque = opaqueParameterIds(types);
+    final payload = resultPayload(result);
+    return (
+      parameters: parameters,
+      inputs: [
+        for (final parameter in parameters)
+          conversionFor(
+            parameter.type,
+            parameter.name,
+            bigint: bigint,
+            classes: classes,
+            valueSchemas: values,
+            direction: ValueDirection.input,
+            opaqueParameters: opaque,
+          ),
+      ],
+      output: payload == null
+          ? null
+          : conversionFor(
+              payload,
+              'result',
+              bigint: bigint,
+              classes: classes,
+              valueSchemas: values,
+              opaqueParameters: opaque,
+            ),
+      returnsFuture: cleanup || isFutureType(result),
+      returnsStream: isStreamType(result),
+    );
+  }
+
+  final functionCalls = {
+    for (final function in functions)
+      function: call(
+        function.parameters,
+        function.result,
+        function.typeParameters,
+        bigint: function.bigint,
+      ),
+  };
+  final memberCalls = {
+    for (final shape in references)
+      for (final member in [?shape.constructor, ...shape.members])
+        member: call(
+          member.parameters,
+          member.result,
+          shape.binding.typeParameters,
+          cleanup: member.isCleanup,
+        ),
+  };
+  final calls = [...functionCalls.values, ...memberCalls.values];
+  final conversions = [
+    for (final call in calls) ...[...call.inputs, ?call.output],
+  ];
+  final hasResources = classes.any(
+    (c) => c.classPolicy == ClassPolicy.resource,
+  );
+  bool callable(_DeclarationCall call) =>
+      call.returnsFuture ||
+      call.returnsStream ||
+      call.parameters.any((p) => p.kind != ParameterKind.requiredPositional) ||
+      call.inputs.any(
+        (c) =>
+            c is ReferenceConversion ||
+            c is CallbackConversion ||
+            c is OpaqueConversion ||
+            c is AbortSignalConversion,
+      ) ||
+      call.output is ReferenceConversion ||
+      call.output is OpaqueConversion ||
+      (hasResources &&
+          conversionGraph(call.inputs).any((c) => c is ReferenceConversion));
+  return [
+    ...emitPromiseResolutionDeclarations(
+      calls.where((call) => call.returnsFuture).map((call) => call.output),
     ),
-  '// Generated declarations for the actual Wasm module.',
-  '// Use allowArbitraryExtensions for relative .wasm imports.',
-  for (final function in plan.functions)
-    ...emitFunctionDeclarations(
-      function.binding.exportName,
-      function.parameters,
-      function.inputs,
-      function.output,
-      function.binding.typeParameters,
-      returnsFuture: function.returnsFuture,
-      returnsStream: function.returnsStream,
-      callable: function.representation == ExportRepresentation.callableGlobal,
-    ),
-  for (final binding in plan.classes) ...[
-    'export declare class ${binding.binding.exportName}${emitTypeParameters(binding.binding.typeParameters, invariant: true)} {',
-    if (binding.binding.typeParameters.isNotEmpty)
-      '  ${emitOpaquePhantom(binding.binding.typeParameters)}',
-    '  private readonly \$napiReference${binding.shape.classId}: void;',
-    if (binding.constructor case final constructor?)
-      for (final parameters in emitParameterVariants(
-        constructor.parameters,
-        constructor.inputs,
-      ))
-        '  constructor($parameters);'
-    else
-      '  private constructor();',
-    for (final member in [
-      ...binding.members.where((member) => member.isStatic),
-      for (final property in binding.shape.prototypeProperties)
-        for (final ref in [
-          ?property.method,
-          ?property.getter,
-          ?property.setter,
-        ])
-          plan.classes[ref.classId].members[ref.memberIndex],
-    ])
-      for (final parameters in emitParameterVariants(
-        member.parameters,
-        member.inputs,
-      ))
-        switch (member.kind) {
-          MemberCallKind.method =>
-            '  ${member.isStatic ? 'static ' : ''}${emitMemberName(member.exportName)}($parameters): ${emitResult(member.output, returnsFuture: member.returnsFuture, returnsStream: member.returnsStream)};',
-          MemberCallKind.getter =>
-            '  ${member.isStatic ? 'static ' : ''}get ${emitMemberName(member.exportName)}(): ${emitResult(member.output, returnsFuture: member.returnsFuture, returnsStream: member.returnsStream)};',
-          MemberCallKind.setter =>
-            '  ${member.isStatic ? 'static ' : ''}set ${emitMemberName(member.exportName)}($parameters);',
-          MemberCallKind.constructor =>
-            '  static ${emitMemberName(member.exportName)}${emitTypeParameters(binding.binding.typeParameters)}($parameters): ${binding.binding.exportName}${emitLogicalTypeArguments(binding.binding.typeParameters)};',
-        },
-    ...emitWriteOnlyReads(
-      binding.shape,
-      plan.classes.map((binding) => binding.shape).toList(),
-      (ref) {
-        final member = plan.classes[ref.classId].members[ref.memberIndex];
+    if (values.isNotEmpty)
+      emitValueDeclarations(
+        classes,
+        values,
+        conversions,
+        reservedNames: {for (final function in functions) function.exportName},
+      ),
+    '// Generated declarations for the binding module.',
+    for (final function in functions)
+      ...emitFunctionDeclarations(
+        function.exportName,
+        function.parameters,
+        functionCalls[function]!.inputs,
+        functionCalls[function]!.output,
+        function.typeParameters,
+        returnsFuture: functionCalls[function]!.returnsFuture,
+        returnsStream: functionCalls[function]!.returnsStream,
+        callable: callable(functionCalls[function]!),
+      ),
+    for (final shape in references) ...[
+      'export declare class ${shape.binding.exportName}${emitTypeParameters(shape.binding.typeParameters, invariant: true)} {',
+      if (shape.binding.typeParameters.isNotEmpty)
+        '  ${emitOpaquePhantom(shape.binding.typeParameters)}',
+      '  private readonly \$napiReference${shape.classId}: void;',
+      if (shape.constructor case final constructor?)
+        for (final parameters in emitParameterVariants(
+          constructor.parameters,
+          memberCalls[constructor]!.inputs,
+        ))
+          '  constructor($parameters);'
+      else
+        '  private constructor();',
+      for (final member in [
+        ...shape.members.where((member) => member.isStatic),
+        for (final property in shape.prototypeProperties)
+          for (final ref in [
+            ?property.method,
+            ?property.getter,
+            ?property.setter,
+          ])
+            references[ref.classId].members[ref.memberIndex],
+      ])
+        for (final parameters in emitParameterVariants(
+          member.parameters,
+          memberCalls[member]!.inputs,
+        ))
+          switch (member.kind) {
+            ReferenceMemberKind.method =>
+              '  ${member.isStatic ? 'static ' : ''}${emitMemberName(member.exportName)}($parameters): ${emitResult(memberCalls[member]!.output, returnsFuture: member.returnsFuture, returnsStream: member.returnsStream)};',
+            ReferenceMemberKind.getter =>
+              '  ${member.isStatic ? 'static ' : ''}get ${emitMemberName(member.exportName)}(): ${emitResult(memberCalls[member]!.output, returnsFuture: member.returnsFuture, returnsStream: member.returnsStream)};',
+            ReferenceMemberKind.setter =>
+              '  ${member.isStatic ? 'static ' : ''}set ${emitMemberName(member.exportName)}($parameters);',
+            ReferenceMemberKind.constructor =>
+              '  static ${emitMemberName(member.exportName)}${emitTypeParameters(shape.binding.typeParameters)}($parameters): ${shape.binding.exportName}${emitLogicalTypeArguments(shape.binding.typeParameters)};',
+          },
+      ...emitWriteOnlyReads(shape, references, (ref) {
+        final member = references[ref.classId].members[ref.memberIndex];
         return emitViewGetterResult(
-          member.output,
+          memberCalls[member]!.output,
           returnsFuture: member.returnsFuture,
           returnsStream: member.returnsStream,
         );
-      },
-    ),
-    '}',
-    ...emitReferenceInheritance(
-      binding.shape,
-      plan.classes.map((binding) => binding.shape).toList(),
-    ),
-  ],
-  '',
-].join('\n');
+      }),
+      '}',
+      ...emitReferenceInheritance(shape, references),
+    ],
+    '',
+  ].join('\n');
+}
 
 String emitTypeParameters(
   List<TypeParameterBinding> parameters, {

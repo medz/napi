@@ -382,12 +382,7 @@ class Storage<Array, Record, PropertyKey, globalThis> {
           'globalThis.Array<globalThis.Map<string, globalThis.Record<globalThis.PropertyKey, never>>>',
         ),
       );
-      expect(
-        code,
-        contains(
-          '(value: T)${entry.key == 'wasm' ? ' =>' : ':'} Array<number>',
-        ),
-      );
+      expect(code, contains('(value: T) => Array<number>'));
       await File('${directory.path}/${entry.key}.d.mts').writeAsString(code);
       await File('${directory.path}/${entry.key}-consumer.mts')
           .writeAsString('''

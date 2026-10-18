@@ -323,7 +323,7 @@ typedef Alias<T> = api.Dictionary<T>;
     );
     expect(types, contains('globalThis.Map<string, number>'));
     expect(types, contains('wide: bigint'));
-    expect(types, contains('user(value: UserDictionary): UserDictionary'));
+    expect(types, contains('user: (value: UserDictionary) => UserDictionary'));
     await File('${directory.path}/module.d.mts').writeAsString(types);
     final consumer = File('${directory.path}/consumer.mts');
     await consumer.writeAsString('''

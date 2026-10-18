@@ -161,7 +161,7 @@ void main() {
     );
 
     final types = emitNativeDeclarations(plan);
-    expect(types, contains('identity(box: Box): Box;'));
+    expect(types, contains('identity: (box: Box) => Box;'));
     expect(types, contains('optional: (box?: Box | null) => Box | null;'));
     expect(
       types,
