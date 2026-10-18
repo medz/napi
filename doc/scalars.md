@@ -1,9 +1,8 @@
 # Scalar conversion contract
 
-Generated nongeneric top-level functions support scalar parameters and results,
-including [optional and named arguments](arguments.md). The annotation frontend, lowering, Dart/JavaScript
-boundary and generated TypeScript declarations share the same conversion policy.
-Both backends share these conversions. Wasm supports direct named `.wasm`
+Exported functions, constructors, methods and properties support scalar values,
+including [optional and named arguments](arguments.md). Both backends share the
+same runtime conversions and TypeScript representations. Wasm supports direct named `.wasm`
 imports; native packages use their generated ESM entry. Neither requires manual
 consumer initialization.
 
@@ -60,7 +59,7 @@ echoText('a\ud800b');         // same UTF-16 code units, including lone surrogat
 ```
 
 The selected `int` representation changes boundary conversion, not Dart arithmetic
-semantics. Bigint-represented Dart `int` still has Dart Wasm's signed 64-bit
+semantics. Bigint-represented Dart `int` still has signed 64-bit
 arithmetic; use Dart `BigInt` for arbitrary-precision calculations.
 
 ## Validation and preservation
@@ -105,6 +104,4 @@ the module: subsequent valid calls remain usable.
 Generated TypeScript declarations use the exact fixed representation, explicit
 `| null` where appropriate, and required parameters without `?` or `undefined`.
 Optional parameters and options properties follow the argument contract.
-See [supported toolchains](../README.md#verify). Wasm interop uses
-experimental SDK APIs; native execution requires the qualified macOS arm64
-runtime bundle.
+See the [compatibility requirements](../README.md#verify).

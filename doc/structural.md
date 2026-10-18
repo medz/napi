@@ -25,7 +25,7 @@ echo([{ $1: 'item', values: [1, null] }, null]);
 // Array<{ $1: string; values: Array<number | null> | null } | null>
 ```
 
-| Dart shape | JavaScript / TypeScript shape |
+| Dart shape | JavaScript / TypeScript output shape |
 | --- | --- |
 | `List<T>` | `Array<T>` |
 | `Map<K, V>` | `globalThis.Map<K, V>` |
@@ -38,6 +38,7 @@ echo([{ $1: 'item', values: [1, null] }, null]);
 | Nullable structural or scalar node | The corresponding type `\| null` |
 
 The table describes converted leaf types, not Dart type spelling in TypeScript.
+List inputs accept recursively readonly arrays; outputs are mutable arrays.
 Record fields are always required, including fields whose value can be `null`.
 Optional nullable List/Map/Dictionary/record parameters can omit the argument, pass `undefined`
 to select the default, or pass `null`. Non-null constant defaults are supported
@@ -45,6 +46,12 @@ when their declared type and constant graph contain only structural containers
 and scalar/null leaves. Defaults preserve Dart const identity; returning them
 still creates ordinary copied JS containers. See [argument defaults](arguments.md)
 for supported constants and limits.
+
+Public non-generic record typedefs used by selected bindings are exported as
+TypeScript types. Each alias describes the mutable output shape with the default
+number policy for Dart `int`. Function signatures keep their direction-specific
+inline shapes, including readonly List inputs and `bigint: true` conversions.
+Private and instantiated generic record aliases remain inline types.
 
 | Boundary case | Policy |
 | --- | --- |
@@ -72,10 +79,9 @@ Outputs first snapshot the complete Dart tree, including custom List getters and
 Map iteration, with the depth/work/cycle checks above. Host-side integer range,
 reference-brand and converted Map-key checks run afterward on that snapshot.
 Thus a later Dart getter/iterator failure precedes an earlier invalid host leaf;
-no getter is evaluated again during host conversion. This order is shared by
-both targets. Native uses temporary storage proportional to the visited shape
-and a second traversal, bounded by the same work limit. Input traversal is
-unchanged.
+no getter is evaluated again during host conversion. Both targets follow this
+order. Snapshot storage is proportional to the visited shape and bounded by the
+same work limit.
 
 Input Maps use ordinary Dart equality and hashing. Structurally equal record
 keys or reference keys with custom `==` may collide even when their original JS
@@ -146,12 +152,8 @@ equally inside containers. [SharedBytes](shared-bytes.md) leaves retain their li
 shared views inside structural values. Opaque leaves preserve the original JS
 value without inspecting it.
 
-Both targets use the pinned Dart 3.13.5 compiler/runtime and experimental SDK
-APIs. Native execution requires the macOS arm64 ABI 15 bundle; other native
-platforms remain unqualified. See [supported toolchains](../README.md#verify).
-
 Defaults containing reference, resource, opaque or value-class leaves, opaque
-Map keys and remaining generic reference specializations are not supported.
+Map keys and JS collection handles as Map keys are not supported.
 Open generic resource/value classes are still unsupported. Failed input conversion
 does not invoke the exported business method, reference constructor or setter.
 Explicit [value-class constructors](values.md) execute

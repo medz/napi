@@ -40,7 +40,7 @@ assemble an existing `BuiltModule` without recompiling. Those lower-level
 assembly calls validate metadata at assembly time, so use `buildPackage` when
 the npm name is known before compilation.
 
-The runtime file allowlist is `module.wasm`, `module.d.wasm.ts`, `host.mjs`,
+The Wasm runtime file allowlist is `module.wasm`, `module.d.wasm.ts`, `host.mjs`,
 `boundary.mjs`, and `DART_LICENSE`, plus `core.wasm`, `calls.mjs` and
 `references.mjs` together when present. `DART_LICENSE` is required. Other
 build-directory files are ignored.
@@ -87,8 +87,7 @@ processes and Dart isolates contend on the same inode. The private directory and
 lock files remain after release or process exit: deleting them while another
 builder runs would split the lock. Output paths inside `.napi-locks`, or a
 symlink/non-directory at that private path, are rejected without replacing it.
-Fresh POSIX package builds also use this lock; raw module publication retains its
-existing behavior.
+Fresh POSIX package builds also use this lock; raw module publication uses an exclusive rename without this lock.
 
 The new package is committed with one `renamex_np(RENAME_SWAP)` directory exchange.
 Compilation or merge failures leave the old output intact. After a successful
@@ -121,7 +120,7 @@ see [supported toolchains](../README.md#verify).
 rules for a `BuildTarget.native` module. Its root and `./native` exports load
 `module.mjs` with `module.d.mts` declarations. It copies business AOT and only the
 manifest-declared bridge/runtime/license files, validating their hashes again
-after copying. The initial native package is macOS arm64; conflicting `os` or
+after copying. The native package currently targets macOS arm64; conflicting `os` or
 `cpu` metadata is rejected. See [native setup and scope](native.md).
 
 ## Explicit dual-target packages

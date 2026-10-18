@@ -25,61 +25,37 @@ counter.increment(); // 2, executed in Dart
 `@scope/counter` is the example package built below. Imports initialize the
 selected backend; consumers do not register bindings or call application `main`.
 
-The product follows napi-rs's model: one Dart export declaration, generated
-bindings and TypeScript types, and npm packages for native and Wasm targets.
-Generated JavaScript loaders and runtime helpers initialize bindings on import.
-Both targets preserve the same supported calls, including `new Counter()` and
-argument presence. The experimental native target generates scalar, structural, value-class,
-reference-class, resource, Future, Stream and retained/async-callback AOT bindings
-for macOS arm64; see [native builds](doc/native.md) for runtime downloads and offline builds.
-See [the architecture](doc/architecture.md) for backend boundaries and
-[compatibility](#verify) for supported toolchains.
+The compiler follows napi-rs's binding model: one Dart declaration and matching
+JavaScript/TypeScript APIs for native and Wasm targets. Business logic runs in
+Dart; generated loaders initialize the selected backend on import.
 
 ## Supported bindings
 
-- Resolved `@NAPI()` discovery with renaming, class/member selection and reexports
-- External selections for unmodified third-party libraries, sharing annotation metadata
-- Required positional scalar functions: `bool`, `String`, `double`, `int`, `BigInt`, and nullable forms
-- Optional positional and named scalar arguments with resolved Dart defaults and exact presence capture
-- Nested Lists, Maps, explicit Dictionaries and records with strict fields, reference/opaque value leaves and bounded traversal on both targets (opaque Map keys remain unsupported)
-- Independent Uint8List/ByteBuffer snapshots with strict brands, visible byte ranges and invalidation checks on both targets
-- Explicit SharedBytes live views with checked resizable windows, weak identity and bulk operations on both targets
-- JsArray/JsMap handles with scalar or direct opaque payloads, retaining the original JavaScript container even inside copied structures and value classes
-- Safe-number `int` by default, or fixed JavaScript `bigint` with `@NAPI(bigint: true)`
-- A pinned Dart SDK adapter and linker producing actual Wasm named exports
-- Generated reference classes, named/factory constructors and weak wrapper identity on both targets
-- Generic payload storage and instance/static generic methods, including inherited instance methods, with identity, nullish presence and shared TypeScript relationships
-- Finite concrete reference, resource and value aliases with real Dart type arguments, nested substitutions and policy-specific representations
-- Structural value classes with explicit constructors, recursive fields and direction-specific TypeScript
-- Future-returning functions/methods/getters, including generic payloads, with standard Promise resolution and shared error conversion
-- Resource cleanup with shared state, stable completion identity and operation leases through Promise settlement
-- Typed callbacks with scalar/List/record/JS-handle conversions, weak adapter identity, retained ownership and Promise results
-- Stream async iterators with FIFO reads, bounded snapshots, cancellation and resource cleanup integration
-- Explicit AbortSignal inputs with cooperative Future cancellation and once-only Stream subscription cancellation
-- Fresh single- or dual-target npm packages with explicit entries, assets and atomic no-replace publication
-- Precompiled native bridge/runtime; business builds use only the ordinary Dart SDK
+| API | Guide |
+| --- | --- |
+| Functions, optional/named arguments, defaults and strict scalar conversions | [Annotations](doc/annotations.md), [arguments](doc/arguments.md), [scalars](doc/scalars.md) |
+| Lists, Maps, dictionaries, records and value classes | [Structural values](doc/structural.md), [value classes](doc/values.md) |
+| Classes, inheritance, object identity and generics | [Classes](doc/classes.md), [generic payloads](doc/opaque.md), [concrete aliases](doc/concrete-generics.md) |
+| Copied bytes, shared byte views and JS collection handles | [Binary data](doc/binary.md), [SharedBytes](doc/shared-bytes.md), [collections](doc/collections.md) |
+| Futures, callbacks, streams, cancellation and resource disposal | [Futures](doc/futures.md), [callbacks](doc/callbacks.md), [streams](doc/streams.md), [cancellation](doc/cancellation.md), [resources](doc/resources.md) |
+| Unmodified third-party Dart libraries | [External selections](doc/annotations.md#external-selections) |
 
-Wasm uses generated JavaScript dependencies; native uses an automatic ESM entry.
-`buildPackage` defaults to Wasm. When both targets are included, `target` selects
-its root at build time; `/native` and `/wasm` select a backend explicitly. There
-is no automatic runtime selection or implicit fallback.
-
-Build-time checks reject unsupported signatures before writing output.
-See [annotation syntax and scope](doc/annotations.md) and the
-[scalar conversion contract](doc/scalars.md), [argument presence and defaults](doc/arguments.md),
-[structural values](doc/structural.md), [JS container handles and collection ownership](doc/collections.md),
-[binary snapshots](doc/binary.md),
-[shared byte views](doc/shared-bytes.md), [value classes](doc/values.md),
-[reference classes](doc/classes.md), [opaque payloads](doc/opaque.md),
-[concrete class aliases](doc/concrete-generics.md), [resource cleanup](doc/resources.md),
-[Future exports](doc/futures.md), [callbacks](doc/callbacks.md), [streams](doc/streams.md),
-[explicit cancellation](doc/cancellation.md), and
-[npm package assembly](doc/packaging.md).
+The guides describe supported combinations. Unsupported signatures produce
+build diagnostics. Wasm is the default target; native currently supports macOS
+arm64. Dual packages expose explicit `/native` and `/wasm` entries, with the root
+backend chosen at build time. There is no automatic platform selection or
+fallback between backends.
 
 ## Build a package
 
-Annotated sources import `package:napi/napi.dart`. Use a separate Dart VM script
-to build the example package:
+Use Dart **3.13.5** and add the package:
+
+```sh
+dart pub add napi
+```
+
+Annotated sources import `package:napi/napi.dart`. A separate Dart VM script
+builds the npm package:
 
 ```dart
 // tool/build.dart
@@ -140,60 +116,19 @@ signed 64-bit input range; Dart `BigInt` always uses arbitrary-precision JavaScr
 
 ## Verify
 
-The current tested toolchain is Dart **3.13.5 stable**, Node **24.19.0** and
-**26.11.1**, and TypeScript **7.0.2**. The SDK adapter deliberately rejects other
-Dart versions. Dart's Wasm integration remains experimental.
-Generated conformance consumers use both Node versions; native execution is
-qualified only for the experimental macOS arm64 ABI 15 runtime bundle supplied
-by the author. See [test commands](doc/testing.md) and [native verification](doc/native.md).
-Other native targets, Bun and browser compatibility remain unverified.
+The tested toolchain is Dart **3.13.5 stable**, Node **24.19.0** and **26.11.1**,
+and TypeScript **7.0.2**. The SDK adapter rejects other Dart versions because it
+uses experimental compiler interfaces. Native builds currently support macOS
+arm64; see [native compatibility](doc/native.md#compatibility). Bun and browser
+compatibility are unverified.
 
-```sh
-dart pub get
-npm install --prefix .dart_tool/js --no-save --no-package-lock --ignore-scripts typescript@7.0.2
-dart format --output=none --set-exit-if-changed lib test tool
-dart analyze --fatal-infos
-dart test
-dart test -P callback-wasm
-dart run tool/verify.dart
-dart run tool/check_package.dart
-```
-
-`tool/verify.dart` builds fresh artifacts and executes the real Node ESM consumers,
-including an npm-packed fixture installed offline into a separate consumer.
-Set `NAPI_NODE_EXECUTABLES` to a JSON array of absolute Node executable paths
-(e.g. `'["/path/to/node24","/path/to/node26"]'`) to compile and install once,
-then run each runtime and TypeScript consumer against the same artifacts on
-every selected Node. The same setting works for `tool/native_verify.dart`; an
-unset value uses `node` from PATH. Any selected runtime failure stops the run.
-CI checks the Wasm artifacts on Node 24.19.0 and 26.11.1. Independent Dart unit
-probes still use their configured/default Node; this setting controls the
-conformance tools. Callback consumers use the `callback-wasm` and
-`callback-native` package:test presets: each builds source/external once, then
-runs every scenario on each selected Node. Their eight TypeScript configurations
-run only on `NAPI_TEST_NODE` or PATH `node`, independently of the runtime matrix.
-See [Running tests](doc/testing.md) for the explicit native bundle command and
-single-scenario selection.
-
-It checks TypeScript in NodeNext and Bundler modes. `NAPI_TSC` can select an
-already installed TypeScript executable. Package validation permits only the
-expected warning for the exact analyzer pin; every other warning or error fails.
-
-To inspect just the generated scalar fixture:
-
-```sh
-dart run tool/scalar_fixture.dart .dart_tool/scalar-example
-node .dart_tool/scalar-example/test.mjs
-```
+See [Running tests](doc/testing.md) for dependencies, test commands, Node version
+selection and native runtime setup. See [the architecture](doc/architecture.md)
+and [Wasm backend design](doc/foundation.md) for compiler and runtime boundaries.
 
 Relative `.wasm` imports use a sibling `module.d.wasm.ts` and TypeScript's
 `allowArbitraryExtensions` option. A single-target Wasm package's root and
 `./module.wasm` subpath both resolve directly to the Wasm file.
-
-See [the Wasm backend design](doc/foundation.md) for export representation,
-automatic initialization, SDK coupling and fresh-output publication.
-See [npm packaging](doc/packaging.md) for managed rebuilds on macOS APFS and
-preservation of author files and metadata.
 
 ## License
 

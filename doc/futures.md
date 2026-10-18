@@ -2,8 +2,9 @@
 
 A selected Dart function, method or getter returning `Future<T>` exposes a
 genuine JavaScript Promise on both backends. Its fulfillment value follows
-standard Promise resolution of the converted result. This also applies to synchronous Dart
-functions returning an existing Future and to aliases of `dart:async/Future`.
+standard Promise resolution of the converted result. This also applies to
+synchronous Dart functions returning an existing Future and to aliases of
+`dart:async/Future`.
 The `async` keyword alone does not define the binding contract.
 
 ```dart
@@ -65,8 +66,8 @@ The adapter retains converted arguments and the receiver while the Dart Future
 is pending, through result conversion and delivery to the Promise resolver.
 Business code does not need to capture these objects in its own Future closure
 to keep them reachable. Each module strongly owns pending calls even when a
-business Future has no external owner and the caller drops the public Promise. Temporary native callback handles never survive their
-scope. Dropping the JavaScript Promise does not cancel Dart work.
+business Future has no external owner and the caller drops the public Promise.
+Dropping the JavaScript Promise does not cancel Dart work.
 
 Native completion uses the owning Node thread and its Dart isolate. The private
 bridge creates the Promise outside Dart, queues converted results, exits Dart
@@ -114,7 +115,7 @@ Resolver return is only a resolution handoff for thenables; resource leases wait
 for actual settlement. Synchronous and nested identity does not promise the
 original object as the fulfillment value of a root thenable.
 
-## Remaining contracts
+## Unsupported signatures
 
 Future/Promise inputs, `FutureOr`, nullable outer Futures, nested Future payloads,
 `async void`, synchronous generators and still-unsupported payload types produce
@@ -126,25 +127,6 @@ ordinary byte snapshots are not shared implicitly.
 
 ## Compatibility
 
-Both backends require the pinned Dart 3.13.5 compiler/runtime. Native uses the
-experimental macOS arm64 ABI 15 bundle; Wasm uses the SDK's version-specific
-compiler/host adapter, not a portable WASI ABI. See [native requirements](native.md)
-and [supported toolchains](../README.md#verify).
-
-## Measured cost
-
-The standard Promise-resolution implementation was compared with the preceding
-implementation using the same Future fixture, Dart 3.13.5 and Node 24.19.0/26.11.1
-using two A/A and three balanced A/B ABBA blocks per Node version (40 independent
-processes). Each sample excludes import and 10,000 warmup calls, then checks
-100,000 sequential awaits and 100,000 calls in batches of 128. Median changes
-were -0.42% / -1.17% on Node 24 and -2.19% / -4.04% on Node 26. A/A median
-movement was -0.13% to +2.54%; no repeatable slowdown appeared, and these samples
-do not establish a general speedup or application-throughput bound.
-
-The nine-file fixture grows from 549,966 to 637,976 bytes (+88,010). Of this,
-85,890 bytes are Wasm name metadata; executable code grows 1,434 bytes and all
-non-name core data grows 1,587 bytes. Actual npm archives grow 2,738 and 2,609
-bytes on the two builds. The wrapper Wasm, calls, host, reference bindings,
-package metadata and license remain byte-identical. No artifact was stripped
-for this comparison; native artifact sizes were not measured.
+Both backends require the pinned Dart SDK. Native currently supports macOS
+arm64; Wasm uses Dart WasmGC. See [native requirements](native.md) and
+[supported toolchains](../README.md#verify).

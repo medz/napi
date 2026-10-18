@@ -96,16 +96,12 @@ collection. Authors should finish iteration, use `return()`/`for await` early
 exit, or close the resource. Worker/environment teardown drops bridge references;
 finalizers never execute JavaScript or business cancellation in a dead realm.
 
-## Backend implementation
+## Runtime support
 
-The shared Dart kernel owns subscription state, FIFO admission and cancellation.
-Wasm carries event envelopes as traced host references. Native uses owned host
-values and a private reference wrapper with `next` and `return`, plus the owner
-event pump, Future transport and delivery acknowledgement. Native snapshots
-have per-item host-reference cost; the 64-item limit is not a zero-allocation or
-byte-budget claim.
+Each queued item retains its converted value until delivery or cancellation.
+The 64-item bound does not limit an item's size, so large snapshots still consume
+corresponding host memory.
 
-Both backends require the pinned Dart 3.13.5 compiler/runtime. Native remains
-experimental and qualified only for macOS arm64; the WasmGC SDK adapter and
-native runtime coupling are described in [the architecture](architecture.md),
-[native builds](native.md) and [supported toolchains](../README.md#verify).
+Both backends require the pinned Dart SDK. Native currently supports macOS
+arm64; Wasm uses Dart WasmGC. See [native builds](native.md) and
+[supported toolchains](../README.md#verify).

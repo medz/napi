@@ -43,12 +43,10 @@ For a generic payload parameter, a supplied `undefined` is a payload
 rather than a positional hole or absent named property. Only omission selects
 its Dart default; see [opaque payloads](opaque.md).
 
-The frontend evaluates defaults in their declaring library. Generated Dart uses
-typed scalar literals and built-in const graphs, preserving private/imported
+Defaults are evaluated in their declaring library, preserving private/imported
 constant expressions, exact UTF-16 strings, signed integer values, negative zero,
-NaN and infinities. No source
-expression or private constant name is copied into generated calls. Omitted
-nullable parameters without an explicit default use Dart's implicit `null`.
+NaN and infinities. Omitted nullable parameters without an explicit default use
+Dart's implicit `null`.
 Internal int defaults retain Dart precision even when the JS input policy is
 safe-number; normal result range checks still apply. An unresolved, unsupported
 or type-incompatible scalar default produces `NAPI_DEFAULT` at the parameter
@@ -72,20 +70,11 @@ unsupported, including empty constants whose declared type contains such a
 leaf. Custom constant objects are not reconstructed. Defaults exceeding the
 structural work/depth or generated-text limit produce `NAPI_DEFAULT`.
 
-Each optional value uses one branch in generated Dart; named arguments are passed
-with their Dart labels. Code size grows linearly with parameter count, without
-dynamic invocation or combinations of named-argument branches.
-
-Presence-sensitive functions are immutable externref globals containing JS arrow
-functions. They capture actual argc and own-property presence before calling a
-private Dart core export. Required positional scalar/structural functions remain native Wasm
-function exports, even in the same public module. Consumers import both forms
-directly from `.wasm`; neither function form is constructible. This implementation
-requires no consumer initialization. Generated opaque functions use the presence
-path even when all parameters are required. Native callbacks capture Node-API
-argument counts and own-property presence before creating carriers. On both
-targets, `f()` fails for a required opaque input while `f(undefined)` preserves
-the supplied payload.
+Both targets preserve the actual argument count and own-property presence before
+calling Dart. Consumers use normal function calls without initialization or
+explicit presence parameters. Exported functions are not JavaScript constructors.
+For a required opaque input, `f()` fails while `f(undefined)` preserves the
+supplied payload.
 
 Declarations use optional positional parameters and a final typed options object.
 Ordinary optional properties explicitly allow `undefined`, including under
@@ -100,5 +89,4 @@ it through its ordinary optional-property rules. Runtime presence remains exact
 in either mode; no configuration-gating helper or extra presence parameter is
 added.
 
-Compiler and runtime requirements are listed in [the compatibility guide](../README.md#verify).
-Dart Wasm interop remains experimental.
+See the [compatibility requirements](../README.md#verify).

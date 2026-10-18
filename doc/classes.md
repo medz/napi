@@ -19,12 +19,8 @@ counter.value = 40;
 counter.increment(2); // 42
 ```
 
-Constructors, methods and property access execute in Dart. The generated Wasm
-facade exports each class as an immutable externref global imported from its
-private JavaScript dependency. Required top-level scalar functions retain their direct
-Wasm function exports, including required List/Map/Dictionary/record arguments containing class
-references; direct reference-valued calls use callable globals. Native packages expose the same class shape through their
-automatic ESM entry and Node-API bridge.
+Constructors, methods and property access execute in Dart. Native and Wasm
+packages expose the same JavaScript class shape and initialize on import.
 
 Supported classes include non-generic reference classes and explicitly
 selected [opaque generic classes](opaque.md), direct class
@@ -40,8 +36,9 @@ Abstract classes can expose factory constructors backed by a concrete Dart objec
 Parameters/results use strict scalar, selected reference, [value-class](values.md) or nested List/Map/Dictionary/record
 types, including nullable nodes. Containers are cloned while their reference
 leaves preserve live wrapper identity. This also applies to constructors, methods,
-fields and accessors. Optional reference/structural parameters may default to null; omission
-and `undefined` apply that default. Required nullable references still require a
+fields and accessors. Optional references may default to null; structural
+parameters also support [built-in constant defaults](arguments.md). Omission
+and `undefined` apply the default. Required nullable references still require a
 value, with `null` accepted. Named parameters use the ordinary options-object
 policy. Void methods return `undefined`. Invalid input fails before business code;
 output validation happens after business code and does not undo Dart mutations.
@@ -53,24 +50,18 @@ Forged prototypes, unrelated classes, Proxy wrappers and independently loaded mo
 before invoking Dart. Method/accessor functions are nonconstructible: they have
 no own `prototype` and cannot serve as `Reflect.construct`'s `newTarget`, even
 after `bind`. Named constructors exposed as static methods follow this rule;
-the class constructor itself remains constructible. Native loaders install
-concise JavaScript forwarders around the generated callbacks to provide this
-shape, preserving receivers, argument counts and property attributes. Accessor
+the class constructor itself remains constructible. Accessor
 function names use the standard `get name` / `set name` spelling. Ordinary
 JavaScript `.length` reflects the generated parameter mapping: required
 positional count, or zero for an optional/named callable; setters have length one.
 
 A reachable wrapper retains its Dart object. Repeated returns of that object
 reuse the same reachable wrapper (`===`), while distinct objects remain distinct.
-The Wasm cache uses a weak Dart-object key and weak JS-wrapper value. Native uses
-a weak Dart identity association and a zero-count Node-API reference; its live
-wrapper owns a separate retained-object lease. When Dart keeps the object but JS
-drops its wrapper, the wrapper can be collected and a later return creates a new
-one without running a business constructor. Old finalizers cannot release the
-new lease. No identity cache permanently roots ordinary unreachable objects, and
-GC never calls a business disposal method. Wasm registers its private reference
-converters automatically when classes are defined; structural traversal uses the
-same cache and brands, without consumer initialization. See [native builds](native.md).
+When Dart keeps the object but JS drops its wrapper, the wrapper can be collected
+and a later return creates a new
+one without running a business constructor. No identity cache permanently roots
+ordinary unreachable objects, and GC never calls a business disposal method.
+Direct and nested reference conversions share the same identity and brands.
 
 That weak identity cache does not collect a cycle created by a separately owned
 native JS value. For example, a Dart object storing a JS payload that points back
@@ -82,9 +73,7 @@ collection and do not need a new disposal API.
 On first exposure, the runtime checks actual Dart membership and chooses the
 unique most-specific selected reference class when one exists. Returning a Child as Base first
 therefore creates the same Child wrapper as returning it as Child first; subsequent
-calls and collection/readoption reuse that choice. Classification runs once per
-identity claim, with one check per selected reference class; ordinary receiver
-checks use the cached class's membership set. A base factory returning a child
+calls and collection/readoption reuse that choice. A base factory returning a child
 adopts the child without invoking its constructor again.
 
 An object implementing compatible unrelated selected interfaces keeps one
@@ -106,11 +95,8 @@ path when that combination is first exposed. Merely selecting two conflicting
 interfaces does not reject unrelated objects or the entire module. Different
 export aliases can retain their separate call contracts.
 
-Composite prototype caches hold type metadata and callback functions only.
 Wrapper collection/readoption and failed-output rollback follow the same rules
-as concrete classes. First exposure performs an additional membership scan
-only when no unique class exists. Single-class and total-inheritance-chain
-modules do not generate composite support.
+for composite objects as for concrete classes.
 
 Instance prototypes follow the nearest selected Dart superclass, skipping
 unselected intermediate ancestors. Selected interface members are available on
@@ -156,38 +142,11 @@ their selected cleanup maps both `void` and `Future<void>` to `Promise<void>`.
 cancellation](cancellation.md) are supported. Other generic specializations are
 diagnosed; an abort does not preempt arbitrary Dart execution.
 [Typed callback inputs](callbacks.md) and [Stream results](streams.md) use their
-documented supported signatures; other combinations produce build diagnostics. Non-null Dart
-object defaults are also rejected. A composite must have a selected operation
-whose call contract satisfies every view sharing that JS name; the compiler
+documented supported signatures; other combinations produce build diagnostics.
+Non-null reference and value-class defaults are rejected. A composite must have
+a selected operation whose call contract satisfies every view sharing that JS name; the compiler
 does not synthesize a new overload or union conversion from incompatible
 operations.
-
-Tested with Dart 3.13.5, Node 24.19.0/26.11.1 and TypeScript 7.0.2; native execution
-is qualified only on macOS arm64.
-
-Frozen old/new single-class measurements on these Node versions used separate
-A/A samples and three balanced AB/BA rounds. Adding selected class hierarchy support added
-1,989 bytes (1.70%) to the small Wasm package, including 251 bytes of core Wasm;
-the native package grew 1,886 bytes. Wasm getter medians rose from 19.435 to
-20.562 ns on Node 24 and 18.891 to 19.693 ns on Node 26, consistently slower in
-paired samples. Other Wasm call changes ranged from -15.03% to +5.24%; native
-changes ranged from -1.06% to +2.29%. These are local observations, not a general
-speed or no-regression claim. Constructor A/A noise reached about 25%; its
-200,000 allocations occurred in one JS turn, so WeakRef retention and measured
-RSS do not establish long-term memory bounds. Large class hierarchies were not
-benchmarked. The ordinary callback path reuses the cached canonical class;
-first-exposure work grows with the selected class set.
-
-Composite support was measured against the hierarchy-only implementation with
-the same single-Counter source URI. All eight Wasm artifacts and the
-native loader/declarations were byte-identical. Native ABI 8 added 112 bytes of
-AOT and 1,136 bytes in total. Across the two Node versions, ordinary method,
-getter, setter, self and constructor medians changed by -2.78% to +0.47%; every
-case had both positive and negative paired changes, and A/A noise reached
-5.41%. This does not establish a speed advantage or zero regression. These
-measurements cover existing concrete-class calls, not first-exposure cost or
-scaling of large composite interface sets.
-
 
 ## TypeScript reference identity
 

@@ -27,9 +27,7 @@ const result: Point = move({x: 3}); // {x: 4, y: 0}
 ```
 
 `Point` is a TypeScript output type. No JavaScript `Point` constructor is
-exported. A Wasm module containing only value types can retain private
-`$`-prefixed experimental Dart SDK support exports; these are not binding APIs.
-Each accepted input calls the selected real Dart constructor or
+exported. Each accepted input calls the selected real Dart constructor or
 factory; normal Dart invariants and domain errors apply. Omitting
 `valueConstructor` makes a class output-only, including when nested inside a
 container. Such a type receives a source diagnostic if used as an input.
@@ -99,11 +97,8 @@ business function is called only after all parameters convert successfully.
 Domain exceptions remain ordinary JavaScript `Error` values, while generated
 shape/type/range errors retain their contextual property paths.
 
-Native inputs containing value classes and all structural outputs use an
-intermediate snapshot and a second traversal to match Wasm's observable
-conversion order. This adds temporary storage proportional to the visited shape.
-Inputs without value classes keep their established paths. Work/depth/cycle
-validation runs once during the snapshot phase.
+Snapshotting requires temporary storage proportional to the visited shape.
+The structural work, depth and cycle limits also apply to value classes.
 
 ## Output and composition
 
@@ -117,8 +112,9 @@ objects are valid. Recursive type declarations are supported independently of
 whether a particular runtime value is cyclic.
 
 Value fields compose with nullable scalars, Lists, records, Maps, Dictionaries,
-other values and selected reference classes. A value object has no JavaScript
-brand or identity cache. A private object implementing two selected value
+other values, selected reference classes, binary values and JS collection handles.
+A value object has no JavaScript brand or identity cache. A private object
+implementing two selected value
 interfaces can be projected through either declared shape. Reference leaves
 keep the same module-owned live-wrapper identity as direct reference calls.
 A failed output rolls back only newly claimed reference wrappers, preserving

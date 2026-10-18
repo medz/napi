@@ -94,7 +94,7 @@ fails. Optional inputs use their declared default on omission or `undefined`.
 Invalid inputs fail before business entry; Future exports reject through their
 normal Promise boundary. A later valid call remains usable.
 
-## Implementation scope
+## Copying cost
 
 Native copies valid windows in bulk into independent Dart storage and copies
 Dart output into fresh JS storage. Its short typed-data access intervals contain
@@ -103,14 +103,8 @@ the pinned SDK and writes output into newly allocated host storage. Per-element
 Wasm bridge work and any structural admission copies are real costs; these APIs
 do not make a zero-copy claim.
 
-Using public `Uint8List.toJS` followed by a host copy is not an equivalent fast
-path in this SDK: ordinary WasmGC lists already require a copy, and that SDK
-allocation consults the replaceable global `Uint8Array` constructor. The current
-writer allocates through the captured constructor, avoiding that late lookup.
-
-The qualified toolchain remains Dart 3.13.5, Node 24.19.0/26.11.1 and TypeScript
-7.0.2. Native uses the documented macOS arm64 runtime profile. Both backends
-retain their existing compiler/runtime coupling and host limits.
+Both backends require the pinned Dart SDK and supported Node runtime. See
+[native requirements](native.md) and [supported toolchains](../README.md#verify).
 
 Use [SharedBytes](shared-bytes.md) for explicit live shared views. Its checked
 adapter preserves host storage and handles later detachment/resizing without
