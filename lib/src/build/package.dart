@@ -377,11 +377,33 @@ Future<void> _checkInputs(
     await _checkPath(source);
     if (path.equals(source, output.path) ||
         path.isWithin(source, output.path) ||
-        path.isWithin(output.path, source)) {
+        path.isWithin(output.path, source) ||
+        await _containsExistingPath(source, output.absolute.path) ||
+        await _containsExistingPath(output.absolute.path, source)) {
       throw ArgumentError(
         'Package inputs and output must not contain one another: $source',
       );
     }
+  }
+}
+
+Future<bool> _containsExistingPath(String parent, String child) async {
+  if (await FileSystemEntity.type(parent, followLinks: false) ==
+      FileSystemEntityType.notFound) {
+    return false;
+  }
+  // realpath alone can preserve an alias's case/Unicode spelling. Identity of
+  // existing ancestors also covers outputs whose final segments do not exist.
+  var current = path.normalize(child);
+  while (true) {
+    if (await FileSystemEntity.type(current, followLinks: false) !=
+            FileSystemEntityType.notFound &&
+        await FileSystemEntity.identical(parent, current)) {
+      return true;
+    }
+    final next = path.dirname(current);
+    if (next == current) return false;
+    current = next;
   }
 }
 

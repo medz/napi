@@ -208,24 +208,6 @@ final class PackageOwnership {
   }
 
   Future<void> copyAuthors(Directory staging, Set<String> newArtifacts) async {
-    for (final name in newArtifacts) {
-      if (_entries.containsKey(name) && !artifacts.contains(name)) {
-        throw ArgumentError(
-          'Generated artifact conflicts with author content: $name',
-        );
-      }
-      for (
-        var parent = path.dirname(name);
-        parent != '.';
-        parent = path.dirname(parent)
-      ) {
-        if (_entries[parent]?.hash != null) {
-          throw ArgumentError(
-            'Generated artifact parent conflicts with author content: $parent',
-          );
-        }
-      }
-    }
     for (final entry in _entries.entries) {
       final name = entry.key;
       if (name.isEmpty ||
@@ -241,6 +223,35 @@ final class PackageOwnership {
         // package.json is rewritten below, but first copy its author-owned
         // mode/ACL/xattrs along with the other retained files.
         await File(path.join(directory.path, name)).copy(destination);
+      }
+    }
+    // Only author entries are present now. Ask the same filesystem which names
+    // collide: textual comparisons miss case/Unicode-equivalent names on APFS.
+    for (final name in newArtifacts) {
+      if (await FileSystemEntity.type(
+            path.join(staging.path, name),
+            followLinks: false,
+          ) !=
+          FileSystemEntityType.notFound) {
+        throw ArgumentError(
+          'Generated artifact conflicts with author content: $name',
+        );
+      }
+      for (
+        var parent = path.dirname(name);
+        parent != '.';
+        parent = path.dirname(parent)
+      ) {
+        final type = await FileSystemEntity.type(
+          path.join(staging.path, parent),
+          followLinks: false,
+        );
+        if (type != FileSystemEntityType.notFound &&
+            type != FileSystemEntityType.directory) {
+          throw ArgumentError(
+            'Generated artifact parent conflicts with author content: $parent',
+          );
+        }
       }
     }
   }

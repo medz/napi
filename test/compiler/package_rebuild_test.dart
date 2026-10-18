@@ -238,6 +238,94 @@ void main() {
       );
     });
 
+    test('equivalent generated names cannot replace author content', () async {
+      await assemble();
+      final author = await File('${output.path}/Core.wasm')
+          .writeAsString('keep');
+      if (!await File('${output.path}/core.wasm').exists()) {
+        markTestSkipped('This filesystem distinguishes case.');
+        return;
+      }
+      for (final name in wasmCallFiles) {
+        await File('${source.path}/$name').writeAsString('generated');
+      }
+      await expectLater(assemble(), throwsArgumentError);
+      expect(await author.readAsString(), 'keep');
+      expect((await package())['version'], '1.0.0');
+    });
+
+    for (final parentFile in [true, false]) {
+      test(
+        'equivalent dual layout ${parentFile ? 'parent' : 'child'} conflicts preserve authors',
+        () async {
+          await assemble();
+          final author = File(
+            '${output.path}/WASM${parentFile ? '' : '/MODULE.WASM'}',
+          );
+          await author.parent.create(recursive: true);
+          await author.writeAsString('keep');
+          if (!await FileSystemEntity.identical(
+            '${output.path}/WASM',
+            '${output.path}/wasm',
+          )) {
+            markTestSkipped('This filesystem distinguishes case.');
+            return;
+          }
+          final ownership = (await PackageOwnership.read(output))!;
+          final staging = await root.createTemp('merge-equivalent-');
+          await expectLater(
+            ownership.copyAuthors(staging, {'wasm/module.wasm'}),
+            throwsArgumentError,
+          );
+          expect(await author.readAsString(), 'keep');
+        },
+      );
+    }
+
+    for (final names in [
+      ['Output', 'output'],
+      ['caf\u00e9', 'cafe\u0301'],
+    ]) {
+      test('equivalent input/output ancestors are rejected: $names', () async {
+        final parent = await Directory('${root.path}/${names[0]}').create();
+        final alias = Directory('${root.path}/${names[1]}');
+        if (!await alias.exists() ||
+            !await FileSystemEntity.identical(parent.path, alias.path)) {
+          markTestSkipped('This filesystem distinguishes these names.');
+          return;
+        }
+        output = parent;
+        source = await Directory('${alias.path}/module').create();
+        for (final name in wasmPackageFiles) {
+          await File('${source.path}/$name').writeAsString('keep');
+        }
+        await expectLater(
+          assemble(),
+          throwsA(
+            isA<ArgumentError>().having(
+              (error) => error.message,
+              'message',
+              contains('must not contain one another'),
+            ),
+          ),
+        );
+        expect(await parent.list().length, 1);
+        // The reverse direction also rejects a not-yet-created child output.
+        output = Directory('${parent.path}/module/new-output');
+        await expectLater(
+          assemble(),
+          throwsA(
+            isA<ArgumentError>().having(
+              (error) => error.message,
+              'message',
+              contains('must not contain one another'),
+            ),
+          ),
+        );
+        expect(await output.exists(), isFalse);
+      });
+    }
+
     for (final field in ['type', 'files', 'exports', 'main']) {
       test('rejects author edits to generated $field', () async {
         await assemble();
