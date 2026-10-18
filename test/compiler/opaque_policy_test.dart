@@ -536,9 +536,7 @@ $router
     expect(types, contains(r'globalThis.Promise<$napiAwaited<{ then: T }>>'));
     expect(
       types,
-      contains(
-        r'globalThis.Promise<{ [key: string]: T } | $napiAwaited<{ [key: string]: T }>>',
-      ),
+      contains(r'globalThis.Promise<$napiAwaited<{ [key: string]: T }>>'),
     );
     expect(types, contains('globalThis.Promise<Array<T>>'));
     expect(

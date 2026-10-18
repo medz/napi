@@ -63,8 +63,7 @@ String emitBoundary(ModulePlan plan) {
 ${plan.classes.isEmpty ? '' : "import {readReference, writeReference} from './references.mjs';"}
 ${jsCollections.isEmpty ? '' : '$jsCollectionsPolicy\nconst \$jcPolicies = ${jsCollectionPolicies(jsCollections.values)};\n$wasmJsCollectionsPolicy\n'}$sharedBytesPolicy
 $wasmSharedBytesPolicy
-${nestedOpaque ? opaqueStructuralPolicy : ''}
-${signals ? '$cancellationPolicy\n$wasmCancellationPolicy' : ''}
+${nestedOpaque ? '$opaqueStructuralPolicy\n' : ''}${signals ? '$cancellationPolicy\n$wasmCancellationPolicy' : ''}
 ${hasBinary ? '$binaryPolicy\n$wasmBinaryPolicy' : ''}
 ${resources ? '$settlementObserver\n' : ''}const policies = ${jsonEncode(policies)};
 const scalarIsSafeInteger = Number.isSafeInteger;

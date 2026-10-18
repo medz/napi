@@ -320,8 +320,7 @@ String emitResult(
   }
   if (!returnsFuture) return payload;
   final resolved = _needsPromiseResolution(output)
-      // A dictionary's index signature does not require a `then` entry.
-      ? '${output is DictionaryConversion ? '$payload | ' : ''}\$napiAwaited<$payload>'
+      ? '\$napiAwaited<$payload>'
       : payload;
   return 'globalThis.Promise<$resolved>';
 }
@@ -334,6 +333,7 @@ bool _needsPromiseResolution(ValueConversion? output) =>
 
 /// Unlike TypeScript's Awaited, distribute a nullable or union-valued `then`:
 /// its callable branch resolves, while its non-callable branch returns T.
+/// An index signature does not require `then`; preserve absence at every level.
 /// Public export and generic identifiers cannot contain `$`.
 Iterable<String> emitPromiseResolutionDeclarations(
   Iterable<ValueConversion?> outputs,
@@ -341,12 +341,12 @@ Iterable<String> emitPromiseResolutionDeclarations(
   if (outputs.any(_needsPromiseResolution)) {
     yield r'''type $napiAwaited<T> = unknown extends T ? unknown : T extends object
   ? 'then' extends keyof T
-    ? T['then'] extends infer F
+    ? (T extends { then: unknown } ? never : T) | (T['then'] extends infer F
       ? unknown extends F ? unknown
         : F extends (onfulfilled: infer C, ...args: any[]) => any
           ? C extends (value: infer V, ...args: any[]) => any ? $napiAwaited<V> : never
           : F extends globalThis.Function ? unknown : T
-      : never
+      : never)
     : T
   : T;''';
   }

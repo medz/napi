@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:napi/napi.dart';
 
+import 'opaque_hierarchy.dart';
+
 export 'opaque_hierarchy.dart';
 
 int _calls = 0;
@@ -167,6 +169,48 @@ Future<int> waitOpaque<T>(T value) {
   _pending = Completer<int>();
   return _pending!.future;
 }
+
+@NAPI()
+class NestedStore<T> {
+  List<T> values = [];
+  NestedStore();
+
+  List<List<T?>> lists(List<List<T?>> value) => value;
+  Dictionary<T> dictionary(Dictionary<T> value) => value;
+  Map<String, List<T?>> map(Map<String, List<T?>> value) => value;
+  ({T value, List<T> rest}) record(({T value, List<T> rest}) value) => value;
+  List<NamedStore<T>> references(List<NamedStore<T>> value) => value;
+  List<bool> nulls(List<T?> value) => [for (final item in value) item == null];
+  List<T?> withNull(List<T> value) => [null, ...value];
+
+  void saveThrow(List<T> value) {
+    values = value;
+    throw StateError('saved nested input');
+  }
+
+  int checked(List<({T value, int count})> value, int later) {
+    _calls++;
+    return value.length + later;
+  }
+
+  ({List<T> values, int invalid}) badOutput(List<T> value) {
+    values = value;
+    return (values: value, invalid: 9007199254740992);
+  }
+
+  void clear() => values = [];
+  Future<List<T>> futureList(List<T> value) async => value;
+  Future<({T then})> futureThen(List<T> value) async => (then: value.first);
+  Future<Dictionary<T>> futureDictionary(Dictionary<T> value) async => value;
+  Stream<({T then})> streamThen(List<T> value) =>
+      Stream.value((then: value.first));
+  Future<int> wait(List<T> value) => waitOpaque(value);
+  Stream<int> hold(List<T> value) => const Stream.empty();
+}
+
+@NAPI()
+List<OpaquePair<Y, X>> nestedPairs<X, Y>(List<OpaquePairChild<X, Y>> values) =>
+    values;
 
 @NAPI()
 int completeOpaque(int value) {

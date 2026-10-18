@@ -281,16 +281,27 @@ void main() {
     },
   );
 
-  test('nested opaque reference result remains unsupported', () async {
-    final module = await read("""
+  test(
+    'nested opaque references preserve inherited logical arguments',
+    () async {
+      final module = await read("""
 @NAPI() class Base<T> { Base(); }
 @NAPI() class Child<U> extends Base<U> { Child(); }
 @NAPI() (Base<T>, int) run<T>() => (Child<T>(), 1);
 """);
-    for (final check in [validate, validateNative]) {
-      expect(() => check(module), throwsA(diagnostic('NAPI_TYPE')));
-    }
-  });
+      final plan = lower(validate(module));
+      final native = validateNative(module);
+      final types = emitDeclarations(plan);
+      expect(types, emitNativeDeclarations(native));
+      expect(
+        types,
+        contains(r'run<T = unknown>(): { $1: Base<T>; $2: number }'),
+      );
+      expect(types, contains('extends Base<U> {}'));
+      expect(emitDart(plan), contains('target.run<_NapiHostValue>()'));
+      expect(emitNativeDart(native), contains('target.run<_NapiHostValue>()'));
+    },
+  );
 
   test('ancestor names are checked in the actual child scope', () async {
     for (final name in ['Base', 'Renamed']) {

@@ -44,7 +44,7 @@ See [the architecture and delivery plan](doc/architecture.md) and
 - Analyzer-independent declarations, validation, lowering, and Dart/JS/TypeScript emitters
 - Required positional scalar functions: `bool`, `String`, `double`, `int`, `BigInt`, and nullable forms
 - Optional positional and named scalar arguments with resolved Dart defaults and exact presence capture
-- Nested Lists, Maps, explicit Dictionaries and records in functions/class members, with strict fields, reference identity and bounded traversal on both targets
+- Nested Lists, Maps, explicit Dictionaries and records with strict fields, reference/opaque value leaves and bounded traversal on both targets (opaque Map keys remain unsupported)
 - Independent Uint8List/ByteBuffer snapshots with strict brands, visible byte ranges and invalidation checks on both targets
 - Explicit SharedBytes live views with checked resizable windows, weak identity and bulk operations on both targets
 - JsArray/JsMap handles with scalar or direct opaque payloads, retaining the original JavaScript container

@@ -4,7 +4,10 @@ Both Dart Wasm and native Node-API backends convert nested `List<T>`, `Map<K, V>
 explicit `Dictionary<V>` and Dart records in both directions.
 Every structural node can be nullable. Leaves use the existing strict scalar
 rules for `bool`, `String`, `int`, `double` and `BigInt`, or the selected
-reference-class contract. [Value classes](values.md) compose as nested structural
+reference-class contract. Open generic declarations also support [opaque](opaque.md)
+`T`/`T?` leaves in Lists, Dictionaries, records and Map values, plus selected
+references such as `List<Box<T>>`. Opaque Map keys and nested `JsArray`/`JsMap`
+handle types remain unsupported. [Value classes](values.md) compose as nested structural
 shapes with explicit input construction. `@NAPI(bigint: true)` applies recursively to Dart `int`
 leaves. Functions, constructors, methods, fields and accessors share this model.
 
@@ -41,10 +44,11 @@ compilation or output creation.
 
 | Boundary case | Policy |
 | --- | --- |
-| Containers | Every occurrence becomes an independent container. Repeating one source List/Map/Dictionary/record in separate branches does not preserve container identity. Output mutation cannot modify the Dart source container. Reference leaves preserve their live wrapper identity and mutable Dart object state. |
+| Containers | Every occurrence becomes an independent container. Repeating one source List/Map/Dictionary/record in separate branches does not preserve container identity. Output mutation cannot modify the Dart source container. Reference leaves preserve their live wrapper identity and mutable Dart object state. Opaque leaves preserve their original JS value and are never traversed or copied. |
 | Arrays | Require `Array.isArray`, with `Array.prototype` or null prototype. Typed arrays and custom array prototypes are rejected. Read length once per container, require a numeric uint32 length, then use that snapshot for budget, key bounds and traversal. Invalid lengths fail at `.length`; this also applies to custom Dart output Lists. |
 | Record objects | Require an ordinary object with `Object.prototype` or null prototype. Arrays and custom prototypes are rejected. Output records are ordinary mutable objects. |
 | Fields and indices | Require own data properties. Sparse indices, missing record fields and accessors are rejected. Accessor getters/setters are never invoked by conversion. Non-enumerable own data properties are accepted. |
+| Opaque nullish values | Present `null` and `undefined` remain distinct payloads, each a non-null Dart carrier, including `T?` leaves. A missing structural field/index is still invalid. A genuine Dart null in a nullable leaf returns JS null. |
 | Extra properties | Reject unknown record keys and array properties other than `length` and canonical indices. Symbol keys are also rejected. |
 | Cycles | Reject a container already active in the current conversion path. A repeated container after its earlier branch completes is cloned again. |
 | Depth | At most 64 structural containers along a path, counting the root as the first. A 65th container fails with `RangeError` at that container's path. |
@@ -135,7 +139,8 @@ Dropping the wrapper while Dart retains a container permits collection; returnin
 the object later adopts a new wrapper without executing its constructor again.
 The canonical membership and lifetime rules in [reference classes](classes.md) apply
 equally inside containers. [SharedBytes](shared-bytes.md) leaves retain their live
-shared views inside structural values. Opaque leaves remain unsupported.
+shared views inside structural values. Opaque leaves preserve the original JS
+value without inspecting it.
 
 The shared generated-consumer contract covers nested nullable values, cloning,
 strict leaves, descriptor failures, cycles, depth/work boundaries, recovery,
@@ -151,8 +156,10 @@ Tested with Dart 3.13.5, Node 24.19.0/26.11.1 and TypeScript 7.0.2. Native execu
 is qualified on macOS arm64 and requires an ABI 15 bundle. The compiler/runtime
 use private experimental SDK APIs; other native platforms remain unqualified.
 
-Non-null structural defaults, remaining generic reference specialization and opaque
-leaves remain separate work. Failed input conversion does not invoke the exported business method, reference
+Non-null structural defaults, opaque Map keys and remaining generic reference
+specializations remain separate work. Nested JS collection handles and open
+generic resource/value classes are still unsupported. Failed input conversion
+does not invoke the exported business method, reference
 constructor or setter. Explicit [value-class constructors](values.md) execute
 during input materialization after raw validation; domain failures may retain
 earlier constructor side effects. Failed output conversion does not undo business mutations;
