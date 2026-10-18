@@ -80,11 +80,15 @@ Restrictions explicitly supplied by the author remain. A subsequent native-only
 build still requires the native platform values. Keep the private ownership
 record intact; it is build bookkeeping, not author configuration.
 
-Rebuilders hold a fail-fast sibling `<output>.napi-lock` using `flock`. Separate
-processes and Dart isolates contend on the same inode. The lock file deliberately
-remains after release or process exit: deleting it while another builder runs
-would split the lock. Fresh POSIX package builds also use this lock; raw module
-publication retains its existing behavior.
+Rebuilders hold a fail-fast lock at `<parent>/.napi-locks/<output basename>` using
+`flock`. Keeping the original basename lets the filesystem handle case and
+Unicode-equivalent spellings without increasing filename length. Separate
+processes and Dart isolates contend on the same inode. The private directory and
+lock files remain after release or process exit: deleting them while another
+builder runs would split the lock. Output paths inside `.napi-locks`, or a
+symlink/non-directory at that private path, are rejected without replacing it.
+Fresh POSIX package builds also use this lock; raw module publication retains its
+existing behavior.
 
 The new package is committed with one `renamex_np(RENAME_SWAP)` directory exchange.
 Compilation or merge failures leave the old output intact. After a successful

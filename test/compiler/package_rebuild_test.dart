@@ -86,6 +86,24 @@ void main() {
 
   group('managed macOS replacement', () {
     test(
+      'a legal 255-byte basename supports fresh publication and rebuilding',
+      () async {
+        output = Directory('${root.path}/${'x' * 255}');
+        await assemble();
+        await File('${source.path}/module.wasm').writeAsString('second');
+        await assemble(overrides: {'version': '1.0.1'});
+        expect(
+          await File('${output.path}/module.wasm').readAsString(),
+          'second',
+        );
+        expect((await package())['version'], '1.0.1');
+        expect(
+          await File('${root.path}/.napi-locks/${'x' * 255}').exists(),
+          isTrue,
+        );
+      },
+    );
+    test(
       'author JSON larger than the private marker limit remains rebuildable',
       () async {
         final text = 'x' * (1024 * 1024 + 1);
@@ -325,7 +343,7 @@ void main() {
         } finally {
           lock.release();
         }
-        expect(await File('${output.path}.napi-lock').exists(), isTrue);
+        expect(await lock.file.exists(), isTrue);
         await assemble();
       },
     );

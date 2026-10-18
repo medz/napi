@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 
+import 'package:path/path.dart' as path;
+
 /// Publish a completed directory in one operation, never replacing a name that
 /// another process owns. Both directories must be on the same filesystem.
 ///
@@ -141,15 +143,42 @@ void copyPackageDirectoryMetadata(Directory source, Directory destination) {
   });
 }
 
-/// A stable sibling lock, shared by independent processes and Dart isolates.
+/// A stable sibling lock directory, shared by processes and Dart isolates.
 /// Its inode deliberately survives release: unlinking it can split contenders
 /// between two different locks. It is not a lease on arbitrary author edits.
 final class PackageLock {
-  PackageLock._(this._descriptor);
+  PackageLock._(this._descriptor, this.file);
   int? _descriptor;
+  final File file;
 
   static PackageLock acquire(Directory output) {
-    final name = '${output.path}.napi-lock';
+    final normalized = path.normalize(output.absolute.path);
+    if (path
+        .split(normalized)
+        .any((segment) => segment.toLowerCase() == '.napi-locks')) {
+      throw FileSystemException(
+        'Package output conflicts with the private lock directory.',
+        normalized,
+      );
+    }
+    final locks = Directory(path.join(path.dirname(normalized), '.napi-locks'));
+    var directoryType = FileSystemEntity.typeSync(
+      locks.path,
+      followLinks: false,
+    );
+    if (directoryType == FileSystemEntityType.notFound) {
+      locks.createSync();
+      directoryType = FileSystemEntity.typeSync(locks.path, followLinks: false);
+    }
+    if (directoryType != FileSystemEntityType.directory) {
+      throw FileSystemException(
+        'Private package lock path is not a directory.',
+        locks.path,
+      );
+    }
+    // Preserve the original basename. The same filesystem handles case and
+    // Unicode-equivalent spellings, including names already at NAME_MAX.
+    final name = path.join(locks.path, path.basename(normalized));
     final type = FileSystemEntity.typeSync(name, followLinks: false);
     if (type != FileSystemEntityType.file &&
         type != FileSystemEntityType.notFound) {
@@ -183,7 +212,7 @@ final class PackageLock {
       publisher.close(descriptor);
       throw FileSystemException('Another package build holds the lock.', name);
     }
-    return PackageLock._(descriptor);
+    return PackageLock._(descriptor, File(name));
   }
 
   void release() {
