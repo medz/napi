@@ -1,8 +1,9 @@
 # Direct-Wasm export-kind regression
 
-This handwritten fixture proves a backend capability. It is **not generated
-class support** and does not make class declarations accepted by the compiler
-frontend. Class generation remains separate work (#123).
+This handwritten fixture isolates a backend representation. It is **not proof
+of generated class support**; the implemented generator has separate
+[class conformance tests](../../../doc/classes.md). Keep this fixture's limited
+claims separate from those generated bindings.
 
 The consumer's entry is a real Wasm module:
 

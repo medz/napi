@@ -120,8 +120,9 @@ Future/Promise inputs, `FutureOr`, nullable outer Futures, nested Future payload
 `async void`, synchronous generators and still-unsupported payload types produce
 build diagnostics. `async* Stream<T>` uses the separate [stream adapter](streams.md).
 [Callbacks](callbacks.md) and [explicit cancellation](cancellation.md) have their
-own contracts. An AbortSignal input never settles a business Future early;
-shared buffers retain separate requirements.
+own contracts. An AbortSignal input never settles a business Future early.
+[SharedBytes](shared-bytes.md) has a separate checked-view ownership contract;
+ordinary byte snapshots are not shared implicitly.
 
 ## Validation scope
 
