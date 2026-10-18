@@ -395,3 +395,78 @@ class MethodSession {
 
 @NAPI()
 int methodCleanups() => _methodCleanups;
+
+@NAPI()
+class MethodInherited<T> extends MethodBox<T> {
+  MethodInherited(super.value);
+}
+
+@NAPI()
+class MethodOverride<T> extends MethodBox<T> {
+  MethodOverride(super.value);
+  @override
+  V echo<V>(V value) => value;
+  @override
+  V? named<V>(int marker, {V? first, V? second, int choose = 9}) =>
+      marker == choose ? first : second;
+}
+
+@NAPI()
+class MethodContract<T> {
+  MethodContract();
+  (T, U, int) combine<U>(T first, U second, [int step = 7]) =>
+      (first, second, step);
+}
+
+mixin _MethodMixin<T> {
+  (T, V, int) combine<V>(T first, V second, [int step = 11]) =>
+      (first, second, step);
+}
+
+@NAPI()
+class MethodInterface<U> with _MethodMixin<U> implements MethodContract<U> {
+  MethodInterface();
+}
+
+@NAPI()
+class MethodPair<A, B> {
+  MethodPair();
+  (A, B, U) combine<U>(A first, B second, U third) => (first, second, third);
+}
+
+@NAPI()
+class MethodPairChild<X, Y> extends MethodPair<Y, X> {
+  MethodPairChild();
+  @override
+  (Y, X, Z) combine<Z>(Y first, X second, Z third) => (first, second, third);
+}
+
+@NAPI()
+class MethodIntChild extends MethodInt {
+  MethodIntChild(super.value);
+}
+
+@NAPI()
+class MethodInheritedSession extends MethodSession {
+  MethodInheritedSession();
+}
+
+@NAPI()
+class MethodDefaultA {
+  MethodDefaultA();
+  U? choose<U>([U? value, int index = 7]) => value;
+}
+
+@NAPI()
+class MethodDefaultB {
+  MethodDefaultB();
+  V? choose<V>([V? value, int index = 9]) => value;
+}
+
+class _MethodDefaultConflict implements MethodDefaultA, MethodDefaultB {
+  @override
+  W? choose<W>([W? value, int index = 11]) => value;
+}
+
+@NAPI()
+MethodDefaultA methodDefaultConflict() => _MethodDefaultConflict();

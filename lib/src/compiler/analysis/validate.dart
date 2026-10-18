@@ -189,10 +189,13 @@ final class ReferenceClassShape {
 ReferenceMemberShape? referenceMemberInScope(
   ReferenceMemberShape member,
   ReferenceClassShape owner,
-  ReferenceClassShape scope,
-) {
-  if (owner.classId == scope.classId) return member;
-  final parameters = <DeclarationId, DeclarationId>{};
+  ReferenceClassShape scope, {
+  // TypeScript may rename a method binder that would capture a projected
+  // class binder. Runtime dispatch continues to use the declaring binding.
+  Map<DeclarationId, DeclarationId> methodParameters = const {},
+}) {
+  if (owner.classId == scope.classId && methodParameters.isEmpty) return member;
+  final parameters = <DeclarationId, DeclarationId>{...methodParameters};
   if (scope.ancestorArguments[owner.classId] case final slots?) {
     for (final (index, slot) in slots.indexed) {
       parameters[owner.binding.typeParameters[index].declaration] =
@@ -1360,17 +1363,6 @@ List<ReferenceClassShape> _referenceHierarchy(
     for (final type in ancestorsTypes) {
       if (selected(type) case final parent?) {
         final parentBinding = classes[parent].binding;
-        if (parent != id &&
-            classes[parent].members.any(
-              (member) =>
-                  !member.isStatic && member.binding.typeParameters.isNotEmpty,
-            )) {
-          throw BindingDiagnostic(
-            'NAPI_GENERIC',
-            'Inherited generic methods require method-parameter projection and are not supported yet.',
-            binding.source,
-          );
-        }
         final generic =
             binding.typeParameters.isNotEmpty ||
             parentBinding.typeParameters.isNotEmpty;
@@ -1567,6 +1559,16 @@ List<ReferenceClassShape> _referenceHierarchy(
               actual.source,
             );
           }
+          if (actual.typeParameters.isNotEmpty) {
+            if (contract.isCleanup) {
+              throw BindingDiagnostic(
+                'NAPI_GENERIC',
+                'Cleanup methods cannot declare opaque method parameters.',
+                actual.source,
+              );
+            }
+            validateOpaqueParameters(actual.typeParameters, actual.source);
+          }
           final actualVoid = actual.result is VoidType;
           final contractVoid = contract.result == null;
           final validCleanupResult =
@@ -1708,25 +1710,32 @@ bool referenceMemberAccepts(
 }) {
   final actualTypes = implementation.binding.typeParameters;
   final expectedTypes = contract.binding.typeParameters;
+  final parameters = <DeclarationId, DeclarationId>{};
   if (actualTypes.isNotEmpty || expectedTypes.isNotEmpty) {
-    // Independent method binders are not interchangeable until their
-    // alpha-equivalence and inherited projections are implemented.
-    if (implementation.binding.declaration != contract.binding.declaration ||
-        actualTypes.length != expectedTypes.length ||
-        actualTypes.indexed.any(
-          (entry) =>
-              entry.$2.declaration != expectedTypes[entry.$1].declaration,
-        )) {
-      return false;
+    if (actualTypes.length != expectedTypes.length) return false;
+    for (final (index, actual) in actualTypes.indexed) {
+      final expected = expectedTypes[index];
+      // Opaque method bounds have already been validated as Object/Object?.
+      // An omitted bound is Object?; a stricter bound is a different contract.
+      bool nullableBound(TypeParameterBinding p) =>
+          p.bound == null || p.bound!.nullability == TypeNullability.nullable;
+      if (nullableBound(actual) != nullableBound(expected)) return false;
+      parameters[expected.declaration] = actual.declaration;
     }
   }
   bool subtype(BindingType child, BindingType parent) =>
       _referenceSubtype(child, parent, classes);
   bool optional(ParameterBinding p) =>
       p.presence == ParameterPresence.optional ||
-      (opaqueInheritance && p.presence == ParameterPresence.opaqueOptional);
+      ((opaqueInheritance || actualTypes.isNotEmpty) &&
+          p.presence == ParameterPresence.opaqueOptional);
   final output = implementation.result;
-  final requiredOutput = contract.result;
+  final requiredOutput = parameters.isEmpty || contract.result == null
+      ? contract.result
+      : _projectType(contract.result!, parameters);
+  final requiredParameters = parameters.isEmpty
+      ? contract.parameters
+      : contract.parameters.map((p) => _projectParameter(p, parameters));
   if (implementation.isCleanup != contract.isCleanup ||
       implementation.returnsFuture != contract.returnsFuture ||
       implementation.returnsStream != contract.returnsStream) {
@@ -1746,7 +1755,7 @@ bool referenceMemberAccepts(
       p.kind == ParameterKind.requiredPositional ||
       p.kind == ParameterKind.optionalPositional;
   final actual = implementation.parameters.where(positional).toList();
-  final expected = contract.parameters.where(positional).toList();
+  final expected = requiredParameters.where(positional).toList();
   if (actual.length < expected.length) return false;
   for (final (index, parameter) in actual.indexed) {
     if (index >= expected.length) {
@@ -1764,7 +1773,7 @@ bool referenceMemberAccepts(
       p.name: p,
   };
   final expectedNamed = {
-    for (final p in contract.parameters.where((p) => !positional(p))) p.name: p,
+    for (final p in requiredParameters.where((p) => !positional(p))) p.name: p,
   };
   // Named options occupy the slot after every positional parameter. A new
   // positional slot would move that object and break the inherited JS call.

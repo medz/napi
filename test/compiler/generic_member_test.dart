@@ -213,16 +213,6 @@ class Business { U echo<U>(U value) => value; }
       "@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close') class A { void close<U>() {} }",
       'NAPI_GENERIC',
     ),
-    (
-      'inherited',
-      '@NAPI() class A { U echo<U>(U value) => value; } @NAPI() class B extends A {}',
-      'NAPI_GENERIC',
-    ),
-    (
-      'override',
-      '@NAPI() class A { U echo<U>(U value) => value; } @NAPI() class B extends A { @override V echo<V>(V value) => value; }',
-      'NAPI_GENERIC',
-    ),
   ]) {
     test('diagnoses $name without omitting a selected contract', () async {
       final module = await read(source);
@@ -232,20 +222,135 @@ class Business { U echo<U>(U value) => value; }
     });
   }
 
-  test('independent generic methods do not gain composite coverage', () async {
-    final module = await read('''
+  test(
+    'independent alpha-equivalent generic methods share composite coverage',
+    () async {
+      final module = await read('''
 @NAPI() class A { A(); int marker<U>() => 1; }
 @NAPI() class B { B(); int marker<V>() => 2; }
 ''');
+      final classes = validate(module).classes;
+      final a = classes[0].members.single;
+      final b = classes[1].members.single;
+      expect(referenceMemberAccepts(a, a, classes), isTrue);
+      expect(referenceMemberAccepts(a, b, classes), isTrue);
+      final contracts = referenceViewContracts(classes);
+      expect(contracts.ids.values.toSet(), hasLength(1));
+      expect(contracts.accepts.every((coverage) => coverage.isEmpty), isTrue);
+    },
+  );
+
+  test(
+    'inherits method binders through overrides, interfaces and aliases',
+    () async {
+      final module = await read(r'''
+@NAPI() class Base<T> {
+  Base();
+  (T, U) pair<U>(T first, U second) => (first, second);
+  U? optional<U>([U? value]) => value;
+}
+@NAPI() class Child<X> extends Base<X> {
+  Child();
+  @override (X, V) pair<V>(X first, V second) => (first, second);
+}
+class Business<T> {
+  Business();
+  (T, U) pair<U>(T first, U second) => (first, second);
+  U? optional<U>([U? value]) => value;
+}
+@NAPI() class Interface<U> extends Business<U> implements Base<U> {
+  Interface();
+}
+class Plain<T> { Plain(); U echo<U>(U value) => value; }
+@NAPI() typedef IntPlain = Plain<int>;
+@NAPI() class IntChild extends IntPlain { IntChild(); }
+''');
+      for (final types in [
+        emitDeclarations(lower(validate(module))),
+        emitNativeDeclarations(validateNative(module)),
+      ]) {
+        expect(
+          types,
+          contains(
+            r'pair<V = unknown>(first: X, second: V): { $1: X; $2: V };',
+          ),
+        );
+        expect(
+          types,
+          contains(
+            r'pair<U$1 = unknown>(first: U, second: U$1): { $1: U; $2: U$1 };',
+          ),
+        );
+        expect(types, contains('echo<U = unknown>(value: U): U;'));
+      }
+    },
+  );
+
+  for (final (name, source, code) in [
+    (
+      'arity',
+      '@NAPI() class A { U echo<U>(U value) => value; } @NAPI() class B extends A { V echo<V, W>(V value) => value; }',
+      'NAPI_DART',
+    ),
+    (
+      'bound mismatch',
+      '@NAPI() class A { U echo<U>(U value) => value; } @NAPI() class B extends A { V echo<V extends Object>(V value) => value; }',
+      'NAPI_DART',
+    ),
+    (
+      'optional becomes required',
+      '@NAPI() class A { U? echo<U>([U? value]) => value; } @NAPI() class B extends A { V? echo<V>(V? value) => value; }',
+      'NAPI_DART',
+    ),
+    (
+      'unselected semantic bound',
+      '@NAPI() class A { U echo<U>(U value) => value; } class Hidden extends A { V echo<V extends num>(V value) => value; } @NAPI() class B extends Hidden {}',
+      'NAPI_DART',
+    ),
+    (
+      'inherited generic cleanup',
+      "@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close') class A { void close() {} } class Hidden extends A { void close<U>() {} } @NAPI() class B extends Hidden {}",
+      'NAPI_DART',
+    ),
+  ]) {
+    test('rejects inherited $name precisely', () async {
+      await expectLater(read(source), throwsA(diagnostic(code)));
+    });
+  }
+
+  test('alpha-equivalence keeps class scope and presence distinct', () async {
+    final module = await read('''
+@NAPI() class A<T> { A(); (T, U?) echo<U>([U? value]) => (throw 1, value); }
+@NAPI() class B<T> { B(); (T, V?) echo<V>([V? value]) => (throw 1, value); }
+@NAPI() class C { C(); U? echo<U>([U? value]) => value; }
+@NAPI() class D { D(); V? echo<V>(V? value) => value; }
+@NAPI() class E { E(); V? echo<V extends Object?>([V? value]) => value; }
+''');
     final classes = validate(module).classes;
-    final a = classes[0].members.single;
-    final b = classes[1].members.single;
-    expect(referenceMemberAccepts(a, a, classes), isTrue);
-    expect(referenceMemberAccepts(a, b, classes), isFalse);
-    final contracts = referenceViewContracts(classes);
-    expect(contracts.ids.values.toSet(), hasLength(2));
-    expect(contracts.accepts.every((coverage) => coverage.isEmpty), isTrue);
+    final members = [for (final c in classes) c.members.single];
+    expect(referenceMemberAccepts(members[0], members[1], classes), isFalse);
+    expect(referenceMemberAccepts(members[3], members[2], classes), isFalse);
+    expect(referenceMemberAccepts(members[2], members[4], classes), isTrue);
+    expect(referenceMemberAccepts(members[4], members[2], classes), isTrue);
   });
+
+  for (final middle in [false, true]) {
+    test(
+      'rejects ${middle ? 'unselected' : 'own'} generic covariant narrowing',
+      () async {
+        final module = await read('''
+@NAPI() class A { void accept<U>(U? value) {} }
+${middle ? '' : '@NAPI()'} class Narrow extends A {
+  @override void accept<V>(covariant V value) {}
+}
+${middle ? '@NAPI() class Child extends Narrow {}' : ''}
+''');
+        for (final check in [validate, validateNative]) {
+          expect(() => check(module), throwsA(diagnostic('NAPI_INHERITANCE')));
+        }
+      },
+    );
+  }
 
   test('dual contracts retain unused method binder arity', () async {
     final wasm = await read('@NAPI() class A { A(); int marker<U>() => 1; }');

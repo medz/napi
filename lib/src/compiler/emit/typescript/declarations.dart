@@ -14,6 +14,7 @@ String emitDeclarations(ModulePlan plan) => emitBindingDeclarations(
 
 typedef _DeclarationCall = ({
   List<ParameterBinding> parameters,
+  List<TypeParameterBinding> methodTypes,
   List<ValueConversion> inputs,
   ValueConversion? output,
   bool returnsFuture,
@@ -34,11 +35,13 @@ String emitBindingDeclarations({
     List<TypeParameterBinding> types, {
     bool bigint = false,
     bool cleanup = false,
+    List<TypeParameterBinding> methodTypes = const [],
   }) {
     final opaque = opaqueParameterIds(types);
     final payload = resultPayload(result);
     return (
       parameters: parameters,
+      methodTypes: methodTypes,
       inputs: [
         for (final parameter in parameters)
           conversionFor(
@@ -83,6 +86,7 @@ String emitBindingDeclarations({
           member.result,
           referenceCallTypeParameters(shape.binding, member.binding),
           cleanup: member.isCleanup,
+          methodTypes: member.binding.typeParameters,
         ),
   };
   final projectedCalls = <(int, ReferenceMemberRef), _DeclarationCall>{};
@@ -94,7 +98,52 @@ String emitBindingDeclarations({
       return memberCalls[member]!;
     }
     return projectedCalls.putIfAbsent((scope.classId, ref), () {
-      final projected = referenceMemberInScope(member, owner, scope)!;
+      final classNames = scope.binding.typeParameters
+          .map((p) => p.declaration.name)
+          .toSet();
+      final usedNames = {
+        ...classNames,
+        for (final p in member.binding.typeParameters) p.declaration.name,
+      };
+      final methodParameters = <DeclarationId, DeclarationId>{};
+      final methodTypes = <TypeParameterBinding>[];
+      for (final parameter in member.binding.typeParameters) {
+        final original = parameter.declaration;
+        if (!classNames.contains(original.name)) {
+          methodTypes.add(parameter);
+          continue;
+        }
+        var suffix = 1;
+        String name;
+        do {
+          name = '${original.name}\$${suffix++}';
+        } while (!usedNames.add(name));
+        final renamed = DeclarationId(
+          original.library,
+          name,
+          owner: original.owner,
+          kind: original.kind,
+          slot: original.slot,
+        );
+        methodParameters[original] = renamed;
+        methodTypes.add(
+          TypeParameterBinding(
+            declaration: renamed,
+            opaque: parameter.opaque,
+            source: parameter.source,
+            bound: parameter.bound,
+            defaultType: parameter.defaultType,
+            documentation: parameter.documentation,
+          ),
+        );
+      }
+      final projected = referenceMemberInScope(
+        member,
+        owner,
+        scope,
+        methodParameters: methodParameters,
+      )!;
+      final types = [...scope.binding.typeParameters, ...methodTypes];
       for (final type in [
         for (final parameter in projected.parameters) parameter.type,
         ?projected.result,
@@ -103,16 +152,15 @@ String emitBindingDeclarations({
           type,
           scope.binding.source,
           classes,
-          opaqueParameterIds(
-            referenceCallTypeParameters(scope.binding, projected.binding),
-          ),
+          opaqueParameterIds(types),
         );
       }
       return call(
         projected.parameters,
         projected.result,
-        referenceCallTypeParameters(scope.binding, projected.binding),
+        types,
         cleanup: member.isCleanup,
+        methodTypes: methodTypes,
       );
     });
   }
@@ -200,7 +248,7 @@ String emitBindingDeclarations({
         ))
           switch (member.kind) {
             ReferenceMemberKind.method =>
-              '  ${member.isStatic ? 'static ' : ''}${emitMemberName(member.exportName)}${emitTypeParameters(member.binding.typeParameters)}($parameters): ${emitResult(declaration.output, returnsFuture: member.returnsFuture, returnsStream: member.returnsStream)};',
+              '  ${member.isStatic ? 'static ' : ''}${emitMemberName(member.exportName)}${emitTypeParameters(declaration.methodTypes)}($parameters): ${emitResult(declaration.output, returnsFuture: member.returnsFuture, returnsStream: member.returnsStream)};',
             ReferenceMemberKind.getter =>
               '  ${member.isStatic ? 'static ' : ''}get ${emitMemberName(member.exportName)}(): ${emitResult(declaration.output, returnsFuture: member.returnsFuture, returnsStream: member.returnsStream)};',
             ReferenceMemberKind.setter =>
