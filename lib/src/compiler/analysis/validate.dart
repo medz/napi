@@ -1202,12 +1202,58 @@ List<ReferenceClassShape> _referenceHierarchy(
     return null;
   }
 
+  // An ordinary selected override keeps the ancestor's cleanup role in every
+  // backend, while its own signature/defaults still participate in policy checks.
+  Iterable<ReferenceMemberShape> effectiveMembers(ReferenceClassShape shape) {
+    if (shape.binding.classPolicy != ClassPolicy.reference) {
+      return shape.members;
+    }
+    final cleanupNames = {
+      for (final ancestor in ancestors(shape.classId))
+        if (classes[ancestor].cleanup case final cleanup?)
+          cleanup.binding.declaration.name,
+    };
+    if (cleanupNames.length > 1) {
+      throw BindingDiagnostic(
+        'NAPI_RESOURCE',
+        '${shape.binding.exportName} inherits incompatible cleanup policies.',
+        shape.binding.source,
+      );
+    }
+    return shape.members.map((member) {
+      if (member.isStatic ||
+          member.kind != ReferenceMemberKind.method ||
+          !cleanupNames.contains(member.binding.declaration.name)) {
+        return member;
+      }
+      final validResult =
+          member.result == null ||
+          (isFutureType(member.result) &&
+              member.result!.nullability == TypeNullability.nonNullable &&
+              resultPayload(member.result) == null);
+      if (!validResult) {
+        throw BindingDiagnostic(
+          'NAPI_RESOURCE',
+          'An inherited cleanup override must return void or Future<void>.',
+          member.binding.source,
+        );
+      }
+      return ReferenceMemberShape._(
+        member.binding,
+        member.kind,
+        member.parameters,
+        member.result,
+        isCleanup: true,
+      );
+    });
+  }
+
   final shapes = [
     for (final shape in classes)
       ReferenceClassShape._(
         shape.binding,
         shape.constructor,
-        shape.members,
+        effectiveMembers(shape),
         classId: shape.classId,
         memberships: ancestors(shape.classId),
         superclassId: superclass(shape.binding),
@@ -1216,7 +1262,7 @@ List<ReferenceClassShape> _referenceHierarchy(
   final effective = <int, Map<String, ReferencePropertyShape>>{};
   final order = referenceClassOrder(shapes);
   ReferenceMemberShape member(ReferenceMemberRef ref) =>
-      classes[ref.classId].members[ref.memberIndex];
+      shapes[ref.classId].members[ref.memberIndex];
   for (final id in order.reversed) {
     final shape = shapes[id];
     final inherited = effective[shape.superclassId] ?? const {};
@@ -1229,7 +1275,7 @@ List<ReferenceClassShape> _referenceHierarchy(
           source ?? shape.binding.source,
         );
     for (final ancestor in order.reversed.where(shape.memberships.contains)) {
-      for (final (index, selected) in classes[ancestor].members.indexed) {
+      for (final (index, selected) in shapes[ancestor].members.indexed) {
         if (selected.isStatic) continue;
         final name = selected.binding.declaration.name;
         final exported = selected.exportName;

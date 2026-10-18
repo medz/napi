@@ -565,6 +565,10 @@ typedef NullableMiddleSession = DeepSessionMiddle<int?>;
 @NAPI()
 class DeepSession extends DeepSessionMiddle<int> {
   DeepSession(super.id, super.value);
+  @override
+  void close([int code = 7, void Function()? failure]) {
+    super.close(code + 100, failure);
+  }
 }
 
 class MixedDeepSession extends DeepSession implements ExtraCellFeature {

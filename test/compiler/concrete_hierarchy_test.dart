@@ -215,6 +215,111 @@ class Child<T> extends Owner<T> {
     },
   );
 
+  test('ordinary overrides inherit selected resource cleanup', () async {
+    const source = """
+import 'package:napi/napi.dart';
+class Owner<T> { Owner(); void close([int code = 7]) {} }
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close') typedef IntOwner = Owner<int>;
+@NAPI() class Child extends Owner<int> {
+  @override void close([int code = 7]) {}
+}
+@NAPI() class GrandChild extends Child {
+  @override Future<void> close([int code = 7]) async {}
+}
+""";
+    final annotated = await read(source);
+    final external = await ExternalFrontend(
+      const ExternalLibrary([
+        ExternalClass(
+          'IntOwner',
+          config: NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close'),
+        ),
+        ExternalClass('Child'),
+        ExternalClass('GrandChild'),
+      ]),
+      packagesPath: packages,
+    ).read(input.uri);
+    for (final module in [annotated, external]) {
+      for (final shapes in [
+        validate(module).classes,
+        validateNative(module).classes.map((c) => c.shape).toList(),
+      ]) {
+        expect(shapes.map((c) => c.cleanup?.isCleanup), everyElement(isTrue));
+        expect(resourcePolicies(shapes), {0: 0, 1: 0, 2: 0});
+      }
+      expect(
+        emitDeclarations(lower(validate(module))),
+        contains('close(code?: number): globalThis.Promise<void>;'),
+      );
+    }
+    for (final (replacement, code) in [
+      ('void close([int code = 8]) {}', 'NAPI_RESOURCE'),
+      ('int close([int code = 7]) => 1;', 'NAPI_RESOURCE'),
+      (
+        "@NAPI(name: 'release') void close([int code = 7]) {}",
+        'NAPI_INHERITANCE',
+      ),
+      (
+        '@NAPI(exclude: true) void close([int code = 7]) {}',
+        'NAPI_INHERITANCE',
+      ),
+    ]) {
+      final invalid = await read(
+        source
+            .split('@NAPI() class GrandChild')
+            .first
+            .replaceFirst(
+              '@override void close([int code = 7]) {}',
+              '@override $replacement',
+            ),
+      );
+      expect(() => validate(invalid), throwsA(diagnostic(code)));
+      expect(() => validateNative(invalid), throwsA(diagnostic(code)));
+    }
+  });
+
+  test(
+    'inherited cleanup cannot replace an unrelated ordinary contract',
+    () async {
+      final module = await read("""
+import 'package:napi/napi.dart';
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+class Owner { void close() {} }
+@NAPI() class Ordinary { void close() {} }
+@NAPI() class Child extends Owner implements Ordinary {
+  @override void close() {}
+}
+""");
+      expect(() => validate(module), throwsA(diagnostic('NAPI_INHERITANCE')));
+      expect(
+        () => validateNative(module),
+        throwsA(diagnostic('NAPI_INHERITANCE')),
+      );
+    },
+  );
+
+  test('ordinary overrides retain conflicting cleanup diagnostics', () async {
+    for (final selection in [
+      '@NAPI()',
+      "@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'shutdown')",
+    ]) {
+      final module = await read("""
+import 'package:napi/napi.dart';
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+class Owner { void close() {} }
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'shutdown')
+class Other { void shutdown() {} }
+$selection class Child extends Owner implements Other {
+  @override void close() {}
+  @override void shutdown() {}
+}
+""");
+      for (final check in [validate, validateNative]) {
+        expect(() => check(module), throwsA(isA<BindingDiagnostic>()));
+      }
+    }
+  });
+
   test('open opaque hierarchies remain unsupported', () async {
     final module = await read('''
 import 'package:napi/napi.dart';

@@ -167,6 +167,8 @@ const deepCell: api.IntCell = new api.DeepCell(1);
 const mixedDeepCell: api.IntCell = api.createMixedDeepCell(2);
 const deepSession: api.IntSession = new api.DeepSession(520, 1);
 const deepCleanup: Promise<void> = deepSession.close();
+const directDeepCleanup: Promise<void> = new api.DeepSession(524, 1).close();
+void directDeepCleanup;
 const mixedDeepSession: api.IntSession = api.createMixedDeepSession(521, 2);
 // @ts-expect-error The selected wider intermediate is not an ancestor view.
 const wideMiddle: api.NullableMiddleCell = new api.DeepCell(1);

@@ -205,7 +205,7 @@ async function hierarchies(api) {
     await completion;
     assert.equal(api.sessionCloses(id), 1);
     assert.equal(api.sessionShutdowns(id), 0);
-    assert.equal(api.sessionCode(id), 7);
+    assert.equal(api.sessionCode(id), 107);
   }
   for (const [id, factory, composite] of [[512, api.createHiddenSession, false], [513, api.createMixedHiddenSession, true]]) {
     const owner = factory(id, 25);
