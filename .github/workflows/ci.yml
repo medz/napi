@@ -6,6 +6,21 @@ on:
 permissions:
   contents: read
 jobs:
+  scope:
+    name: Classify PR changes
+    runs-on: ubuntu-24.04
+    outputs:
+      scope: ${{ steps.classify.outputs.scope }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Test scope classifier and required-check gate
+        run: python3 -B -m unittest discover -s .github/scripts -p 'test_*.py'
+      - name: Classify complete PR change range
+        id: classify
+        run: python3 -B .github/scripts/ci_scope.py
+
   static:
     name: Static and package checks
     runs-on: ubuntu-24.04
@@ -23,6 +38,8 @@ jobs:
       - run: git diff --check HEAD^ HEAD
 
   tests:
+    needs: scope
+    if: ${{ always() && needs.scope.result == 'success' && needs.scope.outputs.scope == 'full' }}
     name: Dart tests (${{ matrix.shard }})
     strategy:
       fail-fast: false
@@ -51,6 +68,8 @@ jobs:
       - run: dart test --total-shards 2 --shard-index ${{ matrix.shard }} --shard-by-suite
 
   wasm-runtime:
+    needs: scope
+    if: ${{ always() && needs.scope.result == 'success' && needs.scope.outputs.scope == 'full' }}
     name: Wasm runtime tests
     runs-on: ubuntu-24.04
     steps:
@@ -74,6 +93,8 @@ jobs:
       - run: dart test --platform node --compiler dart2wasm test/runtime/resources_test.dart test/runtime/streams_test.dart test/runtime/cancellation_test.dart
 
   consumers:
+    needs: scope
+    if: ${{ always() && needs.scope.result == 'success' && needs.scope.outputs.scope == 'full' }}
     name: Installed consumers (${{ matrix.shard }})
     strategy:
       fail-fast: false
@@ -102,6 +123,8 @@ jobs:
       - run: dart run tool/verify.dart --total-shards 2 --shard-index ${{ matrix.shard }}
 
   publication:
+    needs: scope
+    if: ${{ always() && needs.scope.result == 'success' && needs.scope.outputs.scope == 'full' }}
     name: Atomic publication (${{ matrix.os }})
     strategy:
       fail-fast: false
@@ -116,29 +139,15 @@ jobs:
       - run: dart pub get
       - run: dart test test/compiler/publish_test.dart
 
-  # Keep the existing required check name. Never turn a failed, skipped or
-  # cancelled dependency into success merely because the gate itself ran.
+  # Preserve the required check name. Only confirmed docs PRs may skip heavy
+  # jobs; static/package checks and classifier regression tests always run.
   check:
     if: ${{ always() }}
-    needs: [static, tests, wasm-runtime, consumers, publication]
+    needs: [scope, static, tests, wasm-runtime, consumers, publication]
     runs-on: ubuntu-24.04
     steps:
-      - name: Require every validation job to succeed
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Require the exact validation results for this scope
         env:
           RESULTS: ${{ toJSON(needs) }}
-        run: |
-          python3 - <<'PYTHON'
-          import json
-          import os
-          import sys
-
-          results = json.loads(os.environ["RESULTS"])
-          expected = {"static", "tests", "wasm-runtime", "consumers", "publication"}
-          if set(results) != expected:
-              sys.exit("Missing or unexpected validation jobs")
-          failed = {name: job["result"] for name, job in results.items()
-                    if job["result"] != "success"}
-          if failed:
-              sys.exit(f"Validation did not succeed: {failed}")
-          print("All validation jobs succeeded.")
-          PYTHON
+        run: python3 -B .github/scripts/ci_gate.py
