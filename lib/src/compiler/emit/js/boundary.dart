@@ -56,13 +56,14 @@ $wasmSharedBytesPolicy
 ${signals ? '$cancellationPolicy\n$wasmCancellationPolicy' : ''}
 ${hasBinary ? '$binaryPolicy\n$wasmBinaryPolicy' : ''}
 ${resources ? '$settlementObserver\n' : ''}const policies = ${jsonEncode(policies)};
+const scalarIsSafeInteger = Number.isSafeInteger;
 function checkedScalar(value, policy, path) {
   if (value === null && policy.nullable) return null;
   if (typeof value !== policy.type) {
     throw new TypeError(path + ': expected a JavaScript ' + policy.type + (policy.nullable ? ' or null' : ''));
   }
   if (policy.integer) {
-    if (policy.type === 'number' && !Number.isSafeInteger(value)) {
+    if (policy.type === 'number' && !scalarIsSafeInteger(value)) {
       throw new RangeError(path + ': expected a safe integer');
     }
     if (policy.type === 'bigint' && (value < -9223372036854775808n || value > 9223372036854775807n)) {
