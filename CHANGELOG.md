@@ -1,7 +1,24 @@
-## Unreleased
+## 0.15.0
 
-- Generate direct-Wasm bindings for Node from Dart declarations.
-- Validate safe integers and preserve JavaScript constructors and argument presence.
+- Rebuild binding generation around one `@NAPI()` export model and the separate
+  `package:napi/build.dart` API. See [migration notes](doc/annotations.md#migrating-earlier-bindings)
+  for changes from the earlier builder and runtime APIs.
+- Add experimental native Node-API addons on macOS arm64 alongside Dart Wasm.
+  Native builds automatically download and cache the matching precompiled runtime;
+  application builds need only the ordinary Dart 3.13.5 SDK.
+- Preserve JavaScript constructors, class inheritance and object identity, Dart
+  defaults and argument presence, exact UTF-16 strings, and integer precision.
+- Convert Lists, Maps, dictionaries, records and configured value classes; support
+  structural constant defaults and explicit binary snapshots or shared byte views.
+- Support opaque generic payloads, generic methods and concrete generic aliases
+  with shared TypeScript declarations across both targets.
+- Add Futures and Promises, retained synchronous and asynchronous callbacks,
+  bounded async iteration, cooperative cancellation, and resource disposal.
+- Share JavaScript Arrays and Maps through explicit `JsArray`/`JsMap` handles,
+  including handles nested in copied structures and callback signatures.
+- Build complete native, Wasm or dual-target npm packages with automatic loaders,
+  matching type declarations and licenses. Rebuild managed packages atomically
+  on local macOS APFS.
 
 ## 0.14.0
 

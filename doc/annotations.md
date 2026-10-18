@@ -205,15 +205,31 @@ use the explicit mappings described above.
 
 ## Migrating earlier bindings
 
-Use these mappings when adapting earlier source and package consumers:
+When upgrading from 0.14.x, change the Dart dependency to `napi: ^0.15.0` and
+use Dart **3.13.5** exactly. The compiler adapter now pins that SDK version.
 
-| Earlier assumption | Current mapping |
-| --- | --- |
-| Lowercase `@napi` | Use `@NAPI()`, or select unchanged dependency declarations with `ExternalLibrary` in the build script. |
-| Zero JS or one shipped Wasm file | Keep generated target assets and licenses together. Package imports initialize the backend; business logic stays in Dart. |
-| Factory-only classes or explicit presence flags | Keep `new Counter()` and ordinary argument presence/defaults. See [arguments](arguments.md). |
-| Map means a plain object or shared storage | Ordinary List/Map bindings copy; Map maps to JS Map. Use explicit [Dictionary](structural.md) for objects, [JsArray/JsMap](collections.md) for supported JS handles, and [SharedBytes](shared-bytes.md) for checked byte views. |
-| Dart int accepts any JS number | Use safe integers by default, bounded signed-64-bit bigint with `bigint: true`, or Dart BigInt for arbitrary precision. See [scalars](scalars.md). |
-| Every supplied undefined means omission | Ordinary optional arguments default for omission/undefined. Direct [opaque payloads](opaque.md) preserve supplied undefined separately from omission. |
-| GC or abort disposes business work | [Resources](resources.md) use explicit cleanup and operation leases; [cancellation](cancellation.md) is cooperative. Native cross-heap ownership cycles require explicit breaking. |
-| Native automatically selects a platform or falls back | The current [package root](packaging.md) is selected at build time; explicit backend failures propagate. Automatic selection and broader runtime supply remain open. |
+1. Replace `@napi` with `@NAPI()`. Keep importing `package:napi/napi.dart` in
+   business sources. Use [external selections](#external-selections) when the
+   original dependency cannot be edited.
+2. Replace `dart run napi:build ...` with a separate `tool/build.dart` that imports
+   `package:napi/build.dart` and calls `buildPackage`. Pass the source URI, output
+   directory, package configuration and npm `name`/`version` metadata, then run
+   `dart run tool/build.dart`. See the [complete build example](../README.md#build-a-package).
+3. Review `Map<String, T>` boundaries: they now accept and return JavaScript
+   `Map`, rather than plain objects. To retain an object-shaped API, declare
+   `Dictionary<T>` instead and wrap Dart map results with `Dictionary<T>(map)`.
+   It implements Dart `Map<String, T>`; both mappings copy their contents.
+   See [structural values](structural.md).
+4. Build into a fresh output directory for the first upgrade. A 0.14 output lacks
+   the ownership record required for [managed rebuilds](packaging.md#managed-rebuilds)
+   and is rejected rather than overwritten. Repackage all generated files and
+   declarations; do not retain the old `module.imports.mjs` filename in custom
+   copying or bundling rules.
+5. Existing Wasm package-root, `package-name/module.wasm` and relative
+   `./module.wasm` imports remain supported, with the generated companion files.
+   Wasm is still the default target. Choose `target: BuildTarget.native` for
+   native, or include both `targets` and select their package root with `target`.
+   Dual packages also expose `/native` and `/wasm`; imports initialize the chosen
+   backend without an application setup call or automatic fallback. See
+   [dual-target packages](packaging.md#explicit-dual-target-packages) and the
+   currently supported [native platform](native.md).
