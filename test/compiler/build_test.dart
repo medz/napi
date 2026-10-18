@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:napi/src/build/build.dart';
@@ -8,6 +7,7 @@ import 'package:napi/src/compiler/sdk_adapter/dart_sdk_adapter.dart';
 import 'package:test/test.dart';
 
 import '../../tool/scalar_fixture.dart';
+import '../fixtures/build_competitor.dart';
 
 const _kinds = [
   'empty directory',
@@ -17,27 +17,6 @@ const _kinds = [
   'file symlink',
   'dangling symlink',
 ];
-
-Future<void> _createCompetitor(Directory root, String kind) async {
-  final output = '${root.path}/output';
-  if (kind.endsWith('symlink')) {
-    final linked = '${root.path}/linked';
-    if (kind == 'directory symlink') {
-      await Directory(linked).create();
-      await File('$linked/keep').writeAsString('keep');
-    } else if (kind == 'file symlink') {
-      await File(linked).writeAsString('keep');
-    }
-    await Link(output).create(linked);
-  } else if (kind == 'file') {
-    await File(output).writeAsString('keep');
-  } else {
-    await Directory(output).create();
-    if (kind == 'populated directory') {
-      await File('$output/keep').writeAsString('keep');
-    }
-  }
-}
 
 Future<void> _expectCompetitor(Directory root, String kind) async {
   final output = '${root.path}/output';
@@ -93,30 +72,16 @@ Future<DartSdkAdapter> _racingSdk(Directory root, String kind) async {
   await Link('${bin.path}/snapshots').create('${real.path}/bin/snapshots');
   await Link('${sdk.path}/lib').create('${real.path}/lib');
   await Link('${sdk.path}/LICENSE').create('${real.path}/LICENSE');
-  final hook = File('${root.path}/create_competitor.dart');
-  await hook.writeAsString('''
-import '${File('test/compiler/build_test.dart').absolute.uri}' show createCompetitor;
-import 'dart:io';
-Future<void> main() async {
-  await createCompetitor(Directory(${_dartString(root.path)}), ${_dartString(kind)});
-}
-''');
   final executable = File('${bin.path}/dart');
   await executable.writeAsString('''#!/bin/sh
 set -eu
-${_quote(Platform.resolvedExecutable)} --packages=${_quote(File('.dart_tool/package_config.json').absolute.path)} ${_quote(hook.path)}
+${_quote(Platform.resolvedExecutable)} ${_quote(File('test/fixtures/build_competitor.dart').absolute.path)} ${_quote(root.path)} ${_quote(kind)}
 printf '%s\\n' 'Dart SDK version: $supportedDartSdkVersion (stable) (race hook)'
 ''');
   final chmod = await Process.run('chmod', ['+x', executable.path]);
   expect(chmod.exitCode, 0, reason: '${chmod.stdout}${chmod.stderr}');
   return DartSdkAdapter(executable: executable.path);
 }
-
-// Entrypoint for the separate version-hook process; not production API.
-Future<void> createCompetitor(Directory root, String kind) =>
-    _createCompetitor(root, kind);
-
-String _dartString(String value) => jsonEncode(value).replaceAll(r'$', r'\$');
 
 void main() {
   test('external functions fail before creating output or staging', () async {
@@ -157,7 +122,7 @@ external int unavailable(int value);
     test('existing $kind is rejected without changing user files', () async {
       final root = await Directory.systemTemp.createTemp('napi-preserve-');
       addTearDown(() => root.delete(recursive: true));
-      await _createCompetitor(root, kind);
+      await createCompetitor(root, kind);
       await expectLater(
         buildModule(
           bindings: await scalarBindings(),
