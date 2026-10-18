@@ -78,7 +78,12 @@ void main() {
       expect(manifest['files'], [..._requiredFiles, 'LICENSE']);
       expect(
         await output.list().map((file) => file.uri.pathSegments.last).toList(),
-        unorderedEquals([..._requiredFiles, 'LICENSE', 'package.json']),
+        unorderedEquals([
+          ..._requiredFiles,
+          'LICENSE',
+          'package.json',
+          '.napi-output.json',
+        ]),
       );
       expect(
         await File('${output.path}/LICENSE').readAsString(),
@@ -317,7 +322,7 @@ void main() {
         await File('${output.path}/package.json').readAsString(),
       ) as Map;
       expect(manifest['description'], 'publisher ${results.indexOf(true)}');
-      expect(await root.list().length, 2);
+      expect(await root.list().length, Platform.isWindows ? 2 : 3);
       expect(await source.list().length, _requiredFiles.length);
     },
   );

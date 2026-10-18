@@ -1,8 +1,9 @@
-# Fresh npm packages
+# npm packages
 
 `buildPackage` from `package:napi/build.dart` validates npm metadata before source
-analysis or compilation, then builds and assembles a fresh package. It removes
-its temporary build files and never replaces existing output. The default Wasm
+analysis or compilation, then builds and assembles a package. New output uses
+atomic no-replace publication. A package created by this builder can also be
+rebuilt on local macOS APFS; see the managed rebuild rules below. The default Wasm
 target exports `module.wasm` from both the package root and `./module.wasm`, with
 the same generated TypeScript declarations.
 
@@ -50,9 +51,64 @@ traversal, and NUL paths are rejected. Symlink components are also rejected;
 resolve an intentional system path alias before calling this API.
 
 Assembly validates inputs before creating staging, copies the allowlist into a
-sibling staging directory, and calls the existing atomic no-replace publisher.
-Existing files, directories, and links remain untouched. Concurrent mutation of
-source inputs is unsupported; this is not an open-file-descriptor sandbox.
+sibling staging directory, and publishes the completed result. Existing files,
+links and unmanaged directories remain untouched. Inputs and output cannot
+contain one another; external package URIs use the frontend's resolved source
+path for this check. Concurrent mutation of source inputs is unsupported; this
+is not an open-file-descriptor sandbox.
+
+## Managed rebuilds
+
+Call the same build or assembly API with the same output path. The builder's
+private `.napi-output.json` records the known artifact layout, hashes, selected
+documentation assets and ownership of native platform fields. It is omitted
+from the npm `files` list and tarball. An older output without this marker is
+unmanaged and is rejected; filename similarity does not confer ownership.
+
+Before publication, rebuilds verify the old generated files and fields. Edited
+generated artifacts, edited exports/file lists and collisions with newly
+generated paths fail without replacing the old package. Stale generated files
+are removed. Other author files and directories are copied independently, and
+author JSON fields are retained. Explicit metadata replaces a field at its top
+level, including an explicit `null`; nested objects are not recursively merged.
+Omitting a previously selected documentation asset retains its current content
+and its selection in `files`. Supplying the asset again replaces it. Unrelated
+author files do not expand the generated `files` list.
+
+Native-only `os`/`cpu` defaults are removed when switching to Wasm or dual output.
+Restrictions explicitly supplied by the author remain. A subsequent native-only
+build still requires the native platform values. Keep the private ownership
+record intact; it is build bookkeeping, not author configuration.
+
+Rebuilders hold a fail-fast sibling `<output>.napi-lock` using `flock`. Separate
+processes and Dart isolates contend on the same inode. The lock file deliberately
+remains after release or process exit: deleting it while another builder runs
+would split the lock. Fresh POSIX package builds also use this lock; raw module
+publication retains its existing behavior.
+
+The new package is committed with one `renamex_np(RENAME_SWAP)` directory exchange.
+Compilation or merge failures leave the old output intact. After a successful
+exchange, failure to remove old output or build scratch reports the retained path
+and still returns success; it never rolls the package back. An exchange error
+retains both names for inspection, without attempting two renames. This is atomic
+directory-name visibility, not a snapshot across multiple independent file opens
+or a power-loss durability guarantee. External programs editing output during a
+rebuild are unsupported; a final content/stat check catches changes but cannot
+serialize non-cooperating writers.
+
+Copies preserve author file metadata through the pinned macOS Dart SDK's
+`File.copy` (`COPYFILE_ALL`), and directory metadata through `copyfile` with
+`COPYFILE_METADATA`, including ACLs and extended attributes. Preservation errors
+fail before publication. Symlinks and special files anywhere in an existing
+package are rejected rather than dropped. Copying and verification cost scales
+with the retained contents; an installed `node_modules` tree receives no special
+exemption. No hard links are used as snapshots.
+
+Existing-output replacement is currently limited to local macOS APFS. Linux,
+Windows, network/other filesystems, legacy package adoption and raw module
+replacement remain open under #135. New-output publication retains its existing
+platform support. No extra flags, install scripts or external copy tools are
+required.
 
 `dart run tool/package_assembly_fixture.dart` builds real Dart Wasm, packs the npm
 package, moves its tarball to a path with spaces, removes the build/package
@@ -133,7 +189,6 @@ same installed artifacts with each configured Node runtime. A native AOT failure
 after a successful Wasm build verifies that no partial package is published and
 unrelated author files survive.
 
-Fresh assembly continues to reject existing output and uses atomic no-replace
-publication. Author-owned output merging and atomic rebuild/replacement remain
-#135. Automatic backend selection, runtime supply and other native platforms
+Managed rebuilds follow the same rules for single and dual output; legacy output
+still cannot be adopted automatically. Automatic backend selection, runtime supply and other native platforms
 remain #134/#144; this explicit dual-target slice does not complete those issues.

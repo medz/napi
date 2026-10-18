@@ -42,6 +42,44 @@ Future<void> verifyPackageAssembly(Directory root) async {
     },
     assets: {'LICENSE': File('LICENSE')},
   );
+  Directory? rebuiltModule;
+  if (Platform.isMacOS) {
+    // Reuse the real compiler output: exercise replacement and npm exclusion
+    // without compiling the same fixture twice.
+    rebuiltModule = await Directory('${canonical.path}/rebuild input').create();
+    for (final name in expectedFiles.difference({'package.json', 'LICENSE'})) {
+      await File('${packaged.path}/$name').copy('${rebuiltModule.path}/$name');
+    }
+    await File('${packaged.path}/author-notes.txt')
+        .writeAsString('keep locally');
+    await assembleWasmPackage(
+      module: BuiltModule(rebuiltModule, '3.13.5'),
+      output: packaged,
+      metadata: {'name': '@napi/path', 'version': '0.0.1'},
+    );
+    // One additional real Wasm compilation covers the high-level successful
+    // rebuild: its held lock, compiler scratch, shared update and cleanup.
+    await buildPackage(
+      library: File('test/compiler/package_assembly_fixtures.dart')
+          .absolute
+          .uri,
+      output: packaged,
+      packagesPath: File('.dart_tool/package_config.json').absolute.path,
+      metadata: {'name': '@napi/path', 'version': '0.0.2'},
+    );
+    final rebuilt = jsonDecode(
+      await File('${packaged.path}/package.json').readAsString(),
+    ) as Map;
+    if (rebuilt['author'] is! Map ||
+        rebuilt['version'] != '0.0.2' ||
+        await File('${packaged.path}/author-notes.txt').readAsString() !=
+            'keep locally') {
+      throw StateError('Managed rebuild lost author content or metadata.');
+    }
+    stdout.writeln(
+      'Managed real-artifact replacement and retained metadata: passed',
+    );
+  }
   final pack = await Process.run('npm', [
     'pack',
     '--ignore-scripts',
@@ -64,6 +102,7 @@ Future<void> verifyPackageAssembly(Directory root) async {
       .copy('${relocated.path}/$filename');
   // Prove installed imports cannot find the compiler's old build directories.
   await packaged.delete(recursive: true);
+  await rebuiltModule?.delete(recursive: true);
   final consumer = await Directory('${canonical.path}/fresh consumer space 雪')
       .create();
   await File('${consumer.path}/package.json')

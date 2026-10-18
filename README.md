@@ -193,6 +193,8 @@ Relative `.wasm` imports use a sibling `module.d.wasm.ts` and TypeScript's
 
 See [the Wasm backend design](doc/foundation.md) for export representation,
 automatic initialization, SDK coupling and fresh-output publication.
+See [npm packaging](doc/packaging.md) for managed rebuilds on macOS APFS and
+preservation of author files and metadata.
 
 ## License
 

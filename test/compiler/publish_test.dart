@@ -194,4 +194,133 @@ void main() {
     expect(await source.exists(), isTrue);
     expect(await target.exists(), isFalse);
   });
+
+  test(
+    'one exchange swaps populated directories without a missing name',
+    () async {
+      await target.create();
+      await File('${target.path}/marker').writeAsString('old');
+      checkPackageRebuildFilesystem(root);
+      exchangeDirectories(source, target);
+      expect(await File('${target.path}/marker').readAsString(), 'artifact');
+      expect(await File('${source.path}/marker').readAsString(), 'old');
+    },
+    skip: !Platform.isMacOS,
+  );
+
+  test(
+    'independent descriptors and isolates contend on one stable lock',
+    () async {
+      final lock = PackageLock.acquire(target);
+      final outputPath = target.path;
+      final lockFile = File('${target.path}.napi-lock');
+      try {
+        expect(
+          () => PackageLock.acquire(target),
+          throwsA(isA<FileSystemException>()),
+        );
+        expect(
+          await Isolate.run(() {
+            try {
+              PackageLock.acquire(Directory(outputPath)).release();
+              return false;
+            } on FileSystemException {
+              return true;
+            }
+          }),
+          isTrue,
+        );
+        expect(await lockFile.exists(), isTrue);
+      } finally {
+        lock.release();
+      }
+      expect(await lockFile.exists(), isTrue);
+      final next = PackageLock.acquire(target);
+      try {
+        // A competitor opens the same retained inode, rather than a new lock at
+        // a name unlinked by the first builder.
+        expect(
+          () => PackageLock.acquire(target),
+          throwsA(isA<FileSystemException>()),
+        );
+      } finally {
+        next.release();
+      }
+      expect(await lockFile.exists(), isTrue);
+    },
+    skip: Platform.isWindows,
+  );
+
+  test('process exit releases a lock without deleting the inode', () async {
+    final script = File('${root.path}/lock.dart');
+    await script.writeAsString('''
+import 'dart:io';
+import 'package:napi/src/build/publish.dart';
+Future<void> main(List<String> args) async {
+  final lock = PackageLock.acquire(Directory(args.single));
+  stdout.writeln('locked');
+  await stdin.first;
+  lock.release();
+}
+''');
+    final child = await Process.start(Platform.resolvedExecutable, [
+      '--packages=${File('.dart_tool/package_config.json').absolute.path}',
+      script.path,
+      target.path,
+    ]);
+    addTearDown(() {
+      child.kill();
+    });
+    await child.stdout.first;
+    expect(
+      () => PackageLock.acquire(target),
+      throwsA(isA<FileSystemException>()),
+    );
+    expect(child.kill(ProcessSignal.sigkill), isTrue);
+    await child.exitCode;
+    final next = PackageLock.acquire(target);
+    next.release();
+    expect(await File('${target.path}.napi-lock').exists(), isTrue);
+  }, skip: Platform.isWindows);
+
+  test('lock names reject symlinks without touching their targets', () async {
+    final external = File('${root.path}/external');
+    await Link('${target.path}.napi-lock').create(external.path);
+    expect(
+      () => PackageLock.acquire(target),
+      throwsA(isA<FileSystemException>()),
+    );
+    expect(await external.exists(), isFalse);
+  }, skip: Platform.isWindows);
+
+  test(
+    'postcommit cleanup failure succeeds; precommit cleanup still fails',
+    () async {
+      final residual = _DeleteFailure('${root.path}/build scratch');
+      await cleanPackageStaging(residual, committed: true);
+      expect(residual.attempts, 1);
+      await expectLater(
+        cleanPackageStaging(residual, committed: false),
+        throwsA(isA<FileSystemException>()),
+      );
+      expect(residual.attempts, 2);
+    },
+  );
+}
+
+final class _DeleteFailure implements Directory {
+  _DeleteFailure(this.path);
+  @override
+  final String path;
+  int attempts = 0;
+  @override
+  Future<bool> exists() async => true;
+  @override
+  Future<Directory> delete({bool recursive = false}) async {
+    attempts++;
+    throw FileSystemException('injected cleanup failure', path);
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
