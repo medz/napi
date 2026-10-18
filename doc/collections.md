@@ -50,10 +50,22 @@ parameters also work, for example `JsArray<T>`, `JsArray<T?>`,
 the same [storage-only carrier contract](opaque.md) as direct opaque arguments:
 reads and writes preserve the raw JS value without inspecting or coercing it.
 Opaque Map keys keep JavaScript SameValueZero semantics, including object and
-symbol identity. No additional annotation is needed. Other element types,
-nested handles, callbacks containing handles, and handles inside structural or
-value-class values produce diagnostics. Direct inputs, reference-class members,
-nullable handles and Future/Stream output payloads are supported.
+symbol identity. No additional annotation is needed. Direct inputs,
+reference-class members, nullable handles and Future/Stream output payloads are
+supported. Handles also compose inside Lists, Map values, Dictionaries, records
+and value classes: the outer containers copy while each handle retains its
+original JS source.
+
+```dart
+@NAPI()
+List<JsArray<int>> echo(List<JsArray<int>> values) => values;
+```
+
+For `const output = echo([source])`, the returned outer array is new and
+`output[0] === source`. Admission does not inspect the handle's elements; later
+Dart reads and writes observe the live source. Handles cannot be structural Map
+keys, elements of another handle, or callback parameters/results. Other handle
+element types remain unsupported.
 
 Admission checks the genuine container brand without walking its contents.
 Cross-realm containers work; Proxy containers are rejected. Each operation

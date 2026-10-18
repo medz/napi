@@ -86,9 +86,9 @@ final class NativeModulePlan {
             .any((value) => value is SharedBytesConversion),
   );
   bool get hasStreams => calls.any((call) => call.returnsStream);
-  Iterable<JsCollectionConversion> get jsCollections => calls
-      .expand((call) => [...call.inputs, ?call.output])
-      .whereType<JsCollectionConversion>();
+  Iterable<JsCollectionConversion> get jsCollections =>
+      conversionGraph(calls.expand((call) => [...call.inputs, ?call.output]))
+          .whereType<JsCollectionConversion>();
   int get streamClassId => classes.length;
   // Public export identifiers cannot contain $, so this private class cannot
   // collide with a selected Dart declaration.

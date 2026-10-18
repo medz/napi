@@ -309,7 +309,72 @@ async function opaqueRetained(api) {
   invalid.clear(); failedKey = null;
   await collect(api, () => failedWeak.deref() === undefined);
 }
-const cases = {direct, scalars, maps, accessors, admission, captures, futures, streams, retained, opaque, opaqueAsync, opaqueRetained};
+async function nested(api) {
+  const array = [7], map = new Map([['key', 8]]);
+  const input = {arrays: [array, null], maps: new Map([['first', map], ['null', null]]), dictionaries: {leaf: array}};
+  const check = output => {
+    assert.notEqual(output, input); assert.notEqual(output.arrays, input.arrays);
+    assert.notEqual(output.maps, input.maps); assert.notEqual(output.dictionaries, input.dictionaries);
+    assert.equal(output.arrays[0], array); assert.equal(output.arrays[1], null);
+    assert.equal(output.maps.get('first'), map); assert.equal(output.maps.get('null'), null);
+    assert.equal(output.dictionaries.leaf, array);
+  };
+  check(api.nested(input));
+  array[0] = 11; assert.equal(api.nestedAccess(input, false), 11);
+  assert.equal(api.nestedAccess(input, true), 42); assert.equal(array[0], 42); assert.equal(map.get('key'), 43);
+  const copies = api.nested(input); copies.arrays.length = 0; copies.maps.clear(); delete copies.dictionaries.leaf;
+  assert.equal(input.arrays.length, 2); assert.equal(input.maps.size, 2); assert.equal(input.dictionaries.leaf, array);
+  let gets = 0;
+  const lazy = []; Object.defineProperty(lazy, '0', {get() {gets++; throw 'lazy nested access';}});
+  const lazyInput = {...input, arrays: [lazy]};
+  assert.equal(api.nested(lazyInput).arrays[0], lazy); assert.equal(gets, 0);
+  exact(() => api.nestedAccess(lazyInput, false), 'lazy nested access'); assert.equal(gets, 1);
+  api.nested(input);
+  const entered = api.entered();
+  for (const bad of [
+    {...input, arrays: [undefined]}, {...input, arrays: new Array(1)},
+    {...input, maps: new Map([['first', undefined]])},
+    {...input, dictionaries: {leaf: undefined}}, {...input, dictionaries: {leaf: null}},
+  ]) assert.throws(() => api.nested(bad), TypeError);
+  assert.equal(api.entered(), entered); assert.equal(api.read(0), 42);
+  // A later sibling failure must not invalidate an already cached adapter.
+  assert.throws(() => api.nested({...input, maps: new Map([['first', {}]])}), TypeError);
+  assert.equal(api.read(0), 42); api.write(0, 44); assert.equal(array[0], 44);
+  const fresh = [53], value = {array: fresh, map};
+  // The first parameter's constructor saves its adapter before the next parameter fails.
+  assert.throws(() => api.nestedValue(value, ['bad']), TypeError);
+  assert.equal(api.read(0), 53); api.write(0, 54); assert.equal(fresh[0], 54);
+  const projected = api.nestedValue(value, []);
+  assert.notEqual(projected, value); assert.equal(projected.array, fresh); assert.equal(projected.map, map);
+  const original = [61], replacement = [62], trigger = [];
+  const captured = {first: {trigger}, last: original};
+  let reentered = 0;
+  Object.defineProperty(trigger, '0', {get() {reentered++; captured.last = replacement; return 1;}});
+  // The constructor reenters JS after normalization has captured every source.
+  assert.equal(api.nestedCaptured(captured)[0], original);
+  assert.equal(captured.last, replacement); assert.equal(reentered, 1);
+  for (const fn of [api.nestedFake, api.nestedWrongPolicy]) {
+    assert.throws(() => fn(false), error => error instanceof TypeError && /first/.test(error.message));
+    assert.equal(api.nestedOrder(), 'first;last;');
+    assert.throws(() => fn(true), error => !(error instanceof TypeError) && /later nested getter/.test(error.message));
+    assert.equal(api.nestedOrder(), 'first;last;');
+    assert.equal(api.read(0), 54);
+  }
+  const payload = {then() {throw 'nested then must not run';}}, raw = [undefined, payload];
+  const nestedPayload = [raw], payloadOutput = api.nestedPayloads(nestedPayload);
+  assert.notEqual(payloadOutput, nestedPayload); assert.equal(payloadOutput[0], raw);
+  Object.defineProperty(array, 'then', {get() {throw 'array then must not run';}, configurable: true});
+  check(await api.nestedLater(input));
+  const events = api.nestedEvents(input); check((await events.next()).value); await events.return();
+  delete array.then;
+  const other = await import('@napi/js-collections-external');
+  assert.equal(other.nested(input).arrays[0], array);
+  assert.equal(api.nested(input).arrays[0], array);
+  // Raw containers may be admitted by a different policy and module.
+  assert.equal(other.nestedPayloads([array])[0], array);
+  assert.equal(api.nestedPayloads([array])[0], array);
+}
+const cases = {direct, scalars, maps, accessors, admission, captures, futures, streams, retained, opaque, opaqueAsync, opaqueRetained, nested};
 async function worker(held) {
   const thread = new Worker(new URL(import.meta.url), {workerData: {held}});
   await new Promise((resolve, reject) => {
@@ -325,6 +390,7 @@ if (!isMainThread) {
 } else if (process.argv[2]) {
   const name = process.argv[2];
   if (name === 'worker-only') {await worker(false); await worker(true);}
+  else if (name === 'nested-only') {await nested(await import('@napi/js-collections-nested'));}
   else {
     const api = await import('@napi/js-collections-fixture');
     if (name === 'external') {const other = await import('@napi/js-collections-external'); for (const test of Object.values(cases)) await test(other);}
@@ -332,7 +398,7 @@ if (!isMainThread) {
     else await cases[name](api);
   }
 } else {
-  for (const name of [...Object.keys(cases), 'external', 'worker-only', 'workers-with-main']) {
+  for (const name of [...Object.keys(cases), 'external', 'nested-only', 'worker-only', 'workers-with-main']) {
     const result = spawnSync(process.execPath, ['--expose-gc', fileURLToPath(import.meta.url), name], {encoding: 'utf8', timeout: 30000});
     assert.ifError(result.error); assert.equal(result.status, 0, `${name}: ${result.stdout}\n${result.stderr}`);
     console.log(`JS collection handles: ${name} passed`);

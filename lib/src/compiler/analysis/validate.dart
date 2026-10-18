@@ -2119,27 +2119,8 @@ void validateValueType(
   bool allowAbortSignal = false,
 }) {
   if (isJsCollectionType(type)) {
-    final collection = type as DeclaredType;
-    if (collection.typeArguments.length !=
-            (collection.declaration == jsMapDeclaration ? 2 : 1) ||
-        !collection.typeArguments.every(
-          (type) =>
-              _isBackendScalar(type) || isOpaqueType(type, opaqueParameters),
-        )) {
-      throw BindingDiagnostic(
-        'NAPI_JS_COLLECTION',
-        'JsArray/JsMap support scalar or direct opaque elements; nested, reference and resource elements are not supported.',
-        source,
-      );
-    }
+    _validateJsCollection(type as DeclaredType, source, opaqueParameters);
     return;
-  }
-  if (_containsJsCollection(type)) {
-    throw BindingDiagnostic(
-      'NAPI_JS_COLLECTION',
-      'JsArray/JsMap require a direct input or result payload; nested and callback handles are not supported.',
-      source,
-    );
   }
   if (allowAbortSignal &&
       direction == ValueDirection.input &&
@@ -2187,7 +2168,7 @@ void validateValueType(
     source,
     referenceClasses,
     direction,
-    <ClassBinding>{},
+    <(ClassBinding, bool)>{},
     opaqueParameters,
   );
   if (!_isBackendValue(
@@ -2220,19 +2201,24 @@ bool _containsAbortSignal(BindingType type) => switch (type) {
   _ => false,
 };
 
-bool _containsJsCollection(BindingType type) => switch (type) {
-  DeclaredType() =>
-    type.declaration == jsArrayDeclaration ||
-        type.declaration == jsMapDeclaration ||
-        type.typeArguments.any(_containsJsCollection),
-  RecordTypeBinding() =>
-    type.positional.any(_containsJsCollection) ||
-        type.named.values.any(_containsJsCollection),
-  FunctionTypeBinding() =>
-    _containsJsCollection(type.result) ||
-        type.parameters.any((p) => _containsJsCollection(p.type)),
-  _ => false,
-};
+void _validateJsCollection(
+  DeclaredType collection,
+  SourceLocation source,
+  Set<DeclarationId> opaqueParameters,
+) {
+  if (collection.typeArguments.length !=
+          (collection.declaration == jsMapDeclaration ? 2 : 1) ||
+      !collection.typeArguments.every(
+        (type) =>
+            _isBackendScalar(type) || isOpaqueType(type, opaqueParameters),
+      )) {
+    throw BindingDiagnostic(
+      'NAPI_JS_COLLECTION',
+      'JsArray/JsMap support scalar or direct opaque elements; nested, reference and resource elements are not supported.',
+      source,
+    );
+  }
+}
 
 bool _containsCallback(BindingType type) => switch (type) {
   FunctionTypeBinding() => true,
@@ -2606,7 +2592,7 @@ void _checkValueDirection(
   SourceLocation source,
   List<ClassBinding> classes,
   ValueDirection direction,
-  Set<ClassBinding> visited,
+  Set<(ClassBinding, bool)> visited,
   Set<DeclarationId> opaqueParameters, {
   bool mapKey = false,
 }) {
@@ -2624,11 +2610,15 @@ void _checkValueDirection(
     return;
   }
   if (isJsCollectionType(type)) {
-    throw BindingDiagnostic(
-      'NAPI_JS_COLLECTION',
-      'JsArray/JsMap are not supported inside structural or value-class containers.',
-      source,
-    );
+    if (mapKey) {
+      throw BindingDiagnostic(
+        'NAPI_JS_COLLECTION',
+        'JsArray/JsMap cannot be structural Map keys; handle values are supported.',
+        source,
+      );
+    }
+    _validateJsCollection(type as DeclaredType, source, opaqueParameters);
+    return;
   }
   if (type is DeclaredType &&
       type.declaration.library == Uri.parse('dart:typed_data') &&
@@ -2648,7 +2638,7 @@ void _checkValueDirection(
         source,
       );
     }
-    if (!visited.add(binding)) return;
+    if (!visited.add((binding, mapKey))) return;
     for (final child in _valueChildren(binding, direction)) {
       _checkValueDirection(
         child,
@@ -2698,6 +2688,7 @@ bool _isBackendValue(
   Set<DeclarationId> opaqueParameters = const {},
 ]) {
   if (isOpaqueType(type, opaqueParameters) ||
+      isJsCollectionType(type) ||
       _isBackendScalar(type) ||
       isBinaryType(type) ||
       isSharedBytesType(type) ||

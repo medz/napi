@@ -44,7 +44,7 @@ See [the architecture](doc/architecture.md) for backend boundaries and
 - Nested Lists, Maps, explicit Dictionaries and records with strict fields, reference/opaque value leaves and bounded traversal on both targets (opaque Map keys remain unsupported)
 - Independent Uint8List/ByteBuffer snapshots with strict brands, visible byte ranges and invalidation checks on both targets
 - Explicit SharedBytes live views with checked resizable windows, weak identity and bulk operations on both targets
-- JsArray/JsMap handles with scalar or direct opaque payloads, retaining the original JavaScript container
+- JsArray/JsMap handles with scalar or direct opaque payloads, retaining the original JavaScript container even inside copied structures and value classes
 - Safe-number `int` by default, or fixed JavaScript `bigint` with `@NAPI(bigint: true)`
 - A pinned Dart SDK adapter and linker producing actual Wasm named exports
 - Generated reference classes, named/factory constructors and weak wrapper identity on both targets

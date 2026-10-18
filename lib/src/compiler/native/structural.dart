@@ -22,6 +22,23 @@ String nativeScalarWriter(ScalarConversion value) => switch (value.kind) {
   ScalarKind.bigInteger => 'bigIntegerResult',
 };
 
+String nativeJsCollectionRead(
+  JsCollectionConversion conversion,
+  String env,
+  String value,
+  String path,
+) {
+  final method = conversion.isMap ? 'jsMap' : 'jsArray';
+  final elements = [?conversion.key, conversion.value];
+  final policies = elements
+      .map(
+        (c) =>
+            'const NativeJsElement<${c.dartType}>(${_quote(c is OpaqueConversion ? 'opaque' : (c as ScalarConversion).kind.name)}, nullable: ${c.nullable}, bigint: ${c is ScalarConversion && c.bigint})',
+      )
+      .join(', ');
+  return '_api.$method($env, $value, ${_quote(conversion.signatureKey)}, $path, $policies)';
+}
+
 /// Typed traversal owns only callback-scoped JS handles and ordinary Dart values.
 final class NativeStructuralEmitter {
   final bool hasResources;
@@ -41,6 +58,7 @@ final class NativeStructuralEmitter {
           (value) =>
               value is BinaryConversion ||
               value is SharedBytesConversion ||
+              value is JsCollectionConversion ||
               value is OpaqueConversion,
         )) {
       return _read(conversion);
@@ -96,9 +114,14 @@ final class NativeStructuralEmitter {
     switch (conversion) {
       case AbortSignalConversion():
       case CallbackConversion():
-      case JsCollectionConversion():
         throw StateError(
-          'Signal, callback and JS collection structural leaves are unsupported',
+          'Signal and callback structural leaves are unsupported',
+        );
+      case JsCollectionConversion():
+        // The adapter owns its source, including cache hits and constructor
+        // escapes. It must not join the opaque input rollback list.
+        _code.writeln(
+          '  return ${nativeJsCollectionRead(conversion, 'env', 'value', 'path')};',
         );
       case OpaqueConversion():
         _code.writeln(
@@ -225,9 +248,8 @@ final class NativeStructuralEmitter {
     switch (conversion) {
       case AbortSignalConversion():
       case CallbackConversion():
-      case JsCollectionConversion():
         throw StateError(
-          'Signal, callback and JS collection structural leaves are unsupported',
+          'Signal and callback structural leaves are unsupported',
         );
       case BinaryConversion():
         final bytes = conversion.kind == BinaryKind.uint8List
@@ -242,6 +264,7 @@ final class NativeStructuralEmitter {
       case OpaqueConversion() ||
           ScalarConversion() ||
           ReferenceConversion() ||
+          JsCollectionConversion() ||
           SharedBytesConversion():
         _code.writeln('  return value;');
       case ListConversion(:final element):
@@ -385,9 +408,12 @@ final class NativeStructuralEmitter {
     switch (conversion) {
       case AbortSignalConversion():
       case CallbackConversion():
-      case JsCollectionConversion():
         throw StateError(
-          'Signal, callback and JS collection structural leaves are unsupported',
+          'Signal and callback structural leaves are unsupported',
+        );
+      case JsCollectionConversion():
+        _code.writeln(
+          '  return _api.jsCollectionResult(env, value!, ${_quote(conversion.signatureKey)}, path);',
         );
       case OpaqueConversion():
         _code.writeln(
@@ -475,11 +501,10 @@ final class NativeStructuralEmitter {
     ReferenceConversion() ||
     BinaryConversion() ||
     SharedBytesConversion() ||
+    JsCollectionConversion() ||
     OpaqueConversion() => [],
-    AbortSignalConversion() ||
-    CallbackConversion() ||
-    JsCollectionConversion() => throw StateError(
-      'Signal, callback and JS collection structural leaves are unsupported',
+    AbortSignalConversion() || CallbackConversion() => throw StateError(
+      'Signal and callback structural leaves are unsupported',
     ),
   };
 
@@ -492,6 +517,7 @@ final class NativeStructuralEmitter {
         conversion is ReferenceConversion ||
         conversion is BinaryConversion ||
         conversion is SharedBytesConversion ||
+        conversion is JsCollectionConversion ||
         conversion is OpaqueConversion) {
       return _normalizers[conversion] = _read(conversion);
     }
@@ -642,6 +668,7 @@ final class NativeStructuralEmitter {
         conversion is ReferenceConversion ||
         conversion is BinaryConversion ||
         conversion is SharedBytesConversion ||
+        conversion is JsCollectionConversion ||
         conversion is OpaqueConversion) {
       _code.writeln('  return value as ${conversion.dartType};\n}');
       return name;

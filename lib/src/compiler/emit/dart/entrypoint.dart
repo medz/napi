@@ -17,9 +17,8 @@ String emitDart(ModulePlan plan) {
   );
   final streams = plan.calls.any((call) => call.returnsStream);
   final signals = plan.conversions.any((c) => c is AbortSignalConversion);
-  final jsCollections = plan.conversions.any(
-    (c) => c is JsCollectionConversion,
-  );
+  final jsCollections = conversionGraph(plan.conversions)
+      .any((c) => c is JsCollectionConversion);
   final binary = conversionGraph(plan.conversions)
       .any((c) => c is BinaryConversion);
   final callbacks = {

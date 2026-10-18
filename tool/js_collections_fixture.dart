@@ -23,6 +23,17 @@ dependencies:
 ''');
   await File('test/fixtures/js_collections.dart')
       .copy('${project.path}/business.dart');
+  const nestedFunctions = [
+    'nested',
+    'nestedAccess',
+    'nestedLater',
+    'nestedEvents',
+    'nestedPayloads',
+    'nestedValue',
+    'nestedCaptured',
+    'nestedFake',
+    'nestedOrder',
+  ];
   const functions = [
     'remember',
     'same',
@@ -80,19 +91,31 @@ import 'dart:io';
 import 'package:napi/build.dart';
 import 'package:napi/napi.dart';
 Future<void> main() async {
-  for (final external in [false, true]) {
+  for (final directory in ['package', 'external', 'nested']) {
+    final external = directory != 'package';
     await buildPackage(
       library: File('business.dart').absolute.uri,
-      output: Directory(external ? 'external' : 'package'),
-      metadata: {'name': external ? '@napi/js-collections-external' : '@napi/js-collections-fixture', 'version': '0.0.0'},
+      output: Directory(directory),
+      metadata: {'name': '@napi/js-collections-\${directory == 'package' ? 'fixture' : directory}', 'version': '0.0.0'},
       packagesPath: File('.dart_tool/package_config.json').absolute.path,
-      external: external ? const ExternalLibrary([
-        ${functions.map((name) => "ExternalFunction('$name'),").join('\n        ')}
-        ${bigints.map((name) => "ExternalFunction('$name', config: NAPI(bigint: true)),").join('\n        ')}
-        ExternalClass('Holder'),
-        ExternalClass('ArrayPayloads'),
-        ExternalClass('MapPayloads'),
-        ExternalClass('Owner', config: NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')),
+      external: external ? ExternalLibrary([
+        if (directory == 'external') ...const [
+          ${functions.map((name) => "ExternalFunction('$name'),").join('\n          ')}
+          ${bigints.map((name) => "ExternalFunction('$name', config: NAPI(bigint: true)),").join('\n          ')}
+          ExternalClass('Holder'),
+          ExternalClass('ArrayPayloads'),
+          ExternalClass('MapPayloads'),
+          ExternalClass('Owner', config: NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')),
+        ] else ...const [
+          ExternalFunction('read'),
+          ExternalFunction('write'),
+          ExternalFunction('entered'),
+        ],
+        ${nestedFunctions.map((name) => "const ExternalFunction('$name'),").join('\n        ')}
+        const ExternalFunction('nestedWrongPolicy', config: NAPI(bigint: true)),
+        const ExternalClass('NestedValue', config: NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')),
+        const ExternalClass('NestedCapture', config: NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')),
+        const ExternalClass('NestedOutput', config: NAPI(classPolicy: ClassPolicy.value)),
       ]) : null,
       ${native ? 'target: BuildTarget.native,\n      nativeRuntime: Directory(${jsonEncode(nativeRuntime.absolute.path)}),' : ''}
     );
@@ -119,6 +142,7 @@ Future<void> main() async {
   for (final (directory, name) in [
     ('package', 'fixture'),
     ('external', 'external'),
+    ('nested', 'nested'),
   ]) {
     final package = '${project.path}/$directory';
     await run('npm', ['pack', '--ignore-scripts', '--silent'], cwd: package);

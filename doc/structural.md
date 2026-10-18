@@ -6,8 +6,10 @@ Every structural node can be nullable. Leaves use the existing strict scalar
 rules for `bool`, `String`, `int`, `double` and `BigInt`, or the selected
 reference-class contract. Open generic declarations also support [opaque](opaque.md)
 `T`/`T?` leaves in Lists, Dictionaries, records and Map values, plus selected
-references such as `List<Box<T>>`. Opaque Map keys and nested `JsArray`/`JsMap`
-handle types remain unsupported. [Value classes](values.md) compose as nested structural
+references such as `List<Box<T>>`. [JsArray/JsMap handles](collections.md) can be
+leaves inside copied containers and value classes, preserving their original JS
+source identity. Opaque values and handles cannot be Map keys.
+[Value classes](values.md) compose as nested structural
 shapes with explicit input construction. `@NAPI(bigint: true)` applies recursively to Dart `int`
 leaves. Functions, constructors, methods, fields and accessors share this model.
 
@@ -150,10 +152,9 @@ platforms remain unqualified. See [supported toolchains](../README.md#verify).
 
 Defaults containing reference, resource, opaque or value-class leaves, opaque
 Map keys and remaining generic reference specializations are not supported.
-Nested JS collection handles and open generic resource/value classes are still
-unsupported. Failed input conversion
-does not invoke the exported business method, reference
-constructor or setter. Explicit [value-class constructors](values.md) execute
+Open generic resource/value classes are still unsupported. Failed input conversion
+does not invoke the exported business method, reference constructor or setter.
+Explicit [value-class constructors](values.md) execute
 during input materialization after raw validation; domain failures may retain
 earlier constructor side effects. Failed output conversion does not undo business mutations;
 any temporary wrappers created before failure follow normal garbage collection.

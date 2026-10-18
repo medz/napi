@@ -16,6 +16,9 @@ final class BoundaryLeafAdapter implements StructuralLeafAdapter {
   @override
   String read(ValueConversion leaf, String value, String path) {
     if (leaf is OpaqueConversion) return 'boxOpaque($value)';
+    if (leaf is JsCollectionConversion) {
+      return '\$jcAdmit($value, ${leaf.isMap}, ${leaf.nullable}, $path)';
+    }
     if (leaf is SharedBytesConversion) {
       return '\$napiReadSharedBytes($value, ${leaf.nullable}, $path)';
     }
@@ -34,6 +37,9 @@ final class BoundaryLeafAdapter implements StructuralLeafAdapter {
   @override
   String write(ValueConversion leaf, String value, String path) {
     if (leaf is OpaqueConversion) return 'unboxOpaque($value)';
+    if (leaf is JsCollectionConversion) {
+      return '\$jcAdmit($value, ${leaf.isMap}, ${leaf.nullable}, $path)';
+    }
     if (leaf is SharedBytesConversion) {
       return '\$napiReadSharedBytes($value, ${leaf.nullable}, $path)';
     }
@@ -102,8 +108,16 @@ StructuralBoundary emitStructuralBoundary(
     }
     switch (node) {
       case CallbackConversion():
-      case JsCollectionConversion():
         throw StateError('Nested callback conversion is not supported.');
+      case JsCollectionConversion():
+        if (output) {
+          code.writeln(
+            "  if (value === false) throw new \$jcTypeError(path + ': expected a JS collection handle with this module and element policy');",
+          );
+        }
+        code.writeln(
+          '  return ${output ? leafAdapter.write(node, 'value', 'path') : leafAdapter.read(node, 'value', 'path')};',
+        );
       case AbortSignalConversion():
         throw StateError('Nested AbortSignal conversion is not supported.');
       case OpaqueConversion() ||

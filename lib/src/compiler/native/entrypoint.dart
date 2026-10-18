@@ -437,16 +437,8 @@ ${tests.declarations}  int? canonical;''');
           '    a$index = ${conversion.nullable ? '_api.isNull(call.env, raw$index) ? null : ' : ''}_api.sharedBytes(call.env, raw$index, $path);',
         );
       } else if (conversion is JsCollectionConversion) {
-        final method = conversion.isMap ? 'jsMap' : 'jsArray';
-        final elements = [?conversion.key, conversion.value];
-        final policies = elements
-            .map(
-              (c) =>
-                  'const NativeJsElement<${c.dartType}>(${_quote(c is OpaqueConversion ? 'opaque' : (c as ScalarConversion).kind.name)}, nullable: ${c.nullable}, bigint: ${c is ScalarConversion && c.bigint})',
-            )
-            .join(', ');
         code.writeln(
-          '    a$index = ${conversion.nullable ? '_api.isNull(call.env, raw$index) ? null : ' : ''}_api.$method(call.env, raw$index, ${_quote(conversion.signatureKey)}, $path, $policies);',
+          '    a$index = ${conversion.nullable ? '_api.isNull(call.env, raw$index) ? null : ' : ''}${nativeJsCollectionRead(conversion, 'call.env', 'raw$index', path)};',
         );
       } else if (conversion is ScalarConversion) {
         final converted =
