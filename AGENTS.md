@@ -15,9 +15,11 @@ Preserve unresolved requirements and their evidence. Do not weaken scalar,
 presence, identity, or lifetime contracts to make a prototype count as complete.
 
 Run format, analyze, tests (including Node and TypeScript), and pub dry-run for
-code, tests, tools, dependency or CI changes. Ordinary non-executable Markdown
-changes limited to AGENTS.md, README.md, CHANGELOG.md and doc/**/*.md use
-git diff --check. Mixed or unknown paths and uncertain history use full CI.
+code, tests, tools, dependency or CI changes. Only pull requests changing ordinary
+non-executable doc/**/*.md files may skip expensive test jobs. Static checks,
+package dry-run, classifier/gate tests and
+git diff --check still run. Every main push uses full CI. Root Markdown files,
+mixed or unknown paths, mode/type changes and uncertain history use full CI.
 Annotated scalar fixtures currently exercise the source-to-Wasm pipeline.
 Handwritten ABI fixtures provide separate, limited evidence for later contracts.
 Add native conformance as its implementation lands, including fresh packages,
