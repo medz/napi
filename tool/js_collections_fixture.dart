@@ -65,6 +65,14 @@ dependencies:
     'mapEvents',
     'copied',
     'fake',
+    'renamedPolicy',
+    'numberPolicy',
+    'nullablePayload',
+    'nullableMapPayload',
+    'stringPayload',
+    'keyedScalar',
+    'firstPayload',
+    'firstScalar',
   ];
   const bigints = ['bigBooleans', 'int64', 'intKey', 'wrongPolicy'];
   await File('${project.path}/build.dart').writeAsString('''
@@ -82,6 +90,8 @@ Future<void> main() async {
         ${functions.map((name) => "ExternalFunction('$name'),").join('\n        ')}
         ${bigints.map((name) => "ExternalFunction('$name', config: NAPI(bigint: true)),").join('\n        ')}
         ExternalClass('Holder'),
+        ExternalClass('ArrayPayloads'),
+        ExternalClass('MapPayloads'),
         ExternalClass('Owner', config: NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')),
       ]) : null,
       ${native ? 'target: BuildTarget.native,\n      nativeRuntime: Directory(${jsonEncode(nativeRuntime.absolute.path)}),' : ''}

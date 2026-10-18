@@ -29,3 +29,31 @@ api.rememberMap(new Map([[1, 1]]));
 // @ts-expect-error A collection handle is the original Array, not a facade.
 array.get(0);
 void [array, same, map, big, wide, maybe, nullable, holder, promise, stream, mapPromise, owned];
+
+type Payload = {id: number} | undefined;
+const payloads = new api.ArrayPayloads<Payload>([{id: 1}, undefined]);
+const original: Array<Payload> = payloads.source();
+payloads.put(0, undefined);
+const saved: Payload | null = payloads.saved();
+const nullablePayload: Array<Payload | null> = [null, undefined];
+api.nullablePayload<Payload>(nullablePayload);
+// @ts-expect-error Wrong logical payload.
+payloads.put(0, 'wrong');
+// @ts-expect-error Required opaque argument must still be supplied.
+payloads.put(0);
+const payloadMap = new api.MapPayloads<object, Payload>(new Map());
+payloadMap.put({}, undefined);
+const originalMap: Map<object, Payload> = payloadMap.source();
+const payloadKey: object | null = payloadMap.key();
+// @ts-expect-error Wrong logical key.
+payloadMap.has('wrong');
+// @ts-expect-error Required opaque key must still be supplied.
+payloadMap.has();
+const captured: Promise<Payload | null> = payloads.captured(0);
+const payloadEvents: AsyncIterableIterator<Payload | null, undefined, undefined> = payloads.events();
+const sourceLater: Promise<Payload[]> = payloads.later();
+const sourceEvents: AsyncIterableIterator<Payload[], undefined, undefined> = payloads.sources();
+const directPayload: Payload | null = direct.stringPayload(new Map<string, Payload>(), 'key');
+const externalPayload: Payload | null = external.stringPayload(new Map<string, Payload>(), 'key');
+const selectedNumber: number | null = api.keyedScalar(new Map<object, number>(), {});
+void [original, saved, nullablePayload, originalMap, payloadKey, captured, payloadEvents, sourceLater, sourceEvents, directPayload, externalPayload, selectedNumber];

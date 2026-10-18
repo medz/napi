@@ -34,7 +34,8 @@ String emitDart(ModulePlan plan) {
     "${plan.conversions.any(containsDictionary) ? "import 'dart:convert' show jsonEncode;\n" : ''}"
     '$prelude\n',
   );
-  if (plan.classes.any((c) => c.binding.typeParameters.any((p) => p.opaque)) ||
+  if (jsCollections ||
+      plan.classes.any((c) => c.binding.typeParameters.any((p) => p.opaque)) ||
       plan.functions.any(
         (f) => f.binding.typeParameters.any((p) => p.opaque),
       )) {

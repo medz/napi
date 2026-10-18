@@ -235,3 +235,101 @@ class Owner {
     closed++;
   }
 }
+
+@NAPI()
+class ArrayPayloads<T> {
+  JsArray<T>? _source;
+  WeakReference<JsArray<T>>? _weak;
+  T? _saved;
+  ArrayPayloads(JsArray<T> source) {
+    remember(source);
+  }
+  void remember(JsArray<T> source) {
+    _source = source;
+    _weak = WeakReference(source);
+  }
+
+  JsArray<T> source() => _source!;
+  bool same(JsArray<T> source) => identical(_weak?.target, source);
+  bool alive() => _weak?.target != null;
+  bool load(int index) {
+    _saved = _source!.get(index);
+    return _saved != null;
+  }
+
+  T? saved() => _saved;
+  void put(int index, T value) => _source!.set(index, value);
+  void dropSource() => _source = null;
+  void clearSaved() => _saved = null;
+  Future<T?> captured(int milliseconds) async {
+    final value = _source!.get(0);
+    await Future<void>.delayed(Duration(milliseconds: milliseconds));
+    return value;
+  }
+
+  Future<JsArray<T>> later() async => _source!;
+  Stream<T?> events() => Stream<T?>.value(_saved);
+  Stream<JsArray<T>> sources() => Stream<JsArray<T>>.value(_source!);
+}
+
+@NAPI()
+class MapPayloads<K, V> {
+  final JsMap<K, V> _source;
+  V? _saved;
+  Iterator<(K, V)>? _iterator;
+  (K, V)? _entry;
+  MapPayloads(this._source);
+  JsMap<K, V> source() => _source;
+  bool has(K key) => _source.has(key);
+  V? get(K key) => _source.get(key);
+  void put(K key, V value) => _source.set(key, value);
+  bool remove(K key) => _source.delete(key);
+  bool load(K key) {
+    _saved = _source.get(key);
+    return _saved != null;
+  }
+
+  V? saved() => _saved;
+  void clearSaved() => _saved = null;
+  void start() => _iterator = _source.entries.iterator;
+  bool next() {
+    if (!_iterator!.moveNext()) {
+      _entry = null;
+      return false;
+    }
+    _entry = _iterator!.current;
+    return true;
+  }
+
+  K? key() => _entry?.$1;
+  V? value() => _entry?.$2;
+  void dropIterator() {
+    _iterator = null;
+    _entry = null;
+  }
+}
+
+@NAPI()
+bool renamedPolicy<A, B>(JsArray<A> a, JsArray<B> b) => identical(a, b);
+@NAPI()
+bool numberPolicy<T>(JsArray<int> a, JsArray<T> b) => identical(a, b);
+@NAPI()
+bool nullablePayload<T>(JsArray<T?> source) {
+  source.set(1, null);
+  return source.get(0) != null;
+}
+
+@NAPI()
+bool nullableMapPayload<K, V>(JsMap<K?, V?> source) {
+  source.set(null, null);
+  return source.has(null) && source.get(null) != null;
+}
+
+@NAPI()
+T? stringPayload<T>(JsMap<String, T> source, String key) => source.get(key);
+@NAPI()
+int? keyedScalar<K>(JsMap<K, int> source, K key) => source.get(key);
+@NAPI()
+T firstPayload<T>(JsMap<String, T> source) => source.entries.first.$2;
+@NAPI()
+int firstScalar<K>(JsMap<K, int> source) => source.entries.first.$2;

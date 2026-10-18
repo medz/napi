@@ -3,17 +3,22 @@ import 'dart:convert';
 import '../../lowering/plan.dart';
 
 String jsCollectionPolicies(Iterable<JsCollectionConversion> conversions) {
-  Map<String, Object> scalar(ScalarConversion c) => {
-    'type': c.jsType,
-    'nullable': c.nullable,
-    'integer': c.kind == ScalarKind.integer,
+  Map<String, Object> element(ValueConversion c) => switch (c) {
+    ScalarConversion() => {
+      'opaque': false,
+      'type': c.jsType,
+      'nullable': c.nullable,
+      'integer': c.kind == ScalarKind.integer,
+    },
+    OpaqueConversion() => {'opaque': true},
+    _ => throw StateError('Unsupported JS collection element'),
   };
   return jsonEncode({
     for (final c in conversions)
       c.signatureKey: {
         'map': c.isMap,
-        'key': c.key == null ? null : scalar(c.key!),
-        'value': scalar(c.value),
+        'key': c.key == null ? null : element(c.key!),
+        'value': element(c.value),
       },
   });
 }
@@ -52,9 +57,11 @@ function $jcIndex(index) {
 }
 // BigInt text is private Wasm transport only, never the public JS value.
 function $jcInput(value, policy, path, text) {
+  if (policy.opaque) return value;
   return $jcScalar(text && value !== null && policy.type === 'bigint' ? $jcBigInt(value) : value, policy, path);
 }
 function $jcOutput(value, policy, path, text) {
+  if (policy.opaque) return value;
   value = $jcScalar(value, policy, path);
   return text && value !== null && policy.type === 'bigint' ? $jcApply($jcBigText, value, []) : value;
 }
@@ -63,13 +70,21 @@ function $jcCall(source, policy, op, a, b, text = false) {
   switch (op) {
     case 0: return $jcAdmit(source, policy.map, false, a);
     case 1: return policy.map ? $jcApply($jcSize, source, []) : source.length;
-    case 2:
+    case 2: {
+      let value;
       if (policy.map) {
         a = $jcInput(a, policy.key, 'JsMap key', text);
-        return $jcApply($jcHas, source, [a]) ? $jcOutput($jcApply($jcRead, source, [a]), policy.value, valuePath, text) : null;
+        if (!$jcApply($jcHas, source, [a])) return null;
+        value = $jcApply($jcRead, source, [a]);
+      } else {
+        a = $jcIndex(a);
+        if (+a >= source.length) return null;
+        value = $jcGet(source, a);
       }
-      a = $jcIndex(a);
-      return +a >= source.length ? null : $jcOutput($jcGet(source, a), policy.value, valuePath, text);
+      value = $jcOutput(value, policy.value, valuePath, text);
+      // The private tuple separates absence from any opaque nullish payload.
+      return policy.value.opaque ? [value] : value;
+    }
     case 3:
       a = policy.map ? $jcInput(a, policy.key, 'JsMap key', text) : $jcIndex(a);
       b = $jcInput(b, policy.value, valuePath, text);
@@ -116,6 +131,6 @@ export function jsCollectionCache(source, signature, adapter) {
   entries[signature] = new $jcWeakRef(adapter);
 }
 export function jsCollectionTypeError() {
-  return {__proto__: null, threw: true, value: new $jcTypeError('Expected a JS collection handle with this module and scalar policy')};
+  return {__proto__: null, threw: true, value: new $jcTypeError('Expected a JS collection handle with this module and element policy')};
 }
 ''';

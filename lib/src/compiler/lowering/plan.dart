@@ -73,29 +73,46 @@ final class SharedBytesConversion extends ValueConversion {
 /// An explicit retained host container. Ordinary List/Map remain snapshots.
 final class JsCollectionConversion extends ValueConversion {
   final bool isMap;
-  final ScalarConversion? key;
-  final ScalarConversion value;
+  final ValueConversion? key;
+  final ValueConversion value;
   JsCollectionConversion(
     DeclaredType super.type,
     super.context, {
     required bool bigint,
+    required Set<DeclarationId> opaqueParameters,
   }) : isMap = type.declaration == jsMapDeclaration,
        key = type.declaration == jsMapDeclaration
-           ? ScalarConversion(
+           ? _element(
                type.typeArguments.first,
                'JsMap key',
-               bigint: bigint,
+               bigint,
+               opaqueParameters,
              )
            : null,
-       value = ScalarConversion(
+       value = _element(
          type.typeArguments.last,
          type.declaration == jsMapDeclaration ? 'JsMap value' : 'JsArray value',
-         bigint: bigint,
+         bigint,
+         opaqueParameters,
        );
+  static ValueConversion _element(
+    BindingType type,
+    String context,
+    bool bigint,
+    Set<DeclarationId> opaqueParameters,
+  ) => isOpaqueType(type, opaqueParameters)
+      ? OpaqueConversion(type as TypeParameterType, context)
+      : ScalarConversion(type, context, bigint: bigint);
+
+  static Object _signature(ValueConversion value) => switch (value) {
+    ScalarConversion() => [value.kind.name, value.bigint, value.nullable],
+    OpaqueConversion() => ['opaque', value.nullable],
+    _ => throw StateError('Unsupported JS collection element'),
+  };
   String get signatureKey => jsonEncode([
     isMap,
-    if (key case final k?) [k.kind.name, k.bigint, k.nullable],
-    [value.kind.name, value.bigint, value.nullable],
+    if (key case final k?) _signature(k),
+    _signature(value),
   ]);
   @override
   String get dartType =>
@@ -585,6 +602,7 @@ final class _ConversionBuilder {
         type as DeclaredType,
         context,
         bigint: bigint,
+        opaqueParameters: opaqueParameters,
       );
     }
     if (isSharedBytesType(type)) return SharedBytesConversion(type, context);

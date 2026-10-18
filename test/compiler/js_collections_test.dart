@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:napi/src/build/build.dart';
 import 'package:napi/src/compiler/analysis/validate.dart';
 import 'package:napi/src/compiler/emit/dart/entrypoint.dart';
 import 'package:napi/src/compiler/emit/js/boundary.dart';
@@ -8,6 +9,7 @@ import 'package:napi/src/compiler/front_end/frontend.dart';
 import 'package:napi/src/compiler/ir/model.dart';
 import 'package:napi/src/compiler/lowering/plan.dart';
 import 'package:napi/src/compiler/native/declarations.dart';
+import 'package:napi/src/compiler/native/entrypoint.dart';
 import 'package:napi/src/compiler/native/loader.dart';
 import 'package:napi/src/compiler/native/plan.dart';
 import 'package:test/test.dart';
@@ -74,12 +76,92 @@ typedef Numbers = JsArray<int>;
     expect(emitNativeLoader(['add']), isNot(contains(r'$jc')));
   });
 
+  test('direct opaque leaves retain raw values and logical TS types', () async {
+    final module = await read('''
+@NAPI() JsArray<T> array<T>(JsArray<T> value) => value;
+@NAPI() JsArray<U> renamed<U>(JsArray<U> value) => value;
+@NAPI() JsArray<T?> nullable<T>(JsArray<T?> value) => value;
+@NAPI() JsMap<K, V> map<K, V>(JsMap<K, V> value) => value;
+@NAPI() JsMap<String, T> mixed<T>(JsMap<String, T> value) => value;
+@NAPI() Future<JsArray<T>> later<T>(JsArray<T> value) async => value;
+@NAPI() Stream<JsArray<T>> events<T>(JsArray<T> value) => Stream.value(value);
+@NAPI() class Holder<T> {
+  Holder(this.items);
+  JsArray<T> items;
+  T? get(int index) => items.get(index);
+}
+''');
+    final wasm = lower(validate(module));
+    final native = validateNative(module);
+    for (final conversions in [
+      wasm.functions.map((f) => f.inputs.single),
+      native.functions.map((f) => f.inputs.single),
+    ]) {
+      final values = conversions.cast<JsCollectionConversion>().toList();
+      expect(values[0].value, isA<OpaqueConversion>());
+      expect(values[0].dartType, 'napi.JsArray<_NapiHostValue>');
+      expect(values[0].signatureKey, values[1].signatureKey);
+      expect(values[0].signatureKey, isNot(values[2].signatureKey));
+      expect(values[2].value.nullable, isTrue);
+      expect(values[3].key, isA<OpaqueConversion>());
+      expect(values[4].key, isA<ScalarConversion>());
+    }
+    expect(emitDeclarations(wasm), emitNativeDeclarations(native));
+    expect(emitDeclarations(wasm), contains('globalThis.Array<T>'));
+    expect(emitDeclarations(wasm), contains('globalThis.Map<K, V>'));
+    expect(
+      emitDart(wasm),
+      contains('_JsElement<_NapiHostValue>(true, null, null)'),
+    );
+    expect(emitNativeDart(native), contains('NativeJsElement<_NapiHostValue>'));
+    expect(emitBoundary(wasm), contains('"opaque":true'));
+  });
+
+  test(
+    'Wasm opaque collection access and iteration instantiate and run',
+    () async {
+      final input = await File('${directory.path}/business.dart')
+          .writeAsString('''
+import 'package:napi/napi.dart';
+@NAPI() V first<K,V>(JsMap<K,V> map) => map.entries.first.\$2;
+@NAPI() T? get<T>(JsArray<T> array) => array.get(0);
+@NAPI() int scalar(JsMap<String,int> map) => map.entries.first.\$2;
+''');
+      await buildLibrary(
+        library: input.uri,
+        output: Directory('${directory.path}/module'),
+        packagesPath: packages,
+      );
+      await File('${directory.path}/check.mjs').writeAsString('''
+import assert from 'node:assert/strict';
+import * as api from './module/module.wasm';
+const object = {};
+assert.equal(api.first(new Map([[null, undefined]])), undefined);
+assert.equal(api.first(new Map([[undefined, object]])), object);
+assert.equal(api.get([undefined]), undefined);
+assert.equal(api.get([]), null);
+assert.equal(api.scalar(new Map([['a', 7]])), 7);
+''');
+      final result = await Process.run('node', [
+        'check.mjs',
+      ], workingDirectory: directory.path);
+      expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
+    },
+    timeout: const Timeout(Duration(minutes: 2)),
+  );
+
   for (final source in [
     '@NAPI() JsArray<List<int>> bad(JsArray<List<int>> value) => value;',
     '@NAPI() JsMap<Object, int> bad(JsMap<Object, int> value) => value;',
     '@NAPI() List<JsArray<int>> bad(List<JsArray<int>> value) => value;',
     '@NAPI() int bad(JsArray<int> Function() callback) => 0;',
-    '@NAPI() JsArray<T> bad<T>(JsArray<T> value) => value;',
+    '@NAPI() JsArray<List<T>> bad<T>(JsArray<List<T>> value) => value;',
+    '@NAPI() JsArray<JsArray<T>> bad<T>(JsArray<JsArray<T>> value) => value;',
+    '@NAPI() class Value {} @NAPI() JsArray<Value> bad(JsArray<Value> value) => value;',
+    '@NAPI(classPolicy: ClassPolicy.resource, cleanup: "close") class Resource { void close() {} } @NAPI() JsArray<Resource> bad(JsArray<Resource> value) => value;',
+    '@NAPI() JsArray<Future<T>> bad<T>(JsArray<Future<T>> value) => value;',
+    '@NAPI() JsArray<Stream<T>> bad<T>(JsArray<Stream<T>> value) => value;',
+    '@NAPI() int bad<T>(JsArray<T> Function() callback) => 0;',
     '@NAPI(classPolicy: ClassPolicy.value, valueConstructor: "new") class Packet { Packet(this.items); final JsArray<int> items; } @NAPI() Packet packet(Packet value) => value;',
   ]) {
     test('unsupported payload is diagnostic: $source', () async {

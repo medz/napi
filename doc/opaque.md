@@ -139,7 +139,12 @@ subset: a letter or underscore followed by letters, digits or underscores,
 excluding `$`, reserved words and the standalone wildcard `_`. A type parameter
 must not shadow its class's exported name or a referenced class's exported name.
 
-Opaque leaves inside structural containers, open opaque selected hierarchies,
+Direct opaque leaves in explicit `JsArray<T>` and `JsMap<K, V>` handles preserve
+the original JS values on access. Extracted values remain retained independently
+of their source slots; opaque Map keys keep JS identity. These handles do not copy
+or interpret their payloads. See [collection ownership](collections.md).
+
+Opaque leaves inside ordinary structural containers, open opaque selected hierarchies,
 independent generic member methods and generic resource/value classes remain
 unsupported. Concrete or erased specializations
 such as `Router<String>` or raw `Router` are not interchangeable with

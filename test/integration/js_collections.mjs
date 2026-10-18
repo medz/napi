@@ -188,7 +188,128 @@ async function retained(api) {
   assert.throws(() => api.partial(transient, null), TypeError); transient = null;
   await collect(api, () => weak.deref() === undefined);
 }
-const cases = {direct, scalars, maps, accessors, admission, captures, futures, streams, retained};
+async function opaque(api) {
+  const object = {id: 1}, fn = () => 2, symbol = Symbol('payload');
+  let traps = 0;
+  const trapped = new Proxy({}, {get() {traps++; throw 'payload inspected';}, getPrototypeOf() {traps++; throw 'payload inspected';}});
+  const revoked = Proxy.revocable({}, {}); revoked.revoke();
+  for (const payload of [null, undefined, object, fn, symbol, trapped, revoked.proxy, 1n << 200n, NaN, -0, '\ud800']) {
+    const source = [payload], box = new api.ArrayPayloads(source);
+    assert.equal(box.source(), source); assert(box.same(source));
+    assert(box.load(0));
+    source.length = 0; box.dropSource();
+    assert(Object.is(box.saved(), payload));
+    box.clearSaved(); assert.equal(box.saved(), null);
+  }
+  assert.equal(traps, 0);
+  const hole = new Array(1), holes = new api.ArrayPayloads(hole);
+  assert(holes.load(0)); assert.equal(holes.saved(), undefined);
+  assert(!holes.load(1)); assert.equal(holes.saved(), null);
+  for (const payload of [null, undefined, object]) {
+    const source = [payload]; assert(api.nullablePayload(source));
+    assert.equal(source[1], null);
+  }
+  const nullMap = new Map(); assert(api.nullableMapPayload(nullMap));
+  assert(nullMap.has(null)); assert.equal(nullMap.get(null), null);
+  const source = new Map([[undefined, undefined], [null, null], [object, symbol]]);
+  const map = new api.MapPayloads(source);
+  assert.equal(map.source(), source);
+  assert(map.has(undefined)); assert(map.load(undefined)); assert.equal(map.saved(), undefined);
+  assert(map.load(null)); assert.equal(map.saved(), null);
+  assert(!map.load({id: 1})); assert.equal(map.saved(), null);
+  assert.equal(map.get(object), symbol);
+  map.put(object, fn); assert.equal(source.get(object), fn);
+  map.put(NaN, object); assert.equal(map.get(NaN), object);
+  map.put(-0, symbol); assert.equal(map.get(+0), symbol);
+  map.put(revoked.proxy, trapped); assert.equal(map.get(revoked.proxy), trapped);
+  map.start(); assert(map.next()); assert.equal(map.key(), undefined); assert.equal(map.value(), undefined);
+  assert(map.next()); assert.equal(map.key(), null); assert.equal(map.value(), null);
+  while (map.next()) {}
+  source.set('later', 2); assert(!map.next()); map.dropIterator();
+  assert(map.remove(revoked.proxy)); assert(!map.has(revoked.proxy));
+  const mixed = new Map([['key', undefined]]);
+  assert.equal(api.stringPayload(mixed, 'key'), undefined);
+  assert.equal(api.firstPayload(mixed), undefined);
+  assert.equal(api.keyedScalar(new Map([[object, 3]]), object), 3);
+  assert.equal(api.firstScalar(new Map([[object, 4]])), 4);
+  assert.throws(() => api.keyedScalar(new Map([[object, undefined]]), object), TypeError);
+  assert.throws(() => api.firstPayload(new Map([[5, object]])), TypeError);
+  assert.throws(() => api.firstScalar(new Map([[object, 'bad']])), TypeError);
+  const a = [1]; assert(api.renamedPolicy(a, a)); assert(!api.numberPolicy(a, a));
+  const foreign = runInNewContext('({array: [undefined], map: new Map([[null, undefined]])})');
+  const foreignArray = new api.ArrayPayloads(foreign.array);
+  assert(foreignArray.load(0)); assert.equal(foreignArray.saved(), undefined);
+  assert.equal(new api.MapPayloads(foreign.map).get(null), undefined);
+  assert.throws(() => new api.ArrayPayloads(new Proxy([], {})), TypeError);
+  assert.throws(() => new api.MapPayloads(new Proxy(new Map(), {})), TypeError);
+  for (const reason of [undefined, null, symbol, object]) {
+    const source = []; Object.defineProperty(source, '0', {get() {throw reason;}, set() {throw reason;}});
+    const box = new api.ArrayPayloads(source);
+    exact(() => box.load(0), reason); exact(() => box.put(0, undefined), reason);
+    try {await box.captured(0); assert.fail('expected rejection');} catch (error) {assert.equal(error, reason);}
+  }
+  const reentrant = [], box = new api.ArrayPayloads(reentrant);
+  Object.defineProperty(reentrant, '0', {get() {box.dropSource(); global.gc(); return object;}});
+  assert(box.load(0)); assert.equal(box.saved(), object);
+  const flags = [true], descriptor = Object.getOwnPropertyDescriptor(Object.prototype, 'opaque');
+  try {
+    Object.defineProperty(Object.prototype, 'opaque', {configurable: true, value: true});
+    assert.equal(api.booleans(flags), flags); assert.throws(() => api.booleans([1]), TypeError);
+  } finally {
+    if (descriptor) Object.defineProperty(Object.prototype, 'opaque', descriptor);
+    else delete Object.prototype.opaque;
+  }
+  assert.equal(traps, 0);
+}
+async function opaqueAsync(api) {
+  const object = {id: 1}, source = [object], box = new api.ArrayPayloads(source);
+  const pending = box.captured(10); source.length = 0; box.dropSource();
+  assert.equal(await pending, object);
+  const thenable = {then(resolve) {resolve(97);}}, value = new api.ArrayPayloads([thenable]);
+  assert.equal(await value.captured(0), 97);
+  assert(value.load(0));
+  const iterator = value.events(); assert.equal((await iterator.next()).value, thenable); await iterator.return();
+  const throwing = {get then() {throw object;}};
+  value.put(0, throwing); assert(value.load(0));
+  const throwingEvents = value.events(); assert.equal((await throwingEvents.next()).value, throwing); await throwingEvents.return();
+  const container = [undefined], handles = new api.ArrayPayloads(container);
+  assert.equal(await handles.later(), container);
+  const handleEvents = handles.sources(); container[0] = object;
+  assert.equal((await handleEvents.next()).value, container); await handleEvents.return();
+  container.then = resolve => resolve(8); assert.equal(await handles.later(), 8);
+  // An opaque wrapper is retained as a value, not a permanent resource lease.
+  const owner = new api.Owner(), resource = new api.ArrayPayloads([owner]);
+  assert(resource.load(0)); await owner.close(); assert.equal(resource.saved(), owner);
+}
+async function opaqueRetained(api) {
+  const source = [];
+  const box = new api.ArrayPayloads(source);
+  let payload = {kept: true}; const weak = new WeakRef(payload);
+  source.push(payload); assert(box.load(0)); payload = null; source.length = 0; box.dropSource();
+  await collect(api, () => !box.alive());
+  assert(weak.deref()); assert.equal(box.saved(), weak.deref());
+  box.clearSaved(); await collect(api, () => weak.deref() === undefined);
+  // Replacement can precede the old adapter finalizer; it must stay cached.
+  for (let i = 0; i < 12; i++) {
+    box.remember(source); assert(box.same(source)); box.dropSource();
+    await collect(api, () => !box.alive());
+    box.remember(source); await tick(); global.gc(); await tick(); assert(box.same(source));
+  }
+  box.dropSource();
+  let key = {}, value = {}; const keyWeak = new WeakRef(key), valueWeak = new WeakRef(value);
+  const raw = new Map([[key, value]]), map = new api.MapPayloads(raw);
+  map.start(); assert(map.next()); raw.clear(); key = null; value = null;
+  for (let i = 0; i < 4; i++) {await tick(); api.pressure(i); global.gc(); await tick();}
+  assert.equal(map.key(), keyWeak.deref()); assert(keyWeak.deref());
+  assert.equal(map.value(), valueWeak.deref()); assert(valueWeak.deref());
+  map.dropIterator(); await collect(api, () => keyWeak.deref() === undefined && valueWeak.deref() === undefined);
+  let failedKey = {}; const failedWeak = new WeakRef(failedKey);
+  const invalid = new Map([[failedKey, 'invalid scalar']]);
+  assert.throws(() => api.firstScalar(invalid), TypeError);
+  invalid.clear(); failedKey = null;
+  await collect(api, () => failedWeak.deref() === undefined);
+}
+const cases = {direct, scalars, maps, accessors, admission, captures, futures, streams, retained, opaque, opaqueAsync, opaqueRetained};
 async function worker(held) {
   const thread = new Worker(new URL(import.meta.url), {workerData: {held}});
   await new Promise((resolve, reject) => {
@@ -199,8 +320,8 @@ async function worker(held) {
   if (held) await thread.terminate();
 }
 if (!isMainThread) {
-  const api = await import('@napi/js-collections-fixture'); await direct(api); await retained(api);
-  if (workerData.held) {api.remember([1]); api.rememberMap(new Map([['a', 1]])); api.iterate(); api.next(); globalThis.pending = api.hold([2]); setInterval(() => {}, 1000); parentPort.postMessage('ready');}
+  const api = await import('@napi/js-collections-fixture'); await direct(api); await retained(api); await opaque(api);
+  if (workerData.held) {api.remember([1]); api.rememberMap(new Map([['a', 1]])); api.iterate(); api.next(); globalThis.pending = api.hold([2]); globalThis.opaque = new api.ArrayPayloads([{held: true}]); globalThis.opaque.load(0); globalThis.opaquePending = globalThis.opaque.captured(60000); setInterval(() => {}, 1000); parentPort.postMessage('ready');}
 } else if (process.argv[2]) {
   const name = process.argv[2];
   if (name === 'worker-only') {await worker(false); await worker(true);}

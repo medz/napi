@@ -1,11 +1,16 @@
 part of 'bindings.dart';
 
-final class NativeJsScalar<T> {
+final class NativeJsElement<T> {
   final String kind;
   final bool nullable;
   final bool bigint;
-  const NativeJsScalar(this.kind, {this.nullable = false, this.bigint = false});
+  const NativeJsElement(
+    this.kind, {
+    this.nullable = false,
+    this.bigint = false,
+  });
   T read(NapiApi api, Pointer<Void> env, Pointer<Void> value, String path) {
+    if (kind == 'opaque') return api.ownHostValue(env, value) as T;
     if (nullable && api.isNull(env, value)) return null as T;
     return switch (kind) {
       'boolean' => api.boolean(env, value, path),
@@ -16,13 +21,24 @@ final class NativeJsScalar<T> {
             : api.integer(env, value, path),
       'doubleValue' => api.doubleValue(env, value, path),
       'bigInteger' => api.bigInteger(env, value, path),
-      _ => throw StateError('Unknown JS collection scalar'),
+      _ => throw StateError('Unknown JS collection element'),
     } as T;
+  }
+
+  T? readGet(NapiApi api, Pointer<Void> env, Pointer<Void> value, String path) {
+    if (api.isNull(env, value)) return null;
+    return read(
+      api,
+      env,
+      kind == 'opaque' ? api.readOwnValue(env, value, '0', path) : value,
+      path,
+    );
   }
 
   int write(NapiApi api, Pointer<Void> env, T value, String path) {
     if (nullable && value == null) return api.nullResult(env);
     return switch (kind) {
+      'opaque' => api.hostValue(env, value as NativeHostValue).address,
       'boolean' => api.booleanResult(env, value as bool),
       'string' => api.stringResult(env, value as String),
       'integer' =>
@@ -31,7 +47,7 @@ final class NativeJsScalar<T> {
             : api.integerResult(env, value as int, path),
       'doubleValue' => api.doubleResult(env, value as double),
       'bigInteger' => api.bigIntegerResult(env, value as BigInt),
-      _ => throw StateError('Unknown JS collection scalar'),
+      _ => throw StateError('Unknown JS collection element'),
     };
   }
 }
@@ -58,7 +74,7 @@ abstract class _NativeJsCollection {
 
 final class _NativeJsArray<T> extends _NativeJsCollection
     implements JsArray<T> {
-  final NativeJsScalar<T> scalar;
+  final NativeJsElement<T> scalar;
   _NativeJsArray(
     super.api,
     super.env,
@@ -73,9 +89,7 @@ final class _NativeJsArray<T> extends _NativeJsCollection
     2,
     (env) => api.integerResult(env, index, 'JsArray index'),
     null,
-    (env, value) => api.isNull(env, value)
-        ? null
-        : scalar.read(api, env, value, 'JsArray value'),
+    (env, value) => scalar.readGet(api, env, value, 'JsArray value'),
   );
   @override
   void set(int index, T value) => invoke<void>(
@@ -88,8 +102,8 @@ final class _NativeJsArray<T> extends _NativeJsCollection
 
 final class _NativeJsMap<K, V> extends _NativeJsCollection
     implements JsMap<K, V> {
-  final NativeJsScalar<K> key;
-  final NativeJsScalar<V> value;
+  final NativeJsElement<K> key;
+  final NativeJsElement<V> value;
   _NativeJsMap(
     super.api,
     super.env,
@@ -113,8 +127,7 @@ final class _NativeJsMap<K, V> extends _NativeJsCollection
     2,
     (env) => _key(env, item),
     null,
-    (env, raw) =>
-        api.isNull(env, raw) ? null : value.read(api, env, raw, 'JsMap value'),
+    (env, raw) => value.readGet(api, env, raw, 'JsMap value'),
   );
   @override
   void set(K item, V entry) => invoke<void>(
@@ -231,7 +244,7 @@ extension NativeJsBindings on NapiApi {
     Pointer<Void> value,
     String signature,
     String path,
-    NativeJsScalar<T> scalar,
+    NativeJsElement<T> scalar,
   ) => _jsCollection<_NativeJsArray<T>>(
     env,
     value,
@@ -244,8 +257,8 @@ extension NativeJsBindings on NapiApi {
     Pointer<Void> value,
     String signature,
     String path,
-    NativeJsScalar<K> key,
-    NativeJsScalar<V> scalar,
+    NativeJsElement<K> key,
+    NativeJsElement<V> scalar,
   ) => _jsCollection<_NativeJsMap<K, V>>(
     env,
     value,
@@ -264,7 +277,7 @@ extension NativeJsBindings on NapiApi {
         value.env != env ||
         value.signature != signature) {
       throw NapiTypeError(
-        '$path: expected a JS collection handle with this module and scalar policy',
+        '$path: expected a JS collection handle with this module and element policy',
       );
     }
     return hostValue(env, value.source).address;

@@ -78,13 +78,15 @@ final class DartStructuralEmitter {
         if (output) {
           _code.writeln('  return _writeJsCollection(value, $signature);');
         } else {
-          String read(ScalarConversion c) =>
-              '(value) => ${c.nullable ? 'value == null ? null : ' : ''}${_readScalar(c, bigintText: true)}';
-          String write(ScalarConversion c) =>
-              '(value) => ${c.nullable ? 'value == null ? null : ' : ''}${_writeScalar(c)}';
+          String element(ValueConversion c) => switch (c) {
+            OpaqueConversion() => '_JsElement<${c.dartType}>(true, null, null)',
+            ScalarConversion() =>
+              '_JsElement<${c.dartType}>(false, (value) => ${c.nullable ? 'value == null ? null : ' : ''}${_readScalar(c, bigintText: true)}, (value) => ${c.nullable ? 'value == null ? null : ' : ''}${_writeScalar(c)})',
+            _ => throw StateError('Unsupported JS collection element'),
+          };
           final factory = conversion.isMap
-              ? '_JsMap<${conversion.key!.dartType}, ${conversion.value.dartType}>(source, $signature, ${read(conversion.key!)}, ${write(conversion.key!)}, ${read(conversion.value)}, ${write(conversion.value)})'
-              : '_JsArray<${conversion.value.dartType}>(source, $signature, ${read(conversion.value)}, ${write(conversion.value)})';
+              ? '_JsMap<${conversion.key!.dartType}, ${conversion.value.dartType}>(source, $signature, ${element(conversion.key!)}, ${element(conversion.value)})'
+              : '_JsArray<${conversion.value.dartType}>(source, $signature, ${element(conversion.value)})';
           final type = conversion.dartType.replaceFirst(RegExp(r'\?$'), '');
           _code.writeln('  final source = externRefForJSAny(value!)!;');
           _code.writeln(
