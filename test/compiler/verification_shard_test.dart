@@ -7,13 +7,17 @@ void main() {
   test('default invocation includes every registered fixture', () {
     final fixtures = consumerFixtures.keys.toList();
     expect(VerificationShard.parse([]).select(fixtures), fixtures);
-    expect(fixtures, hasLength(16));
+    expect(fixtures, hasLength(17));
+    expect(fixtures, contains('js-collections'));
   });
 
   test('all shards are disjoint and cover current and future fixtures', () {
-    for (var length = 1; length <= 40; length++) {
-      final fixtures = List.generate(length, (index) => 'fixture-$index');
-      for (var count = 1; count <= length; count++) {
+    for (final fixtures in [
+      consumerFixtures.keys.toList(),
+      for (var length = 1; length <= 40; length++)
+        List.generate(length, (index) => 'fixture-$index'),
+    ]) {
+      for (var count = 1; count <= fixtures.length; count++) {
         final selected = <String>[];
         for (var index = 0; index < count; index++) {
           final shard = VerificationShard.parse([

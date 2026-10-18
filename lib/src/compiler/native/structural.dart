@@ -94,6 +94,7 @@ final class NativeStructuralEmitter {
     switch (conversion) {
       case AbortSignalConversion():
       case CallbackConversion():
+      case JsCollectionConversion():
       case OpaqueConversion():
         throw StateError(
           'Signal, callback and opaque structural leaves are unsupported',
@@ -219,6 +220,7 @@ final class NativeStructuralEmitter {
     switch (conversion) {
       case AbortSignalConversion():
       case CallbackConversion():
+      case JsCollectionConversion():
       case OpaqueConversion():
         throw StateError(
           'Signal, callback and opaque structural leaves are unsupported',
@@ -378,6 +380,7 @@ final class NativeStructuralEmitter {
     switch (conversion) {
       case AbortSignalConversion():
       case CallbackConversion():
+      case JsCollectionConversion():
       case OpaqueConversion():
         throw StateError(
           'Signal, callback and opaque structural leaves are unsupported',
@@ -466,6 +469,7 @@ final class NativeStructuralEmitter {
     SharedBytesConversion() => [],
     AbortSignalConversion() ||
     CallbackConversion() ||
+    JsCollectionConversion() ||
     OpaqueConversion() => throw StateError(
       'Signal, callback and opaque structural leaves are unsupported',
     ),
@@ -497,6 +501,7 @@ final class NativeStructuralEmitter {
     switch (conversion) {
       case AbortSignalConversion():
       case CallbackConversion():
+      case JsCollectionConversion():
       case OpaqueConversion():
         throw StateError(
           'Signal, callback and opaque structural leaves are unsupported',
@@ -638,6 +643,7 @@ final class NativeStructuralEmitter {
     switch (conversion) {
       case AbortSignalConversion():
       case CallbackConversion():
+      case JsCollectionConversion():
       case OpaqueConversion():
         throw StateError(
           'Signal, callback and opaque structural leaves are unsupported',

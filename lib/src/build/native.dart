@@ -53,6 +53,7 @@ Future<BuiltModule> buildNativeModule({
         exports,
         classes: plan.classes,
         hasBinary: plan.hasBinary,
+        jsCollections: plan.jsCollections,
         hasFutures:
             plan.hasStreams || plan.calls.any((call) => call.returnsFuture),
         streamClassName: plan.hasStreams ? plan.streamClassName : null,

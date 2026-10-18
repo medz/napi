@@ -86,6 +86,7 @@ StructuralBoundary emitStructuralBoundary(
       ScalarConversion() ||
       BinaryConversion() ||
       SharedBytesConversion() ||
+      JsCollectionConversion() ||
       ReferenceConversion() ||
       OpaqueConversion() ||
       AbortSignalConversion() ||
@@ -99,6 +100,7 @@ StructuralBoundary emitStructuralBoundary(
       case OpaqueConversion():
         throw StateError('Opaque structural conversion is not supported.');
       case CallbackConversion():
+      case JsCollectionConversion():
         throw StateError('Nested callback conversion is not supported.');
       case AbortSignalConversion():
         throw StateError('Nested AbortSignal conversion is not supported.');

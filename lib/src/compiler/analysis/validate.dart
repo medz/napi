@@ -26,6 +26,22 @@ final sharedBytesDeclaration = DeclarationId(
   kind: DeclarationKind.classType,
 );
 
+final jsArrayDeclaration = DeclarationId(
+  Uri.parse('package:napi/src/api/js_collections.dart'),
+  'JsArray',
+  kind: DeclarationKind.classType,
+);
+final jsMapDeclaration = DeclarationId(
+  Uri.parse('package:napi/src/api/js_collections.dart'),
+  'JsMap',
+  kind: DeclarationKind.classType,
+);
+bool isJsCollectionType(BindingType type) =>
+    type is DeclaredType &&
+    (type.declaration == jsArrayDeclaration ||
+        type.declaration == jsMapDeclaration) &&
+    type.nullability != TypeNullability.legacy;
+
 bool isSharedBytesType(BindingType type) =>
     type is DeclaredType &&
     type.declaration == sharedBytesDeclaration &&
@@ -1871,6 +1887,26 @@ void validateValueType(
   bool allowCallback = false,
   bool allowAbortSignal = false,
 }) {
+  if (isJsCollectionType(type)) {
+    final collection = type as DeclaredType;
+    if (collection.typeArguments.length !=
+            (collection.declaration == jsMapDeclaration ? 2 : 1) ||
+        !collection.typeArguments.every(_isBackendScalar)) {
+      throw BindingDiagnostic(
+        'NAPI_JS_COLLECTION',
+        'JsArray/JsMap currently support scalar elements only; nested, reference and resource elements are not supported.',
+        source,
+      );
+    }
+    return;
+  }
+  if (_containsJsCollection(type)) {
+    throw BindingDiagnostic(
+      'NAPI_JS_COLLECTION',
+      'JsArray/JsMap require a direct input or result payload; nested and callback handles are not supported.',
+      source,
+    );
+  }
   if (allowAbortSignal &&
       direction == ValueDirection.input &&
       isAbortSignalType(type)) {
@@ -1940,6 +1976,20 @@ bool _containsAbortSignal(BindingType type) => switch (type) {
         type.parameters.any(
           (parameter) => _containsAbortSignal(parameter.type),
         ),
+  _ => false,
+};
+
+bool _containsJsCollection(BindingType type) => switch (type) {
+  DeclaredType() =>
+    type.declaration == jsArrayDeclaration ||
+        type.declaration == jsMapDeclaration ||
+        type.typeArguments.any(_containsJsCollection),
+  RecordTypeBinding() =>
+    type.positional.any(_containsJsCollection) ||
+        type.named.values.any(_containsJsCollection),
+  FunctionTypeBinding() =>
+    _containsJsCollection(type.result) ||
+        type.parameters.any((p) => _containsJsCollection(p.type)),
   _ => false,
 };
 
@@ -2286,6 +2336,13 @@ void _checkValueDirection(
   ValueDirection direction,
   Set<ClassBinding> visited,
 ) {
+  if (isJsCollectionType(type)) {
+    throw BindingDiagnostic(
+      'NAPI_JS_COLLECTION',
+      'JsArray/JsMap are not supported inside structural or value-class containers.',
+      source,
+    );
+  }
   if (type is DeclaredType &&
       type.declaration.library == Uri.parse('dart:typed_data') &&
       !isBinaryType(type)) {

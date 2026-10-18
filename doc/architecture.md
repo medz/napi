@@ -42,7 +42,7 @@ documented platform capabilities.
 
 [Collection ownership](collections.md) follows the napi-rs distinction between
 converted containers and explicit JS handles. Ordinary Dart List/Map values
-produce independent containers. Planned JS collection handles retain and return
+produce independent containers. Explicit `JsArray`/`JsMap` scalar handles retain and return
 the original Array/Map; exported Dart classes and methods expose shared Dart
 state. Arbitrary Dart-owned live collection adapters are outside this scope.
 Existing Dart Map and Dictionary representations are unchanged.
