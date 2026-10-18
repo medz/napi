@@ -27,9 +27,9 @@ selected backend; consumers do not register bindings or call application `main`.
 
 The product follows napi-rs's model: one Dart export declaration, generated
 bindings and TypeScript types, and npm packages for native and Wasm targets.
-Necessary JavaScript loaders and runtime helpers are allowed. Both targets must
-preserve the same supported calls, including `new Counter()` and argument
-presence. The experimental native target generates scalar, structural, value-class,
+Generated JavaScript loaders and runtime helpers initialize bindings on import.
+Both targets preserve the same supported calls, including `new Counter()` and
+argument presence. The experimental native target generates scalar, structural, value-class,
 reference-class, resource, Future, Stream and retained/async-callback AOT bindings
 for macOS arm64; see [native builds](doc/native.md) for runtime downloads and offline builds.
 See [the architecture](doc/architecture.md) for backend boundaries and

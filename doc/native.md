@@ -141,7 +141,7 @@ reachability and preserve adapter identity in a weak cache. Synchronous and
 Future-returning exports accept them, including resource cleanup. A callback's
 Future result requires a genuine JS Promise; its completion is queued for the
 owning isolate without entering Dart from the JS reaction. Only async-callback
-modules initialize this queue and completion entry point. Scalar/List/record
+modules initialize this queue and completion entry point. Scalar/List/record/JS-handle
 payloads share both targets' strict conversions. Exact JS failures survive Dart
 catch/rethrow; per-invocation handles close after conversion and execution.
 
@@ -151,7 +151,7 @@ object defaults and general Future inputs/FutureOr. Direct
 [AbortSignal inputs](cancellation.md) support cooperative Future cancellation and
 owned Stream subscription cancellation; signal outputs and nested signals remain
 unsupported. Callback outputs, optional/named callback parameters and callback
-payloads beyond supported scalars/Lists/records also remain unsupported. The same reference
+payloads beyond supported scalars/Lists/records/JS handles also remain unsupported. The same reference
 contract runs on Wasm; see [reference classes](classes.md). A unique most-specific
 selected class owns the canonical wrapper across base/interface views. Instance
 prototypes inherit without static inheritance. Compatible unrelated selected
@@ -197,9 +197,9 @@ The runtime's filename/install-name and bridge expectation encode the pinned
 SDK/configuration and runtime source/input identity. The bridge checks the actual
 linked identity before initializing the VM. Compatible installed copies can
 share an image. Other runtime identities and platforms remain unqualified.
-Both binaries target macOS 14; execution has been tested on macOS 27.0.1 arm64,
+Both binaries target macOS 14; execution has been tested on macOS 14.8.9 and 27.0.1 arm64,
 Node 24.19.0 and 26.11.1, Dart 3.13.5, Apple clang 21.0.0 and TypeScript 7.0.2.
-The deployment target alone does not prove execution on older macOS releases.
+Other macOS versions have not been tested.
 
 ```sh
 dart run tool/native_verify.dart --packages-only
