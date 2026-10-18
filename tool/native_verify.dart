@@ -22,33 +22,34 @@ import 'shared_bytes_fixture.dart';
 import 'js_collections_fixture.dart';
 import 'package_contents.dart';
 
-/// Run explicitly with a maintainer-built runtime bundle. No native compiler,
-/// SDK-source checkout, network access or package publication is used here.
+/// Verify the full explicit-runtime matrix, or only the native and dual packages.
 Future<void> main(List<String> args) async {
-  if (args.length != 1) {
+  final packageOnly = args.isNotEmpty && args.first == '--packages-only';
+  final paths = packageOnly ? args.skip(1).toList() : args;
+  if ((packageOnly && paths.length > 1) ||
+      (!packageOnly && paths.length != 1)) {
     throw ArgumentError(
-      'Usage: dart run tool/native_verify.dart <runtime-bundle>',
+      'Usage: dart run tool/native_verify.dart <runtime-bundle>\n'
+      '   or: dart run tool/native_verify.dart --packages-only [runtime-bundle]',
     );
   }
   await reportNodeVersions();
-  final bundle = Directory(args.single).absolute;
-  final runtimeBundle = await NativeRuntimeBundle.read(bundle);
-  final expectedFiles = {
-    'package.json',
-    'module.mjs',
-    'module.d.mts',
-    'module.aot',
-    'runtime.json',
-    ...runtimeBundle.hashes.keys,
-  };
-  final notices = {
-    for (final name in ['DART_LICENSE', 'DART_AUTHORS', 'NAPI_LICENSE'])
-      name: await File('${bundle.path}/$name').readAsBytes(),
-  };
+  final supplied = paths.isEmpty ? null : Directory(paths.single).absolute;
   final temporary = await Directory.systemTemp.createTemp('napi native 中文 ');
   final root = Directory(temporary.resolveSymbolicLinksSync());
   stdout.writeln('Native verification artifacts: ${root.path}');
   // Preserve failed runs for diagnosis. Successful runs remove only this root.
+  if (packageOnly) {
+    await verifyNativePackage(root, nativeRuntime: supplied);
+    await HttpOverrides.runWithHttpOverrides(
+      () => verifyDualTargetFixture(root, supplied),
+      _OfflineRuntime(),
+    );
+    await root.delete(recursive: true);
+    return;
+  }
+  final bundle = supplied!;
+  await NativeRuntimeBundle.read(bundle);
   for (final kind in ['scalar', 'argument']) {
     final module = await buildLibrary(
       library: File(
@@ -77,6 +78,33 @@ console.log('Native $kind shared contract: passed');
         .writeAsString(consumer.replaceAll('./module.wasm', './module.mjs'));
     await typescript(module.directory, 'consumer.mts');
   }
+  await verifyNativePackage(root, nativeRuntime: bundle);
+  await verifyValueOnlyFixture(root, nativeRuntime: bundle);
+  await verifyNativeEvents(root, nativeRuntime: bundle);
+  await verifyNativeHostValues(root, nativeRuntime: bundle);
+  await verifyFutureFixture(root, nativeRuntime: bundle);
+  await verifyVoidFixture(root, nativeRuntime: bundle);
+  await verifyResourceFixture(root, nativeRuntime: bundle);
+  await verifyOpaqueFixture(root, nativeRuntime: bundle);
+  await verifyStreamFixture(root, nativeRuntime: bundle);
+  await verifyCancellationFixture(root, nativeRuntime: bundle);
+  await verifyBinaryFixture(root, nativeRuntime: bundle);
+  await verifyConcreteFixture(root, nativeRuntime: bundle);
+  await verifySharedBytesFixture(root, nativeRuntime: bundle);
+  await verifyJsCollectionsFixture(root, nativeRuntime: bundle);
+  await verifyDualTargetFixture(root, bundle);
+  await root.delete(recursive: true);
+  stdout.writeln(
+    'Generated native bindings, fresh npm install and TypeScript: passed',
+  );
+}
+
+/// Build once, relocate the npm archive, and exercise its native API and types.
+/// Omitting [nativeRuntime] exercises automatic runtime acquisition.
+Future<void> verifyNativePackage(
+  Directory root, {
+  Directory? nativeRuntime,
+}) async {
   // An independent Dart package invokes only the public build API.
   final project = await Directory('${root.path}/business').create();
   await File('${project.path}/pubspec.yaml').writeAsString('''
@@ -113,7 +141,7 @@ Future<void> main() async {
     metadata: {'name': '@napi/path', 'version': '0.0.0'},
     packagesPath: File('.dart_tool/package_config.json').absolute.path,
     target: BuildTarget.native,
-    nativeRuntime: Directory(${jsonEncode(bundle.path)}),
+    ${nativeRuntime == null ? '' : 'nativeRuntime: Directory(${jsonEncode(nativeRuntime.path)}),'}
   );
 }
 ''');
@@ -126,6 +154,21 @@ Future<void> main() async {
     'run',
     'build.dart',
   ], cwd: project.path);
+  final package = Directory('${project.path}/package');
+  final runtimeBundle = await NativeRuntimeBundle.read(package, built: true);
+  final expectedFiles = {
+    'package.json',
+    'module.mjs',
+    'module.d.mts',
+    'module.aot',
+    'runtime.json',
+    ...runtimeBundle.hashes.keys,
+  };
+  final notices = {
+    for (final name in ['DART_LICENSE', 'DART_AUTHORS', 'NAPI_LICENSE'])
+      name: await File('${(nativeRuntime ?? package).path}/$name')
+          .readAsBytes(),
+  };
   final pack = await Process.run('npm', [
     'pack',
     '--ignore-scripts',
@@ -240,22 +283,11 @@ for (let i = 0; i < 4; i++) {
 console.log('Native Worker-only unload and reload: passed');
 ''');
   await run('node', ['workers-only.mjs'], cwd: consumer.path);
-  await verifyValueOnlyFixture(root, nativeRuntime: bundle);
-  await verifyNativeEvents(root, nativeRuntime: bundle);
-  await verifyNativeHostValues(root, nativeRuntime: bundle);
-  await verifyFutureFixture(root, nativeRuntime: bundle);
-  await verifyVoidFixture(root, nativeRuntime: bundle);
-  await verifyResourceFixture(root, nativeRuntime: bundle);
-  await verifyOpaqueFixture(root, nativeRuntime: bundle);
-  await verifyStreamFixture(root, nativeRuntime: bundle);
-  await verifyCancellationFixture(root, nativeRuntime: bundle);
-  await verifyBinaryFixture(root, nativeRuntime: bundle);
-  await verifyConcreteFixture(root, nativeRuntime: bundle);
-  await verifySharedBytesFixture(root, nativeRuntime: bundle);
-  await verifyJsCollectionsFixture(root, nativeRuntime: bundle);
-  await verifyDualTargetFixture(root, bundle);
-  await root.delete(recursive: true);
-  stdout.writeln(
-    'Generated native bindings, fresh npm install and TypeScript: passed',
+}
+
+final class _OfflineRuntime extends HttpOverrides {
+  @override
+  HttpClient createHttpClient(SecurityContext? context) => throw StateError(
+    'Dual packages must reuse the verified native runtime cache offline.',
   );
 }

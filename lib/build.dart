@@ -25,8 +25,9 @@ export 'src/compiler/ir/model.dart' show SourceLocation;
 /// package configuration shared by source analysis and compilation.
 /// [external] selects declarations without changing their library or copying
 /// signatures. With external selections, [library] can also be a package URI.
-/// Native builds require [target] = [BuildTarget.native] and an existing
-/// precompiled [nativeRuntime] bundle. Only business Dart AOT is compiled.
+/// Native builds use [target] = [BuildTarget.native] and obtain a pinned
+/// precompiled runtime automatically. [nativeRuntime] supplies an explicit
+/// offline bundle instead. Only business Dart AOT is compiled.
 Future<builder.BuiltModule> buildLibrary({
   required Uri library,
   required Directory output,

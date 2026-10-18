@@ -5,7 +5,7 @@ import json
 import os
 import sys
 
-EXPENSIVE = {"tests", "wasm-runtime", "consumers", "publication"}
+EXPENSIVE = {"tests", "wasm-runtime", "consumers", "native", "publication"}
 
 
 def validate(results, event):

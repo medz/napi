@@ -36,6 +36,24 @@ git diff --check
 runs the other consumer fixtures. The explicit Node command runs the runtime
 suites compiled with Dart2Wasm.
 
+## Native consumers
+
+On macOS arm64, run the installed native and dual-target packages with automatic
+runtime acquisition:
+
+```sh
+dart run tool/native_verify.dart --packages-only
+```
+
+`NAPI_RUNTIME_CACHE` selects the cache directory. The first native build downloads
+the pinned runtime; the dual builds reuse it offline. CI runs this command on
+macOS 14 with both Node versions. For the broader native suite, use
+`dart run tool/native_verify.dart /absolute/path/to/runtime-bundle`.
+
+The download/cache tests use `NAPI_TEST_RUNTIME_ARCHIVE` for the published ZIP.
+Without it, ordinary test discovery skips the successful-download cases. The
+native CI job supplies it and fails if the archive cannot be obtained.
+
 ## Callback consumer suites
 
 ```sh

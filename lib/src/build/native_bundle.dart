@@ -26,6 +26,7 @@ final class NativeRuntimeBundle {
   static Future<NativeRuntimeBundle> read(
     Directory directory, {
     bool built = false,
+    String? expectedManifestSha256,
   }) async {
     final root = directory.absolute;
     await checkNativePath(root.path);
@@ -33,9 +34,16 @@ final class NativeRuntimeBundle {
       '${root.path}/${built ? 'runtime.json' : 'manifest.json'}',
     );
     await _regular(manifestFile);
+    final manifestBytes = await manifestFile.readAsBytes();
+    if (expectedManifestSha256 != null &&
+        sha256.convert(manifestBytes).toString() != expectedManifestSha256) {
+      throw const FormatException(
+        'Native runtime manifest integrity mismatch.',
+      );
+    }
     final Object? manifest;
     try {
-      manifest = jsonDecode(await manifestFile.readAsString());
+      manifest = jsonDecode(utf8.decode(manifestBytes));
     } on FormatException {
       throw const FormatException('Invalid native runtime manifest JSON.');
     }
@@ -97,14 +105,7 @@ final class NativeRuntimeBundle {
     );
   }
 
-  void verifyHost() {
-    if (!Platform.isMacOS || Abi.current() != Abi.macosArm64) {
-      throw const SdkCompatibilityException(
-        'NAPI_NATIVE_PLATFORM',
-        'Native builds currently require macOS arm64; other targets are not yet supported.',
-      );
-    }
-  }
+  void verifyHost() => verifyNativeHost();
 
   /// Verify the copied bytes too, so changing a bundle during a build cannot
   /// silently publish assets different from the validated manifest.
@@ -120,6 +121,15 @@ final class NativeRuntimeBundle {
       }
     }
     await File('${output.path}/runtime.json').writeAsString(manifestJson);
+  }
+}
+
+void verifyNativeHost() {
+  if (!Platform.isMacOS || Abi.current() != Abi.macosArm64) {
+    throw const SdkCompatibilityException(
+      'NAPI_NATIVE_PLATFORM',
+      'Native builds currently require macOS arm64; other targets are not yet supported.',
+    );
   }
 }
 

@@ -126,6 +126,38 @@ jobs:
         run: dart test -P callback-wasm
       - run: dart run tool/verify.dart --total-shards 2 --shard-index ${{ matrix.shard }}
 
+  native:
+    needs: scope
+    if: ${{ always() && needs.scope.result == 'success' && needs.scope.outputs.scope == 'full' }}
+    name: Native consumers (macOS arm64)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: 3.13.5
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26.11.1
+          package-manager-cache: false
+      - run: node -p '"NAPI_NODE_26=" + process.execPath' >> "$GITHUB_ENV"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.19.0
+          package-manager-cache: false
+      - run: node -p '"NAPI_NODE_EXECUTABLES=" + JSON.stringify([process.execPath, process.env.NAPI_NODE_26])' >> "$GITHUB_ENV"
+      - run: dart pub get
+      - run: npm install --prefix .dart_tool/js --no-save --no-package-lock --ignore-scripts --no-audit --no-fund typescript@7.0.2
+      - name: Obtain runtime archive for download tests
+        run: |
+          curl --fail --location --retry 2 --max-time 120 \
+            'https://github.com/medz/napi/releases/download/runtime-dart-3.13.5-abi15/napi-runtime-dart-3.13.5-macos-arm64-abi15-b07f81272d03.zip' \
+            --output "$RUNNER_TEMP/runtime.zip"
+          echo "NAPI_TEST_RUNTIME_ARCHIVE=$RUNNER_TEMP/runtime.zip" >> "$GITHUB_ENV"
+          echo "NAPI_RUNTIME_CACHE=$RUNNER_TEMP/napi-runtime" >> "$GITHUB_ENV"
+      - run: dart test test/compiler/native_runtime_test.dart test/compiler/native_bundle_test.dart
+      - run: dart run tool/native_verify.dart --packages-only
+
   publication:
     needs: scope
     if: ${{ always() && needs.scope.result == 'success' && needs.scope.outputs.scope == 'full' }}
@@ -147,7 +179,7 @@ jobs:
   # jobs; static/package checks and classifier regression tests always run.
   check:
     if: ${{ always() }}
-    needs: [scope, static, tests, wasm-runtime, consumers, publication]
+    needs: [scope, static, tests, wasm-runtime, consumers, native, publication]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

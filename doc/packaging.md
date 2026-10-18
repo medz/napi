@@ -32,8 +32,9 @@ Prefix-only names such as `test`, `sqlite`, `sea` and `ffi`
 remain valid. A collision reports the offending name and suggests `@scope/name`.
 See Node's [built-in module rules](https://nodejs.org/api/modules.html#built-in-modules-with-mandatory-node-prefix).
 
-Use `target: BuildTarget.native` with `nativeRuntime` for a native package. The
-same early metadata validation applies to both targets. `buildLibrary` remains
+Use `target: BuildTarget.native` for a native package. The matching runtime is
+downloaded and cached; `nativeRuntime` can select a local bundle for offline
+builds. The same early metadata validation applies to both targets. `buildLibrary` remains
 available for raw artifacts; `assembleWasmPackage` and `assembleNativePackage`
 assemble an existing `BuiltModule` without recompiling. Those lower-level
 assembly calls validate metadata at assembly time, so use `buildPackage` when
@@ -135,7 +136,6 @@ await buildPackage(
   metadata: {'name': '@scope/math', 'version': '1.0.0'},
   targets: {BuildTarget.wasm, BuildTarget.native},
   target: BuildTarget.wasm,
-  nativeRuntime: Directory('runtime-bundle'),
 );
 ```
 
@@ -171,8 +171,9 @@ allow foreign-runtime references. The default/presence and conversion comparison
 also catches differences such as `int` versus `double` that both spell `number`
 in TypeScript.
 
-Dual packages require the existing pinned macOS arm64 native runtime bundle and
-standard Dart SDK. They compile business code for each target sequentially,
+Dual packages require macOS arm64 and the standard Dart SDK. The builder obtains
+the pinned native runtime automatically, or uses an explicit `nativeRuntime`.
+They compile business code for each target sequentially,
 include both complete asset/license sets, and publish only after both succeed.
 The root does not receive native-only `os`/`cpu` metadata, so it can be installed
 for Wasm use on another supported host. Caller-provided host restrictions are
@@ -180,5 +181,5 @@ retained. Including both targets increases download size; there is no optional
 platform package or install-time download.
 
 Managed rebuilds follow the same rules for single and dual output; legacy output
-still cannot be adopted automatically. Automatic backend selection, runtime supply and other native platforms
+still cannot be adopted automatically. Automatic backend selection and other native platforms
 are not supported.

@@ -1,7 +1,9 @@
 import 'dart:convert';
+import 'dart:ffi' show Abi;
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
+import 'package:napi/src/build/build.dart' as builder;
 import 'package:napi/src/build/native_bundle.dart';
 import 'package:napi/src/build/metadata.dart';
 import 'package:napi/src/build/package_ownership.dart';
@@ -59,6 +61,20 @@ void main() {
     expect(
       await NativeRuntimeBundle.read(output, built: true),
       isA<NativeRuntimeBundle>(),
+    );
+  });
+
+  test('locked manifest rejects self-consistent metadata changes', () async {
+    final expected = sha256
+        .convert(await File('${root.path}/manifest.json').readAsBytes())
+        .toString();
+    await NativeRuntimeBundle.read(root, expectedManifestSha256: expected);
+    manifest['build'] = {'note': 'changed metadata'};
+    await save();
+    await NativeRuntimeBundle.read(root);
+    await expectLater(
+      NativeRuntimeBundle.read(root, expectedManifestSha256: expected),
+      throwsFormatException,
     );
   });
 
@@ -140,6 +156,104 @@ void main() {
     await Link(bridge.path).create('${root.path}/original.node');
     await expectLater(NativeRuntimeBundle.read(root), throwsArgumentError);
   });
+
+  test(
+    'native build rejects source and output before acquiring a runtime',
+    () async {
+      final source = await File('${root.path}/business.dart').writeAsString('''
+import 'package:napi/napi.dart';
+@NAPI() int value() => 1;
+''');
+      final bindings = await builder.readLibraryBindings(
+        library: source.uri,
+        packagesPath: File('.dart_tool/package_config.json').absolute.path,
+        target: BuildTarget.native,
+      );
+      final output = await Directory('${root.path}/output').create();
+      final keep = await File('${output.path}/keep').writeAsString('author');
+      await HttpOverrides.runZoned(
+        () async {
+          await expectLater(
+            builder.buildModule(
+              bindings: bindings,
+              output: output,
+              target: BuildTarget.native,
+            ),
+            throwsA(
+              isA<ArgumentError>().having(
+                (e) => e.message,
+                'message',
+                contains('Output already exists'),
+              ),
+            ),
+          );
+          expect(await keep.readAsString(), 'author');
+          await source.delete();
+          final absent = Directory('${root.path}/absent/package');
+          await expectLater(
+            builder.buildModule(
+              bindings: bindings,
+              output: absent,
+              target: BuildTarget.native,
+            ),
+            throwsA(
+              isA<ArgumentError>().having(
+                (e) => e.message,
+                'message',
+                contains('Source library does not exist'),
+              ),
+            ),
+          );
+          expect(await absent.parent.exists(), isFalse);
+        },
+        createHttpClient: (_) =>
+            throw StateError('Unexpected runtime download'),
+      );
+    },
+  );
+
+  test(
+    'explicit native runtime reaches the compiler without network access',
+    () async {
+      final source = await File('${root.path}/business.dart').writeAsString('''
+import 'package:napi/napi.dart';
+@NAPI() int value() => 1;
+''');
+      final bindings = await builder.readLibraryBindings(
+        library: source.uri,
+        packagesPath: File('.dart_tool/package_config.json').absolute.path,
+        target: BuildTarget.native,
+      );
+      final work = await Directory(
+        await Directory.systemTemp.resolveSymbolicLinks(),
+      ).createTemp('napi offline override ');
+      addTearDown(() => work.delete(recursive: true));
+      final output = Directory('${work.path}/module');
+      await HttpOverrides.runZoned(
+        () async {
+          await expectLater(
+            builder.buildModule(
+              bindings: bindings,
+              output: output,
+              target: BuildTarget.native,
+              nativeRuntime: root,
+              sdk: DartSdkAdapter(executable: '${root.path}/missing-dart'),
+            ),
+            throwsA(isA<ProcessException>()),
+          );
+        },
+        createHttpClient: (_) =>
+            throw StateError('Unexpected runtime download'),
+      );
+      expect(
+        await work.list().length,
+        0,
+        reason:
+            'Compiler failure preserves the absent output and removes staging.',
+      );
+    },
+    skip: !Platform.isMacOS || Abi.current() != Abi.macosArm64,
+  );
 
   test(
     'native npm assembly retains provenance and fixes target exports',
