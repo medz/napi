@@ -21,6 +21,12 @@ SDK_REVISION = '04bcd1036cdc799ac6564988f159ee454d42c822'
 ABI = 15
 MINIMUM_OS = '14.0'
 ROOT = Path(__file__).resolve().parents[2]
+SOURCE_FILES = [
+    'tool/native/build.py', 'native/bridge/bridge.cc', 'native/bridge/abi.h',
+    'native/runtime/runtime.cc', 'native/runtime/runtime.h',
+    'native/runtime/identity.cc', 'native/runtime/BUILD.gn',
+    'native/runtime/DART_LICENSE', 'native/runtime/DART_AUTHORS', 'LICENSE',
+]
 
 
 def run(command, cwd=None):
@@ -41,6 +47,39 @@ def digest(path):
 def variables(path):
     return dict(line.split(' = ', 1) for line in path.read_text().splitlines()
                 if ' = ' in line and not line.startswith(' '))
+
+
+def source_inputs():
+    return {name: digest(ROOT/name) for name in SOURCE_FILES}
+
+
+def vm_inputs(cache, objects):
+    result = hashlib.sha256()
+    for relative in objects:
+        result.update(relative.encode() + b'\0' +
+                      digest((cache/relative).resolve(strict=True)).encode() + b'\0')
+    return result.hexdigest()
+
+
+def dependency_inputs(depfiles, roots):
+    """Record actual non-system headers read by these compilations, not a guess."""
+    result = {}
+    for depfile in depfiles:
+        dependencies = shlex.split(depfile.read_text().replace('\\\n', ' ').split(':', 1)[1])
+        for name in dependencies:
+            path = Path(name)
+            if not path.is_absolute():
+                path = roots['cache']/path
+            path = path.resolve(strict=True)
+            if path.suffix not in ['.h', '.hpp', '.inc']:
+                continue
+            for label, root in roots.items():
+                if path.is_relative_to(root):
+                    result[label+'/'+path.relative_to(root).as_posix()] = digest(path)
+                    break
+            else:
+                raise ValueError(f'Unrecorded native header root: {path}')
+    return dict(sorted(result.items()))
 
 
 def validate_cache(sdk, cache):
@@ -100,6 +139,18 @@ def build(sdk, headers, output, cache):
     if uv_headers is None:
         raise ValueError('Node headers or their parent must contain libuv uv.h')
     target, compile_target = validate_cache(sdk, cache)
+    recipes = {'args.gn': cache/'args.gn',
+               'toolchain.ninja': cache/'clang_arm64_shared/toolchain.ninja',
+               'compile.ninja': compile_target, 'link.ninja': target}
+    recipe_hashes = {name: digest(path) for name, path in recipes.items()}
+    sources = source_inputs()
+    producer = {
+        'commit': run(['git', '-C', str(ROOT), 'rev-parse', 'HEAD']),
+        # A dirty producer is an explicit source snapshot, not a claim that the
+        # commit alone reproduces these bytes. Consumers verify every input.
+        'dirty': bool(run(['git', '-C', str(ROOT), 'status', '--porcelain', '--', *SOURCE_FILES])),
+        'files': sources,
+    }
     source_hash = hashlib.sha256(f'napi-abi={ABI};macos-arm64;product;minos=14.0\0'.encode())
     for source in [ROOT/'native/runtime/runtime.cc', ROOT/'native/runtime/runtime.h',
                    ROOT/'native/runtime/identity.cc', ROOT/'native/bridge/abi.h']:
@@ -111,11 +162,7 @@ def build(sdk, headers, output, cache):
     # Always compile the repository runtime. A cached candidate runtime.o is
     # never trusted as an implementation of this source/identity.
     objects = [path for path in objects if not path.endswith('/napi_runtime_set.runtime.o')]
-    inputs = hashlib.sha256()
-    for relative in objects:
-        path = (cache/relative).resolve(strict=True)
-        inputs.update(relative.encode() + b'\0' + digest(path).encode() + b'\0')
-    vm_inputs_hash = inputs.hexdigest()
+    vm_inputs_hash = vm_inputs(cache, objects)
     identity_hash = hashlib.sha256(
         (source_hash + '\0' + vm_inputs_hash).encode()).hexdigest()
     identity = f'dart-{SDK_REVISION}-product-macos-arm64-abi{ABI}-id{identity_hash}'
@@ -127,18 +174,47 @@ def build(sdk, headers, output, cache):
         raise ValueError('Unsupported VM cache compiler configuration')
     clang = run(['xcrun', '--find', 'clang++'])
     sysroot = run(['xcrun', '--show-sdk-path'])
+    provenance = {
+        'format': 1,
+        'producer': producer,
+        'compiler': {'version': run([clang, '--version']), 'sha256': digest(Path(clang)),
+                     'macosSdkVersion': run(['xcrun', '--show-sdk-version'])},
+        'cacheRecipe': recipe_hashes,
+    }
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='.napi-native-', dir=output.parent) as temp:
         stage = Path(temp)
         artifact = stage/'bundle'
         artifact.mkdir()
         runtime_objects = []
+        depfiles = []
+        header_roots = {
+            'generated': stage.resolve(), 'repository': ROOT.resolve(),
+            'sdk': sdk.resolve(), 'node': headers.resolve(),
+            'libuv': (uv_headers/'uv.h').resolve().parent, 'cache': cache.resolve(),
+        }
+        header_hashes = {}
+
+        def compile_source(command, depfile):
+            # Discover the actual non-system dependencies before compilation;
+            # post-build hashes alone cannot describe the bytes the compiler used.
+            run([*command, '-MM', '-Wno-unused-command-line-argument'], cwd=cache)
+            before = dependency_inputs([depfile], header_roots)
+            for name, value in before.items():
+                if name in header_hashes and header_hashes[name] != value:
+                    raise ValueError('Native headers changed during the build')
+            header_hashes.update(before)
+            run(command, cwd=cache)
+
         for name in ['runtime', 'identity']:
             obj = stage/f'{name}.o'
+            depfile = stage/f'{name}.d'
+            depfiles.append(depfile)
             command = [clang, '-isysroot', sysroot, f'-mmacosx-version-min={MINIMUM_OS}',
                        *flags, f'-DNAPI_DART_RUNTIME_ID="{identity}"',
+                       '-MMD', '-MF', str(depfile),
                        '-c', str(ROOT/f'native/runtime/{name}.cc'), '-o', str(obj)]
-            run(command, cwd=cache)
+            compile_source(command, depfile)
             runtime_objects.append(str(obj))
         filelist = stage/'objects.rsp'
         filelist.write_text('\n'.join([str((cache/path).resolve()) for path in objects] + runtime_objects)+'\n')
@@ -150,13 +226,18 @@ def build(sdk, headers, output, cache):
              '-framework', 'Foundation', '-framework', 'CoreServices', '-o', str(runtime)], cwd=cache)
         (stage/'expected_runtime.h').write_text('constexpr const char* kExpectedRuntimeId = '+json.dumps(identity)+';\n')
         bridge = artifact/'bridge.node'
-        run([clang, '-std=c++17', '-O2', '-dynamiclib', '-undefined', 'dynamic_lookup',
+        bridge_dependencies = stage/'bridge.d'
+        depfiles.append(bridge_dependencies)
+        compile_source([clang, '-std=c++17', '-O2', '-dynamiclib', '-undefined', 'dynamic_lookup',
+             '-MMD', '-MF', str(bridge_dependencies),
              '-isysroot', sysroot, f'-mmacosx-version-min={MINIMUM_OS}',
              '-I'+str(headers), '-I'+str(uv_headers),
              '-I'+str(sdk/'runtime'), '-I'+str(sdk/'runtime/include'),
              '-I'+str(ROOT/'native/runtime'), '-I'+str(stage),
              str(ROOT/'native/bridge/bridge.cc'), str(runtime),
-             '-Wl,-install_name,@rpath/bridge.node', '-Wl,-rpath,@loader_path', '-o', str(bridge)])
+             '-Wl,-install_name,@rpath/bridge.node', '-Wl,-rpath,@loader_path', '-o', str(bridge)],
+            bridge_dependencies)
+        provenance['headers'] = header_hashes
         for binary in [runtime, bridge]:
             run(['codesign', '--force', '--sign', '-', str(binary)])
         shutil.copy2(ROOT/'native/runtime/DART_LICENSE', artifact/'DART_LICENSE')
@@ -169,9 +250,19 @@ def build(sdk, headers, output, cache):
             'files': {file.name: digest(file) for file in sorted(artifact.iterdir())},
             'build': {'cacheArgumentsSha256': digest(cache/'args.gn'),
                       'vmInputsSha256': vm_inputs_hash, 'vmInputCount': len(objects),
-                      'sourceSha256': source_hash},
+                      'sourceSha256': source_hash, 'provenance': provenance},
         }
         (artifact/'manifest.json').write_text(json.dumps(manifest, indent=2)+'\n')
+        if source_inputs() != sources:
+            raise ValueError('Native source inputs changed during the build')
+        if vm_inputs(cache, objects) != vm_inputs_hash:
+            raise ValueError('Native VM inputs changed during the build')
+        if {name: digest(path) for name, path in recipes.items()} != recipe_hashes:
+            raise ValueError('Native cache recipes changed during the build')
+        if dependency_inputs(depfiles, header_roots) != header_hashes:
+            raise ValueError('Native headers changed during the build')
+        if digest(Path(clang)) != provenance['compiler']['sha256']:
+            raise ValueError('Native compiler changed during the build')
         publish(artifact, output)
     return manifest
 

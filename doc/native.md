@@ -227,8 +227,20 @@ The callback packages cover annotated and external selections, eight TypeScript
 configurations per Node version, 100,000 calls, weak adapter identity, retained
 functions, strict Promise inputs, exact failures, GC, reentry, resource closing,
 foreign-owner completion and normal/terminated Workers.
-General CI also checks native metadata, emission, AOT compilation and manifest validation;
-the full native execution check requires a maintainer bundle and is run locally.
+General CI also checks native metadata, emission, AOT compilation and manifest
+validation, plus distribution provenance/cache regressions using synthetic
+files and the real Dart validator. The full native execution check requires a
+maintainer bundle and is run locally. The macOS/Windows atomic publication
+checks do not claim native runtime support on those runner platforms.
+
+The distribution tool is for maintainers and CI; ordinary application builds
+still receive `nativeRuntime` explicitly. It validates current bridge/runtime
+source provenance and every cached payload, and never downloads SDK sources or
+rebuilds the VM on a cache miss. See [locked distribution](../native/README.md#locked-distribution).
+The first remote asset and a mandatory native CI job remain a separate delivery.
+A local-only lock deliberately fails on an empty cache without
+`--archive`. An archive hash proves which reviewed bytes were used, not a
+reproducible upstream VM/toolchain build.
 
 No binary is committed or released by this development change. Runtime supply
 automation, additional targets, complete lifecycle engines and cross-backend
