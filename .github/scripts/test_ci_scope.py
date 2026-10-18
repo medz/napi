@@ -53,7 +53,7 @@ class ScopeTests(unittest.TestCase):
 
     def test_all_other_paths_are_full(self):
         for path in ("README.md", "CHANGELOG.md", "AGENTS.md", "native/readme.md",
-                     "docs/readme.md", "doc/guide.MD", "doc/code.py", "doc.md",
+                     "docs/readme.md", "doc/uppercase.MD", "doc/code.py", "doc.md",
                      "test/new.dart", "tool/check.dart", "pubspec.yaml",
                      ".github/workflows/ci.yml", ".github/scripts/ci_scope.py"):
             with self.subTest(path=path):
