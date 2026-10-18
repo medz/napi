@@ -1,4 +1,4 @@
-# Concrete generic class aliases
+# Concrete generic exports
 
 Select a finite set of ordinary Dart aliases when business logic needs real Dart
 type arguments. The existing annotation and external class selector both work:
@@ -38,6 +38,42 @@ invalid aliases fail at their source locations before output is written. No
 runtime type descriptors, string type names or new annotation options are needed.
 An alias's spelling is not its identity: parameters spelled `Cell<int>` or with
 another unselected equivalent typedef refer to the same selected `IntCell`.
+
+## Concrete callable exports
+
+A public top-level `const` can select real type arguments for a top-level
+function or static method, using the same annotation and external selector:
+
+```dart
+T read<T extends num>(T value, {int count = 7}) => value;
+String kind<T>() => T == int ? 'int' : 'other';
+
+@NAPI()
+const readInt = read<int>;
+
+@NAPI()
+const intKind = kind<int>;
+```
+
+JavaScript calls `readInt(3)` and `intKind()`; the latter returns `'int'` because
+Dart executes the actual `int` specialization. `ExternalFunction('readInt')`
+selects the same callable without annotating the source. `@NAPI(bigint: true)`
+applies the existing integer policy to the specialized signature.
+
+The initializer must directly name a top-level function or static method with
+explicit closed type arguments. The selected const can be reexported, declared
+in a part, or target a private function or imported static method. The generated
+call uses that public const. Its resolved initializer supplies parameter names,
+Dart defaults and result types, including nested types and typedef arguments.
+An explicit function type or typedef on the const is accepted only when its
+signature matches the initializer; widening or erasing it is diagnosed.
+
+Mutable and `final` variables, inferred instantiations, alias chains, closures,
+constructor tear-offs and bound instance methods remain diagnosed. Arguments
+containing `dynamic` or open generic function types are also unsupported. There
+is no runtime type descriptor or new annotation option. Direct generic methods
+and automatic callable specialization remain separate work in
+[#126](https://github.com/medz/napi/issues/126).
 
 ## Handle identity and covariance
 
@@ -179,15 +215,15 @@ whole-root validation before construction remain unchanged.
 
 ## Current scope
 
-This slice covers non-null, closed aliases of reference, resource and value classes.
+This slice covers non-null, closed aliases of reference, resource and value classes,
+and explicitly specialized top-level callable consts.
 Arguments containing `dynamic` or generic function types remain diagnosed even
 when Dart considers the surrounding alias closed. It preserves existing [open opaque generics](opaque.md). Selecting an open class and
 one of its concrete aliases together, multiple aliases for the same canonical
 specialization remain diagnosed. Selected hierarchies require ordinary classes
 or closed aliases; open opaque hierarchies remain diagnosed. Reference selections
 that Dart type tests cannot distinguish, such as `Marker<void>` with `Marker<Object?>`, are also rejected;
-value projections do not use that runtime classification. Generic functions and
-methods that require real type arguments remain separate work in [#126](https://github.com/medz/napi/issues/126).
+value projections do not use that runtime classification.
 
 Native `.node` and Dart Wasm share the substitutions and declarations; each
 backend keeps its existing identity and lifetime implementation. Future returns

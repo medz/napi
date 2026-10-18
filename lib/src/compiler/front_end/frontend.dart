@@ -164,11 +164,13 @@ final class _Reader {
     final selected = <(ExternalDeclaration, a.Element)>[];
     for (final selection in selections.declarations) {
       final name = selection.name;
-      final element = root.element.exportNamespace.definedNames2[name];
+      final exported = root.element.exportNamespace.definedNames2[name];
+      final element = exported == null ? null : _exportDeclaration(exported);
       final fallback = selection.source ?? _source(root.element);
       if (name.startsWith('_')) {
         final private =
             root.element.getTopLevelFunction(name) ??
+            root.element.getTopLevelVariable(name) ??
             root.element.getClass(name);
         throw BindingDiagnostic(
           'NAPI_VISIBILITY',
@@ -195,7 +197,8 @@ final class _Reader {
         );
       }
       if ((selection is ExternalFunction &&
-              element is! a.TopLevelFunctionElement) ||
+              element is! a.TopLevelFunctionElement &&
+              element is! a.TopLevelVariableElement) ||
           (selection is ExternalClass &&
               element is! a.ClassElement &&
               element is! a.TypeAliasElement)) {
@@ -228,6 +231,10 @@ final class _Reader {
       await _load(element.library!);
       if (element is a.TopLevelFunctionElement) {
         functions.add(_function(element, selection.name, selection.config));
+      } else if (element is a.TopLevelVariableElement) {
+        functions.add(
+          _concreteFunction(element, selection.name, selection.config),
+        );
       } else if (element is a.ClassElement) {
         classes.add(_class(element, selection.name, selection.config));
       } else if (element is a.TypeAliasElement) {
@@ -274,11 +281,14 @@ final class _Reader {
         'name and exclude cannot be combined.',
       );
     }
-    if (config.bigint && (member || element is! a.TopLevelFunctionElement)) {
+    if (config.bigint &&
+        (member ||
+            (element is! a.TopLevelFunctionElement &&
+                element is! a.TopLevelVariableElement))) {
       _reject(
         element,
         'NAPI_PLACEMENT',
-        'bigint is only supported on a top-level function.',
+        'bigint is only supported on a top-level function or concrete callable const.',
       );
     }
     _checkClassOptions(element, config);
@@ -475,6 +485,7 @@ final class _Reader {
   Future<BindingModule> read(ResolvedLibraryResult root) async {
     final candidates = root.element.exportNamespace.definedNames2.entries
         .where((e) => e.value is! a.MultiplyDefinedElement)
+        .map((e) => MapEntry(e.key, _exportDeclaration(e.value)))
         .toList();
     // Source order is deterministic within an origin; reexports use origin URI.
     candidates.sort((x, y) => _compareDeclarations(x.value, y.value));
@@ -513,6 +524,8 @@ final class _Reader {
       }
       if (element is a.TopLevelFunctionElement) {
         functions.add(_function(element, candidate.key, config));
+      } else if (element is a.TopLevelVariableElement) {
+        functions.add(_concreteFunction(element, candidate.key, config));
       } else if (element is a.ClassElement) {
         classes.add(_class(element, candidate.key, config));
       } else if (element is a.TypeAliasElement) {
@@ -523,7 +536,7 @@ final class _Reader {
         _reject(
           element,
           'NAPI_PLACEMENT',
-          '@NAPI() selects functions, classes and concrete class aliases.',
+          '@NAPI() selects functions, concrete callable consts, classes and concrete class aliases.',
         );
       }
     }
@@ -535,6 +548,14 @@ final class _Reader {
     validateDeclarations(module);
     return module;
   }
+
+  // Public namespaces expose a variable through its synthetic getter.
+  a.Element _exportDeclaration(a.Element element) =>
+      element is a.GetterElement &&
+          element.isOriginVariable &&
+          element.variable is a.TopLevelVariableElement
+      ? element.variable
+      : element;
 
   int _compareDeclarations(a.Element x, a.Element y) {
     final uri = x.library!.uri.toString().compareTo(y.library!.uri.toString());
@@ -719,6 +740,78 @@ final class _Reader {
     isGenerator: element.firstFragment.isGenerator,
     bigint: config.bigint,
   );
+
+  FunctionBinding _concreteFunction(
+    a.TopLevelVariableElement element,
+    String path,
+    NAPI config,
+  ) {
+    final node = _node(element);
+    final initializer = node is VariableDeclaration ? node.initializer : null;
+    if (!element.isConst ||
+        initializer is! FunctionReference ||
+        initializer.typeArguments == null) {
+      _reject(
+        element,
+        'NAPI_CALLABLE',
+        'Select a top-level const initialized directly with a function tear-off and explicit closed type arguments.',
+      );
+    }
+    final target = switch (initializer.function) {
+      SimpleIdentifier(:final element) => element,
+      PrefixedIdentifier(:final identifier) => identifier.element,
+      PropertyAccess(:final propertyName) => propertyName.element,
+      _ => null,
+    };
+    if (target is! a.TopLevelFunctionElement &&
+        !(target is a.MethodElement && target.isStatic)) {
+      _reject(
+        element,
+        'NAPI_CALLABLE',
+        'A concrete callable const must directly select a top-level function or static method.',
+      );
+    }
+    final type = initializer.staticType;
+    final arguments = initializer.typeArgumentTypes;
+    if (type is! a.FunctionType ||
+        type.typeParameters.isNotEmpty ||
+        arguments == null ||
+        arguments.isEmpty ||
+        !arguments.every((argument) => isClosedConcreteType(_type(argument)))) {
+      _reject(
+        element,
+        'NAPI_GENERIC',
+        'A concrete callable const requires explicit closed type arguments without dynamic or open generic types.',
+      );
+    }
+    // The initializer retains the target's defaults. An explicit function type
+    // can erase them or widen its signature; only the same signature is safe.
+    if (element.type != type) {
+      _reject(
+        element,
+        'NAPI_CALLABLE',
+        'A concrete callable const must retain its initializer function type; remove or match the declared type.',
+      );
+    }
+    final executable = target as a.ExecutableElement;
+    return FunctionBinding(
+      declaration: _id(element),
+      exportName: config.name ?? path,
+      source: _source(element),
+      exportSurface: entry,
+      callPath: path,
+      parameters: type.formalParameters.indexed.map(
+        (p) => _parameter(p.$2, owner: _id(element), path: 'parameter:${p.$1}'),
+      ),
+      result: _type(type.returnType, owner: _id(element), path: 'return'),
+      typeParameters: const [],
+      documentation: element.documentationComment ?? _documentation[element],
+      isExternal: executable.isExternal,
+      isAsync: executable.firstFragment.isAsynchronous,
+      isGenerator: executable.firstFragment.isGenerator,
+      bigint: config.bigint,
+    );
+  }
 
   a.InterfaceType _concreteAliasType(a.TypeAliasElement alias) {
     final type = alias.aliasedType;
@@ -1202,6 +1295,7 @@ final class _Reader {
         a.GetterElement() => DeclarationKind.getter,
         a.SetterElement() => DeclarationKind.setter,
         a.FieldElement() => DeclarationKind.field,
+        a.TopLevelVariableElement() => DeclarationKind.variable,
         a.TypeParameterElement() => DeclarationKind.typeParameter,
         a.TypeAliasElement() => DeclarationKind.typedefType,
         _ => DeclarationKind.function,
@@ -1276,6 +1370,10 @@ final class _AnnotationVisitor extends RecursiveAstVisitor<void> {
     if (parent is FieldDeclaration && parent.fields.variables.length == 1) {
       element = parent.fields.variables.single.declaredFragment?.element;
     }
+    if (parent is TopLevelVariableDeclaration &&
+        parent.variables.variables.length == 1) {
+      element = parent.variables.variables.single.declaredFragment?.element;
+    }
     final unit = node.thisOrAncestorOfType<CompilationUnit>()!;
     final fragment = unit.declaredFragment!;
     final location = fragment.lineInfo.getLocation(node.offset);
@@ -1293,7 +1391,7 @@ final class _AnnotationVisitor extends RecursiveAstVisitor<void> {
     if (element == null) {
       reject(
         'NAPI_PLACEMENT',
-        'Place @NAPI() on a top-level function, class, concrete class alias, or single class member.',
+        'Place @NAPI() on a top-level function, single concrete callable const, class, concrete class alias, or single class member.',
       );
     }
     final config = reader._config(element);
@@ -1327,10 +1425,12 @@ final class _AnnotationVisitor extends RecursiveAstVisitor<void> {
     if (hasBigintOption && config?.exclude == true) {
       reject('NAPI_SELECTION', 'bigint and exclude cannot be combined.');
     }
-    if (hasBigintOption && element is! a.TopLevelFunctionElement) {
+    if (hasBigintOption &&
+        element is! a.TopLevelFunctionElement &&
+        element is! a.TopLevelVariableElement) {
       reject(
         'NAPI_PLACEMENT',
-        'bigint is only supported on a top-level function.',
+        'bigint is only supported on a top-level function or concrete callable const.',
       );
     }
     if (element.isPrivate) {
@@ -1345,6 +1445,7 @@ final class _AnnotationVisitor extends RecursiveAstVisitor<void> {
         );
       }
     } else if (element is! a.TopLevelFunctionElement &&
+        element is! a.TopLevelVariableElement &&
         element is! a.ClassElement &&
         element is! a.TypeAliasElement) {
       reject('NAPI_PLACEMENT', 'Member annotations require an owning class.');

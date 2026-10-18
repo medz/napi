@@ -190,3 +190,32 @@ const compatibleCleanup: Promise<void> = compatibleOwner.close();
 // @ts-expect-error Same-origin concrete aliases remain invariant through children.
 const wrongCrossParent: api.IntCrossView = api.compatibleView();
 void [compatibleView, compatibleCleanup, wrongCrossParent];
+
+const sum: number = api.sumIntegers(2, {extra: 3, multiplier: 2});
+const bigSum: bigint = api.sumBigints(2n, {extra: 3n, multiplier: 2n});
+const kind: string = api.intTypeName();
+const defaultCount: number = api.typedDefault(1, undefined);
+const staticResult: number = api.staticInteger(2);
+const maybeInteger: number | null = api.nullableInteger();
+const callableRecord: {value: number; label: string | null} = api.recordIdentity({value: 7, label: null});
+const callableNested: Map<string, number | null>[] = api.nestedIdentity([new Map([['value', 7]])]);
+const laterInteger: Promise<number> = api.laterInteger(9);
+const externalSum: number = external.sumIntegers(2);
+const directSum: number = direct.sumIntegers(2);
+// @ts-expect-error Concrete callable exports have no runtime type parameter.
+api.sumIntegers<string>('2');
+// @ts-expect-error Dart int specialization does not accept strings.
+api.sumIntegers('2');
+// @ts-expect-error A required scalar remains required.
+api.sumIntegers();
+// @ts-expect-error A required scalar does not accept undefined.
+api.sumIntegers(undefined);
+// @ts-expect-error Scalar defaults do not permit null.
+api.typedDefault(1, null);
+// @ts-expect-error Bigint policy applies to specialized int parameters.
+api.sumBigints(2);
+// @ts-expect-error Bigint policy applies to optional ordinary int parameters too.
+api.sumBigints(2n, {multiplier: 2});
+// @ts-expect-error Nested concrete values retain scalar types.
+api.nestedIdentity([new Map([['value', 'wrong']])]);
+void [sum, bigSum, kind, defaultCount, staticResult, maybeInteger, callableRecord, callableNested, laterInteger, externalSum, directSum];

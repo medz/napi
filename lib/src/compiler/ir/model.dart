@@ -6,6 +6,7 @@ import '../../api/annotation.dart' show ClassPolicy;
 /// getter and setter with the same spelling in two different classes.
 enum DeclarationKind {
   function,
+  variable,
   classType,
   enumType,
   mixinType,

@@ -856,7 +856,7 @@ void _validateConcreteSelections(BindingModule module) {
   );
   for (final binding in concrete) {
     final type = binding.instantiatedType!;
-    if (!_closedConcreteType(type)) {
+    if (!isClosedConcreteType(type)) {
       throw BindingDiagnostic(
         'NAPI_GENERIC',
         'Concrete aliases require a closed class type.',
@@ -886,24 +886,25 @@ void _validateConcreteSelections(BindingModule module) {
   }
 }
 
-bool _closedConcreteType(BindingType type) =>
+/// Whether an explicit specialization contains no open or dynamic arguments.
+bool isClosedConcreteType(BindingType type) =>
     type.nullability != TypeNullability.legacy &&
     switch (type) {
       DynamicType() || TypeParameterType() => false,
       DeclaredType(:final typeArguments) => typeArguments.every(
-        _closedConcreteType,
+        isClosedConcreteType,
       ),
       RecordTypeBinding(:final positional, :final named) =>
-        positional.every(_closedConcreteType) &&
-            named.values.every(_closedConcreteType),
+        positional.every(isClosedConcreteType) &&
+            named.values.every(isClosedConcreteType),
       FunctionTypeBinding(
         :final typeParameters,
         :final parameters,
         :final result,
       ) =>
         typeParameters.isEmpty &&
-            parameters.every((p) => _closedConcreteType(p.type)) &&
-            _closedConcreteType(result),
+            parameters.every((p) => isClosedConcreteType(p.type)) &&
+            isClosedConcreteType(result),
       _ => true,
     };
 
