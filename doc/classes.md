@@ -26,7 +26,7 @@ Wasm function exports, including required List/Map/Dictionary/record arguments c
 references; direct reference-valued calls use callable globals. Native packages expose the same class shape through their
 automatic ESM entry and Node-API bridge.
 
-The implemented slice includes non-generic reference classes and explicitly
+Supported classes include non-generic reference classes and explicitly
 selected [opaque generic classes](opaque.md), direct class
 arguments/results, instance/static methods (including inherited opaque generic methods),
 fields, explicit accessors,
@@ -153,8 +153,8 @@ override; `Future<void>` remains a Promise contract, not synchronous result disc
 [Resource classes](resources.md) additionally share state and operation leases;
 their selected cleanup maps both `void` and `Future<void>` to `Promise<void>`.
 [Finite concrete aliases](concrete-generics.md) and [explicit cooperative
-cancellation](cancellation.md) are supported. Broader generic specialization
-remains separate work; an abort does not preempt arbitrary Dart execution.
+cancellation](cancellation.md) are supported. Other generic specializations are
+diagnosed; an abort does not preempt arbitrary Dart execution.
 [Typed callback inputs](callbacks.md) and [Stream results](streams.md) use their
 documented supported signatures; other combinations produce build diagnostics. Non-null Dart
 object defaults are also rejected. A composite must have a selected operation
@@ -162,22 +162,11 @@ whose call contract satisfies every view sharing that JS name; the compiler
 does not synthesize a new overload or union conversion from incompatible
 operations.
 
-`dart run tool/class_fixture.dart` verifies annotated and unannotated external
-classes, a class-only module, an independent Dart build project, an npm tarball
-installed after removing the original business/build/package directories,
-TypeScript NodeNext/Bundler, whole-graph isolation, twelve collect/readopt cycles,
-Dart weak-reference collection under bounded allocation pressure, nested reference
-identity and six container-held collect/readopt cycles, structural class members,
-canonical Base/Child/interface views, partial accessor overrides, JS subclasses,
-custom construction targets, six hierarchy collect/readopt cycles, complete
-composite surfaces, conflicting views and six composite collect/readopt cycles,
-and normal/terminated Workers. The shared class contract is also run by
-`tool/native_verify.dart`.
 Tested with Dart 3.13.5, Node 24.19.0/26.11.1 and TypeScript 7.0.2; native execution
-is currently qualified only on macOS arm64.
+is qualified only on macOS arm64.
 
 Frozen old/new single-class measurements on these Node versions used separate
-A/A samples and three balanced AB/BA rounds. The hierarchy implementation in #160 added
+A/A samples and three balanced AB/BA rounds. Adding selected class hierarchy support added
 1,989 bytes (1.70%) to the small Wasm package, including 251 bytes of core Wasm;
 the native package grew 1,886 bytes. Wasm getter medians rose from 19.435 to
 20.562 ns on Node 24 and 18.891 to 19.693 ns on Node 26, consistently slower in
@@ -189,8 +178,8 @@ RSS do not establish long-term memory bounds. Large class hierarchies were not
 benchmarked. The ordinary callback path reuses the cached canonical class;
 first-exposure work grows with the selected class set.
 
-The subsequent composite implementation was measured against the exact #160
-tree with the same single-Counter source URI. All eight Wasm artifacts and the
+Composite support was measured against the hierarchy-only implementation with
+the same single-Counter source URI. All eight Wasm artifacts and the
 native loader/declarations were byte-identical. Native ABI 8 added 112 bytes of
 AOT and 1,136 bytes in total. Across the two Node versions, ordinary method,
 getter, setter, self and constructor medians changed by -2.78% to +0.47%; every

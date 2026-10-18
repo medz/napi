@@ -51,8 +51,8 @@ nullable parameters without an explicit default use Dart's implicit `null`.
 Internal int defaults retain Dart precision even when the JS input policy is
 safe-number; normal result range checks still apply. An unresolved, unsupported
 or type-incompatible scalar default produces `NAPI_DEFAULT` at the parameter
-before compilation or output creation. Unsupported value categories continue to
-produce `NAPI_TYPE`. Defaults for future conversion engines need explicit support.
+before compilation or output creation. Unsupported value categories produce
+`NAPI_TYPE`; non-null structural and reference defaults are not supported.
 
 Each optional value uses one branch in generated Dart; named arguments are passed
 with their Dart labels. Code size grows linearly with parameter count, without
@@ -65,9 +65,9 @@ function exports, even in the same public module. Consumers import both forms
 directly from `.wasm`; neither function form is constructible. This implementation
 requires no consumer initialization. Generated opaque functions use the presence
 path even when all parameters are required. Native callbacks capture Node-API
-argument counts and own-property presence before creating carriers. Fresh
-installed packages on both targets verify that `f()` fails while
-`f(undefined)` preserves the supplied payload.
+argument counts and own-property presence before creating carriers. On both
+targets, `f()` fails for a required opaque input while `f(undefined)` preserves
+the supplied payload.
 
 Declarations use optional positional parameters and a final typed options object.
 Ordinary optional properties explicitly allow `undefined`, including under
@@ -82,5 +82,5 @@ it through its ordinary optional-property rules. Runtime presence remains exact
 in either mode; no configuration-gating helper or extra presence parameter is
 added.
 
-Verified with Dart 3.13.5 stable, Node 26.11.1 and TypeScript 7.0.2; CI also tests
-Node 24.19.0. Dart Wasm interop remains experimental.
+Compiler and runtime requirements are listed in [the compatibility guide](../README.md#verify).
+Dart Wasm interop remains experimental.

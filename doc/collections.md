@@ -10,14 +10,14 @@ methods when sharing application state owned by Dart.
 | `List<T>` | `Array<T>` | Independent container on each conversion | Implemented on both targets |
 | `Map<K, V>` | `Map<K, V>` | Independent container on each conversion | Implemented on both targets |
 | `Dictionary<V>` | String-keyed object | Independent container on each conversion | Implemented on both targets |
-| `JsArray<T>` / `JsMap<K, V>` | Original JS Array or Map | Retains the existing JS container | Scalar and direct opaque payloads on both targets; broader payloads remain in [#128](https://github.com/medz/napi/issues/128) |
+| `JsArray<T>` / `JsMap<K, V>` | Original JS Array or Map | Retains the existing JS container | Scalar and direct opaque payloads on both targets |
 | Exported Dart reference class | Bound class instance | Dart owns its state; methods expose supported operations | Implemented on both targets |
 
 See [structural conversion](structural.md) for strict input validation, element
 policies, traversal limits and converted Map-key collisions. Copying a container
 does not imply that every element is copied: selected reference leaves preserve
-their wrapper identity. Opaque leaves inside structural containers remain
-unsupported. Use [shared byte views](shared-bytes.md) for supported binary sharing.
+their wrapper identity, and supported opaque leaves preserve their original JS
+values. Use [shared byte views](shared-bytes.md) for supported binary sharing.
 
 ## Explicit JS handles
 
@@ -53,9 +53,7 @@ Opaque Map keys keep JavaScript SameValueZero semantics, including object and
 symbol identity. No additional annotation is needed. Other element types,
 nested handles, callbacks containing handles, and handles inside structural or
 value-class values produce diagnostics. Direct inputs, reference-class members,
-nullable handles and Future/Stream output payloads are supported. Issue #128
-remains open for the remaining payload types; this support is not completion
-of the full issue.
+nullable handles and Future/Stream output payloads are supported.
 
 Admission checks the genuine container brand without walking its contents.
 Cross-realm containers work; Proxy containers are rejected. Each operation
@@ -117,9 +115,7 @@ The host operations are captured per generated module and emitted only when a
 handle is used. Both backends reuse the existing owner/error transport; no C ABI
 or VM extension is added. Native calls still pay for scoped host invocation and
 scalar conversion or opaque ownership. Wasm still uses the pinned experimental Dart 3.13.5 SDK
-adapter. `tool/js_collections_fixture.dart` checks relocated source/external npm
-packages, identity, strict failures, same-owner reentry, retention, workers and
-eight TypeScript configurations on the supported Node 24 and 26 runtimes.
+adapter. See [supported toolchains](../README.md#verify).
 
 ## Measured cost
 

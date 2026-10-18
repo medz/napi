@@ -124,38 +124,17 @@ own contracts. An AbortSignal input never settles a business Future early.
 [SharedBytes](shared-bytes.md) has a separate checked-view ownership contract;
 ordinary byte snapshots are not shared implicitly.
 
-## Validation scope
+## Compatibility
 
-The generated contract was tested on Dart 3.13.5 and Node 24.19.0/26.11.1,
-with TypeScript 7.0.2 in NodeNext and Bundler modes. Native execution uses the
-experimental macOS arm64 runtime bundle, private ABI 15 (57 slots), pinned to
-Dart revision `04bcd1036cdc799ac6564988f159ee454d42c822`. Wasm uses the matching
-SDK's version-specific compiler/host adapter; this is not a portable WASI ABI.
+Both backends require the pinned Dart 3.13.5 compiler/runtime. Native uses the
+experimental macOS arm64 ABI 15 bundle; Wasm uses the SDK's version-specific
+compiler/host adapter, not a portable WASI ABI. See [native requirements](native.md)
+and [supported toolchains](../README.md#verify).
 
-`dart run tool/future_fixture.dart [native-runtime-bundle]` builds an independent
-Dart consumer through the public package API, packs npm artifacts, deletes the
-original business/build sources and installs offline into a relocated path with
-spaces and Unicode characters. The shared suite covers normal and adversarial
-completion, concurrent calls, independent module instances, pending argument
-and receiver reachability, event-loop liveness, unhandled rejections, and normal
-or terminated Workers in eleven fresh-process scenarios. The full Wasm and native
-verification commands include this fixture. These tests establish the ordinary
-Future delivery contract above. The separate [resource fixture](resources.md)
-checks generated cleanup and operation leases. The generic payload fixture adds
-standard thenable adoption, exact getter/rejection values, nullable and undefined
-completion, selected `then` members, and preservation of synchronous/nested values.
+## Measured cost
 
-The standard-resolution update passed the complete native/Wasm suites on both
-Node versions, 528 Dart tests (one Windows-only skip locally), and 23 Wasm
-resource-kernel tests. The opaque suite now has 13 fresh-process scenarios and
-eight TypeScript configurations per backend/version. The resource suite has 26
-scenarios, including nine opaque-result resolve/reject/getter-throw combinations
-that keep cleanup pending through GC and thenable settlement. That update reused
-ABI13; its runtime binaries and settlement implementation did not change.
-
-## Measured update cost
-
-The unchanged Future fixture was compared with its prior installed Wasm package
+The standard Promise-resolution implementation was compared with the preceding
+implementation using the same Future fixture, Dart 3.13.5 and Node 24.19.0/26.11.1
 using two A/A and three balanced A/B ABBA blocks per Node version (40 independent
 processes). Each sample excludes import and 10,000 warmup calls, then checks
 100,000 sequential awaits and 100,000 calls in batches of 128. Median changes
@@ -168,4 +147,4 @@ The nine-file fixture grows from 549,966 to 637,976 bytes (+88,010). Of this,
 non-name core data grows 1,587 bytes. Actual npm archives grow 2,738 and 2,609
 bytes on the two builds. The wrapper Wasm, calls, host, reference bindings,
 package metadata and license remain byte-identical. No artifact was stripped
-for this comparison; native artifact sizes were not measured in this update.
+for this comparison; native artifact sizes were not measured.

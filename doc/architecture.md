@@ -2,7 +2,7 @@
 
 The product is a Dart counterpart to napi-rs: one annotation, one build command,
 one export model, and matching JavaScript/TypeScript APIs across native Node-API
-and Wasm targets. The current compiler generates
+and Wasm targets. The compiler generates
 Wasm scalar and structural functions with positional and named parameters,
 reference classes with direct class values and weak wrapper identity, external selections, and fresh npm
 assembly. The experimental macOS arm64 native
@@ -23,7 +23,7 @@ Both generate [independent byte snapshots](binary.md) for `Uint8List` and
 `ByteBuffer`, including existing structural, Future and Stream conversions.
 Explicit [shared byte views](shared-bytes.md) preserve host storage with current
 window checks, weak adapter identity and bulk operations. Other native targets and
-automatic runtime supply remain development work; see [native scope](native.md).
+automatic runtime supply are not yet supported; see [native scope](native.md).
 
 ## Public contract
 
@@ -35,10 +35,9 @@ requires it. Factories or explicit presence parameters are not replacements.
 
 Strict scalar validation, safe integers, bigint, exact UTF-16 strings, nullability,
 structural conversion, generic substitutions, opaque identity, resources, shared
-views, Futures, callbacks, streams and cancellation remain tracked requirements.
-An unsupported feature fails during the build; it must not silently select a
-different public contract. Completion requires both target conformance and
-documented platform capabilities.
+views, Futures, callbacks, streams and cancellation follow the same public model
+on both targets. Unsupported signatures fail during the build; they do not
+silently select a different public contract.
 
 [Collection ownership](collections.md) follows the napi-rs distinction between
 converted containers and explicit JS handles. Ordinary Dart List/Map values
@@ -93,30 +92,13 @@ framework or generic runtime abstraction is required.
 The native implementation uses a small Node-API bridge loading a pinned Dart AOT
 runtime and generated Dart entrypoints. Its embedding API, asset layout and
 lifecycle are qualified for the documented macOS arm64 profile. Additional
-platforms and runtime supply remain #144; a `.node` binary alone does not qualify
-its Dart runtime or distribution.
+platforms and automatic runtime supply are not yet supported. A `.node` binary
+still requires a compatible Dart runtime and its distribution assets.
 
 The Wasm backend uses Dart WasmGC and the SDK's host imports. napi-rs uses Rust
 WASI and emnapi for its Wasm target. We follow its binding and package model;
 its binary ABI is not interchangeable with Dart WasmGC. Retain the working
 SDK adapter and linker while reducing unnecessary wrappers with measurements.
-
-## Qualifying a native profile
-
-For each new profile, demonstrate a fresh npm consumer loading a real `.node` addon and invoking
-ordinary Dart AOT business code. Include a strict scalar function and a retained
-Dart class called with `new Counter()`. Record the exact SDK, Node, compiler,
-OS/architecture and redistributable files.
-
-Measure cold import, artifact sizes, process memory and scalar/batched calls.
-Compare equivalent Wasm and native business work, separating startup from
-steady-state cost. Do not infer that native is faster or smaller from its name.
-
-Verify exceptions, UTF-16, integer boundaries, object lifetime, repeated imports,
-multiple addon packages, worker creation/termination and process exit. Determine
-runtime sharing, per-environment isolation and cleanup, including async
-work. A process-global runtime must not be disposed while another environment or
-package still uses it. A local scalar probe alone does not satisfy this gate.
 
 ## Package and validation policy
 
@@ -125,34 +107,13 @@ package still uses it. A local scalar probe alone does not satisfy this gate.
 The root points directly to the chosen backend, and a broken backend fails
 without fallback. Both targets share declaration text in separate modules so
 runtime-specific brands remain isolated. Automatic platform selection and
-qualified runtime supply remain #134/#144; unsupported targets fail explicitly.
+automatic runtime supply are not implemented; unsupported targets fail explicitly.
 
 Keep native OS/architecture/runtime files with their licenses and exact version
-metadata. Keep Wasm and its JS dependencies together. Verify packed installs
-outside the checkout, declaration resolution, no manual initialization and
-output-directory safety. Node-API compatibility does not by itself establish
+metadata. Keep Wasm and its JS dependencies together. Packages initialize on
+import and retain their generated declaration and asset paths after installation.
+Node-API compatibility does not by itself establish
 Dart runtime compatibility with Bun or other hosts.
-
-## Delivery order
-
-1. Preserve the delivered argument/default, class, ownership and async contracts
-   on both targets. Complete the remaining combinations in #119-#133 and
-   cross-feature acceptance in #137; no single slice closes the full API roadmap.
-2. Extend qualified native profiles and runtime supply in #144. Existing macOS
-   arm64 feasibility results are documented in [native builds](native.md). The
-   independent Node-API host research in #27 has its own qualification scope; it
-   is not a prerequisite for native platform support or runtime distribution.
-3. Keep explicit single-/dual-target packages and independent consumers working
-   while completing automatic selection (#134), safe rebuilds (#135) and
-   migration documentation (#138). Fresh packaging and package-name safety are
-   already implemented.
-4. Prepare complete user-facing milestones with cumulative changelogs, final
-   Codex connector review, CI and fresh published-package verification.
-
-The final PR commit needs the GitHub Codex connector's completed review with no
-unresolved findings and required CI before exact-SHA merge. CodeRabbit is not a
-gate. Release preparation is separate from feature PRs. Publish at most four
-versions per Asia/Shanghai calendar day; this is a ceiling, not a release target.
 
 ## References
 
@@ -160,4 +121,3 @@ versions per Asia/Shanghai calendar day; this is a ceiling, not a release target
 - [napi-rs Wasm artifacts and runtime](https://napi.rs/docs/concepts/webassembly)
 - [Node-API](https://nodejs.org/api/n-api.html)
 - [Existing Wasm foundation](foundation.md)
-- [Superseded single-Wasm research](single-wasm.md)

@@ -223,9 +223,8 @@ the original JS values on access. Extracted values remain retained independently
 of their source slots; opaque Map keys keep JS identity. These handles do not copy
 or interpret their payloads. See [collection ownership](collections.md).
 
-Opaque keys in converted Dart Maps, non-bijective open hierarchies,
-inherited generic member contracts and generic resource/value classes remain
-unsupported. Concrete or erased specializations
+Opaque keys in converted Dart Maps, non-bijective open hierarchies and generic
+resource/value classes remain unsupported. Concrete or erased specializations
 such as `Router<String>` or raw `Router` are not interchangeable with
 `Router<T>` under this carrier policy. They receive build diagnostics.
 
@@ -258,53 +257,16 @@ Without a compatible getter view, the read remains exactly `undefined`, so a
 setter-only `then` preserves the wrapper. Static setter-only reads are always
 `undefined` because static members do not participate in view composition.
 
-The unsupported generic combinations above remain tracked in the broader
-generics/composition issues, including #110.
+## Measured cost
 
-## Validation and cost
+The following measurements cover the original synchronous opaque implementation
+on macOS arm64, Dart 3.13.5, Node 24.19.0/26.11.1 and native ABI 12. They do not
+establish costs for nested containers, generic methods, Future/Stream payloads
+or extracted JS collection values. Current native builds require ABI 15;
+see [native requirements](native.md).
 
-The nested-opaque follow-up passes 19 fresh-process scenarios and eight TypeScript
-configurations per backend on Node 24.19.0/26.11.1, using Dart 3.13.5 and native
-ABI15. Annotated and external packages cover 27 payload categories, copied
-containers, generic inherited references, admission/output failure, and input
-retention through Future settlement or Stream return. The measurements below
-predate these nested paths and do not establish their cost.
-
-The optional named follow-up passes 15 fresh-process opaque scenarios and eight
-TypeScript configurations for each backend on Node 24.19.0/26.11.1. Annotated and
-external selections cover multiple optional fields, required/optional mixtures,
-constructors, methods, Future inputs/results, exact reflection failures and
-retention/release after field clearing or Future settlement. TypeScript tests
-cover both literal and aliased options under both exact-optional settings. Full
-native/Wasm consumers, 538 Dart tests (one Windows-only local skip) and 23 Wasm
-resource tests pass. It reuses the existing ABI14 bundle; no runtime rebuild or
-additional host-value operation is required.
-
-The standard Promise-resolution follow-up passed 13 fresh-process opaque scenarios
-and eight TypeScript configurations per backend on Node 24.19.0/26.11.1. Both full
-consumer suites, 528 Dart tests (one Windows-only skip) and 23 Wasm resource tests
-passed. The resource suite additionally verifies opaque thenable settlement and
-cleanup ordering. That update used ABI13. The counts and costs below record the
-original synchronous generic-payload delivery.
-
-Generated annotated and external-selection packages were built, packed, moved
-and installed into fresh consumers after deleting their business/build sources.
-Native and Wasm each passed Node 24.19.0 and 26.11.1: 25 payload categories,
-10 fresh-process lifetime/presence scenarios, and eight TypeScript 7.0.2 modes
-(NodeNext/Bundler, exact optional properties and strict function types on/off).
-The complete existing native/Wasm consumers, 497 Dart tests and 23 Wasm resource
-kernel tests passed; one Windows-only Dart test was skipped on this macOS host.
-Both backends remain coupled to the qualified Dart 3.13.5 compiler. Current native
-builds require the ABI15 (57 slots) macOS arm64 bundle described in
-[native.md](native.md); the complete consumer matrix has also passed with ABI13.
-ABI14 additionally exercises hostile and revoked callable Proxies, extending the
-payload matrix to 27 categories and checking the direct function-reference path
-without reading payload properties or invoking functions.
-The original validation and measurements below used ABI12, which introduced the
-owned-value kernel.
-
-A local unchanged scalar/Counter sample before and after this generator change
-remained 6,588,276 bytes, with identical loader, declarations, bridge and runtime.
+A scalar/Counter sample with no opaque operations before and after enabling
+opaque generation remained 6,588,276 bytes, with identical loader, declarations, bridge and runtime.
 The AOT size was unchanged, though its bytes differed. A/A and three balanced
 ABBA rounds on each Node version measured ordinary function/getter/method median
 changes from -1.08% to +0.50%; constructor changes were +2.59% (Node 24) and +0.38%
@@ -323,5 +285,4 @@ with event-loop turns every 1,000 calls. The same payload object was retained:
 
 This measures these small operations on macOS arm64, not a general application
 speedup or a memory bound. Native creates an owned reference for accepted payload
-inputs; Wasm carries the externref directly. The native measurement used the same
-opaque implementation before adding unrelated type-name hygiene fixture exports.
+inputs; Wasm carries the externref directly.

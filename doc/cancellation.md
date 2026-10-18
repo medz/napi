@@ -133,13 +133,11 @@ actual state change does not notify Dart, consume the next real abort, or bypass
 another listener's `stopImmediatePropagation()` handling.
 
 Both backends use the same host listener policy and Dart registration state.
-Wasm traces the host companion directly. Native reuses ABI14's owned values,
-weak adapter identity and correct-owner callback queue, with no additional C
-slot or VM rebuild. An un-aborted signal never creates a permanently strong
+Wasm traces the host companion directly. Native uses owned values,
+weak adapter identity and its owning isolate's callback queue. An un-aborted
+signal never creates a permanently strong
 pending callback invocation.
 
-The compiler/runtime pin remains Dart 3.13.5. Conformance uses installed annotation
-and external-selection packages after deleting their source/build projects,
-Node 24.19.0 and 26.11.1, and TypeScript 7.0.2 in NodeNext/Bundler modes with both
-optional-property and function-variance settings. The native distribution remains
-experimental and qualified only for macOS arm64; see [native builds](native.md).
+Both backends require Dart 3.13.5. The native distribution remains experimental
+and qualified only for macOS arm64. See [native builds](native.md) and
+[supported toolchains](../README.md#verify).

@@ -71,9 +71,9 @@ signature matches the initializer; widening or erasing it is diagnosed.
 Mutable and `final` variables, inferred instantiations, alias chains, closures,
 constructor tear-offs and bound instance methods remain diagnosed. Arguments
 containing `dynamic` or open generic function types are also unsupported. There
-is no runtime type descriptor or new annotation option. Direct generic methods
-and automatic callable specialization remain separate work in
-[#126](https://github.com/medz/napi/issues/126).
+is no runtime type descriptor or new annotation option. Ordinary open generic
+methods use the [opaque payload contract](opaque.md#generic-methods); automatic
+concrete callable specialization is not supported.
 
 ## Handle identity and covariance
 
@@ -215,7 +215,7 @@ whole-root validation before construction remain unchanged.
 
 ## Current scope
 
-This slice covers non-null, closed aliases of reference, resource and value classes,
+Concrete exports support non-null, closed aliases of reference, resource and value classes,
 and explicitly specialized top-level callable consts.
 Arguments containing `dynamic` or generic function types remain diagnosed even
 when Dart considers the surrounding alias closed. It preserves existing [open opaque generics](opaque.md). Selecting an open class and

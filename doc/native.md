@@ -61,7 +61,7 @@ assembly sets `os: ["darwin"]` and `cpu: ["arm64"]`, rejects conflicting metadat
 and rechecks copied runtime integrity. There is no install script or manual
 initialization. Preserve the Dart and napi licenses when redistributing.
 
-## Implemented slice
+## Supported bindings
 
 Required, optional, named and nullable scalar calls share the Wasm
 [scalar](scalars.md) and [presence](arguments.md) contracts. This includes
@@ -85,14 +85,8 @@ JS storage. The short acquired-pointer intervals contain no JS callbacks or
 allocation. See [binary snapshots](binary.md) for the validity and ownership
 contract; these operations do not implement live shared views.
 
-ABI 14 added lazy retained-callback
-identity and owner-queued async completion helpers to ABI 13's scoped callback
-invocation and ABI 12's owned JS values and ABI 11's
-canonical resource cleanup Promises and resource-lease settlement observation;
-ABI 10 supplied Future delivery and ABI 9 supplied owner-thread event-loop integration. Older bundles are rejected before
-copying. The ABI 15 bundle rebuilds the bridge and reuses the existing compiled
-VM runtime; it does not require a VM rebuild. Consumer builds still require only
-the ordinary Dart SDK and that bundle.
+Older bundles are rejected before copying. Consumer builds require only the
+ordinary Dart SDK and the matching bundle; they do not rebuild the VM.
 Constructor-target detection preserves custom JS subclass receivers during
 canonical adoption. The reference-shape slot registers a composite wrapper creator only
 after its observed interface combination passes the shared contract checks.
@@ -111,16 +105,6 @@ an explicit ownership break as described in the [architecture](architecture.md).
 Generated [opaque bindings](opaque.md) use this internal primitive for supported
 type parameters from the Dart declaration. Saved callback throws use the same
 ownership mechanism, with no release queue or process-global reference registry.
-
-The private carrier has a separate handwritten ABI fixture compiled to real
-Dart AOT, packed and installed outside its original source directory. Twelve
-fresh-process scenarios cover 19 payload categories with exact identity and no
-payload traps, Dart-only roots, replacement/removal, wrapper collection and
-readoption, explicit cycle breaking, hostile Zones, owner isolation, timer
-release, natural exit and normal/terminated Workers. These are internal
-lifecycle checks, not evidence of generated opaque API support. They run in
-`dart run tool/native_verify.dart <bundle>` on Node 24.19.0 and 26.11.1 with the
-same pinned macOS arm64 SDK/runtime profile as the generated conformance suite.
 
 List/Map/Dictionary/record functions and class members share Wasm's [structural conversion](structural.md)
 contract, including nullable containers, cloned outputs, own-data fields, bounded
@@ -163,8 +147,8 @@ selected class owns the canonical wrapper across base/interface views. Instance
 prototypes inherit without static inheritance. Compatible unrelated selected
 memberships use one private composite prototype with a complete instance
 surface; conflicting call contracts fail before exposing a wrapper. Custom JS
-prototypes retain priority. The remaining generic, broader callback
-and shared-buffer roadmap stays open.
+prototypes retain priority. See the individual feature guides for unsupported
+signatures and combinations.
 
 ## Runtime and verification
 
@@ -173,7 +157,7 @@ receive separate isolates. Environment cleanup invalidates wrappers and shuts
 down only its isolates. The process-wide VM and immutable snapshot mappings
 remain resident, including after the last Worker unloads. Different-isolate
 reentry is rejected while Dart is active. Dart-created child isolates and
-interrupting non-returning synchronous Dart code are not supported by this slice.
+interrupting non-returning synchronous Dart code are not supported.
 
 Synchronous exports can schedule Dart microtasks, Futures, timers and receive-port
 work. The bridge automatically delivers that work on the owning Node thread.
@@ -185,11 +169,11 @@ Node alive; active Dart ports/timers do. Closing the environment cancels deliver
 and releases its isolate without running business cleanup. Unhandled Dart async
 errors are reported through Node's uncaught-exception path.
 
-Generated [Stream exports](streams.md) reuse ABI 14 and the Future delivery
-transport with a private iterator wrapper. Admission owns a converted host
+Generated [Stream exports](streams.md) use the Future delivery transport with a
+private iterator wrapper. Admission owns a converted host
 snapshot; delivery acknowledgement releases its envelope. Resource leases remain
 attached to the original subscription until cancellation and accepted deliveries
-finish. No new C event queue or runtime bundle is required.
+finish.
 
 Generated [Future-returning declarations](futures.md) use the same output
 converters, keep receiver/argument roots through conversion and resolver delivery,
@@ -213,44 +197,27 @@ NAPI_TEST_NATIVE_RUNTIME=/absolute/path/to/runtime-bundle \
   dart test -P callback-native
 ```
 
-This explicit native check runs the same scalar/argument assertions as Wasm,
-builds a separate Dart consumer through the public API, packs and relocates the
-native npm package, removes its original build/source directory, and installs
-offline into a path with spaces and non-ASCII characters. It checks constructors,
-properties, invalid receivers, retained state, GC, normal/terminated Workers,
-Worker-only unload/reload, and TypeScript NodeNext/Bundler resolution. A separate
-generated package exercises Dart microtasks, timers, messages, event-loop
-liveness, async errors and Worker shutdown without exposing Future signatures.
-A further package checks the shared [Future contract](futures.md), including
-pending receiver/argument retention and ordinary Promise rejection behavior.
-The resource package adds cleanup identity, nested-resource leases, thenable
-settlement, failure rollback, wrapper readoption and teardown checks.
-The separate callback preset covers annotated and external selections, eight
-TypeScript configurations on one fixed host, 100,000 calls, weak adapter identity,
-retained functions, strict Promise inputs, exact failures, GC, reentry, resource closing,
-foreign-owner completion and normal/terminated Workers.
-General CI also checks native metadata, emission, AOT compilation and manifest
-validation, plus distribution provenance/cache regressions using synthetic
-files and the real Dart validator. The full native execution check requires a
-maintainer bundle and is run locally. The macOS/Windows atomic publication
-checks do not claim native runtime support on those runner platforms.
+These commands run installed native consumers and TypeScript checks with the
+supplied runtime bundle. General CI does not run the complete native runtime
+suite; its macOS/Windows publication checks also do not establish native runtime
+support on those platforms. See [Running tests](testing.md).
 
 The distribution tool is for maintainers and CI; ordinary application builds
 still receive `nativeRuntime` explicitly. It validates current bridge/runtime
 source provenance and every cached payload, and never downloads SDK sources or
 rebuilds the VM on a cache miss. See [locked distribution](../native/README.md#locked-distribution).
-The first remote asset and a mandatory native CI job remain a separate delivery.
-A local-only lock deliberately fails on an empty cache without
-`--archive`. An archive hash proves which reviewed bytes were used, not a
-reproducible upstream VM/toolchain build.
-
-No binary is committed or released by this development change. Runtime supply
-automation, additional targets, complete lifecycle engines and cross-backend
-package selection remain required before a complete native milestone release.
+The distribution lock is local-only: it fails on an empty cache without
+`--archive`. An archive hash identifies the exact payload; it does not establish
+a reproducible upstream VM/toolchain build. Automatic runtime supply and
+additional native targets are not yet supported.
 
 ## Measured cost
 
-A local, non-frozen macOS arm64 run on 2026-10-17 measured the same Dart
+The comparisons below describe the stated runtime ABI versions and small Dart
+programs. They are historical measurements, not measurements of every current
+feature combination. Protocols and limitations accompany each result.
+
+A local macOS arm64 run on 2026-10-17 measured the same Dart
 `add(int, int)` declaration through both targets. Each Node version first ran
 same-target A/A samples, then three balanced AB/BA rounds, using fresh child
 processes, 20,000 warmup calls and 200,000 measured calls per sample. The table
@@ -280,7 +247,7 @@ runtime manifest to a fresh temporary directory printed by the tool.
 
 ### Event-loop integration
 
-The ABI 9 event pump was compared with `7df2fe8` and its ABI 8 bundle on the same
+The ABI 9 event pump was compared with the ABI 8 runtime on the same
 machine, holding the generated `add`/`Counter` AOT, loader and declaration bytes
 identical to isolate runtime costs. Each Node version ran two
 same-target samples followed by three balanced AB/BA rounds in fresh processes.
@@ -306,13 +273,12 @@ and coalesces synchronous calls into one pending drain; it adds no polling loop.
 
 ### Future transport and synchronous modules
 
-The ABI 10 Future transport was compared with `f923220` and its ABI 9 bundle
+The ABI 10 Future transport was compared with the ABI 9 runtime
 using the same synchronous `add`/`Counter` business source and the event-loop
 measurement protocol above. Changing the private table length requires a new
 AOT snapshot, so this comparison includes regenerated AOT and the bridge;
 it does not isolate bridge-only costs. Native loader/declaration bytes remain
-identical. All eight compiled Wasm artifacts for this fixture, and 36 emitted
-texts across nine existing synchronous fixtures, remain byte-identical.
+identical. Wasm artifacts for this synchronous sample are unchanged.
 
 | Node | Function ns, before → after | Getter ns, before → after | Method ns, before → after |
 | --- | ---: | ---: | ---: |
@@ -324,8 +290,7 @@ its baseline A/A variation was 4.52%. Node 24's getter decreased 0.71%.
 Constructor medians changed +0.72%/-2.04%, while A/A variation reached 11.97%.
 Function A/A variation reached 9.04%; cold-import and system noise remain
 uncontrolled. These samples do not establish a speed improvement or zero
-regression. Raw samples, ordered pairs and artifact hashes are retained under
-`.dart_tool/evidence/20261017-future-bindings/` in the development checkout.
+regression.
 
 Complete native artifacts grow from 6,584,496 to 6,585,876 bytes (+1,380 bytes,
 0.02%): bridge +1,264 bytes, AOT +112 bytes and manifest +4 bytes. The shared
@@ -335,14 +300,12 @@ does not measure Future throughput or claim zero async allocation cost.
 
 ### Resource bindings and synchronous modules
 
-The ABI 11 resource bridge was compared with `b1b3264` and its ABI 10 bundle
+The ABI 11 resource bridge was compared with the ABI 10 runtime
 using the same synchronous `add`/`Counter` source and the A/A plus three balanced
 AB/BA protocol above. AOT was regenerated for the private ABI change. Complete
 artifacts grow from 6,585,876 to 6,587,844 bytes (+1,968 bytes, 0.03%), all in the
 bridge; AOT/runtime sizes and loader/declaration bytes are unchanged. All eight
 compiled Wasm artifacts for this resource-free sample remain byte-identical.
-Across nine resource-free synchronous fixtures, all 36 Wasm emitted texts remain
-identical; eight native synchronous fixtures retain identical generated Dart.
 
 | Node | Function ns, before → after | Getter ns, before → after | Method ns, before → after |
 | --- | ---: | ---: | ---: |
@@ -353,8 +316,7 @@ Call median changes range from +0.05% to +1.67%, with mixed paired directions
 and same-target variation up to 3.56%. Constructor medians change +2.97%/-1.27%,
 while same-target variation reaches 8.09%. Initial filesystem/signature checks
 strongly affect first import; neither predictable cold-start latency nor zero
-regression is established. Raw paired samples and artifacts are retained under
-`.dart_tool/evidence/resource-bindings/cost/` in the development checkout.
+regression is established.
 These synchronous measurements exclude active resource leases and Promise-hook
 cost; see [resource measurement scope](resources.md#settlement-observer-cost).
 
@@ -376,6 +338,4 @@ Call medians changed from -1.03% to +1.82%, with mixed paired directions and
 same-target variation up to 8.84%. Constructor medians decreased 2.02%/3.26%,
 while same-target variation reached 19.23%. These local samples establish
 neither a speed improvement nor zero regression. They exclude active owned-value
-allocation, retrieval and finalization throughput. Raw samples and artifact
-hashes are retained under `.dart_tool/evidence/20261017-owned-host-values/cost/`
-in the development checkout.
+allocation, retrieval and finalization throughput.

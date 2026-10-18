@@ -106,27 +106,13 @@ never revokes a retained callback or cancels a JavaScript Promise returned by it
 A generic payload that happens to be a JS function stays an opaque
 value; it is never inferred to be a callback.
 
-## Verification
-
-The fixture builds annotated and externally selected packages, packs and installs
-them offline after removing the original business/build sources. It exercises
-identity, weak collection, delayed invocation, startup failures, strict Promise
-inputs, exact errors, concurrent results, resource closing, foreign-owner
-completion, normal/terminated Workers and queued teardown. TypeScript consumers
-run in eight strict/optional-property/function-variance configurations.
-Native currently requires the experimental macOS arm64 ABI15 runtime bundle;
-compiler/runtime versions and broader limits are in [native.md](native.md).
-
-The 2026-10-17 final validation passed 537 Dart tests (one Windows-only local
-skip), 23 Wasm resource tests, and full native/Wasm installed consumers on Node
-24.19.0 and 26.11.1. Each callback package ran 24 isolated scenarios and eight
-TypeScript configurations, using Dart 3.13.5 and TypeScript 7.0.2. Format,
-analysis and the clean package dry-run also passed.
+Native callbacks require the experimental macOS arm64 ABI 15 runtime bundle.
+See [native requirements](native.md) and [supported toolchains](../README.md#verify).
 
 ## Retained-callback cost
 
-The final ABI14 comparison used the same Dart callback source as the earlier
-borrowed fixture, on macOS arm64 with Node 24.19.0 and 26.11.1. Each case used
+These ABI 14 measurements compare retained and borrowed adapters using the
+same Dart callback source on macOS arm64 with Node 24.19.0 and 26.11.1. Each case used
 fresh-process A/A samples and three balanced ABBA rounds. Median times in ns:
 
 | Path and unit | Node 24, borrowed → retained | Node 26, borrowed → retained |
@@ -139,10 +125,7 @@ fresh-process A/A samples and three balanced ABBA rounds. Median times in ns:
 The loop invokes an already-converted callback 100,000 times. `callTwice` passes
 the same JS function into Dart on each call and invokes it twice, so it includes
 adapter lookup. Native identity maintenance adds a repeatable 105–144 ns per
-outer call; it is not cost-free. Direct function references, borrowing inside
-the local handle scope, combined native calls and allocation-free cache-hit keys
-removed the first implementation's approximately 37% regression. Ordinary native
-export controls changed between -2.23% and +1.13%, with no consistent slowdown
+outer call. Ordinary native export controls changed between -2.23% and +1.13%, with no consistent slowdown
 across the independent runs. These results do not measure async callback
 throughput or establish a general application performance bound.
 
@@ -151,21 +134,17 @@ same-source native callback package adds 21,251 bytes (+0.307%), or 2,456 bytes
 in its real npm tarball. The Wasm callback package shrinks by 9,882 raw bytes
 (-1.719%) but its tarball grows by 816 bytes. Callback source paths differ from
 the earlier installed fixture, so sizes compare complete generated packages,
-not isolated bridge instructions. The broader new conformance fixture is
-excluded from this comparison. The native bundle reuses all 1,052 VM objects;
-no SDK download or VM rebuild was needed. Raw samples, artifact hashes and
-superseded measurements remain in
-`.dart_tool/evidence/20261017-retained-callbacks/cost/`.
+not isolated bridge instructions. The comparison excludes async callback
+throughput and broader payload shapes.
 
 ## Earlier borrowed-callback cost baseline
 
-These measurements record PR #170's ABI13 borrowed-adapter implementation, before
+These measurements use the ABI 13 borrowed-adapter implementation, before
 retained and async adapters. They are not cost measurements of the current path.
 
 The same scalar/Counter package grows from 6,588,276 to 6,588,516 bytes with
 ABI13: the bridge adds 240 bytes; loader/declarations are byte-identical and AOT
-size is unchanged. The existing 1,052 VM objects are reused. Seven ordinary Wasm
-fixtures retain all 21 generated entrypoint/call/boundary files byte-for-byte.
+size is unchanged.
 
 Local ordinary native-path measurements used A/A and three balanced ABBA rounds
 per Node version. Initial median changes were -0.88% to +1.46% across functions,
@@ -188,4 +167,4 @@ The native/control runs used A/A plus balanced repeated ordering; Wasm used A/A
 and six additional samples per version. The controls execute different paths,
 so subtracting them is not an isolated bridge-cost measurement. These scalar
 loops do not measure application throughput, structural payload costs or memory
-bounds; the 100,000-call functional test separately verifies repeated invocation.
+bounds.

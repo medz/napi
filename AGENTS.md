@@ -26,6 +26,12 @@ Add native conformance as its implementation lands, including fresh packages,
 workers, teardown and cross-backend behavior. Document tested compiler/runtime
 versions and experimental SDK coupling for both backends.
 
+# Public content
+
+Issues describe problems and impact only, without implementation or acceptance criteria.
+PRs describe changes. Docs explain usage, behavior, limitations and necessary design.
+Keep development logs, local constraints and review gates out of public content.
+
 # Code review
 
 Use the Codex GitHub connector's PR review on the final commit. Its completed

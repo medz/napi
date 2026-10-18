@@ -27,9 +27,8 @@ and `license`, is retained. Builder-owned `type`, `files`, `exports`, `imports`,
 `main`, `module`, `types`, `typings`, `browser`, and `bin` fields cause an explicit
 conflict error when supplied. Scoped names such as `@scope/path` are valid;
 unscoped Node built-in names are rejected without requiring Node to be installed.
-The rejection table covers the 42 legal bare-name collisions on Node 24.19.0 and
-26.11.1. Tests compare it with each tested runtime's actual `builtinModules` and
-`isBuiltin` inventory. Prefix-only names such as `test`, `sqlite`, `sea` and `ffi`
+The rejection table covers bare-name collisions on Node 24.19.0 and 26.11.1.
+Prefix-only names such as `test`, `sqlite`, `sea` and `ffi`
 remain valid. A collision reports the offending name and suggests `@scope/name`.
 See Node's [built-in module rules](https://nodejs.org/api/modules.html#built-in-modules-with-mandatory-node-prefix).
 
@@ -110,17 +109,12 @@ exemption. No hard links are used as snapshots.
 
 Existing-output replacement is currently limited to local macOS APFS. Linux,
 Windows, network/other filesystems, legacy package adoption and raw module
-replacement remain open under #135. New-output publication retains its existing
+replacement are not supported. New-output publication retains its existing
 platform support. No extra flags, install scripts or external copy tools are
 required.
 
-`dart run tool/package_assembly_fixture.dart` builds real Dart Wasm, packs the npm
-package, moves its tarball to a path with spaces, removes the build/package
-directories, and installs a fresh consumer. Node imports and TypeScript
-NodeNext/Bundler resolution exercise both package entrypoints, argument defaults,
-UTF-16 strings, and invalid argument rejection. The compiler remains pinned to
-Dart 3.13.5 and its experimental Wasm integration; use the repository's tested
-Node and TypeScript versions from CI.
+The compiler remains pinned to Dart 3.13.5 and its experimental Wasm integration;
+see [supported toolchains](../README.md#verify).
 
 `assembleNativePackage` uses the same metadata, assets and atomic publication
 rules for a `BuildTarget.native` module. Its root and `./native` exports load
@@ -157,7 +151,7 @@ state. Importing the other backend creates a separate Dart runtime and state;
 reference objects and resources cannot cross between them. A missing or broken
 selected backend fails normally. No failure triggers an implicit fallback, and
 importing Wasm does not initialize native. CommonJS, browser initialization and
-automatic platform selection are outside this slice.
+automatic platform selection are not supported.
 
 Both targets resolve their own Dart conditional imports. Their ordered public
 declarations, strict conversion policies, parameter presence, evaluated defaults
@@ -185,14 +179,6 @@ for Wasm use on another supported host. Caller-provided host restrictions are
 retained. Including both targets increases download size; there is no optional
 platform package or install-time download.
 
-`dart run tool/dual_target_fixture.dart <native-runtime-bundle>` checks source
-and external builds, both root choices, fresh relocated npm installs, explicit
-subpaths, repeated imports, separate runtime identities, failed assets, Workers,
-resource/Future/Stream use and strict TypeScript. `NAPI_NODE_EXECUTABLES` runs the
-same installed artifacts with each configured Node runtime. A native AOT failure
-after a successful Wasm build verifies that no partial package is published and
-unrelated author files survive.
-
 Managed rebuilds follow the same rules for single and dual output; legacy output
 still cannot be adopted automatically. Automatic backend selection, runtime supply and other native platforms
-remain #134/#144; this explicit dual-target slice does not complete those issues.
+are not supported.
