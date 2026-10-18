@@ -221,11 +221,6 @@ bigints([{wide: 42, huge: 1n}]);
       'class Ref {} @NAPI() List<Ref> bad(List<Ref> value) => value;',
       'NAPI_TYPE',
     ),
-    (
-      'non-null structural defaults',
-      '@NAPI() class Bad { List<int> method([List<int> value = const []]) => value; }',
-      'NAPI_DEFAULT',
-    ),
   ]) {
     test('$description stay diagnostic', () async {
       expect(

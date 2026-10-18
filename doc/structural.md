@@ -38,9 +38,11 @@ echo([{ $1: 'item', values: [1, null] }, null]);
 The table describes converted leaf types, not Dart type spelling in TypeScript.
 Record fields are always required, including fields whose value can be `null`.
 Optional nullable List/Map/Dictionary/record parameters can omit the argument, pass `undefined`
-to select the default, or pass `null`. Only null structural defaults are currently
-supported. A non-null constant List/Map/Dictionary/record default produces `NAPI_DEFAULT` before
-compilation or output creation.
+to select the default, or pass `null`. Non-null constant defaults are supported
+when their declared type and constant graph contain only structural containers
+and scalar/null leaves. Defaults preserve Dart const identity; returning them
+still creates ordinary copied JS containers. See [argument defaults](arguments.md)
+for supported constants and limits.
 
 | Boundary case | Policy |
 | --- | --- |
@@ -146,9 +148,10 @@ Both targets use the pinned Dart 3.13.5 compiler/runtime and experimental SDK
 APIs. Native execution requires the macOS arm64 ABI 15 bundle; other native
 platforms remain unqualified. See [supported toolchains](../README.md#verify).
 
-Non-null structural defaults, opaque Map keys and remaining generic reference
-specializations are not supported. Nested JS collection handles and open
-generic resource/value classes are still unsupported. Failed input conversion
+Defaults containing reference, resource, opaque or value-class leaves, opaque
+Map keys and remaining generic reference specializations are not supported.
+Nested JS collection handles and open generic resource/value classes are still
+unsupported. Failed input conversion
 does not invoke the exported business method, reference
 constructor or setter. Explicit [value-class constructors](values.md) execute
 during input materialization after raw validation; domain failures may retain

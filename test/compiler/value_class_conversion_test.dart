@@ -337,7 +337,6 @@ class Value {
       "@NAPI(classPolicy: ClassPolicy.value) class Bad { @NAPI() int method() => 1; }",
       "@NAPI(classPolicy: ClassPolicy.value) class Bad { @NAPI() static int x = 0; }",
       "@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new') class Bad { Bad(this.x); @NAPI(exclude: true) int x; }",
-      "@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new') class Bad { Bad([this.x = const []]); List<int> x; }",
       "@NAPI(valueConstructor: 'new') class Bad { Bad(); }",
     ]) {
       await input.writeAsString("import 'package:napi/napi.dart'; $body");
