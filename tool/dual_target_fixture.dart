@@ -76,9 +76,13 @@ Future<void> verifyDualTargetFixture(Directory root, Directory runtime) async {
                 'later',
                 'sequence',
                 'fail',
+                'structuralDefaults',
+                'namedDefaults',
               ])
                 ExternalFunction(name),
               ExternalClass('Counter'),
+              ExternalClass('DefaultBase'),
+              ExternalClass('DefaultChild'),
               ExternalClass(
                 'Resource',
                 config: const NAPI(

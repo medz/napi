@@ -1,5 +1,6 @@
 import '../../api/annotation.dart' show ClassPolicy;
 import '../ir/model.dart';
+import '../ir/defaults.dart';
 import 'result.dart';
 
 final dictionaryDeclaration = DeclarationId(
@@ -2466,13 +2467,43 @@ void validateCallParameters(
   }
 }
 
-/// Validate defaults shared by the scalar native and Wasm backends.
+/// Validate evaluated defaults shared by native and Wasm backends.
 void validateParameterDefault(
   ParameterBinding parameter,
   SourceLocation source,
 ) {
-  final value = parameter.defaultValue?.value;
+  final constant = parameter.defaultValue;
+  final value = constant is ScalarDefault ? constant.value : null;
   final type = parameter.type;
+  if (constant != null && constant is! ScalarDefault) {
+    try {
+      constantDefaultSource(constant);
+    } on ConstantDefaultLimit catch (error) {
+      throw BindingDiagnostic(
+        'NAPI_DEFAULT',
+        error.toString(),
+        parameter.source ?? source,
+      );
+    } on FormatException catch (error) {
+      throw BindingDiagnostic(
+        'NAPI_DEFAULT',
+        error.message,
+        parameter.source ?? source,
+      );
+    }
+    if (_portableDefaultParameter(type) &&
+        _structuralDefaultFits(constant, type)) {
+      return;
+    }
+    throw BindingDiagnostic(
+      'NAPI_DEFAULT',
+      'Non-null structural defaults require a completely represented built-in '
+          'const List, Map, Dictionary or record graph with scalar/null leaves '
+          'and compatible actual types. Reference, resource and opaque defaults '
+          'remain unsupported.',
+      parameter.source ?? source,
+    );
+  }
   if (!_isBackendScalar(type) &&
       ((parameter.hasDefault && parameter.defaultValue == null) ||
           value != null)) {
@@ -2480,7 +2511,7 @@ void validateParameterDefault(
       'NAPI_DEFAULT',
       type.semantics == ValueSemantics.reference
           ? 'Non-null reference defaults are not supported; a nullable reference parameter may use a null default.'
-          : 'Non-null structural defaults are not supported; a nullable structural parameter may use a null default.',
+          : 'Non-null structural defaults must be completely represented built-in const graphs with scalar/null leaves; a nullable structural parameter may use a null default.',
       parameter.source ?? source,
     );
   }
@@ -2761,24 +2792,122 @@ bool referenceMemberDefaultsAccept(
   return true;
 }
 
-Object? _referenceDefault(ParameterBinding parameter) {
-  final value = parameter.defaultValue?.value;
-  if (value is int) {
-    if (parameter.type case DeclaredType(:final declaration)
-        when declaration.library == Uri.parse('dart:core') &&
-            declaration.name == 'double') {
-      return value.toDouble();
-    }
+bool _sameReferenceDefault(ParameterBinding left, ParameterBinding right) =>
+    parameterDefaultKey(left) == parameterDefaultKey(right);
+
+bool _portableDefaultParameter(BindingType type) {
+  if (_isBackendScalar(type)) return true;
+  if (type is RecordTypeBinding) {
+    return type.positional.every(_portableDefaultParameter) &&
+        type.named.values.every(_portableDefaultParameter);
   }
-  return value;
+  if (type is! DeclaredType) return false;
+  if (type.declaration == dictionaryDeclaration) {
+    return type.typeArguments.length == 1 &&
+        _portableDefaultParameter(type.typeArguments.single);
+  }
+  return type.declaration.library == Uri.parse('dart:core') &&
+      const {'List', 'Map'}.contains(type.declaration.name) &&
+      type.typeArguments.every(_portableDefaultParameter);
 }
 
-bool _sameReferenceDefault(ParameterBinding left, ParameterBinding right) {
-  final a = _referenceDefault(left);
-  final b = _referenceDefault(right);
-  if (a is double && b is double) {
-    if (a.isNaN && b.isNaN) return true;
-    if (a == 0 && b == 0) return a.isNegative == b.isNegative;
+bool _defaultTypeFits(BindingType actual, BindingType expected) {
+  if (actual is NeverType) {
+    return actual.nullability == TypeNullability.nonNullable ||
+        expected.nullability == TypeNullability.nullable;
   }
-  return a.runtimeType == b.runtimeType && a == b;
+  if (actual is DeclaredType &&
+      actual.declaration.library == Uri.parse('dart:core') &&
+      actual.declaration.name == 'Null') {
+    return expected.nullability == TypeNullability.nullable;
+  }
+  if (actual.nullability == TypeNullability.nullable &&
+      expected.nullability != TypeNullability.nullable) {
+    return false;
+  }
+  if (actual is SafeIntType) return expected is SafeIntType;
+  if (actual is RecordTypeBinding && expected is RecordTypeBinding) {
+    return actual.positional.length == expected.positional.length &&
+        actual.named.length == expected.named.length &&
+        actual.positional.indexed.every(
+          (e) => _defaultTypeFits(e.$2, expected.positional[e.$1]),
+        ) &&
+        actual.named.entries.every(
+          (e) =>
+              expected.named.containsKey(e.key) &&
+              _defaultTypeFits(e.value, expected.named[e.key]!),
+        );
+  }
+  if (actual is! DeclaredType || expected is! DeclaredType) return false;
+  if (expected.declaration == dictionaryDeclaration) {
+    return actual.declaration.library == Uri.parse('dart:core') &&
+        actual.declaration.name == 'Map' &&
+        actual.typeArguments.length == 2 &&
+        (constantTypeSource(actual.typeArguments[0]) == 'String' ||
+            (actual.typeArguments[0] is NeverType &&
+                actual.typeArguments[0].nullability ==
+                    TypeNullability.nonNullable)) &&
+        _defaultTypeFits(
+          actual.typeArguments[1],
+          expected.typeArguments.single,
+        );
+  }
+  return actual.declaration == expected.declaration &&
+      actual.typeArguments.length == expected.typeArguments.length &&
+      actual.typeArguments.indexed.every(
+        (e) => _defaultTypeFits(e.$2, expected.typeArguments[e.$1]),
+      );
+}
+
+bool _structuralDefaultFits(ConstantDefault value, BindingType expected) {
+  switch (value) {
+    case ScalarDefault(:final value):
+      if (value == null) {
+        return expected.nullability == TypeNullability.nullable ||
+            constantTypeSource(expected) == 'Null';
+      }
+      return expected is SafeIntType
+          ? value is int
+          : expected is DeclaredType &&
+                expected.declaration.library == Uri.parse('dart:core') &&
+                switch (expected.declaration.name) {
+                  'bool' => value is bool,
+                  'String' => value is String,
+                  'double' => value is double,
+                  _ => false,
+                };
+    case ListDefault(:final type, :final elements):
+      return type is DeclaredType &&
+          type.declaration.library == Uri.parse('dart:core') &&
+          type.declaration.name == 'List' &&
+          type.typeArguments.length == 1 &&
+          _defaultTypeFits(type, expected) &&
+          elements.every(
+            (v) => _structuralDefaultFits(v, type.typeArguments.single),
+          );
+    case MapDefault(:final type, :final entries):
+      return type is DeclaredType &&
+          type.declaration.library == Uri.parse('dart:core') &&
+          type.declaration.name == 'Map' &&
+          type.typeArguments.length == 2 &&
+          _defaultTypeFits(type, expected) &&
+          entries.every(
+            (e) =>
+                _structuralDefaultFits(e.$1, type.typeArguments[0]) &&
+                _structuralDefaultFits(e.$2, type.typeArguments[1]),
+          );
+    case RecordDefault(:final type, :final positional, :final named):
+      return type is RecordTypeBinding &&
+          _defaultTypeFits(type, expected) &&
+          positional.length == type.positional.length &&
+          named.length == type.named.length &&
+          positional.indexed.every(
+            (e) => _structuralDefaultFits(e.$2, type.positional[e.$1]),
+          ) &&
+          named.entries.every(
+            (e) =>
+                type.named.containsKey(e.key) &&
+                _structuralDefaultFits(e.value, type.named[e.key]!),
+          );
+  }
 }

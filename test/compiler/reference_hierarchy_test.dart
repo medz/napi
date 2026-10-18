@@ -185,14 +185,14 @@ void main() {
       final ref = property(child, name).method!;
       final selected = wasm.classes[ref.classId].members[ref.memberIndex];
       expect(
-        selected.parameters.single.defaultValue!.value,
+        (selected.parameters.single.defaultValue as ScalarDefault).value,
         name == 'run' ? 2 : 4,
       );
       final inherited = base.members.singleWhere(
         (m) => !m.isStatic && m.exportName == name,
       );
       expect(
-        inherited.parameters.single.defaultValue!.value,
+        (inherited.parameters.single.defaultValue as ScalarDefault).value,
         name == 'run' ? 1 : 3,
       );
     }

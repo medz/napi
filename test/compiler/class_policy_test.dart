@@ -110,7 +110,7 @@ class HiddenCleanup {
         (cleanup.parameters.first.type as TypeParameterType).declaration,
         cleanup.typeParameters.single.declaration,
       );
-      expect(cleanup.parameters.last.defaultValue!.value, 2);
+      expect((cleanup.parameters.last.defaultValue as ScalarDefault).value, 2);
       await _expectSource(cleanup.source, 'close');
       final hidden = classes['HiddenCleanup']!;
       expect(

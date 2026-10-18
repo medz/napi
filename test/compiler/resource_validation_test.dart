@@ -43,7 +43,7 @@ class AsyncResource {
       expect(sync.returnsFuture, isTrue);
       expect(sync.result, isNull);
       expect(sync.exportName, 'release');
-      expect(sync.parameters.single.defaultValue!.value, 7);
+      expect((sync.parameters.single.defaultValue as ScalarDefault).value, 7);
       final async = module.classes.last.cleanup!;
       expect(async.returnsFuture, isTrue);
       expect(isFutureType(async.result), isTrue);

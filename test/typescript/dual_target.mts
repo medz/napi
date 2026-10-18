@@ -28,3 +28,14 @@ native.add('1');
 root.format('x', {unknown: true});
 // @ts-expect-error Instances require genuine reference brands.
 wasm.identity({value: 1, increment: () => 1});
+
+const defaults: boolean = wasm.structuralDefaults(undefined, new Map([['a', [1, null]]]));
+const namedDefault: boolean = native.namedDefaults({wide: undefined});
+const defaultObject = new root.DefaultBase(undefined);
+const defaultNamed: root.DefaultBase = root.DefaultBase.named({});
+const inherited: Promise<boolean> = new root.DefaultChild().later();
+void [defaults, namedDefault, defaultObject, defaultNamed, inherited];
+// @ts-expect-error Non-null structural defaults do not make null a valid input.
+wasm.structuralDefaults(null);
+// @ts-expect-error Supplied lists still use their scalar contract.
+native.namedDefaults({wide: [1n]});

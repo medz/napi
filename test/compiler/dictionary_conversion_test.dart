@@ -186,18 +186,14 @@ void main() {
     }
   });
 
-  test(
-    'non-null defaults and unsupported Dictionary leaves remain diagnosed',
-    () async {
-      for (final source in [
-        "import 'package:napi/napi.dart'; @NAPI() Dictionary<int> bad([Dictionary<int> value = const Dictionary({})]) => value;",
-        "import 'package:napi/napi.dart'; @NAPI() Dictionary<dynamic> bad(Dictionary<dynamic> value) => value;",
-      ]) {
-        await input.writeAsString(source);
-        await expectLater(plan, throwsA(isA<BindingDiagnostic>()));
-      }
-    },
-  );
+  test('unsupported Dictionary leaves remain diagnosed', () async {
+    for (final source in [
+      "import 'package:napi/napi.dart'; @NAPI() Dictionary<dynamic> bad(Dictionary<dynamic> value) => value;",
+    ]) {
+      await input.writeAsString(source);
+      await expectLater(plan, throwsA(isA<BindingDiagnostic>()));
+    }
+  });
 
   test(
     'real Wasm Dictionary uses own data keys and null-prototype copied outputs',

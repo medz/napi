@@ -162,19 +162,15 @@ void main() {
     }
   });
 
-  test(
-    'Map non-null defaults and unsupported children remain diagnosed',
-    () async {
-      for (final source in [
-        "import 'package:napi/napi.dart'; @NAPI() Map<String,int> bad([Map<String,int> value = const {}]) => value;",
-        "import 'package:napi/napi.dart'; @NAPI() Map<String,dynamic> bad(Map<String,dynamic> value) => value;",
-        "import 'package:napi/napi.dart'; @NAPI() Map<Set<int>,int> bad(Map<Set<int>,int> value) => value;",
-      ]) {
-        await input.writeAsString(source);
-        await expectLater(plan, throwsA(isA<BindingDiagnostic>()));
-      }
-    },
-  );
+  test('unsupported Map children remain diagnosed', () async {
+    for (final source in [
+      "import 'package:napi/napi.dart'; @NAPI() Map<String,dynamic> bad(Map<String,dynamic> value) => value;",
+      "import 'package:napi/napi.dart'; @NAPI() Map<Set<int>,int> bad(Map<Set<int>,int> value) => value;",
+    ]) {
+      await input.writeAsString(source);
+      await expectLater(plan, throwsA(isA<BindingDiagnostic>()));
+    }
+  });
 
   test('real Wasm Maps snapshot entries, reject collisions and preserve class leaves', () async {
     final module = await plan();

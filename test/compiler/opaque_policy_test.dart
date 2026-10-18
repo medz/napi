@@ -232,8 +232,8 @@ typedef Payload<T> = T;
           ParameterPresence.optional,
         ]);
         expect(parameters[1].kind, ParameterKind.optionalNamed);
-        expect(parameters[1].defaultValue?.value, isNull);
-        expect(parameters[2].defaultValue?.value, isNull);
+        expect((parameters[1].defaultValue as ScalarDefault?)?.value, isNull);
+        expect((parameters[2].defaultValue as ScalarDefault?)?.value, isNull);
       }
       final wasmTypes = emitDeclarations(wasm);
       final nativeTypes = emitNativeDeclarations(native);

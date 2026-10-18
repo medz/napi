@@ -104,7 +104,10 @@ typedef DoubleCell = Cell<double>;
         );
         final constructor = member(integer, 'new', MemberKind.constructor);
         expect(constructor.parameters.first.type, isA<SafeIntType>());
-        expect(constructor.parameters.last.defaultValue!.value, 'ready');
+        expect(
+          (constructor.parameters.last.defaultValue as ScalarDefault).value,
+          'ready',
+        );
         expect(constructor.parameters.last.kind, ParameterKind.optionalNamed);
         expect(
           member(

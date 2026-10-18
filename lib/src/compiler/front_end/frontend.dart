@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:analyzer/dart/analysis/results.dart';
 import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/ast/visitor.dart';
+import 'package:analyzer/dart/constant/value.dart';
 import 'package:analyzer/dart/element/element.dart' as a;
 import 'package:analyzer/dart/element/nullability_suffix.dart';
 import 'package:analyzer/dart/element/type.dart' as a;
@@ -12,6 +13,7 @@ import 'package:path/path.dart' as p;
 import '../../api/annotation.dart';
 import '../analysis/validate.dart';
 import '../ir/model.dart';
+import '../ir/defaults.dart';
 import 'external.dart';
 import 'sdk_analysis.dart';
 
@@ -1128,7 +1130,7 @@ final class _Reader {
           ? ParameterKind.optionalPositional
           : ParameterKind.requiredPositional,
       defaultSource: element.defaultValueCode,
-      defaultValue: _scalarDefault(element),
+      defaultValue: element.hasDefaultValue ? _parameterDefault(element) : null,
       hasDefault: element.hasDefaultValue,
       source: element.firstFragment.libraryFragment == null
           ? null
@@ -1140,17 +1142,108 @@ final class _Reader {
     );
   }
 
-  ScalarDefault? _scalarDefault(a.FormalParameterElement element) {
-    if (!element.hasDefaultValue) return null;
-    final value = element.computeConstantValue();
-    if (value == null) return null;
-    if (value.isNull) return const ScalarDefault(null);
+  ConstantDefault? _parameterDefault(a.FormalParameterElement element) {
+    try {
+      return _constantDefault(
+        element.computeConstantValue(),
+        ConstantDefaultBudget(),
+      );
+    } on ConstantDefaultLimit catch (error) {
+      throw BindingDiagnostic(
+        'NAPI_DEFAULT',
+        error.toString(),
+        _source(element),
+      );
+    }
+  }
+
+  ConstantDefault? _constantDefault(
+    DartObject? value,
+    ConstantDefaultBudget budget, [
+    int depth = 0,
+  ]) {
+    if (value == null || !value.hasKnownValue) return null;
+    if (value.isNull) {
+      budget.visit(depth, leaf: true);
+      return const ScalarDefault(null);
+    }
     final scalar =
         value.toBoolValue() ??
         value.toIntValue() ??
         value.toDoubleValue() ??
         value.toStringValue();
-    return scalar == null ? null : ScalarDefault(scalar);
+    budget.visit(depth, leaf: scalar != null);
+    if (scalar != null) {
+      if (depth > 0 && scalar is String) budget.text(scalar.length);
+      return ScalarDefault(scalar);
+    }
+    final actual = value.type;
+    if (actual == null) return null;
+    _checkConstantType(actual, budget);
+    final type = _type(actual);
+    if (constantTypeSource(type) == null) return null;
+    if (actual.isDartCoreList) {
+      final values = value.toListValue();
+      if (values == null) return null;
+      final elements = <ConstantDefault>[];
+      for (final value in values) {
+        final child = _constantDefault(value, budget, depth + 1);
+        if (child == null) return null;
+        elements.add(child);
+      }
+      return ListDefault(type, elements);
+    }
+    if (actual.isDartCoreMap) {
+      final values = value.toMapValue();
+      if (values == null) return null;
+      final entries = <(ConstantDefault, ConstantDefault)>[];
+      for (final entry in values.entries) {
+        final key = _constantDefault(entry.key, budget, depth + 1);
+        final value = _constantDefault(entry.value, budget, depth + 1);
+        if (key == null || value == null) return null;
+        entries.add((key, value));
+      }
+      return MapDefault(type, entries);
+    }
+    final record = value.toRecordValue();
+    if (record == null) return null;
+    final positional = <ConstantDefault>[];
+    final named = <String, ConstantDefault>{};
+    for (final value in record.positional) {
+      final child = _constantDefault(value, budget, depth + 1);
+      if (child == null) return null;
+      positional.add(child);
+    }
+    for (final entry in record.named.entries) {
+      final child = _constantDefault(entry.value, budget, depth + 1);
+      if (child == null) return null;
+      named[entry.key] = child;
+    }
+    return RecordDefault(type, positional, named);
+  }
+
+  void _checkConstantType(
+    a.DartType type,
+    ConstantDefaultBudget budget, [
+    int depth = 0,
+  ]) {
+    budget.visit(
+      depth,
+      leaf:
+          type is! a.RecordType &&
+          (type is! a.InterfaceType || type.typeArguments.isEmpty),
+    );
+    final children = [
+      ...?type.alias?.typeArguments,
+      if (type is a.InterfaceType) ...type.typeArguments,
+      if (type is a.RecordType) ...[
+        for (final field in type.positionalFields) field.type,
+        for (final field in type.namedFields) field.type,
+      ],
+    ];
+    for (final child in children) {
+      _checkConstantType(child, budget, depth + 1);
+    }
   }
 
   TypeParameterBinding _typeParameter(a.TypeParameterElement element) =>

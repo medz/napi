@@ -201,9 +201,13 @@ enum ParameterKind {
   optionalNamed,
 }
 
-/// An evaluated scalar constant, independent of its source spelling or library.
+/// An evaluated portable constant, independent of its source spelling/library.
 /// A missing instance means an explicit default could not be represented.
-final class ScalarDefault {
+sealed class ConstantDefault {
+  const ConstantDefault();
+}
+
+final class ScalarDefault extends ConstantDefault {
   final Object? value;
   const ScalarDefault(this.value)
     : assert(
@@ -215,13 +219,41 @@ final class ScalarDefault {
       );
 }
 
+/// [type] is the actual constant type, after extension-type erasure.
+final class ListDefault extends ConstantDefault {
+  final BindingType type;
+  final List<ConstantDefault> elements;
+  ListDefault(this.type, Iterable<ConstantDefault> elements)
+    : elements = List.unmodifiable(elements);
+}
+
+final class MapDefault extends ConstantDefault {
+  final BindingType type;
+  // Entry order is observable, even when the same keys and values are present.
+  final List<(ConstantDefault, ConstantDefault)> entries;
+  MapDefault(this.type, Iterable<(ConstantDefault, ConstantDefault)> entries)
+    : entries = List.unmodifiable(entries);
+}
+
+final class RecordDefault extends ConstantDefault {
+  final BindingType type;
+  final List<ConstantDefault> positional;
+  final Map<String, ConstantDefault> named;
+  RecordDefault(
+    this.type,
+    Iterable<ConstantDefault> positional,
+    Map<String, ConstantDefault> named,
+  ) : positional = List.unmodifiable(positional),
+      named = Map.unmodifiable(named);
+}
+
 final class ParameterBinding {
   final String name;
   final BindingType type;
   final ParameterPresence presence;
   final ParameterKind kind;
   final String? defaultSource;
-  final ScalarDefault? defaultValue;
+  final ConstantDefault? defaultValue;
   final bool hasDefault;
   final SourceLocation? source;
   final String? documentation;

@@ -68,6 +68,18 @@ void main() {
       '@NAPI() int run([int n = 1]) => n;',
       '@NAPI() int run([int n = 2]) => n;',
     ),
+    'structural actual const type': (
+      '@NAPI() bool run([List<int> n = const <Never>[]]) => true;',
+      '@NAPI() bool run([List<int> n = const <int>[]]) => true;',
+    ),
+    'structural map order': (
+      "@NAPI() bool run([Map<String,int> n = const {'a':1,'b':2}]) => true;",
+      "@NAPI() bool run([Map<String,int> n = const {'b':2,'a':1}]) => true;",
+    ),
+    'structural signed NaN': (
+      '@NAPI() bool run([List<double> n = const [double.nan]]) => true;',
+      '@NAPI() bool run([List<double> n = const [-double.nan]]) => true;',
+    ),
     'signed zero default': (
       '@NAPI() double run([double n = -0.0]) => n;',
       '@NAPI() double run([double n = 0.0]) => n;',
@@ -192,6 +204,19 @@ void main() {
       }
     }
   });
+
+  test(
+    'equivalent const graphs compare evaluated values and record names',
+    () async {
+      for (final external in [false, true]) {
+        await compare(
+          '@NAPI() bool run([(List<int>,{int x,int y}) n = (const [1+1],x:3,y:4)]) => true;',
+          '@NAPI() bool run([(List<int>,{int x,int y}) n = (const [2],y:4,x:3)]) => true;',
+          external: external,
+        );
+      }
+    },
+  );
 
   test('opaque collection public contracts agree across targets', () async {
     const source =
