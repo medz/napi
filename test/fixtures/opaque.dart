@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:napi/napi.dart';
 
+export 'opaque_hierarchy.dart';
+
 int _calls = 0;
 Object? _pinned;
 Completer<int>? _pending;

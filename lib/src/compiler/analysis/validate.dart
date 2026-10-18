@@ -149,6 +149,10 @@ final class ReferenceClassShape {
   final int classId;
   final Set<int> memberships;
   final int? superclassId;
+
+  /// For each selected generic ancestor, its parameter slots in this scope.
+  /// Only full bijections are supported; runtime carriers keep their own owner.
+  final Map<int, List<int>> ancestorArguments;
   final List<ReferencePropertyShape> prototypeProperties;
   ReferenceMemberShape? get cleanup =>
       members.where((member) => member.isCleanup).singleOrNull;
@@ -159,11 +163,102 @@ final class ReferenceClassShape {
     required this.classId,
     Iterable<int> memberships = const [],
     this.superclassId,
+    Map<int, List<int>> ancestorArguments = const {},
     Iterable<ReferencePropertyShape> prototypeProperties = const [],
   }) : members = List.unmodifiable(members),
        memberships = Set.unmodifiable(memberships),
+       ancestorArguments = Map.unmodifiable({
+         for (final entry in ancestorArguments.entries)
+           entry.key: List<int>.unmodifiable(entry.value),
+       }),
        prototypeProperties = List.unmodifiable(prototypeProperties);
 }
+
+/// Project a contract only across a proven selected ancestor relationship.
+/// The declaring binding and defaults stay intact for runtime dispatch.
+ReferenceMemberShape? referenceMemberInScope(
+  ReferenceMemberShape member,
+  ReferenceClassShape owner,
+  ReferenceClassShape scope,
+) {
+  if (owner.classId == scope.classId) return member;
+  final parameters = <DeclarationId, DeclarationId>{};
+  if (scope.ancestorArguments[owner.classId] case final slots?) {
+    for (final (index, slot) in slots.indexed) {
+      parameters[owner.binding.typeParameters[index].declaration] =
+          scope.binding.typeParameters[slot].declaration;
+    }
+  } else if (owner.ancestorArguments[scope.classId] case final slots?) {
+    for (final (index, slot) in slots.indexed) {
+      parameters[owner.binding.typeParameters[slot].declaration] =
+          scope.binding.typeParameters[index].declaration;
+    }
+  } else if (!scope.memberships.contains(owner.classId) &&
+      !owner.memberships.contains(scope.classId)) {
+    return null;
+  }
+  if (parameters.isEmpty) return member;
+  return ReferenceMemberShape._(
+    member.binding,
+    member.kind,
+    member.parameters.map((p) => _projectParameter(p, parameters)),
+    member.result == null ? null : _projectType(member.result!, parameters),
+    isCleanup: member.isCleanup,
+  );
+}
+
+ParameterBinding _projectParameter(
+  ParameterBinding parameter,
+  Map<DeclarationId, DeclarationId> parameters,
+) => ParameterBinding(
+  parameter.name,
+  _projectType(parameter.type, parameters),
+  presence: parameter.presence,
+  kind: parameter.kind,
+  defaultSource: parameter.defaultSource,
+  defaultValue: parameter.defaultValue,
+  hasDefault: parameter.hasDefault,
+  source: parameter.source,
+  documentation: parameter.documentation,
+  isInitializingFormal: parameter.isInitializingFormal,
+  isSuperFormal: parameter.isSuperFormal,
+  isCovariant: parameter.isCovariant,
+);
+
+BindingType _projectType(
+  BindingType type,
+  Map<DeclarationId, DeclarationId> parameters,
+) => switch (type) {
+  TypeParameterType() => TypeParameterType(
+    parameters[type.declaration] ?? type.declaration,
+    nullability: type.nullability,
+    alias: type.alias,
+  ),
+  DeclaredType() => DeclaredType(
+    type.declaration,
+    type.semantics,
+    typeArguments: type.typeArguments.map((t) => _projectType(t, parameters)),
+    nullability: type.nullability,
+    alias: type.alias,
+  ),
+  RecordTypeBinding() => RecordTypeBinding(
+    positional: type.positional.map((t) => _projectType(t, parameters)),
+    named: {
+      for (final e in type.named.entries)
+        e.key: _projectType(e.value, parameters),
+    },
+    nullability: type.nullability,
+    alias: type.alias,
+  ),
+  FunctionTypeBinding() => FunctionTypeBinding(
+    parameters: type.parameters.map((p) => _projectParameter(p, parameters)),
+    result: _projectType(type.result, parameters),
+    typeParameters: type.typeParameters,
+    nullability: type.nullability,
+    alias: type.alias,
+  ),
+  _ => type,
+};
 
 /// A strict subtype has every ancestor membership plus its own class ID.
 /// Stable ID tie breaking keeps unrelated classes in declaration order.
@@ -176,6 +271,19 @@ List<int> referenceClassOrder(List<ReferenceClassShape> classes) =>
         return depth == 0 ? a.compareTo(b) : depth;
       }),
     );
+
+/// The selected parents named by a merged TypeScript instance interface.
+Iterable<int> referenceParents(
+  ReferenceClassShape shape,
+  List<ReferenceClassShape> classes,
+) {
+  final parents = shape.memberships.where((id) => id != shape.classId).toList();
+  return parents.where(
+    (id) => !parents.any(
+      (other) => other != id && classes[other].memberships.contains(id),
+    ),
+  );
+}
 
 /// A finite declaration node; recursive field types refer back by identity.
 final class ValueFieldSchema {
@@ -1145,6 +1253,19 @@ List<ReferenceClassShape> validateReferenceClasses(BindingModule module) {
     );
   }
   final shapes = _referenceHierarchy(result);
+  for (final shape in shapes) {
+    if (shape.ancestorArguments.isEmpty) continue;
+    for (final parent in referenceParents(shape, shapes)) {
+      final name = shapes[parent].binding.exportName;
+      if (shape.binding.typeParameters.any((p) => p.declaration.name == name)) {
+        throw BindingDiagnostic(
+          'NAPI_NAME',
+          'Opaque type parameters must not shadow the inherited exported class name $name.',
+          shape.binding.source,
+        );
+      }
+    }
+  }
   final policies = resourcePolicies(shapes);
   for (final shape in shapes) {
     final inheritedPolicies = shape.memberships
@@ -1170,10 +1291,20 @@ List<ReferenceClassShape> _referenceHierarchy(
     final index = bindings.indexWhere(
       (binding) => referenceClassMatches(binding, type),
     );
-    return index < 0 ? null : index;
+    if (index >= 0) return index;
+    // An open ancestor with malformed arity is still selected: diagnose its
+    // mapping below instead of silently dropping a handwritten IR edge.
+    final open = bindings.indexWhere(
+      (binding) =>
+          binding.instantiatedType == null &&
+          binding.typeParameters.isNotEmpty &&
+          binding.declaration == type.declaration,
+    );
+    return open < 0 ? null : open;
   }
 
   final memberships = <int, Set<int>>{};
+  final argumentSlots = <int, Map<int, List<int>>>{};
   final visiting = <int>{};
   Set<int> ancestors(int id) {
     if (memberships[id] case final known?) return known;
@@ -1186,6 +1317,21 @@ List<ReferenceClassShape> _referenceHierarchy(
       );
     }
     final result = <int>{id};
+    final mappings = <int, List<int>>{};
+    void mapping(int ancestor, List<int> slots) {
+      final previous = mappings[ancestor];
+      if (previous != null &&
+          (previous.length != slots.length ||
+              previous.indexed.any((e) => e.$2 != slots[e.$1]))) {
+        throw BindingDiagnostic(
+          'NAPI_GENERIC',
+          'Selected ancestors must have one consistent opaque parameter mapping.',
+          binding.source,
+        );
+      }
+      mappings[ancestor] = slots;
+    }
+
     final ancestorsTypes = <DeclaredType>[
       ...binding.allSupertypes,
       ...binding.superclassChain,
@@ -1196,18 +1342,46 @@ List<ReferenceClassShape> _referenceHierarchy(
     ];
     for (final type in ancestorsTypes) {
       if (selected(type) case final parent?) {
-        if (binding.typeParameters.isNotEmpty ||
-            classes[parent].binding.typeParameters.isNotEmpty) {
-          throw BindingDiagnostic(
-            'NAPI_GENERIC',
-            'Selected open generic reference hierarchies are not supported.',
-            binding.source,
-          );
+        final parentBinding = classes[parent].binding;
+        final generic =
+            binding.typeParameters.isNotEmpty ||
+            parentBinding.typeParameters.isNotEmpty;
+        List<int>? slots;
+        if (generic) {
+          final parameters = binding.typeParameters
+              .map((p) => p.declaration)
+              .toList();
+          slots = [
+            for (final argument in type.typeArguments)
+              argument is TypeParameterType &&
+                      argument.nullability == TypeNullability.nonNullable
+                  ? parameters.indexOf(argument.declaration)
+                  : -1,
+          ];
+          if (binding.classPolicy != ClassPolicy.reference ||
+              parentBinding.classPolicy != ClassPolicy.reference ||
+              parameters.length != parentBinding.typeParameters.length ||
+              slots.length != parameters.length ||
+              slots.contains(-1) ||
+              slots.toSet().length != parameters.length) {
+            throw BindingDiagnostic(
+              'NAPI_GENERIC',
+              'Selected open reference ancestors require a full bijection of non-null opaque parameters and ordinary reference policies.',
+              binding.source,
+            );
+          }
+          mapping(parent, slots);
         }
         result.addAll(ancestors(parent));
+        if (slots != null) {
+          for (final entry in argumentSlots[parent]!.entries) {
+            mapping(entry.key, [for (final slot in entry.value) slots[slot]]);
+          }
+        }
       }
     }
     visiting.remove(id);
+    argumentSlots[id] = mappings;
     return memberships[id] = result;
   }
 
@@ -1273,6 +1447,7 @@ List<ReferenceClassShape> _referenceHierarchy(
         effectiveMembers(shape),
         classId: shape.classId,
         memberships: ancestors(shape.classId),
+        ancestorArguments: argumentSlots[shape.classId]!,
         superclassId: superclass(shape.binding),
       ),
   ];
@@ -1432,10 +1607,18 @@ List<ReferenceClassShape> _referenceHierarchy(
             .where(
               (candidate) => matching.every(
                 (ref) => referenceMemberAccepts(
-                  member(candidate),
-                  member(ref),
-                  bindings,
-                  memberships,
+                  referenceMemberInScope(
+                    member(candidate),
+                    shapes[candidate.classId],
+                    shape,
+                  )!,
+                  referenceMemberInScope(
+                    member(ref),
+                    shapes[ref.classId],
+                    shape,
+                  )!,
+                  shapes,
+                  opaqueInheritance: shape.ancestorArguments.isNotEmpty,
                 ),
               ),
             )
@@ -1466,6 +1649,7 @@ List<ReferenceClassShape> _referenceHierarchy(
       shape.members,
       classId: id,
       memberships: shape.memberships,
+      ancestorArguments: shape.ancestorArguments,
       superclassId: shape.superclassId,
       prototypeProperties: properties.values.where((property) {
         final previous = inherited[property.name];
@@ -1484,11 +1668,14 @@ List<ReferenceClassShape> _referenceHierarchy(
 bool referenceMemberAccepts(
   ReferenceMemberShape implementation,
   ReferenceMemberShape contract,
-  List<ClassBinding> bindings,
-  Map<int, Set<int>> memberships,
-) {
+  List<ReferenceClassShape> classes, {
+  bool opaqueInheritance = false,
+}) {
   bool subtype(BindingType child, BindingType parent) =>
-      _referenceSubtype(child, parent, bindings, memberships);
+      _referenceSubtype(child, parent, classes);
+  bool optional(ParameterBinding p) =>
+      p.presence == ParameterPresence.optional ||
+      (opaqueInheritance && p.presence == ParameterPresence.opaqueOptional);
   final output = implementation.result;
   final requiredOutput = contract.result;
   if (implementation.isCleanup != contract.isCleanup ||
@@ -1514,12 +1701,11 @@ bool referenceMemberAccepts(
   if (actual.length < expected.length) return false;
   for (final (index, parameter) in actual.indexed) {
     if (index >= expected.length) {
-      if (parameter.presence != ParameterPresence.optional) return false;
+      if (!optional(parameter)) return false;
       continue;
     }
     final previous = expected[index];
-    if ((previous.presence == ParameterPresence.optional &&
-            parameter.presence != ParameterPresence.optional) ||
+    if ((optional(previous) && !optional(parameter)) ||
         !subtype(previous.type, parameter.type)) {
       return false;
     }
@@ -1540,24 +1726,20 @@ bool referenceMemberAccepts(
     final parameter = actualNamed[entry.key];
     final previous = entry.value;
     if (parameter == null ||
-        (previous.presence == ParameterPresence.optional &&
-            parameter.presence != ParameterPresence.optional) ||
+        (optional(previous) && !optional(parameter)) ||
         !subtype(previous.type, parameter.type)) {
       return false;
     }
   }
   return actualNamed.values.every(
-    (p) =>
-        expectedNamed.containsKey(p.name) ||
-        p.presence == ParameterPresence.optional,
+    (p) => expectedNamed.containsKey(p.name) || optional(p),
   );
 }
 
 bool _referenceSubtype(
   BindingType child,
   BindingType parent,
-  List<ClassBinding> bindings,
-  Map<int, Set<int>> memberships,
+  List<ReferenceClassShape> classes,
 ) {
   if (child.nullability == TypeNullability.nullable &&
       parent.nullability != TypeNullability.nullable) {
@@ -1576,45 +1758,44 @@ bool _referenceSubtype(
           final other = parent.parameters[entry.$1];
           return entry.$2.kind == ParameterKind.requiredPositional &&
               other.kind == ParameterKind.requiredPositional &&
-              _referenceSubtype(
-                other.type,
-                entry.$2.type,
-                bindings,
-                memberships,
-              );
+              _referenceSubtype(other.type, entry.$2.type, classes);
         }) &&
         (parent.result is VoidType ||
-            _referenceSubtype(
-              child.result,
-              parent.result,
-              bindings,
-              memberships,
-            ));
+            _referenceSubtype(child.result, parent.result, classes));
   }
   if (child is DeclaredType && parent is DeclaredType) {
-    final concrete = bindings.any(
-      (binding) =>
-          binding.declaration == child.declaration &&
-          binding.instantiatedType != null,
+    final childId = classes.indexWhere(
+      (c) => referenceClassMatches(c.binding, child),
     );
-    if (child.declaration != parent.declaration || concrete) {
-      final childId = bindings.indexWhere(
-        (binding) => referenceClassMatches(binding, child),
-      );
-      final parentId = bindings.indexWhere(
-        (binding) => referenceClassMatches(binding, parent),
-      );
-      if (childId >= 0 && parentId >= 0) {
-        return memberships[childId]!.contains(parentId);
-      }
-      // A value projection may share an origin with a selected reference alias.
-      // It has no reference membership, but the same concrete value type still
-      // satisfies itself.
+    final parentId = classes.indexWhere(
+      (c) => referenceClassMatches(c.binding, parent),
+    );
+    if (childId >= 0 && parentId >= 0) {
+      final selected = classes[childId];
+      if (!selected.memberships.contains(parentId)) return false;
+      if (selected.binding.typeParameters.isEmpty) return true;
+      final slots = childId == parentId
+          ? [for (var i = 0; i < child.typeArguments.length; i++) i]
+          : selected.ancestorArguments[parentId];
+      return slots != null &&
+          slots.length == parent.typeArguments.length &&
+          slots.indexed.every(
+            (e) => _sameCanonicalType(
+              child.typeArguments[e.$2],
+              parent.typeArguments[e.$1],
+            ),
+          );
+    }
+    if (child.declaration != parent.declaration ||
+        classes.any(
+          (c) =>
+              c.binding.declaration == child.declaration &&
+              c.binding.instantiatedType != null,
+        )) {
       return child.declaration == parent.declaration &&
           child.typeArguments.length == parent.typeArguments.length &&
           child.typeArguments.indexed.every(
-            (entry) =>
-                _sameCanonicalType(entry.$2, parent.typeArguments[entry.$1]),
+            (e) => _sameCanonicalType(e.$2, parent.typeArguments[e.$1]),
           );
     }
     return child.typeArguments.length == parent.typeArguments.length &&
@@ -1622,8 +1803,7 @@ bool _referenceSubtype(
           (entry) => _referenceSubtype(
             entry.$2,
             parent.typeArguments[entry.$1],
-            bindings,
-            memberships,
+            classes,
           ),
         );
   }
@@ -1631,22 +1811,13 @@ bool _referenceSubtype(
     return child.positional.length == parent.positional.length &&
         child.named.length == parent.named.length &&
         child.positional.indexed.every(
-          (entry) => _referenceSubtype(
-            entry.$2,
-            parent.positional[entry.$1],
-            bindings,
-            memberships,
-          ),
+          (entry) =>
+              _referenceSubtype(entry.$2, parent.positional[entry.$1], classes),
         ) &&
         child.named.entries.every(
           (entry) =>
               parent.named.containsKey(entry.key) &&
-              _referenceSubtype(
-                entry.value,
-                parent.named[entry.key]!,
-                bindings,
-                memberships,
-              ),
+              _referenceSubtype(entry.value, parent.named[entry.key]!, classes),
         );
   }
   return false;
@@ -1937,7 +2108,7 @@ void validateValueType(
     );
   }
   if (opaqueParameters.isNotEmpty) {
-    _validateOpaqueReferenceNames(
+    validateOpaqueReferenceNames(
       type,
       source,
       referenceClasses,
@@ -2086,7 +2257,8 @@ bool _isCallbackValue(BindingType type) {
 }
 
 /// Export renames may collide even when the original Dart names are distinct.
-void _validateOpaqueReferenceNames(
+/// Reject class-name shadowing in an emitted opaque parameter scope.
+void validateOpaqueReferenceNames(
   BindingType type,
   SourceLocation source,
   List<ClassBinding> classes,
@@ -2116,7 +2288,7 @@ void _validateOpaqueReferenceNames(
     RecordTypeBinding() => [...type.positional, ...type.named.values],
     _ => <BindingType>[],
   }) {
-    _validateOpaqueReferenceNames(child, source, classes, parameters);
+    validateOpaqueReferenceNames(child, source, classes, parameters);
   }
 }
 
@@ -2428,10 +2600,6 @@ bool _isBackendValue(
 /// share one policy. Generated classifiers reject actual composite objects whose
 /// selected views match different policy IDs before exposing or using them.
 Map<int, int> resourcePolicies(List<ReferenceClassShape> classes) {
-  final bindings = classes.map((shape) => shape.binding).toList();
-  final memberships = {
-    for (final shape in classes) shape.classId: shape.memberships,
-  };
   final representatives = <ReferenceClassShape>[];
   final policies = <int, int>{};
   for (final shape in classes) {
@@ -2443,8 +2611,8 @@ Map<int, int> resourcePolicies(List<ReferenceClassShape> classes) {
               other.binding.declaration.name &&
           (cleanup.binding.callPath ?? cleanup.binding.declaration.name) ==
               (other.binding.callPath ?? other.binding.declaration.name) &&
-          referenceMemberAccepts(cleanup, other, bindings, memberships) &&
-          referenceMemberAccepts(other, cleanup, bindings, memberships) &&
+          referenceMemberAccepts(cleanup, other, classes) &&
+          referenceMemberAccepts(other, cleanup, classes) &&
           referenceMemberDefaultsAccept(cleanup, other) &&
           referenceMemberDefaultsAccept(other, cleanup);
     }

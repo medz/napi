@@ -246,3 +246,85 @@ namedExternal.named<string>(7, optionalPayload);
 void [namedOutput, namedFuture, namedAdopted, namedStored, namedSecond, markedStore,
   namedSelection, namedSelectedFuture, undefinedFuture, externalNamed,
   externalNamedFuture, externalMarked, directNamed];
+
+
+const inherited = new api.OpaqueChild<{tag: string}>({tag: 'child'});
+const inheritedBase: api.OpaqueBase<{tag: string}> = inherited;
+const inheritedRead: {tag: string} = inherited.read();
+const inheritedSelf: api.OpaqueChild<{tag: string}> = inherited.self();
+const inheritedPromise: Promise<{tag: string}> = inherited.later();
+const inheritedStream: AsyncIterableIterator<{tag: string}> = inherited.values();
+const inheritedDirect: direct.OpaqueBase<{tag: string}> = inherited;
+const inheritedExternal = new namedExternal.OpaqueChild<string>('external');
+const inheritedExternalBase: namedExternal.OpaqueBase<string> = inheritedExternal;
+const permuted = new api.OpaquePairChild<string, number>(7, 'second');
+const mapped: api.OpaquePair<number, string> = permuted;
+const mappedSlot: api.OpaqueSlot<number, string> = permuted;
+const mappedResult: api.OpaquePair<number, string> = api.opaqueAsPair(permuted);
+const mappedFirst: number = permuted.first;
+const mappedSecond: string = permuted.second;
+const mappedGetter: string = permuted.slot;
+permuted.slot = 'replacement';
+const transitive = new api.OpaqueLeaf<number, string>(7, 'second');
+const transitiveBase: api.OpaquePair<number, string> = transitive;
+const thenChild = new api.OpaqueThenChild((resolve: (value: number) => void) => resolve(72));
+const inheritedThenable: Promise<number> = thenChild.later();
+// @ts-expect-error a permutation cannot be silently reordered
+const incorrectOrder: api.OpaquePair<string, number> = permuted;
+// @ts-expect-error inherited generic mutable handles are invariant
+const incorrectWiden: api.OpaqueBase<{tag: string} | null> = inherited;
+// @ts-expect-error invariance also applies to permuted ancestors
+const incorrectPairWiden: api.OpaquePair<number | null, string> = permuted;
+// @ts-expect-error parent handles cannot forge the child brand
+const incorrectChild: api.OpaqueChild<string> = new api.OpaqueBase('base');
+// @ts-expect-error separately loaded modules retain nominal reference brands
+const incorrectModule: api.OpaqueBase<string> = inheritedExternal;
+// @ts-expect-error inherited optional opaque input still requires supplied payload type
+inherited.optional(undefined);
+// @ts-expect-error the interface getter/setter use the projected child parameter
+permuted.slot = 7;
+void [inheritedBase, inheritedRead, inheritedSelf, inheritedPromise, inheritedStream,
+  inheritedDirect, inheritedExternalBase, mapped, mappedSlot, mappedResult,
+  mappedFirst, mappedSecond, mappedGetter, transitiveBase, inheritedThenable];
+
+const inheritedWriter = new api.OpaqueWrite<string>();
+const possibleInheritedRead: string | null | undefined = inheritedWriter.part;
+const inheritedReader = new api.OpaqueRead<string>();
+inheritedReader.part = 'payload';
+const definiteInheritedRead: string | null = inheritedReader.part;
+// @ts-expect-error inherited setter retains the parent payload type
+inheritedReader.part = 7;
+void [possibleInheritedRead, definiteInheritedRead];
+
+const nullableInherited = new api.OpaqueChild<string | null>(null);
+// @ts-expect-error inherited invariant view cannot narrow nullability either
+const narrowedInherited: api.OpaqueBase<string> = nullableInherited;
+// @ts-expect-error same-origin generic handles stay invariant
+const widerInherited: api.OpaqueChild<string | null> = new api.OpaqueChild('value');
+
+
+const inheritedArray: number[] = permuted.writeArray([], 9);
+const overriddenMap: Map<number, string> = permuted.writeMap(new Map(), 9, 'value');
+const leafArray: number[] = transitive.writeArray([], 9);
+const leafMap: Map<number, string> = transitive.writeMap(new Map(), 9, 'value');
+const externalPair = new namedExternal.OpaquePairChild<string, number>(7, 'external');
+const externalArray: number[] = externalPair.writeArray([], 9);
+const externalMap: Map<number, string> = externalPair.writeMap(new Map(), 9, 'value');
+const directPair: direct.OpaquePair<number, string> = permuted;
+const directMap: Map<number, string> = directPair.writeMap(new Map(), 9, 'value');
+const undefinedPair = new api.OpaquePairChild<string | undefined, number | undefined>(undefined, undefined);
+undefinedPair.writeArray([], undefined);
+undefinedPair.writeMap(new Map(), undefined, undefined);
+// @ts-expect-error Inherited handle elements follow the permuted parent parameter.
+permuted.writeArray(['wrong'], 9);
+// @ts-expect-error Inherited opaque input requires presence.
+permuted.writeArray([]);
+// @ts-expect-error The child override preserves the permuted map key.
+permuted.writeMap(new Map(), 'wrong', 'value');
+// @ts-expect-error The child override preserves the permuted map value.
+permuted.writeMap(new Map(), 9, 12);
+// @ts-expect-error Opaque values may contain undefined but cannot be omitted.
+undefinedPair.writeMap(new Map(), undefined);
+// @ts-expect-error Transitive permutation preserves the map key and value order.
+transitive.writeMap(new Map<string, number>(), 9, 'value');
+void [inheritedArray, overriddenMap, leafArray, leafMap, externalArray, externalMap, directMap];

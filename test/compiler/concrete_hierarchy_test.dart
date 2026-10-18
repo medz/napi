@@ -320,11 +320,11 @@ $selection class Child extends Owner implements Other {
     }
   });
 
-  test('open opaque hierarchies remain unsupported', () async {
+  test('nested open opaque hierarchies remain unsupported', () async {
     final module = await read('''
 import 'package:napi/napi.dart';
 @NAPI() class Base<T> { Base(); }
-@NAPI() class Child<T> extends Base<T> { Child(); }
+@NAPI() class Child<T> extends Base<List<T>> { Child(); }
 ''');
     expect(() => validate(module), throwsA(diagnostic('NAPI_GENERIC')));
     expect(() => validateNative(module), throwsA(diagnostic('NAPI_GENERIC')));

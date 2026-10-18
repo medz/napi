@@ -21,6 +21,7 @@ Future<BuiltModule> buildNativeModule({
   String? executable,
 }) async {
   final plan = validateNative(bindings);
+  final declarations = emitNativeDeclarations(plan);
   final target = output.absolute;
   await checkNativePath(target.path);
   if (await FileSystemEntity.type(target.path, followLinks: false) !=
@@ -70,8 +71,7 @@ Future<BuiltModule> buildNativeModule({
         ),
       ),
     );
-    await File('${artifact.path}/module.d.mts')
-        .writeAsString(emitNativeDeclarations(plan));
+    await File('${artifact.path}/module.d.mts').writeAsString(declarations);
     publishDirectory(artifact, target);
     return BuiltModule(
       target,

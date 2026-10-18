@@ -85,6 +85,39 @@ String emitBindingDeclarations({
           cleanup: member.isCleanup,
         ),
   };
+  final projectedCalls = <(int, ReferenceMemberRef), _DeclarationCall>{};
+  _DeclarationCall viewCall(ReferenceClassShape scope, ReferenceMemberRef ref) {
+    final owner = references[ref.classId];
+    final member = owner.members[ref.memberIndex];
+    if (owner.classId == scope.classId ||
+        scope.ancestorArguments.isEmpty && owner.ancestorArguments.isEmpty) {
+      return memberCalls[member]!;
+    }
+    return projectedCalls.putIfAbsent((scope.classId, ref), () {
+      final projected = referenceMemberInScope(member, owner, scope)!;
+      for (final type in [
+        for (final parameter in projected.parameters) parameter.type,
+        ?projected.result,
+      ]) {
+        validateOpaqueReferenceNames(
+          type,
+          scope.binding.source,
+          classes,
+          opaqueParameterIds(scope.binding.typeParameters),
+        );
+      }
+      return call(
+        projected.parameters,
+        projected.result,
+        scope.binding.typeParameters,
+        cleanup: member.isCleanup,
+      );
+    });
+  }
+
+  final genericHierarchy = references.any(
+    (c) => c.ancestorArguments.isNotEmpty,
+  );
   final calls = [...functionCalls.values, ...memberCalls.values];
   final conversions = [
     for (final call in calls) ...[...call.inputs, ?call.output],
@@ -108,6 +141,8 @@ String emitBindingDeclarations({
       (hasResources &&
           conversionGraph(call.inputs).any((c) => c is ReferenceConversion));
   return [
+    if (genericHierarchy)
+      r'type $napiInvariant<in out T> = { readonly value: T };',
     ...emitPromiseResolutionDeclarations(
       calls.where((call) => call.returnsFuture).map((call) => call.output),
     ),
@@ -133,7 +168,7 @@ String emitBindingDeclarations({
     for (final shape in references) ...[
       'export declare class ${shape.binding.exportName}${emitTypeParameters(shape.binding.typeParameters, invariant: true)} {',
       if (shape.binding.typeParameters.isNotEmpty)
-        '  ${emitOpaquePhantom(shape.binding.typeParameters)}',
+        '  ${emitOpaquePhantom(shape.binding.typeParameters, classId: genericHierarchy ? shape.classId : null)}',
       '  private readonly \$napiReference${shape.classId}: void;',
       if (shape.constructor case final constructor?)
         for (final parameters in emitParameterVariants(
@@ -143,25 +178,29 @@ String emitBindingDeclarations({
           '  constructor($parameters);'
       else
         '  private constructor();',
-      for (final member in [
-        ...shape.members.where((member) => member.isStatic),
+      for (final (member, declaration) in [
+        for (final member in shape.members.where((member) => member.isStatic))
+          (member, memberCalls[member]!),
         for (final property in shape.prototypeProperties)
           for (final ref in [
             ?property.method,
             ?property.getter,
             ?property.setter,
           ])
-            references[ref.classId].members[ref.memberIndex],
+            (
+              references[ref.classId].members[ref.memberIndex],
+              viewCall(shape, ref),
+            ),
       ])
         for (final parameters in emitParameterVariants(
-          member.parameters,
-          memberCalls[member]!.inputs,
+          declaration.parameters,
+          declaration.inputs,
         ))
           switch (member.kind) {
             ReferenceMemberKind.method =>
-              '  ${member.isStatic ? 'static ' : ''}${emitMemberName(member.exportName)}($parameters): ${emitResult(memberCalls[member]!.output, returnsFuture: member.returnsFuture, returnsStream: member.returnsStream)};',
+              '  ${member.isStatic ? 'static ' : ''}${emitMemberName(member.exportName)}($parameters): ${emitResult(declaration.output, returnsFuture: member.returnsFuture, returnsStream: member.returnsStream)};',
             ReferenceMemberKind.getter =>
-              '  ${member.isStatic ? 'static ' : ''}get ${emitMemberName(member.exportName)}(): ${emitResult(memberCalls[member]!.output, returnsFuture: member.returnsFuture, returnsStream: member.returnsStream)};',
+              '  ${member.isStatic ? 'static ' : ''}get ${emitMemberName(member.exportName)}(): ${emitResult(declaration.output, returnsFuture: member.returnsFuture, returnsStream: member.returnsStream)};',
             ReferenceMemberKind.setter =>
               '  ${member.isStatic ? 'static ' : ''}set ${emitMemberName(member.exportName)}($parameters);',
             ReferenceMemberKind.constructor =>
@@ -169,6 +208,14 @@ String emitBindingDeclarations({
           },
       ...emitWriteOnlyReads(shape, references, (ref) {
         final member = references[ref.classId].members[ref.memberIndex];
+        if (referenceMemberInScope(member, references[ref.classId], shape) !=
+            null) {
+          return emitResult(
+            viewCall(shape, ref).output,
+            returnsFuture: member.returnsFuture,
+            returnsStream: member.returnsStream,
+          );
+        }
         return emitViewGetterResult(
           memberCalls[member]!.output,
           returnsFuture: member.returnsFuture,
@@ -194,9 +241,14 @@ String emitLogicalTypeArguments(List<TypeParameterBinding> parameters) =>
     ? ''
     : '<${parameters.map((p) => p.declaration.name).join(', ')}>';
 
-String emitOpaquePhantom(List<TypeParameterBinding> parameters) {
+String emitOpaquePhantom(
+  List<TypeParameterBinding> parameters, {
+  int? classId,
+}) {
   final tuple = '[${parameters.map((p) => p.declaration.name).join(', ')}]';
-  return 'private readonly \$napiOpaque: (types: $tuple) => $tuple;';
+  return classId == null
+      ? 'private readonly \$napiOpaque: (types: $tuple) => $tuple;'
+      : 'private readonly \$napiOpaque$classId: \$napiInvariant<$tuple>;';
 }
 
 Iterable<String> emitFunctionDeclarations(
@@ -347,10 +399,12 @@ Iterable<String> emitWriteOnlyReads(
         }
         var type = getterType(ref);
         // A newly referenced view type must not resolve to this class's generic.
-        if (shape.binding.typeParameters.any(
-          (parameter) =>
-              RegExp('\\b${parameter.declaration.name}\\b').hasMatch(type),
-        )) {
+        if (!shape.memberships.contains(ref.classId) &&
+            !classes[ref.classId].memberships.contains(shape.classId) &&
+            shape.binding.typeParameters.any(
+              (parameter) =>
+                  RegExp('\\b${parameter.declaration.name}\\b').hasMatch(type),
+            )) {
           type = 'unknown';
         }
         types.add(type);
@@ -379,15 +433,18 @@ Iterable<String> emitReferenceInheritance(
   ReferenceClassShape shape,
   List<ReferenceClassShape> classes,
 ) sync* {
-  final parents = shape.memberships.where((id) => id != shape.classId).toList();
-  final nearest = parents.where(
-    (id) => !parents.any(
-      (other) => other != id && classes[other].memberships.contains(id),
-    ),
-  );
+  final nearest = referenceParents(shape, classes);
   if (nearest.isNotEmpty) {
-    yield 'export interface ${shape.binding.exportName} extends '
-        '${nearest.map((id) => classes[id].binding.exportName).join(', ')} {}';
+    String parent(int id) {
+      final slots = shape.ancestorArguments[id];
+      final arguments = slots == null
+          ? ''
+          : '<${slots.map((slot) => shape.binding.typeParameters[slot].declaration.name).join(', ')}>';
+      return '${classes[id].binding.exportName}$arguments';
+    }
+
+    yield 'export interface ${shape.binding.exportName}${emitTypeParameters(shape.binding.typeParameters, invariant: true)} extends '
+        '${nearest.map(parent).join(', ')} {}';
   }
 }
 

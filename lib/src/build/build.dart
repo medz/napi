@@ -126,6 +126,7 @@ Future<BuiltModule> buildModule({
     throw ArgumentError('nativeRuntime is only valid for BuildTarget.native.');
   }
   final plan = lower(validate(bindings));
+  final declarations = emitDeclarations(plan);
   final callableGlobals = plan.functions
       .where((f) => f.representation == ExportRepresentation.callableGlobal)
       .toList();
@@ -188,8 +189,7 @@ Future<BuiltModule> buildModule({
         .writeAsString(linked.hostJavaScript);
     await File('${artifact.path}/boundary.mjs')
         .writeAsString(emitBoundary(plan));
-    await File('${artifact.path}/module.d.wasm.ts')
-        .writeAsString(emitDeclarations(plan));
+    await File('${artifact.path}/module.d.wasm.ts').writeAsString(declarations);
     await File(compiled.sdkLicensePath).copy('${artifact.path}/DART_LICENSE');
     publishDirectory(artifact, destination);
     return BuiltModule(destination, compiled.version);

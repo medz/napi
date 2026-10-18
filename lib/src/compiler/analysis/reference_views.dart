@@ -17,21 +17,25 @@ final class ReferenceViewContracts {
 ReferenceViewContracts referenceViewContracts(
   List<ReferenceClassShape> classes,
 ) {
-  final bindings = classes.map((shape) => shape.binding).toList();
-  final memberships = {
-    for (final shape in classes) shape.classId: shape.memberships,
-  };
-
   ReferenceMemberShape member(ReferenceMemberRef ref) =>
       classes[ref.classId].members[ref.memberIndex];
-  bool accepts(ReferenceMemberRef actual, ReferenceMemberRef expected) =>
-      referenceMemberAccepts(
-        member(actual),
-        member(expected),
-        bindings,
-        memberships,
-      ) &&
-      referenceMemberDefaultsAccept(member(actual), member(expected));
+  bool accepts(ReferenceMemberRef actual, ReferenceMemberRef expected) {
+    final owner = classes[actual.classId];
+    final other = classes[expected.classId];
+    final scope = owner.memberships.contains(other.classId) ? owner : other;
+    return referenceMemberAccepts(
+          referenceMemberInScope(member(actual), owner, scope) ??
+              member(actual),
+          referenceMemberInScope(member(expected), other, scope) ??
+              member(expected),
+          classes,
+          opaqueInheritance:
+              owner.ancestorArguments.containsKey(other.classId) ||
+              other.ancestorArguments.containsKey(owner.classId),
+        ) &&
+        referenceMemberDefaultsAccept(member(actual), member(expected));
+  }
+
   final groups = <(String, String, String, ReferenceMemberKind), List<int>>{};
   final representatives = <ReferenceMemberRef>[];
   final ids = <ReferenceMemberRef, int>{};

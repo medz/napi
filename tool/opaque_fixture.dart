@@ -22,6 +22,8 @@ dependencies:
     path: ${jsonEncode(Directory.current.path)}
 ''');
   await File('test/fixtures/opaque.dart').copy('${project.path}/business.dart');
+  await File('test/fixtures/opaque_hierarchy.dart')
+      .copy('${project.path}/opaque_hierarchy.dart');
   await File('${project.path}/build.dart').writeAsString('''
 import 'dart:io';
 import 'package:napi/build.dart';
@@ -45,6 +47,27 @@ Future<void> main() async {
         ExternalClass('NamedStore'),
         ExternalClass('PlainStore'),
         ExternalClass('SetterThenBox'),
+        ExternalClass('OpaqueBase'),
+        ExternalClass('OpaqueChild'),
+        ExternalClass('OpaquePair'),
+        ExternalClass('OpaqueSlot'),
+        ExternalClass('OpaquePairChild'),
+        ExternalClass('OpaqueLeaf'),
+        ExternalClass('OpaqueThen', members: [
+          ExternalMember.field('hook', config: NAPI(name: 'then')),
+        ]),
+        ExternalClass('OpaqueThenChild'),
+        ExternalClass('OpaqueWrite'),
+        ExternalClass('OpaqueRead'),
+        ExternalFunction('opaqueAsBase'),
+        ExternalFunction('opaqueAsPair'),
+        ExternalFunction('opaqueAsSlot'),
+        ExternalFunction('opaqueReadBase'),
+        ExternalFunction('opaqueReadChild'),
+        ExternalFunction('opaqueUnpin'),
+        ExternalFunction('opaqueConstructions'),
+        ExternalFunction('opaqueComplete'),
+        ExternalFunction('opaqueBadExposure'),
       ]) : null,
       ${native ? 'target: BuildTarget.native,\n      nativeRuntime: Directory(${jsonEncode(nativeRuntime.absolute.path)}),' : ''}
     );
@@ -85,6 +108,8 @@ Future<void> main() async {
     ...archives,
   ], cwd: consumer.path);
   await File('test/integration/opaque.mjs').copy('${consumer.path}/test.mjs');
+  await File('test/integration/opaque_hierarchy.mjs')
+      .copy('${consumer.path}/opaque_hierarchy.mjs');
   final declarations = await File('test/typescript/opaque.mts').readAsString();
   await run('node', ['--expose-gc', 'test.mjs'], cwd: consumer.path);
   final tsc =

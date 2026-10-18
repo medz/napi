@@ -6,6 +6,8 @@ import {fileURLToPath, pathToFileURL} from 'node:url';
 import {runInNewContext} from 'node:vm';
 import {Worker, isMainThread, parentPort, workerData} from 'node:worker_threads';
 
+import {hierarchy, hierarchyRetention} from './opaque_hierarchy.mjs';
+
 const packageName = '@napi/opaque-fixture';
 const filename = fileURLToPath(import.meta.url);
 const turn = () => new Promise(resolve => setImmediate(resolve));
@@ -518,11 +520,24 @@ async function scenario(name) {
       await collect(api, () => weak.deref() === undefined, 'completed opaque input');
       break;
     }
+    case 'hierarchy':
+      await hierarchy(api);
+      await hierarchy(await import('@napi/opaque-external'));
+      break;
+    case 'hierarchy-retention':
+      await hierarchyRetention(api, collect, keep);
+      break;
     case 'independent': {
       const entry = fileURLToPath(import.meta.resolve(packageName));
       const copied = mkdtempSync(join(process.cwd(), 'independent opaque 雪 '));
       cpSync(dirname(entry), copied, {recursive: true});
       const other = await import(pathToFileURL(join(copied, basename(entry))));
+      const foreignChild = new other.OpaqueChild({foreign: true});
+      assert.throws(() => api.opaqueAsBase(foreignChild), TypeError);
+      assert.throws(() => api.OpaqueBase.prototype.read.call(foreignChild), TypeError);
+      const local = new api.OpaqueChild(foreignChild);
+      assert.equal(local.read(), foreignChild);
+      assert.equal(other.opaqueAsBase(foreignChild), foreignChild);
       const foreign = new other.Router();
       assert.throws(() => api.forwardRouter(foreign), TypeError);
       assert.equal(api.identity(foreign), foreign, 'opaque storage does not inspect wrapper brands');
@@ -549,6 +564,10 @@ if (!isMainThread) {
   assert.equal(await api.futureIdentity(undefined), undefined);
   assert.equal(await api.futureIdentity({then(resolve) { resolve(17); }}), 17);
   router.pin();
+  const child = new api.OpaqueChild(value);
+  assert.equal(api.opaqueAsBase(child), child);
+  child.pin();
+  child.wait({pending: true});
   api.opaquePressure(1);
   if (workerData.held) {
     setInterval(() => {}, 1000);
@@ -559,7 +578,7 @@ if (!isMainThread) {
 } else {
   const cases = ['values', 'presence', 'future-values', 'thenables', 'future-unhandled',
     'external', 'named', 'named-retention', 'retention', 'overwrite-remove',
-    'cycles', 'pending', 'independent', 'worker-only', 'workers-with-main'];
+    'cycles', 'pending', 'hierarchy', 'hierarchy-retention', 'independent', 'worker-only', 'workers-with-main'];
   for (const name of cases) {
     const result = spawnSync(process.execPath, ['--expose-gc', filename, name], {
       encoding: 'utf8', timeout: 25_000, maxBuffer: 4 * 1024 * 1024,
