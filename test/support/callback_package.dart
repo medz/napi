@@ -27,6 +27,7 @@ dependencies:
   await File('${project.path}/build.dart').writeAsString('''
 import 'dart:io';
 import 'package:napi/build.dart';
+import 'package:napi/napi.dart';
 Future<void> main() async {
   for (final external in [false, true]) {
     await buildPackage(
@@ -37,6 +38,19 @@ Future<void> main() async {
       external: external ? const ExternalLibrary([
         ExternalFunction('plainCallback'),
         ExternalFunction('plainAsyncCallback'),
+        ExternalFunction('callHandle'),
+        ExternalFunction('readCallbackHandle'),
+        ExternalFunction('clearCallbackHandle'),
+        ExternalFunction('callHandles'),
+        ExternalFunction('callNullableHandle'),
+        ExternalFunction('callAsyncHandle'),
+        ExternalFunction('callWideHandle', config: NAPI(bigint: true)),
+        ExternalFunction('sameHandleSignature'),
+        ExternalFunction('sameWideHandleSignature', config: NAPI(bigint: true)),
+        ExternalFunction('sameOpaqueHandleSignature'),
+        ExternalFunction('callPayloadHandles'),
+        ExternalFunction('callbackHandleOrder', config: NAPI(bigint: true)),
+        ExternalFunction('callbackPressure'),
       ]) : null,
       ${native ? 'target: BuildTarget.native,\n      nativeRuntime: Directory(${jsonEncode(nativeRuntime.absolute.path)}),' : ''}
     );

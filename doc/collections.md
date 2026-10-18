@@ -63,9 +63,10 @@ List<JsArray<int>> echo(List<JsArray<int>> values) => values;
 
 For `const output = echo([source])`, the returned outer array is new and
 `output[0] === source`. Admission does not inspect the handle's elements; later
-Dart reads and writes observe the live source. Handles cannot be structural Map
-keys, elements of another handle, or callback parameters/results. Other handle
-element types remain unsupported.
+Dart reads and writes observe the live source. [Typed callbacks](callbacks.md)
+also accept and return handles, directly or inside Lists and records. Handles
+cannot be structural Map keys or elements of another handle. Other handle element
+types remain unsupported.
 
 Admission checks the genuine container brand without walking its contents.
 Cross-realm containers work; Proxy containers are rejected. Each operation

@@ -592,7 +592,8 @@ ${tests.declarations}  int? canonical;''');
 """);
     }
   }
-  if (hasStructures) {
+  final structuralSource = structures.source;
+  if (hasStructures || structuralSource.isNotEmpty) {
     code.writeln(
       hasResources || hasOpaqueStructuralInputs
           ? nativeStructuralPrelude.replaceFirst(
@@ -604,7 +605,7 @@ ${tests.declarations}  int? canonical;''');
             )
           : nativeStructuralPrelude,
     );
-    code.write(structures.source);
+    code.write(structuralSource);
   }
   return code.toString();
 }

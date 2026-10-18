@@ -28,6 +28,21 @@ Both targets validate functions before business code, convert Dart arguments to
 JavaScript, invoke with an undefined receiver, and convert results back to Dart.
 Scalars, Lists and records follow the ordinary precision, UTF-16, nullability
 and structural validation rules. `@NAPI(bigint: true)` applies inside callbacks.
+[JS collection handles](collections.md) also work as callback arguments and
+results, directly or inside Lists and records. Their original Array/Map identity
+and live contents are preserved:
+
+```dart
+@NAPI()
+JsArray<T> transform<T>(
+  JsArray<T> Function(JsArray<T>) callback,
+  JsArray<T> source,
+) => callback(source);
+```
+
+The callback receives the original JS array. It may return that array or another
+array; Dart receives a handle with the declared element policy. Scalar and opaque
+elements use the same rules as ordinary handle arguments.
 
 ## Ownership and identity
 
@@ -48,6 +63,9 @@ still require explicit business clear/unregister, as described in
 An accepted async invocation retains its adapter, original JS function and
 completion state until settlement. Scalar/List/record arguments are already
 snapshotted by value; their original Dart objects need no additional lifetime.
+Handle leaves retain their original JS containers instead of copying contents.
+Saving a callback result handle in Dart keeps that container usable after the
+callback completes.
 Success, rejection and startup failure release private invocation roots.
 
 Resource closing rejects new resource operations and waits for accepted ones,
@@ -94,12 +112,12 @@ Callbacks are direct inputs to synchronous, Future-returning and Stream-returnin
 constructors, methods, setters and resource cleanup. Nullable/default-null outer
 parameters preserve normal presence rules. External selections use the same
 mapping. Callback parameters currently require positional parameters without
-defaults, with scalar/List/record payloads and synchronous or Future results;
+defaults, with scalar/List/record/JS-handle payloads and synchronous or Future results;
 void is also supported.
 
 Optional/named parameters inside a callback, generic callback signatures,
 callback outputs, nested callbacks, nullable outer Future results, FutureOr,
-and callback payloads containing bound instances, opaque values, Maps or value
+and callback payloads containing bound instances, bare opaque values, Maps or value
 classes still receive diagnostics. [Stream exports](streams.md) retain input
 callbacks through subscription completion. [Explicit cancellation](cancellation.md)
 never revokes a retained callback or cancels a JavaScript Promise returned by it.

@@ -28,6 +28,8 @@ const _scenarios = [
   'async-errors',
   'async-retention',
   'async-resources',
+  'js-handles',
+  'async-handles',
   'foreign-owner',
   'pending-natural-exit',
   'queued-teardown',

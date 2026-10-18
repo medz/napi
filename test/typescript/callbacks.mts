@@ -1,6 +1,7 @@
 import * as api from '@napi/callback-fixture';
 import * as direct from '@napi/callback-fixture/BACKEND';
 import {plainCallback, plainAsyncCallback} from '@napi/callback-external';
+import * as externalHandles from '@napi/callback-external';
 
 const twice: number = api.callTwice(n => n + 1, 3);
 const string: string = api.callString(s => s + '!', 'hello');
@@ -49,6 +50,38 @@ api.optionalAsyncCallback(); api.optionalAsyncCallback(undefined); api.optionalA
 api.optionalAsyncCallback(async n => n + 1);
 const registered: number = api.registerAsyncCallback(async n => n);
 const removed: boolean = api.unregisterAsyncCallback(async n => n);
+
+const handle: number[] = api.callHandle(value => value, [1]);
+const handles: {arrays: Array<number[] | null>; map: Map<string, number | null>} =
+  api.callHandles(value => value, {arrays: [[1], null], map: new Map([['key', null]])});
+const nullableHandle: number[] | null = api.callNullableHandle(value => value, null);
+const asyncHandle: Promise<number[]> = api.callAsyncHandle(async value => value, [1]);
+const wideHandle: bigint[] = api.callWideHandle(value => value, [1n]);
+type Payload = {id: number} | undefined;
+const payloadInput = {arrays: [[undefined, {id: 1}]], map: new Map<Payload, Payload>()};
+const payloadHandles: {arrays: Payload[][]; map: Map<Payload, Payload>} =
+  api.callPayloadHandles<Payload>(value => value, payloadInput);
+const externalHandle: number[] = externalHandles.callHandle(value => value, [1]);
+const externalAsyncHandle: Promise<number[]> = externalHandles.callAsyncHandle(async value => value, [1]);
+const orderedHandle: bigint = api.callbackHandleOrder(() => 1n, true, true);
+// @ts-expect-error Callback handle results retain their element type.
+api.callHandle(() => ['bad'], [1]);
+// @ts-expect-error Callback argument policy applies to the raw array type.
+api.callHandle((value: string[]) => value, [1]);
+// @ts-expect-error Nullable handles still exclude undefined.
+api.callNullableHandle(() => undefined, null);
+// @ts-expect-error Future callbacks require an outer Promise.
+api.callAsyncHandle(value => value, [1]);
+// @ts-expect-error Async handle results retain their element type.
+api.callAsyncHandle(async () => ['bad'], [1]);
+// @ts-expect-error bigint policy also applies inside callbacks.
+api.callWideHandle(() => [1], [1n]);
+// @ts-expect-error Nested opaque handles use the enclosing generic parameter.
+api.callPayloadHandles<Payload>(value => ({arrays: [[1]], map: value.map}), payloadInput);
+// @ts-expect-error Nullable nested leaves exclude undefined.
+api.callHandles(value => ({arrays: [undefined], map: value.map}), {arrays: [], map: new Map()});
+void [handle, handles, nullableHandle, asyncHandle, wideHandle, payloadHandles,
+  externalHandle, externalAsyncHandle, orderedHandle];
 
 // @ts-expect-error Future callback results require a Promise, not a plain scalar.
 api.callAsync(n => n + 1, 3);

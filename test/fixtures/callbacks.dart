@@ -368,3 +368,97 @@ int plainCallback(int Function(int) callback, int value) => callback(value);
 
 Future<int> plainAsyncCallback(Future<int> Function(int) callback, int value) =>
     callback(value);
+
+JsArray<int>? _callbackArray;
+Function? _handleSignature;
+
+@NAPI()
+JsArray<int> callHandle(
+  JsArray<int> Function(JsArray<int>) callback,
+  JsArray<int> value,
+) {
+  _handleSignature = callback;
+  return _callbackArray = callback(value);
+}
+
+@NAPI()
+int? readCallbackHandle(int index) => _callbackArray!.get(index);
+
+@NAPI()
+int clearCallbackHandle() {
+  _callbackArray = null;
+  _handleSignature = null;
+  return 0;
+}
+
+typedef CallbackHandles = ({
+  List<JsArray<int>?> arrays,
+  JsMap<String, int?> map,
+});
+
+@NAPI()
+CallbackHandles callHandles(
+  CallbackHandles Function(CallbackHandles) callback,
+  CallbackHandles value,
+) => callback(value);
+
+@NAPI()
+JsArray<int>? callNullableHandle(
+  JsArray<int>? Function(JsArray<int>?) callback,
+  JsArray<int>? value,
+) => callback(value);
+
+@NAPI()
+Future<JsArray<int>> callAsyncHandle(
+  Future<JsArray<int>> Function(JsArray<int>) callback,
+  JsArray<int> value,
+) async {
+  final result = await callback(value);
+  value.set(0, value.get(0)! + 1);
+  return _callbackArray = result;
+}
+
+@NAPI(bigint: true)
+JsArray<int> callWideHandle(
+  JsArray<int> Function(JsArray<int>) callback,
+  JsArray<int> value,
+) {
+  final result = callback(value);
+  result.set(0, result.get(0)!);
+  return result;
+}
+
+@NAPI()
+bool sameHandleSignature(JsArray<int> Function(JsArray<int>) callback) =>
+    identical(_handleSignature, callback);
+
+@NAPI(bigint: true)
+bool sameWideHandleSignature(JsArray<int> Function(JsArray<int>) callback) =>
+    identical(_handleSignature, callback);
+
+@NAPI()
+bool sameOpaqueHandleSignature<T>(JsArray<T> Function(JsArray<T>) callback) =>
+    identical(_handleSignature, callback);
+
+typedef CallbackPayloads<T> = ({List<JsArray<T>> arrays, JsMap<T, T> map});
+
+@NAPI()
+CallbackPayloads<T> callPayloadHandles<T>(
+  CallbackPayloads<T> Function(CallbackPayloads<T>) callback,
+  CallbackPayloads<T> value,
+) => callback(value);
+
+final class _FakeCallbackArray implements JsArray<int> {
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+@NAPI(bigint: true)
+int callbackHandleOrder(
+  int Function(JsArray<int>, List<int>) callback,
+  bool fake,
+  bool throwing,
+) => callback(
+  fake ? _FakeCallbackArray() : _callbackArray!,
+  throwing ? _ThrowingList() : [1],
+);
