@@ -109,6 +109,37 @@ optional. Required named properties retain their payload type without an added
 `undefined`, under either compiler setting. Ordinary optional scalar properties
 still allow `undefined` because it selects their Dart default.
 
+## Own generic methods
+
+Instance and static methods may declare independent opaque parameters using the
+same annotation and author contract:
+
+```dart
+@NAPI()
+class MethodBox<T> {
+  T value;
+  MethodBox(this.value);
+  U echo<U>(U value) => value;
+  (T, U) both<U>(U value) => (this.value, value);
+  static U staticEcho<U>(U value) => value;
+}
+```
+
+`new MethodBox('owner').echo(payload)` preserves `payload`; TypeScript infers
+its independent `U`. Instance methods can use both class and method parameters;
+static methods use only their own parameters. Same-spelled method parameters
+shadow the class parameter by Dart declaration scope. Required/optional/named
+presence, structural payloads, JS collection handles and Future/Stream results
+follow the contracts below. Closed concrete aliases and non-cleanup methods on
+non-generic resource classes also support method parameters; resource operations
+keep their existing settlement/cancellation leases.
+
+Selected ancestors with instance generic methods still receive a build diagnostic,
+including overrides, until method-binder projection is supported. Unrelated
+classes can each expose a same-named generic method. A runtime object that needs
+both incompatible selected views is rejected rather than silently sharing their
+contracts. Generic cleanup methods and opaque callback signatures remain unsupported.
+
 ## Reference inheritance
 
 Selected ordinary reference classes may rename or permute all opaque parameters:
@@ -160,8 +191,9 @@ contract. Environment teardown releases remaining native references.
 ## Current boundaries
 
 Generated bindings support ordinary generic reference classes, top-level generic
-functions, direct opaque inputs/results/fields, required and optional named
-inputs, optional positional inputs and matching selected generic class references.
+functions and own instance/static generic methods, direct opaque
+inputs/results/fields, required and optional named inputs, optional positional
+inputs and matching selected generic class references.
 Lists, Dictionaries, records and Map values can recursively contain opaque
 `T`/`T?` leaves. Structural containers are independently converted; their opaque
 leaves preserve the original JS values. `List<Box<T>>` also preserves selected
@@ -175,15 +207,16 @@ through subsequent JS thenable adoption is the separate resource-lease contract.
 Type parameter names use the current TypeScript-compatible ASCII identifier
 subset: a letter or underscore followed by letters, digits or underscores,
 excluding `$`, reserved words and the standalone wildcard `_`. A type parameter
-must not shadow its class's exported name or a referenced class's exported name.
+of a class must not shadow that class's exported name; no opaque parameter may
+shadow a referenced class's exported name within its scope.
 
 Direct opaque leaves in explicit `JsArray<T>` and `JsMap<K, V>` handles preserve
 the original JS values on access. Extracted values remain retained independently
 of their source slots; opaque Map keys keep JS identity. These handles do not copy
 or interpret their payloads. See [collection ownership](collections.md).
 
-Opaque keys in converted Dart Maps, non-bijective open hierarchies, independent
-generic member methods and generic resource/value classes remain
+Opaque keys in converted Dart Maps, non-bijective open hierarchies,
+inherited generic member contracts and generic resource/value classes remain
 unsupported. Concrete or erased specializations
 such as `Router<String>` or raw `Router` are not interchangeable with
 `Router<T>` under this carrier policy. They receive build diagnostics.

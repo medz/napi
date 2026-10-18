@@ -136,10 +136,12 @@ Map<String, Object?> _contract(
             member.kind.name,
             member.isStatic,
             member.isCleanup,
+            if (member.binding.typeParameters.isNotEmpty)
+              member.binding.typeParameters.length,
             call(
               member.parameters,
               member.result,
-              c.binding.typeParameters,
+              referenceCallTypeParameters(c.binding, member.binding),
               cleanup: member.isCleanup,
             ),
           ],

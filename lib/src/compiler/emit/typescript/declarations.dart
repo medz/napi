@@ -81,7 +81,7 @@ String emitBindingDeclarations({
         member: call(
           member.parameters,
           member.result,
-          shape.binding.typeParameters,
+          referenceCallTypeParameters(shape.binding, member.binding),
           cleanup: member.isCleanup,
         ),
   };
@@ -103,13 +103,15 @@ String emitBindingDeclarations({
           type,
           scope.binding.source,
           classes,
-          opaqueParameterIds(scope.binding.typeParameters),
+          opaqueParameterIds(
+            referenceCallTypeParameters(scope.binding, projected.binding),
+          ),
         );
       }
       return call(
         projected.parameters,
         projected.result,
-        scope.binding.typeParameters,
+        referenceCallTypeParameters(scope.binding, projected.binding),
         cleanup: member.isCleanup,
       );
     });
@@ -198,7 +200,7 @@ String emitBindingDeclarations({
         ))
           switch (member.kind) {
             ReferenceMemberKind.method =>
-              '  ${member.isStatic ? 'static ' : ''}${emitMemberName(member.exportName)}($parameters): ${emitResult(declaration.output, returnsFuture: member.returnsFuture, returnsStream: member.returnsStream)};',
+              '  ${member.isStatic ? 'static ' : ''}${emitMemberName(member.exportName)}${emitTypeParameters(member.binding.typeParameters)}($parameters): ${emitResult(declaration.output, returnsFuture: member.returnsFuture, returnsStream: member.returnsStream)};',
             ReferenceMemberKind.getter =>
               '  ${member.isStatic ? 'static ' : ''}get ${emitMemberName(member.exportName)}(): ${emitResult(declaration.output, returnsFuture: member.returnsFuture, returnsStream: member.returnsStream)};',
             ReferenceMemberKind.setter =>

@@ -247,13 +247,13 @@ typedef Item = ({int value, String? label});
     });
   }
 
-  test('direct generic methods retain their diagnostic', () async {
+  test('semantic generic methods retain their diagnostic', () async {
     final input = source('''
 import 'package:napi/napi.dart';
-@NAPI() class Reader { T read<T>(T value) => value; }
+@NAPI() class Reader { T read<T extends num>(T value) => value; }
 ''');
     final module = await read(input, false);
-    expect(() => validate(module), throwsA(diagnostic('NAPI_GENERIC')));
-    expect(() => validateNative(module), throwsA(diagnostic('NAPI_GENERIC')));
+    expect(() => validate(module), throwsA(diagnostic('NAPI_TYPE')));
+    expect(() => validateNative(module), throwsA(diagnostic('NAPI_TYPE')));
   });
 }

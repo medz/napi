@@ -103,6 +103,16 @@ final class ValidatedModule {
 
 enum ReferenceMemberKind { constructor, method, getter, setter }
 
+/// Static methods have their own binders; constructors use the class binders.
+List<TypeParameterBinding> referenceCallTypeParameters(
+  ClassBinding owner,
+  MemberBinding member,
+) => [
+  if (!member.isStatic || member.kind == MemberKind.constructor)
+    ...owner.typeParameters,
+  ...member.typeParameters,
+];
+
 /// Common selected class semantics; target-specific ABI names live in lowering.
 final class ReferenceMemberShape {
   final MemberBinding binding;
@@ -1067,11 +1077,14 @@ List<ReferenceClassShape> validateReferenceClasses(BindingModule module) {
       BindingType? type,
     ) {
       final isCleanup = member.declaration == binding.cleanup;
+      final callOpaque = opaqueParameterIds(
+        referenceCallTypeParameters(binding, member),
+      );
       validateCallParameters(
         parameters,
         member.source,
         referenceClasses: module.classes,
-        opaqueParameters: opaque,
+        opaqueParameters: callOpaque,
       );
       validateCallResult(
         type,
@@ -1079,7 +1092,7 @@ List<ReferenceClassShape> validateReferenceClasses(BindingModule module) {
         referenceClasses: module.classes,
         isAsync: member.isAsync,
         isGenerator: member.isGenerator,
-        opaqueParameters: opaque,
+        opaqueParameters: callOpaque,
       );
       if (isCleanup && (isStreamType(type) || resultPayload(type) != null)) {
         reject(
@@ -1100,11 +1113,15 @@ List<ReferenceClassShape> validateReferenceClasses(BindingModule module) {
     for (final member in binding.members) {
       if (member.selection == MemberSelection.excluded) continue;
       if (member.typeParameters.isNotEmpty) {
-        reject(
-          'NAPI_GENERIC',
-          'Generic members are not implemented.',
-          member.source,
-        );
+        if (member.kind != MemberKind.method ||
+            member.declaration == binding.cleanup) {
+          reject(
+            'NAPI_GENERIC',
+            'Only ordinary instance and static methods support opaque method parameters.',
+            member.source,
+          );
+        }
+        validateOpaqueParameters(member.typeParameters, member.source);
       }
       if (member.isExternal) {
         reject(
@@ -1343,6 +1360,17 @@ List<ReferenceClassShape> _referenceHierarchy(
     for (final type in ancestorsTypes) {
       if (selected(type) case final parent?) {
         final parentBinding = classes[parent].binding;
+        if (parent != id &&
+            classes[parent].members.any(
+              (member) =>
+                  !member.isStatic && member.binding.typeParameters.isNotEmpty,
+            )) {
+          throw BindingDiagnostic(
+            'NAPI_GENERIC',
+            'Inherited generic methods require method-parameter projection and are not supported yet.',
+            binding.source,
+          );
+        }
         final generic =
             binding.typeParameters.isNotEmpty ||
             parentBinding.typeParameters.isNotEmpty;
@@ -1416,6 +1444,13 @@ List<ReferenceClassShape> _referenceHierarchy(
           member.kind != ReferenceMemberKind.method ||
           !cleanupNames.contains(member.binding.declaration.name)) {
         return member;
+      }
+      if (member.binding.typeParameters.isNotEmpty) {
+        throw BindingDiagnostic(
+          'NAPI_GENERIC',
+          'Cleanup methods cannot declare opaque method parameters.',
+          member.binding.source,
+        );
       }
       final validResult =
           member.result == null ||
@@ -1671,6 +1706,20 @@ bool referenceMemberAccepts(
   List<ReferenceClassShape> classes, {
   bool opaqueInheritance = false,
 }) {
+  final actualTypes = implementation.binding.typeParameters;
+  final expectedTypes = contract.binding.typeParameters;
+  if (actualTypes.isNotEmpty || expectedTypes.isNotEmpty) {
+    // Independent method binders are not interchangeable until their
+    // alpha-equivalence and inherited projections are implemented.
+    if (implementation.binding.declaration != contract.binding.declaration ||
+        actualTypes.length != expectedTypes.length ||
+        actualTypes.indexed.any(
+          (entry) =>
+              entry.$2.declaration != expectedTypes[entry.$1].declaration,
+        )) {
+      return false;
+    }
+  }
   bool subtype(BindingType child, BindingType parent) =>
       _referenceSubtype(child, parent, classes);
   bool optional(ParameterBinding p) =>

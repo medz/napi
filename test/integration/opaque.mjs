@@ -129,6 +129,151 @@ async function values(api) {
   assert.throws(() => new api.identity(1), TypeError);
 }
 
+async function methods(api) {
+  const external = await import('@napi/opaque-external');
+  for (const entry of [api, external]) {
+    const owner = {owner: true};
+    const box = new entry.MethodBox(owner);
+    const revoked = Proxy.revocable({}, {});
+    revoked.revoke();
+    let traps = 0;
+    const hostile = new Proxy(() => {}, {
+      get() { traps++; throw Error('method payload inspection'); },
+      getPrototypeOf() { traps++; throw Error('method payload prototype'); },
+      apply() { traps++; throw Error('method payload call'); },
+    });
+    const values = [undefined, null, {payload: true}, Symbol('method'), 1n << 100n,
+      -0, NaN, hostile, revoked.proxy, runInNewContext('({foreign: true})')];
+    for (const value of values) {
+      assert(Object.is(box.echo(value), value));
+      assert(Object.is(entry.MethodBox.staticEcho(value), value));
+      assert(Object.is(box.optional(value), value));
+      assert(Object.is(box.named(0, {second: value}), value));
+      assert(Object.is(box.requiredNamed({value}), value));
+      assert(Object.is(new entry.MethodShadow().echo(value), value));
+      assert(Object.is(new entry.MethodA().echo(value), value));
+      assert(Object.is(new entry.MethodB().echo(value), value));
+      assert.deepEqual(box.both(value), {$1: owner, $2: value});
+      const wrapped = box.wrap(value);
+      assert(Object.is(wrapped.get('initial'), value));
+      assert.equal(box.references([wrapped])[0], wrapped);
+      assert(Object.is(box.list([value])[0], value));
+      assert(Object.is(box.dictionary({value}).value, value));
+      const array = [value], map = new Map([[owner, value]]);
+      assert.equal(box.array(array), array);
+      assert.equal(box.map(map), map);
+      const iterator = box.events(value);
+      assert(Object.is((await iterator.next()).value, value));
+      await iterator.return();
+    }
+    assert.equal(traps, 0);
+    assert.equal(box.unused(), 7);
+    assert.equal(box.optional(), null);
+    assert.equal(box.named(7), null);
+    assert.equal(box.named(0, {first: 1, second: 2, choose: 0}), 1);
+    assert.throws(() => box.echo(), TypeError);
+    assert.throws(() => box.requiredNamed({}), TypeError);
+    assert.equal(box.optional(1, 2), 1, 'extra JS arguments retain the ordinary call contract');
+    assert.throws(() => entry.MethodBox.prototype.echo.call({}, 1), TypeError);
+    assert.throws(() => new box.echo(1), TypeError);
+    const calls = entry.opaqueCalls();
+    assert.throws(() => box.checked([{value: {}, count: 'bad'}], 1), TypeError);
+    assert.throws(() => box.checked([{value: {}, count: 1}], 'bad'), TypeError);
+    assert.equal(entry.opaqueCalls(), calls);
+    const payload = {kept: true};
+    assert.throws(() => box.saveThrow(payload), /saved method input/);
+    assert.equal(box.saved(), payload, 'business throw must not revoke a stored carrier');
+    box.clear();
+    for (const error of [undefined, null, Symbol('exact method error')]) {
+      assert.throws(() => box.callback(payload, () => { throw error; }), e => Object.is(e, error));
+    }
+    assert.equal(box.callback(payload, count => {
+      assert.equal(count, 7);
+      assert.equal(box.echo(payload), payload);
+    }), payload);
+    assert.equal(await box.later({then(resolve) { resolve(29); }}), 29);
+    const inner = {value: (resolve) => resolve(11)};
+    assert.equal((await box.futureDictionary({then: resolve => resolve(inner)})), inner);
+    assert.deepEqual(new entry.MethodInt(9).pair(payload), {$1: 9, $2: payload});
+    assert.throws(() => entry.methodComposite(), TypeError);
+  }
+  const box = new api.MethodBox(null);
+  const foreign = new external.Router();
+  assert.equal(box.echo(foreign), foreign);
+  assert.throws(() => box.references([foreign]), TypeError);
+}
+
+async function methodRetention(api) {
+  let pending;
+  const held = (() => {
+    const owner = {owner: true}, input = {input: true};
+    pending = new api.MethodBox(owner).wait(input);
+    return [new WeakRef(owner), new WeakRef(input)];
+  })();
+  await keep(api, () => held.every(ref => ref.deref()), 'method Future receiver and input');
+  api.completeOpaque(17);
+  assert.equal(await pending, 17);
+  await collect(api, () => held.every(ref => !ref.deref()), 'settled method Future roots');
+  let stream;
+  const streamRoots = (() => {
+    const owner = {streamOwner: true}, input = {streamInput: true};
+    stream = new api.MethodBox(owner).hold(input);
+    return [new WeakRef(owner), new WeakRef(input)];
+  })();
+  await keep(api, () => streamRoots.every(ref => ref.deref()), 'method Stream receiver and input');
+  await stream.return();
+  await collect(api, () => streamRoots.every(ref => !ref.deref()), 'cancelled method Stream roots');
+  const box = new api.MethodBox(null);
+  const failed = (() => {
+    const value = {partial: true};
+    assert.throws(() => box.checked([{value, count: 1}], 'invalid'), TypeError);
+    return new WeakRef(value);
+  })();
+  await collect(api, () => !failed.deref(), 'rejected method argument carrier');
+  const retained = (() => {
+    const value = {saved: true};
+    assert.throws(() => box.saveThrow(value), /saved method input/);
+    return new WeakRef(value);
+  })();
+  await keep(api, () => retained.deref() === box.saved(), 'saved method input after throw');
+  box.clear();
+  await collect(api, () => !retained.deref(), 'cleared method input');
+}
+
+async function methodResources(api) {
+  for (const entry of [api, await import('@napi/opaque-external')]) {
+    let cleanups = entry.methodCleanups();
+    const resource = new entry.MethodSession();
+    const pending = resource.pending({value: true});
+    const closed = resource.close();
+    assert.equal(resource.close(), closed);
+    await turn();
+    assert.equal(entry.methodCleanups(), cleanups);
+    await assert.rejects(resource.pending({later: true}));
+    entry.completeOpaque(31);
+    assert.equal(await pending, 31);
+    await closed;
+    assert.equal(entry.methodCleanups(), ++cleanups);
+    const streamed = new entry.MethodSession();
+    const iterator = streamed.hold({stream: true});
+    const streamClosed = streamed.close();
+    await streamClosed;
+    assert.equal((await iterator.next()).done, true);
+    assert.equal(entry.methodCleanups(), ++cleanups);
+    const adopted = new entry.MethodSession();
+    let settle;
+    const result = adopted.later({then(resolve) { settle = resolve; }});
+    const adoptedClosed = adopted.close();
+    for (let turnIndex = 0; turnIndex < 20 && !settle; turnIndex++) await turn();
+    assert.equal(typeof settle, 'function');
+    assert.equal(entry.methodCleanups(), cleanups, 'thenable settlement retains the operation');
+    settle(53);
+    assert.equal(await result, 53);
+    await adoptedClosed;
+    assert.equal(entry.methodCleanups(), ++cleanups);
+  }
+}
+
 async function nestedValues(api) {
   const store = new api.NestedStore();
   assert.deepEqual(store.nulls([null, undefined]), [false, false]);
@@ -631,6 +776,15 @@ async function scenario(name) {
       await collect(api, () => weak.deref() === undefined, 'completed opaque input');
       break;
     }
+    case 'methods':
+      await methods(api);
+      break;
+    case 'method-retention':
+      await methodRetention(api);
+      break;
+    case 'method-resources':
+      await methodResources(api);
+      break;
     case 'hierarchy':
       await hierarchy(api);
       await hierarchy(await import('@napi/opaque-external'));
@@ -680,6 +834,10 @@ if (!isMainThread) {
   assert.equal(nested.lists([[undefined]])[0][0], undefined);
   assert.equal((await nested.futureList([value]))[0], value);
   nested.hold([value]);
+  const methodBox = new api.MethodBox(value);
+  assert.equal(methodBox.echo(undefined), undefined);
+  assert.equal(await methodBox.later(value), value);
+  methodBox.wait({methodPending: true});
   router.pin();
   const child = new api.OpaqueChild(value);
   assert.equal(api.opaqueAsBase(child), child);
@@ -695,7 +853,7 @@ if (!isMainThread) {
 } else {
   const cases = ['values', 'nested', 'nested-retention', 'presence', 'future-values', 'thenables', 'future-unhandled',
     'external', 'named', 'named-retention', 'retention', 'overwrite-remove',
-    'cycles', 'pending', 'hierarchy', 'hierarchy-retention', 'independent', 'worker-only', 'workers-with-main'];
+    'cycles', 'pending', 'methods', 'method-retention', 'method-resources', 'hierarchy', 'hierarchy-retention', 'independent', 'worker-only', 'workers-with-main'];
   for (const name of cases) {
     const result = spawnSync(process.execPath, ['--expose-gc', filename, name], {
       encoding: 'utf8', timeout: 25_000, maxBuffer: 4 * 1024 * 1024,
