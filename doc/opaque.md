@@ -109,7 +109,7 @@ optional. Required named properties retain their payload type without an added
 `undefined`, under either compiler setting. Ordinary optional scalar properties
 still allow `undefined` because it selects their Dart default.
 
-## Own generic methods
+## Generic methods
 
 Instance and static methods may declare independent opaque parameters using the
 same annotation and author contract:
@@ -134,11 +134,19 @@ follow the contracts below. Closed concrete aliases and non-cleanup methods on
 non-generic resource classes also support method parameters; resource operations
 keep their existing settlement/cancellation leases.
 
-Selected ancestors with instance generic methods still receive a build diagnostic,
-including overrides, until method-binder projection is supported. Unrelated
-classes can each expose a same-named generic method. A runtime object that needs
-both incompatible selected views is rejected rather than silently sharing their
-contracts. Generic cleanup methods and opaque callback signatures remain unsupported.
+Selected instance methods also work through inheritance, overrides and full-bijection
+class parameter mappings. Corresponding method parameters are compared by position,
+so `echo<U>(U value)` and `echo<V>(V value)` can share an interface contract. Class
+parameters remain separate from method parameters; projected TypeScript names are
+renamed only where needed to avoid capture. Borrowing a selected ancestor method
+retains that declaration's defaults, even when an override or private mixin has
+different defaults.
+
+An object implementing unrelated selected interfaces can expose an equivalent
+generic method through both views. Incompatible method arity, presence, bounds or
+conversion contracts are rejected; conflicting composite defaults also remain an
+error. Actual inherited implementations still undergo Dart subtype validation.
+Generic cleanup methods and opaque callback signatures remain unsupported.
 
 ## Reference inheritance
 
@@ -191,9 +199,9 @@ contract. Environment teardown releases remaining native references.
 ## Current boundaries
 
 Generated bindings support ordinary generic reference classes, top-level generic
-functions and own instance/static generic methods, direct opaque
-inputs/results/fields, required and optional named inputs, optional positional
-inputs and matching selected generic class references.
+functions and instance/static generic methods, including inherited instance
+methods; direct opaque inputs/results/fields, required and optional named inputs,
+optional positional inputs and matching selected generic class references.
 Lists, Dictionaries, records and Map values can recursively contain opaque
 `T`/`T?` leaves. Structural containers are independently converted; their opaque
 leaves preserve the original JS values. `List<Box<T>>` also preserves selected

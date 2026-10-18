@@ -421,3 +421,30 @@ void [methodInferred, methodExplicit, methodStatic, methodOptional, methodUndefi
   methodList, methodDictionary, methodArray, methodMap, methodThen, methodStream,
   methodShadow, methodAlias, methodExternal, methodExternalStatic, methodDirect,
   methodCleanup, methodWait, methodUnused, methodA, methodB];
+
+const inheritedMethod = new api.MethodInherited<number>(7);
+const inheritedMethodBase: api.MethodBox<number> = inheritedMethod;
+const inheritedMethodEcho: string = inheritedMethod.echo<string>('kept');
+const inheritedMethodPair: {$1: number; $2: string} = inheritedMethod.both('kept');
+const inheritedMethodArray: string[] = inheritedMethod.list<string>(['kept']) as string[];
+const inheritedMethodOverride: string | null = new api.MethodOverride<number>(7).named(9, {first: 'kept'});
+const inheritedInterface = new api.MethodInterface<string>();
+const inheritedInterfaceBase: api.MethodContract<string> = inheritedInterface;
+const inheritedInterfacePair: {$1: string; $2: number; $3: number} = inheritedInterface.combine<number>('owner', 42);
+const inheritedPermutation = new api.MethodPairChild<number, string>();
+const inheritedPermutationBase: api.MethodPair<string, number> = inheritedPermutation;
+const inheritedPermutationResult: {$1: string; $2: number; $3: boolean} = inheritedPermutation.combine('first', 2, true);
+const inheritedAliasResult: {$1: number; $2: string} = new api.MethodIntChild(8).pair('kept');
+const inheritedSession: api.MethodSession = new api.MethodInheritedSession();
+const inheritedSessionResult: Promise<string> = inheritedSession.later('kept');
+const inheritedExternalPair: {$1: string; $2: number; $3: number} = new namedExternal.MethodInterface<string>().combine<number>('owner', 42);
+// @ts-expect-error the projected class binder is not captured by the method binder
+inheritedInterface.combine<number>(7, 42);
+// @ts-expect-error the method result retains its independent inferred binder
+const wrongInheritedResult: string = inheritedInterface.combine('owner', 42).$2;
+// @ts-expect-error opaque class ancestry stays invariant
+const wrongInheritedClass: api.MethodBox<string> = inheritedMethod;
+// @ts-expect-error class permutation changes argument order
+inheritedPermutation.combine(1, 'second', true);
+// @ts-expect-error required opaque method arguments cannot be omitted
+inheritedMethod.echo<string>();

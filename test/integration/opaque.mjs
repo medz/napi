@@ -195,12 +195,62 @@ async function methods(api) {
     const inner = {value: (resolve) => resolve(11)};
     assert.equal((await box.futureDictionary({then: resolve => resolve(inner)})), inner);
     assert.deepEqual(new entry.MethodInt(9).pair(payload), {$1: 9, $2: payload});
-    assert.throws(() => entry.methodComposite(), TypeError);
+    const composite = entry.methodComposite();
+    assert.equal(composite instanceof entry.MethodA, false);
+    assert.equal(composite instanceof entry.MethodB, false);
+    assert.equal(composite.echo(payload), payload);
+    assert.equal(entry.MethodA.prototype.echo.call(composite, payload), payload);
+    assert.equal(entry.MethodB.prototype.echo.call(composite, payload), payload);
+    assert.throws(() => entry.methodDefaultConflict(), TypeError);
   }
   const box = new api.MethodBox(null);
   const foreign = new external.Router();
   assert.equal(box.echo(foreign), foreign);
   assert.throws(() => box.references([foreign]), TypeError);
+}
+
+async function inheritedMethods(api) {
+  for (const entry of [api, await import('@napi/opaque-external')]) {
+    const owner = {owner: true}, value = {value: true};
+    const inherited = new entry.MethodInherited(owner);
+    assert(inherited instanceof entry.MethodBox);
+    assert.equal(inherited.echo(value), value);
+    assert.equal(inherited.optional(), null);
+    assert.equal(inherited.optional(undefined), undefined);
+    assert.equal(entry.MethodBox.prototype.echo.call(inherited, value), value);
+    assert.deepEqual(inherited.both(value), {$1: owner, $2: value});
+    assert.equal(inherited.list([undefined, value])[1], value);
+    assert.equal(inherited.dictionary({value}).value, value);
+    const ref = new entry.Router();
+    assert.equal(inherited.references([ref])[0], ref);
+    const array = [value], map = new Map([[owner, value]]);
+    assert.equal(inherited.array(array), array);
+    assert.equal(inherited.map(map), map);
+    assert.equal(await inherited.later({then(resolve) { resolve(value); }}), value);
+    const events = inherited.events(value);
+    assert.equal((await events.next()).value, value);
+    await events.return();
+    assert.throws(() => inherited.echo(), TypeError);
+    assert.throws(() => entry.MethodBox.prototype.echo.call({}, value), TypeError);
+    const override = new entry.MethodOverride(owner);
+    assert.equal(override.echo(value), value);
+    assert.equal(override.named(9, {first: value}), value);
+    assert.equal(override.named(7, {first: value}), null);
+    assert.equal(entry.MethodBox.prototype.named.call(override, 7, {first: value}), value);
+    const interfaced = new entry.MethodInterface();
+    assert.equal(interfaced instanceof entry.MethodContract, false);
+    assert.deepEqual(entry.MethodContract.prototype.combine.call(interfaced, owner, value),
+      {$1: owner, $2: value, $3: 7});
+    assert.deepEqual(interfaced.combine(owner, value), {$1: owner, $2: value, $3: 7},
+      'the selected contract supplies its default, not the private mixin default');
+    assert.deepEqual(interfaced.combine(undefined, null, 13), {$1: undefined, $2: null, $3: 13});
+    const pair = new entry.MethodPairChild();
+    assert(pair instanceof entry.MethodPair);
+    assert.deepEqual(pair.combine(owner, value, undefined), {$1: owner, $2: value, $3: undefined});
+    assert.deepEqual(entry.MethodPair.prototype.combine.call(pair, owner, value, null),
+      {$1: owner, $2: value, $3: null});
+    assert.deepEqual(new entry.MethodIntChild(17).pair(value), {$1: 17, $2: value});
+  }
 }
 
 async function methodRetention(api) {
@@ -242,35 +292,37 @@ async function methodRetention(api) {
 
 async function methodResources(api) {
   for (const entry of [api, await import('@napi/opaque-external')]) {
-    let cleanups = entry.methodCleanups();
-    const resource = new entry.MethodSession();
-    const pending = resource.pending({value: true});
-    const closed = resource.close();
-    assert.equal(resource.close(), closed);
-    await turn();
-    assert.equal(entry.methodCleanups(), cleanups);
-    await assert.rejects(resource.pending({later: true}));
-    entry.completeOpaque(31);
-    assert.equal(await pending, 31);
-    await closed;
-    assert.equal(entry.methodCleanups(), ++cleanups);
-    const streamed = new entry.MethodSession();
-    const iterator = streamed.hold({stream: true});
-    const streamClosed = streamed.close();
-    await streamClosed;
-    assert.equal((await iterator.next()).done, true);
-    assert.equal(entry.methodCleanups(), ++cleanups);
-    const adopted = new entry.MethodSession();
-    let settle;
-    const result = adopted.later({then(resolve) { settle = resolve; }});
-    const adoptedClosed = adopted.close();
-    for (let turnIndex = 0; turnIndex < 20 && !settle; turnIndex++) await turn();
-    assert.equal(typeof settle, 'function');
-    assert.equal(entry.methodCleanups(), cleanups, 'thenable settlement retains the operation');
-    settle(53);
-    assert.equal(await result, 53);
-    await adoptedClosed;
-    assert.equal(entry.methodCleanups(), ++cleanups);
+    for (const Session of [entry.MethodSession, entry.MethodInheritedSession]) {
+      let cleanups = entry.methodCleanups();
+      const resource = new Session();
+      const pending = resource.pending({value: true});
+      const closed = resource.close();
+      assert.equal(resource.close(), closed);
+      await turn();
+      assert.equal(entry.methodCleanups(), cleanups);
+      await assert.rejects(resource.pending({later: true}));
+      entry.completeOpaque(31);
+      assert.equal(await pending, 31);
+      await closed;
+      assert.equal(entry.methodCleanups(), ++cleanups);
+      const streamed = new Session();
+      const iterator = streamed.hold({stream: true});
+      const streamClosed = streamed.close();
+      await streamClosed;
+      assert.equal((await iterator.next()).done, true);
+      assert.equal(entry.methodCleanups(), ++cleanups);
+      const adopted = new Session();
+      let settle;
+      const result = adopted.later({then(resolve) { settle = resolve; }});
+      const adoptedClosed = adopted.close();
+      for (let turnIndex = 0; turnIndex < 20 && !settle; turnIndex++) await turn();
+      assert.equal(typeof settle, 'function');
+      assert.equal(entry.methodCleanups(), cleanups, 'thenable settlement retains the operation');
+      settle(53);
+      assert.equal(await result, 53);
+      await adoptedClosed;
+      assert.equal(entry.methodCleanups(), ++cleanups);
+    }
   }
 }
 
@@ -782,6 +834,9 @@ async function scenario(name) {
     case 'method-retention':
       await methodRetention(api);
       break;
+    case 'inherited-methods':
+      await inheritedMethods(api);
+      break;
     case 'method-resources':
       await methodResources(api);
       break;
@@ -853,7 +908,7 @@ if (!isMainThread) {
 } else {
   const cases = ['values', 'nested', 'nested-retention', 'presence', 'future-values', 'thenables', 'future-unhandled',
     'external', 'named', 'named-retention', 'retention', 'overwrite-remove',
-    'cycles', 'pending', 'methods', 'method-retention', 'method-resources', 'hierarchy', 'hierarchy-retention', 'independent', 'worker-only', 'workers-with-main'];
+    'cycles', 'pending', 'methods', 'inherited-methods', 'method-retention', 'method-resources', 'hierarchy', 'hierarchy-retention', 'independent', 'worker-only', 'workers-with-main'];
   for (const name of cases) {
     const result = spawnSync(process.execPath, ['--expose-gc', filename, name], {
       encoding: 'utf8', timeout: 25_000, maxBuffer: 4 * 1024 * 1024,

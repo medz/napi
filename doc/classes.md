@@ -28,7 +28,7 @@ automatic ESM entry and Node-API bridge.
 
 The implemented slice includes non-generic reference classes and explicitly
 selected [opaque generic classes](opaque.md), direct class
-arguments/results, instance/static methods (including own opaque generic methods),
+arguments/results, instance/static methods (including inherited opaque generic methods),
 fields, explicit accessors,
 readonly fields, renaming and exclusions. Unnamed generative and factory
 constructors use `new Counter(...)`; a cached Dart factory can return an existing
