@@ -17,25 +17,19 @@ final class ReferenceViewContracts {
 ReferenceViewContracts referenceViewContracts(
   List<ReferenceClassShape> classes,
 ) {
-  final declarations = {
-    for (final shape in classes) shape.binding.declaration: shape.classId,
-  };
+  final bindings = classes.map((shape) => shape.binding).toList();
   final memberships = {
     for (final shape in classes) shape.classId: shape.memberships,
   };
-  final concreteDeclarations = {
-    for (final shape in classes)
-      if (shape.binding.instantiatedType != null) shape.binding.declaration,
-  };
+
   ReferenceMemberShape member(ReferenceMemberRef ref) =>
       classes[ref.classId].members[ref.memberIndex];
   bool accepts(ReferenceMemberRef actual, ReferenceMemberRef expected) =>
       referenceMemberAccepts(
         member(actual),
         member(expected),
-        declarations,
+        bindings,
         memberships,
-        concreteDeclarations: concreteDeclarations,
       ) &&
       referenceMemberDefaultsAccept(member(actual), member(expected));
   final groups = <(String, String, String, ReferenceMemberKind), List<int>>{};

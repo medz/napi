@@ -360,10 +360,14 @@ enum ValueDirection { input, output }
 final class InheritedInstanceMember {
   final MemberBinding member;
   final DeclarationId contract;
+
+  /// Resolved ancestor instance owning this contract, including type arguments.
+  final DeclaredType contractType;
   final bool isCompatible;
   const InheritedInstanceMember({
     required this.member,
     required this.contract,
+    required this.contractType,
     required this.isCompatible,
   });
 }
@@ -412,11 +416,11 @@ final class ClassBinding {
   final List<BindingType> interfaces;
   final List<BindingType> mixins;
 
-  /// Resolved ancestor identities, including unselected classes and interfaces.
-  final List<DeclarationId> allSupertypes;
+  /// Resolved ancestor instances, including unselected classes and interfaces.
+  final List<DeclaredType> allSupertypes;
 
   /// The extends chain, nearest first; interfaces do not select a JS prototype.
-  final List<DeclarationId> superclassChain;
+  final List<DeclaredType> superclassChain;
   ClassBinding({
     required this.declaration,
     required this.exportName,
@@ -443,8 +447,8 @@ final class ClassBinding {
     this.supertype,
     Iterable<BindingType> interfaces = const [],
     Iterable<BindingType> mixins = const [],
-    Iterable<DeclarationId> allSupertypes = const [],
-    Iterable<DeclarationId> superclassChain = const [],
+    Iterable<DeclaredType> allSupertypes = const [],
+    Iterable<DeclaredType> superclassChain = const [],
   }) : concreteSupertypes = List.unmodifiable(concreteSupertypes),
        valueFields = Map.unmodifiable(valueFields),
        members = List.unmodifiable(members),

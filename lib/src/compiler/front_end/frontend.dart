@@ -842,15 +842,17 @@ final class _Reader {
       mixins: type.mixins.indexed.map(
         (t) => _type(t.$2, owner: _id(element), path: 'mixin:${t.$1}'),
       ),
-      allSupertypes: type.allSupertypes.map((type) => _id(type.element)),
+      allSupertypes: type.allSupertypes.map(
+        (type) => _type(type) as DeclaredType,
+      ),
       superclassChain: _superclassChain(type),
     );
   }
 
-  Iterable<DeclarationId> _superclassChain(a.InterfaceType type) sync* {
+  Iterable<DeclaredType> _superclassChain(a.InterfaceType type) sync* {
     var parent = type.superclass;
     while (parent != null) {
-      yield _id(parent.element);
+      yield _type(parent) as DeclaredType;
       parent = parent.superclass;
     }
   }
@@ -908,6 +910,7 @@ final class _Reader {
         yield InheritedInstanceMember(
           member: _member(actual),
           contract: _id(_memberDeclaration(contract)),
+          contractType: _type(type) as DeclaredType,
           isCompatible: element.library.typeSystem.isSubtypeOf(
             actual.type,
             contract.type,

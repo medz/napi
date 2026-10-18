@@ -62,6 +62,53 @@ still match a selected alias, and its Dart covariant write checks still apply. I
 class, conversion fails rather than constructing an ambiguous wrapper. Distinct
 ordinary interface views retain their existing composition rules.
 
+## Concrete inheritance
+
+Selected ordinary classes and concrete aliases can extend or implement other
+selected concrete instances. The resolved arguments must match the selected
+ancestor exactly, including through unselected intermediate classes:
+
+```dart
+class Child<T> extends Cell<T> {
+  Child(super.value);
+  @override
+  Child<T> self() => this;
+}
+
+@NAPI()
+typedef IntChild = Child<int>;
+```
+
+With `IntCell` selected above, `new IntChild(1)` also has the `IntCell` handle
+membership and inherits its selected instance members. Its `self()` retains the
+same wrapper. `Child<double>` instead inherits the selected `DoubleCell` view;
+these specializations cannot exchange wrappers just because both fields use
+TypeScript `number`. Nested substitutions such as `Child<int>` extending
+`Cell<List<int>>` retain the full ancestor instance.
+
+JavaScript prototypes follow the nearest selected superclass. Selected interface
+members and input acceptance follow Dart membership, while interfaces do not
+add an `instanceof` relationship or change `Symbol.hasInstance`. Static members
+and named constructors do not inherit. Own overrides retain their defaults;
+borrowing a parent's method keeps that parent's omission/default contract.
+External member overrides remain scoped to the selected ancestor alias.
+
+Dart covariance does not create another writable ancestor view. An `IntChild`
+extending `Cell<int>` cannot be passed to `NullableCell`, even though Dart's
+`is Cell<int?>` test succeeds. Selecting a wider `Child<int?>` beside it does not
+remove the narrower object's valid `IntCell` membership. The same rules apply
+when an unselected implementation combines the child with unrelated interfaces,
+or a selected ordinary descendant exposes an exact ancestor through a wider
+selected generic intermediate. Classification retains every valid selected
+ancestor view in these combinations. An unselected narrower implementation
+accepted through a selected wider child retains that child's ancestor membership
+and cleanup policy; a raw narrower Dart type test does not remove that ancestor.
+Dart's covariant write checks still apply to the underlying object. Composite
+views that require different concrete instances of the same ancestor are rejected
+before exposing a wrapper, even when the conflicting ancestors are inherited
+through unrelated selected children. Multiple paths to the same ancestor remain
+compatible.
+
 ## Resource aliases
 
 Concrete aliases can select the existing resource policy:
@@ -83,6 +130,11 @@ for accepted Future and Stream work. A selected wider covariant alias does not
 contribute a second cleanup policy to a narrower selected instance. Different
 aliases may choose different cleanup methods; classification and cleanup use the
 same most-specific selected view. No cleanup runs automatically during GC.
+Selected resource children retain the same operation leases and share compatible inherited cleanup policies. A child
+explicitly selected with the resource policy still names an own cleanup method; different cleanup methods, parameter
+contracts or omission defaults that would assign incompatible inherited policies
+are diagnosed before generation. Ordinary selected descendants inherit the
+ancestor's resource cleanup and leases without repeating the resource annotation.
 
 ## Structural value aliases
 
@@ -131,9 +183,9 @@ This slice covers non-null, closed aliases of reference, resource and value clas
 Arguments containing `dynamic` or generic function types remain diagnosed even
 when Dart considers the surrounding alias closed. It preserves existing [open opaque generics](opaque.md). Selecting an open class and
 one of its concrete aliases together, multiple aliases for the same canonical
-specialization and selected generic reference
-hierarchies remain diagnosed. Reference selections that Dart type tests cannot
-distinguish, such as `Marker<void>` with `Marker<Object?>`, are also rejected;
+specialization remain diagnosed. Selected hierarchies require ordinary classes
+or closed aliases; open opaque hierarchies remain diagnosed. Reference selections
+that Dart type tests cannot distinguish, such as `Marker<void>` with `Marker<Object?>`, are also rejected;
 value projections do not use that runtime classification. Generic functions and
 methods that require real type arguments remain separate work in [#126](https://github.com/medz/napi/issues/126).
 

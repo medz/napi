@@ -19,6 +19,7 @@ class Cell<T> {
   T? optional([T? next]) => next;
   T? namedOptional({T? next}) => next;
   Cell<T> self() => this;
+  int count([int value = 7]) => value;
   List<Map<String, T?>> nested() => [
     {'value': value, 'empty': null},
   ];
@@ -441,3 +442,257 @@ Stream<IntValue> valueEvents() {
 // The opaque name deliberately shadows a reference used inside the value schema.
 // ignore: avoid_types_as_parameter_names
 LeafValue valueShadow<Leaf>(LeafValue value, Leaf payload) => value;
+
+class CellFeature<T> {
+  T feature(T value) => value;
+}
+
+class CellMiddle<T> extends Cell<T> implements CellFeature<T> {
+  CellMiddle(super.value);
+  @override
+  T feature(T value) => value;
+}
+
+class ChildCell<T> extends CellMiddle<T> {
+  ChildCell(super.value);
+  @override
+  ChildCell<T> self() => this;
+  @override
+  int count([int value = 9]) => value;
+}
+
+@NAPI()
+typedef IntCellFeature = CellFeature<int>;
+@NAPI()
+typedef DoubleCellFeature = CellFeature<double>;
+@NAPI()
+typedef IntChildCell = ChildCell<int>;
+@NAPI()
+typedef DoubleChildCell = ChildCell<double>;
+
+class BatchMiddle<T> extends Cell<List<T>> {
+  BatchMiddle(super.value);
+}
+
+class BatchChild<T> extends BatchMiddle<T> {
+  BatchChild(super.value);
+}
+
+@NAPI()
+typedef IntListCell = Cell<List<int>>;
+@NAPI()
+typedef IntBatchChild = BatchChild<int>;
+
+class ChildSession<T> extends Session<T> {
+  ChildSession(super.id, super.value);
+  @override
+  ChildSession<T> self() => this;
+  @override
+  // Cleanup selection intentionally names an own method on each resource view.
+  // ignore: unnecessary_overrides
+  void close([int code = 7, void Function()? failure]) =>
+      super.close(code, failure);
+}
+
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+typedef IntChildSession = ChildSession<int>;
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+typedef DoubleChildSession = ChildSession<double>;
+
+@NAPI()
+IntCell createChildCell(int value) => IntChildCell(value);
+@NAPI()
+IntSession createChildSession(int id, int value) => IntChildSession(id, value);
+@NAPI()
+IntCellFeature echoCellFeature(IntCellFeature value) => value;
+@NAPI()
+IntListCell echoIntListCell(IntListCell value) => value;
+
+@NAPI()
+typedef NullableChildCell = ChildCell<int?>;
+
+@NAPI()
+class ExtraCellFeature {
+  int extra() => 17;
+}
+
+class MixedChild extends ChildCell<int> implements ExtraCellFeature {
+  MixedChild(super.value);
+  @override
+  int extra() => 17;
+}
+
+@NAPI()
+IntCell createMixedChild(int value) => MixedChild(value);
+
+// IntMiddle is deliberately not selected: the exact ancestor is only visible
+// through the ordinary child, beside the selected wider generic middle.
+class DeepMiddle<T> extends Cell<T> {
+  DeepMiddle(super.value);
+}
+
+@NAPI()
+typedef NullableMiddleCell = DeepMiddle<int?>;
+
+@NAPI()
+class DeepCell extends DeepMiddle<int> {
+  DeepCell(super.value);
+}
+
+class MixedDeepCell extends DeepCell implements ExtraCellFeature {
+  MixedDeepCell(super.value);
+  @override
+  int extra() => 18;
+}
+
+@NAPI()
+IntCell createDeepCell(int value) => DeepCell(value);
+@NAPI()
+IntCell createMixedDeepCell(int value) => MixedDeepCell(value);
+
+class DeepSessionMiddle<T> extends Session<T> {
+  DeepSessionMiddle(super.id, super.value);
+  // A selected resource names its own cleanup implementation.
+  @override
+  // ignore: unnecessary_overrides
+  Future<void> shutdown({bool fail = false}) => super.shutdown(fail: fail);
+}
+
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'shutdown')
+typedef NullableMiddleSession = DeepSessionMiddle<int?>;
+
+// This ordinary child inherits its cleanup only from the selected IntSession.
+@NAPI()
+class DeepSession extends DeepSessionMiddle<int> {
+  DeepSession(super.id, super.value);
+  @override
+  void close([int code = 7, void Function()? failure]) {
+    super.close(code + 100, failure);
+  }
+}
+
+class MixedDeepSession extends DeepSession implements ExtraCellFeature {
+  MixedDeepSession(super.id, super.value);
+  @override
+  int extra() => 19;
+}
+
+@NAPI()
+IntSession createDeepSession(int id, int value) => DeepSession(id, value);
+@NAPI()
+IntSession createMixedDeepSession(int id, int value) =>
+    MixedDeepSession(id, value);
+
+// An unselected narrower implementation is accepted through the selected wider
+// child. That child's ancestor membership and resource policy must agree.
+class HiddenMiddleCell extends DeepMiddle<int> {
+  HiddenMiddleCell(super.value);
+}
+
+class MixedHiddenMiddleCell extends HiddenMiddleCell
+    implements ExtraCellFeature {
+  MixedHiddenMiddleCell(super.value);
+  @override
+  int extra() => 20;
+}
+
+@NAPI()
+NullableMiddleCell createHiddenMiddleCell(int value) => HiddenMiddleCell(value);
+@NAPI()
+NullableMiddleCell createMixedHiddenMiddleCell(int value) =>
+    MixedHiddenMiddleCell(value);
+
+class SessionMiddle<T> extends Session<T> {
+  SessionMiddle(super.id, super.value);
+}
+
+@NAPI()
+typedef NullableSessionChild = SessionMiddle<int?>;
+
+class HiddenSession extends SessionMiddle<int> {
+  HiddenSession(super.id, super.value);
+}
+
+class MixedHiddenSession extends HiddenSession implements ExtraCellFeature {
+  MixedHiddenSession(super.id, super.value);
+  @override
+  int extra() => 21;
+}
+
+@NAPI()
+NullableSessionChild createHiddenSession(int id, int value) =>
+    HiddenSession(id, value);
+@NAPI()
+NullableSessionChild createMixedHiddenSession(int id, int value) =>
+    MixedHiddenSession(id, value);
+
+class CrossView<T> {
+  bool get isInt => T == int;
+}
+
+class LeftView<T> extends CrossView<T> {}
+
+class RightView<T> extends CrossView<T> {}
+
+@NAPI()
+typedef IntCrossView = CrossView<int>;
+@NAPI()
+typedef NullableCrossView = CrossView<int?>;
+@NAPI()
+typedef NullableLeftView = LeftView<int?>;
+@NAPI()
+typedef IntRightView = RightView<int>;
+
+@NAPI()
+class SameAliasView extends CrossView<int?> {}
+
+class CrossedView extends LeftView<int> implements RightView<int> {}
+
+class CompatibleView extends LeftView<int?> implements SameAliasView {}
+
+@NAPI()
+NullableLeftView crossedView() => CrossedView();
+@NAPI()
+NullableLeftView compatibleView() => CompatibleView();
+
+class CrossOwner<T> {
+  final int id;
+  CrossOwner(this.id);
+  void close() =>
+      _sessionCloses.update(id, (count) => count + 1, ifAbsent: () => 1);
+}
+
+class LeftOwner<T> extends CrossOwner<T> {
+  LeftOwner(super.id);
+}
+
+class RightOwner<T> extends CrossOwner<T> {
+  RightOwner(super.id);
+}
+
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+typedef IntCrossOwner = CrossOwner<int>;
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+typedef NullableCrossOwner = CrossOwner<int?>;
+@NAPI()
+typedef NullableLeftOwner = LeftOwner<int?>;
+@NAPI()
+typedef IntRightOwner = RightOwner<int>;
+
+@NAPI()
+class SameAliasOwner extends CrossOwner<int?> {
+  SameAliasOwner(super.id);
+}
+
+class CrossedOwner extends LeftOwner<int> implements RightOwner<int> {
+  CrossedOwner(super.id);
+}
+
+class CompatibleOwner extends LeftOwner<int?> implements SameAliasOwner {
+  CompatibleOwner(super.id);
+}
+
+@NAPI()
+NullableLeftOwner crossedOwner(int id) => CrossedOwner(id);
+@NAPI()
+NullableLeftOwner compatibleOwner(int id) => CompatibleOwner(id);

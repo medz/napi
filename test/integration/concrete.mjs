@@ -104,6 +104,186 @@ async function contract(api) {
   assert.equal(weak.deref(), result);
 }
 
+async function hierarchies(api) {
+  const integer = new api.IntChildCell(3), decimal = new api.DoubleChildCell(1.5);
+  assert(integer instanceof api.IntChildCell);
+  assert(integer instanceof api.IntCell);
+  assert.equal(integer instanceof api.IntCellFeature, false, 'interfaces do not add a JS prototype chain');
+  assert.equal(integer instanceof api.NullableCell, false);
+  assert.equal(integer instanceof api.DoubleCell, false);
+  assert(decimal instanceof api.DoubleCell);
+  assert.equal(decimal instanceof api.DoubleCellFeature, false);
+  assert.equal(decimal instanceof api.IntCellFeature, false);
+  assert.equal(Object.getPrototypeOf(api.IntChildCell.prototype), api.IntCell.prototype);
+  assert.equal(Object.hasOwn(api.IntChildCell, 'named'), false);
+  assert.equal(integer.self(), integer);
+  assert.equal(api.IntCell.prototype.self.call(integer), integer);
+  assert.equal(api.echoInt(integer), integer);
+  assert.equal(api.echoDouble(decimal), decimal);
+  assert.equal(api.echoCellFeature(integer), integer);
+  assert.equal(integer.feature(4), 4);
+  assert.throws(() => integer.feature(4.5), RangeError);
+  assert.throws(() => api.IntCellFeature.prototype.feature.call(decimal, 4), TypeError);
+  assert.equal(integer.count(), 9);
+  assert.equal(integer.count(undefined), 9);
+  assert.equal(api.IntCell.prototype.count.call(integer), 7);
+  assert.equal(integer.optional(), null);
+  assert.equal(integer.replace(8), 3);
+  const baseValue = Object.getOwnPropertyDescriptor(api.IntCell.prototype, 'value');
+  assert.equal(baseValue.get.call(integer), 8);
+  baseValue.set.call(integer, 9);
+  assert.equal(integer.value, 9);
+  assert.throws(() => baseValue.set.call(decimal, 4), TypeError);
+  assert.throws(() => Object.getOwnPropertyDescriptor(api.NullableCell.prototype, 'value').set.call(integer, null), TypeError);
+  assert.equal(integer.value, 9);
+  assert.equal(await api.delayedInt(integer), integer);
+  const event = await integer.values().next();
+  assert.equal(event.value, 9);
+  assert.equal(event.done, false);
+  const nullableChild = new api.NullableChildCell(null);
+  assert(nullableChild instanceof api.NullableCell);
+  assert.equal(integer instanceof api.NullableChildCell, false);
+  assert.throws(() => api.echoInt(nullableChild), TypeError);
+  const mixed = api.createMixedChild(15);
+  assert.equal(mixed.constructor, Object);
+  assert.equal(api.echoInt(mixed), mixed);
+  assert.equal(api.echoCellFeature(mixed), mixed);
+  assert.equal(mixed.self(), mixed);
+  assert.equal(mixed.feature(16), 16);
+  assert.equal(mixed.extra(), 17);
+  const deep = api.createDeepCell(20);
+  assert(deep instanceof api.DeepCell);
+  assert(deep instanceof api.IntCell);
+  assert.equal(api.echoInt(deep), deep);
+  const mixedDeep = api.createMixedDeepCell(21);
+  assert.equal(mixedDeep.constructor, Object);
+  assert.equal(api.echoInt(mixedDeep), mixedDeep);
+  assert.equal(mixedDeep.self(), mixedDeep);
+  assert.equal(api.IntCell.prototype.replace.call(mixedDeep, 22), 21);
+  assert.equal(mixedDeep.extra(), 18);
+  for (const owner of [deep, mixedDeep]) {
+    assert.throws(() => Object.getOwnPropertyDescriptor(api.NullableCell.prototype, 'value').set.call(owner, null), TypeError);
+    assert.throws(() => api.NullableMiddleCell.prototype.self.call(owner), TypeError);
+  }
+  for (const [factory, composite] of [[api.createHiddenMiddleCell, false], [api.createMixedHiddenMiddleCell, true]]) {
+    const hidden = factory(24);
+    assert.equal(composite ? hidden.constructor === Object : hidden instanceof api.NullableMiddleCell, true);
+    assert.equal(api.NullableCell.prototype.self.call(hidden), hidden);
+    assert.equal(api.NullableMiddleCell.prototype.self.call(hidden), hidden);
+    assert.equal(hidden.value, 24);
+    assert.throws(() => api.echoInt(hidden), TypeError);
+    assert.throws(() => { hidden.value = null; }, 'Dart keeps its narrower covariant write check');
+    assert.equal(hidden.value, 24);
+    if (composite) assert.equal(hidden.extra(), 20);
+  }
+  const adopted = api.createChildCell(11);
+  assert(adopted instanceof api.IntChildCell);
+  assert.equal(api.echoInt(adopted), adopted);
+  const nested = new api.IntBatchChild([1, 2]);
+  assert(nested instanceof api.IntListCell);
+  assert.equal(api.echoIntListCell(nested), nested);
+  assert.deepEqual(nested.value, [1, 2]);
+  assert.throws(() => { nested.value = [1.5]; }, RangeError);
+  assert.equal(api.IntListCell.prototype.self.call(nested), nested);
+  assert.equal(nested.count(), 7);
+
+  for (const [id, factory, composite] of [[510, api.createDeepSession, false], [511, api.createMixedDeepSession, true]]) {
+    const owner = factory(id, 20);
+    assert.equal(composite ? owner.constructor === Object : owner instanceof api.DeepSession, true);
+    assert.equal(api.echoSession(owner), owner);
+    assert.equal(api.IntSession.prototype.self.call(owner), owner);
+    if (composite) assert.equal(owner.extra(), 19);
+    await assert.rejects(api.NullableMiddleSession.prototype.shutdown.call(owner), TypeError);
+    const pending = api.holdSessions([owner], id);
+    const completion = owner.close();
+    assert.equal(api.IntSession.prototype.close.call(owner), completion);
+    await tick();
+    assert.equal(api.sessionCloses(id), 0);
+    assert.throws(() => owner.value);
+    api.finishSession(id, 23);
+    assert.equal(await pending, 23);
+    await completion;
+    assert.equal(api.sessionCloses(id), 1);
+    assert.equal(api.sessionShutdowns(id), 0);
+    assert.equal(api.sessionCode(id), 107);
+  }
+  for (const [id, factory, composite] of [[512, api.createHiddenSession, false], [513, api.createMixedHiddenSession, true]]) {
+    const owner = factory(id, 25);
+    assert.equal(composite ? owner.constructor === Object : owner instanceof api.NullableSessionChild, true);
+    assert.equal(api.NullableSession.prototype.self.call(owner), owner);
+    assert.equal(owner.value, 25);
+    assert.throws(() => api.echoSession(owner), TypeError);
+    await assert.rejects(api.IntSession.prototype.close.call(owner), TypeError);
+    assert.throws(() => { owner.value = null; });
+    if (composite) assert.equal(owner.extra(), 21);
+    const pending = owner.hold(id);
+    const completion = owner.shutdown();
+    assert.equal(api.NullableSession.prototype.shutdown.call(owner), completion);
+    await tick();
+    assert.equal(api.sessionShutdowns(id), 0);
+    assert.throws(() => owner.value);
+    api.finishSession(id, 26);
+    assert.equal(await pending, 26);
+    await completion;
+    assert.equal(api.sessionShutdowns(id), 1);
+    assert.equal(api.sessionCloses(id), 0);
+  }
+  for (let retry = 0; retry < 2; retry++) {
+    assert.throws(() => api.crossedView(), /ambiguous concrete type arguments/);
+    assert.throws(() => api.crossedOwner(514), /ambiguous concrete type arguments/);
+  }
+  assert.equal(api.sessionCloses(514), 0);
+  const compatible = api.compatibleView();
+  assert.equal(compatible.constructor, Object);
+  assert.equal(compatible.isInt, false);
+  assert.equal(Object.getOwnPropertyDescriptor(api.NullableCrossView.prototype, 'isInt').get.call(compatible), false);
+  assert.throws(() => Object.getOwnPropertyDescriptor(api.IntCrossView.prototype, 'isInt').get.call(compatible), TypeError);
+  const compatibleOwner = api.compatibleOwner(515);
+  assert.equal(compatibleOwner.constructor, Object);
+  const compatibleClose = compatibleOwner.close();
+  assert.equal(api.NullableCrossOwner.prototype.close.call(compatibleOwner), compatibleClose);
+  assert.equal(api.SameAliasOwner.prototype.close.call(compatibleOwner), compatibleClose);
+  await compatibleClose;
+  assert.equal(api.sessionCloses(515), 1);
+  const session = api.createChildSession(500, 12);
+  assert(session instanceof api.IntChildSession);
+  assert(session instanceof api.IntSession);
+  assert.equal(session instanceof api.NullableSession, false);
+  assert.equal(session.self(), session);
+  assert.equal(api.IntSession.prototype.self.call(session), session);
+  assert.equal(api.echoSession(session), session);
+  const work = api.holdSessions([session], 500);
+  const close = session.close();
+  assert.equal(api.IntSession.prototype.close.call(session), close);
+  await tick();
+  assert.equal(api.sessionCloses(500), 0);
+  assert.throws(() => session.value);
+  api.finishSession(500, 13);
+  assert.equal(await work, 13);
+  await close;
+  assert.equal(api.sessionCloses(500), 1);
+  assert.equal(api.sessionCode(500), 7);
+
+  const watched = new api.IntChildSession(501, 14);
+  const stream = watched.watch(501);
+  const initial = await stream.next();
+  assert.equal(initial.value, 14);
+  assert.equal(initial.done, false);
+  const streamClose = api.IntSession.prototype.close.call(watched, 8);
+  await tick();
+  assert.equal(api.sessionCloses(501), 0);
+  assert.equal(api.sessionCancels(501), 1);
+  api.finishSessionCancel(501);
+  await streamClose;
+  assert.equal(api.sessionCloses(501), 1);
+  assert.equal(api.sessionCode(501), 8);
+  assert.equal((await stream.next()).done, true);
+  const other = new api.DoubleChildSession(502, 1.5);
+  assert.throws(() => api.echoSession(other), TypeError);
+  await other.close();
+  assert.equal(api.sessionCloses(502), 1);
+}
+
 async function resources(api) {
   const integer = new api.IntSession(101, 7);
   const decimal = new api.DoubleSession(102, 1.5);
@@ -341,7 +521,7 @@ async function values(api) {
 if (!isMainThread) {
   const api = await import(typeof workerData === 'string' ? workerData : workerData.name);
   if (workerData.teardown) {
-    const held = new api.IntSession(200, 2);
+    const held = new api.IntChildSession(200, 2);
     void held.hold(200);
     void held.close();
     parentPort.postMessage('pending');
@@ -349,6 +529,7 @@ if (!isMainThread) {
   } else {
     await contract(api);
     await resources(api);
+    await hierarchies(api);
     await values(api);
     parentPort.postMessage('passed');
   }
@@ -357,6 +538,7 @@ if (!isMainThread) {
     const api = await import(name);
     await contract(api);
     await resources(api);
+    await hierarchies(api);
     await values(api);
     await new Promise((resolve, reject) => {
       const worker = new Worker(new URL(import.meta.url), {workerData: name});

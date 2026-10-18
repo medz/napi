@@ -218,4 +218,30 @@ ${List.generate(40, (i) => '@NAPI() class View$i { int run([int value = 1]) => v
       );
     },
   );
+  test('concrete conflicts include each inherited alias once', () async {
+    final classes = await read('''
+import 'package:napi/napi.dart';
+class Base<T> { bool get isInt => T == int; }
+class Left<T> extends Base<T> {}
+class Right<T> extends Base<T> {}
+@NAPI() typedef IntBase = Base<int>;
+@NAPI() typedef NullableBase = Base<int?>;
+@NAPI() typedef NullableLeft = Left<int?>;
+@NAPI() typedef IntRight = Right<int>;
+@NAPI() class SameAlias extends Base<int?> {}
+''');
+    final script = File('${temporary.path}/concrete-resolver.mjs');
+    script.writeAsStringSync('''
+import assert from 'node:assert/strict';
+${emitCompositeReferencePrototypes(classes, (_) => 'function() {}')}
+assert.throws(() => \$napiCompositePrototype([2, 3], 'crossed'), /crossed: ambiguous concrete type arguments/);
+assert.throws(() => \$napiCompositePrototype([2, 3], 'retry'), /retry: ambiguous concrete type arguments/);
+assert.doesNotThrow(() => \$napiCompositePrototype([1, 2, 4], 'same-alias'));
+assert.doesNotThrow(() => \$napiCompositePrototype([0, 3], 'narrow'));
+''');
+    final run = await Process.run(Platform.environment['NODE'] ?? 'node', [
+      script.path,
+    ]);
+    expect(run.exitCode, 0, reason: '${run.stdout}${run.stderr}');
+  });
 }

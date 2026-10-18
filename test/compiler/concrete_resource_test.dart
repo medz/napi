@@ -210,13 +210,10 @@ typedef Completion = Finish<void>;
     });
   }
 
-  test('open resource generics and selected generic hierarchies stay diagnosed', () async {
+  test('open resource generics stay diagnosed', () async {
     for (final body in [
       "@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close') "
           'class Session<T> { T value; Session(this.value); void close() {} }',
-      '@NAPI() class Base {} class Session<T> extends Base { void close() {} } '
-          "@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close') "
-          'typedef IntSession = Session<int>;',
     ]) {
       final module = await read(
         source("import 'package:napi/napi.dart';\n$body"),

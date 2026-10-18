@@ -25,7 +25,7 @@ import '../lowering/plan.dart'
         conversionGraph,
         dartOpaqueTypeArguments,
         dartReferenceClassType,
-        dartReferenceClassTest;
+        DartReferenceClassTests;
 import 'plan.dart';
 import 'structural.dart';
 
@@ -146,12 +146,21 @@ void releaseOwner(int id) => _api.releaseOwner(id);
 ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int token) => _api.releaseFuture(token);\n" : ''}${hasAsyncCallbacks || hasSignals ? "@pragma('vm:entry-point')\nObject? acceptCallback(int env, int token, bool rejected, int value) => _api.acceptCallback(env, token, rejected, value);\n" : ''}void main() {}
 ''');
   if (plan.classes.isNotEmpty || hasStreams) {
+    final tests = DartReferenceClassTests(
+      plan.classes.map((c) => c.binding),
+      object: 'value',
+    );
     if (hasResources) {
+      final resourceTests = DartReferenceClassTests(
+        plan.classes.map((c) => c.binding),
+        object: 'value',
+        tested: policies.keys.map((id) => plan.classes[id].binding),
+      );
       code.writeln('''ResourceControl? _resourceControl(Object value) {
-  int? policy;''');
+${resourceTests.declarations}  int? policy;''');
       for (final entry in policies.entries) {
         code.writeln(
-          '''  if (${dartReferenceClassTest(plan.classes[entry.key].binding, plan.classes.map((c) => c.binding), object: 'value')}) {
+          '''  if (${resourceTests.test(plan.classes[entry.key].binding)}) {
     if (policy != null && policy != ${entry.value}) throw NapiTypeError('Resource has incompatible cleanup policies');
     policy = ${entry.value};
   }''',
@@ -171,28 +180,30 @@ ${hasFutures ? "@pragma('vm:entry-point')\nList<Object?>? releaseFuture(int toke
     code.writeln('''int _referenceClass(Object value, String path) {
   ${hasStreams ? 'if (value is NapiStream<dynamic, NativeHostValue>) return ${plan.streamClassId};' : ''}
   ${hasResources ? '_resourceControl(value);' : ''}
-  int? canonical;''');
+${tests.declarations}  int? canonical;''');
     for (final index in plan.referenceClassOrder) {
-      code.writeln(
-        '''  if (${dartReferenceClassTest(plan.classes[index].binding, plan.classes.map((c) => c.binding), object: 'value')}) {
+      code.writeln('''  if (${tests.test(plan.classes[index].binding)}) {
     if (canonical == null) { canonical = $index; }
     else if (!_referenceMemberships[canonical].contains($index)) {
       return -1;
     }
-  }''',
-      );
+  }''');
     }
     code.writeln('''  if (canonical == null) throw NapiTypeError('\$path: no unique most-specific selected class');
   return canonical;
 }''');
     if (hasCompositeViews) {
-      code.writeln('List<int> _referenceViews(Object value) => [');
+      code.writeln(
+        tests.declarations.isEmpty
+            ? 'List<int> _referenceViews(Object value) => ['
+            : 'List<int> _referenceViews(Object value) {\n${tests.declarations}  return [',
+      );
       for (final binding in plan.classes) {
         code.writeln(
-          '  if (${dartReferenceClassTest(binding.binding, plan.classes.map((c) => c.binding), object: 'value')}) ${binding.shape.classId},',
+          '  if (${tests.test(binding.binding)}) ${binding.shape.classId},',
         );
       }
-      code.writeln('];');
+      code.writeln(tests.declarations.isEmpty ? '];' : '  ];\n}');
     }
   }
   for (final call in plan.calls) {
