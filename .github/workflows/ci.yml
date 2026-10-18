@@ -34,6 +34,7 @@ jobs:
       - run: dart pub get
       - run: dart format --output=none --set-exit-if-changed lib test tool
       - run: dart analyze --fatal-infos
+      - run: python3 -B -m unittest discover -s test/native -p '*_test.py'
       - run: dart run tool/check_package.dart
       - run: git diff --check HEAD^ HEAD
 

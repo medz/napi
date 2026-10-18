@@ -57,12 +57,77 @@ untouched. Node headers affect the reusable bridge, not individual businesses.
 The flat bundle contains `bridge.node`, the identity-qualified runtime dylib,
 `DART_LICENSE`, `DART_AUTHORS`, `NAPI_LICENSE`, and `manifest.json`.
 The manifest has `format: 1`, `sdkVersion`, `sdkRevision`, `platform: "macos"`,
-`architecture: "arm64"`, `minimumOsVersion: "14.0"`, `abi: 14`, `identity`,
+`architecture: "arm64"`, `minimumOsVersion: "14.0"`, `abi: 15`, `identity`,
 `bridge`, `runtime`, and `files` mapping the five payload names to SHA-256 hashes.
 Its `build` evidence records the cache arguments hash, combined input-object
 digest/count, and runtime/ABI source hash. It contains no local SDK paths.
 The consumer build validates this manifest and hashes before copying its exact
 file whitelist. The final binary hash is asset evidence, not runtime identity.
+
+New maintainer builds also write `build.provenance`: the producer commit and
+explicit dirty-source flag, hashes of the repository's actual build inputs,
+compiler identity and macOS SDK version, cache recipe hashes, and non-system
+headers discovered with the compilation flags before compiling and checked
+again against the actual compiler dependency files. Source, VM objects, cache
+recipes and compiler hashes are also checked again before publication; detected
+input drift fails the build. Keep the prepared cache and toolchain unchanged
+while building. This detects accidental concurrent changes, not an adversarial
+writer that changes and restores files between checks.
+This record is created during the build. It must not be backfilled onto an older bundle. A dirty producer is
+identified by its complete input hashes; it does not claim that the commit alone
+reproduces those bytes. The existing `build.sourceSha256` remains the narrower
+runtime identity input; it does not cover the complete bridge implementation.
+
+## Locked distribution
+
+Prepare a deterministic ZIP and lock from a newly built, validated bundle:
+
+```sh
+python3 tool/native/bundle.py pack /absolute/path/to/new-bundle \
+  --archive /absolute/path/to/new-runtime.zip \
+  --lock /absolute/path/to/new-bundle.lock.json
+```
+
+Both output paths must be new. This uses the ordinary Dart SDK to invoke the
+same bundle validator used by application builds; it neither loads native code
+nor compiles C/C++. The ZIP contains only the five payload files and manifest.
+The lock binds the exact archive size/hash, manifest hash and SDK/runtime profile.
+Its URL remains `null` until the reviewed archive has an approved fixed GitHub
+release asset location. Preparing a lock does not upload or publish anything.
+If the archive is published but a concurrent writer prevents lock publication,
+the command fails and preserves the archive path; it does not delete a file that
+another process may already have replaced. Inspect the reported paths and use
+new output names when retrying.
+
+For local review, supply that archive explicitly:
+
+```sh
+python3 tool/native/bundle.py fetch \
+  --lock /absolute/path/to/new-bundle.lock.json \
+  --archive /absolute/path/to/new-runtime.zip
+```
+
+The command prints the verified cache directory. Cache entries are keyed by the
+archive SHA-256 and revalidated on every use, including the current repository's
+complete native source inputs. A source mismatch, corrupt cache, missing source
+or download failure is an error; it never triggers a VM build or selects another
+runtime. Existing corrupt entries are preserved for diagnosis, not overwritten.
+Archives are bounded and restricted to the exact flat regular-file inventory.
+
+No remote asset or repository-default lock is supplied by this change. CI runs
+the distribution regression tests using synthetic files and the real Dart
+validator; these tests do not load a native runtime. Full native execution stays
+an explicit maintainer check until a reviewed asset is published and the macOS
+native job is added. An empty cache requires `--archive` when the lock URL is
+`null`; a verified cache hit can still be reused. That later job must require a
+verified remote source, not
+skip native execution when the asset is unavailable. Standard application builds
+retain their explicit `nativeRuntime` input and do not perform network requests.
+
+Only maintainers prepare SDK sources and Product VM objects. Routine bridge or
+runtime changes reuse that cache through `build.py`; consumer CI downloads the
+small precompiled bundle, not the VM cache. A new full source fingerprint does
+not itself require a new ABI or rebuilding the VM.
 
 The stable runtime identity includes the pinned SDK revision, mode, architecture,
 ABI and a combined digest of the runtime/bridge ABI source hash and VM input
