@@ -333,3 +333,98 @@ int? keyedScalar<K>(JsMap<K, int> source, K key) => source.get(key);
 T firstPayload<T>(JsMap<String, T> source) => source.entries.first.$2;
 @NAPI()
 int firstScalar<K>(JsMap<K, int> source) => source.entries.first.$2;
+
+typedef NestedHandles = ({
+  List<JsArray<int>?> arrays,
+  Map<String, JsMap<String, int?>?> maps,
+  Dictionary<JsArray<int>> dictionaries,
+});
+
+@NAPI()
+NestedHandles nested(NestedHandles value) {
+  _array = value.arrays.first;
+  _map = value.maps['first'];
+  _entered++;
+  return value;
+}
+
+@NAPI()
+int? nestedAccess(NestedHandles value, bool mutate) {
+  final array = value.arrays.first!;
+  final map = value.maps['first']!;
+  if (mutate) {
+    array.set(0, 42);
+    map.set('key', 43);
+  }
+  return array.get(0);
+}
+
+@NAPI()
+Future<NestedHandles> nestedLater(NestedHandles value) async => value;
+@NAPI()
+Stream<NestedHandles> nestedEvents(NestedHandles value) => Stream.value(value);
+@NAPI()
+List<JsArray<T>> nestedPayloads<T>(List<JsArray<T>> value) => value;
+
+@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+class NestedValue {
+  final JsArray<int> array;
+  final JsMap<String, int?> map;
+  NestedValue(this.array, this.map) {
+    _array = array;
+    _map = map;
+  }
+}
+
+@NAPI()
+NestedValue nestedValue(NestedValue value, List<int> later) {
+  _entered++;
+  return value;
+}
+
+@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+class NestedCapture {
+  final JsArray<int> trigger;
+  NestedCapture(this.trigger) {
+    trigger.get(0);
+  }
+}
+
+@NAPI()
+List<JsArray<int>> nestedCaptured(
+  ({NestedCapture first, JsArray<int> last}) value,
+) => [value.last];
+
+String _nestedOrder = '';
+
+@NAPI(classPolicy: ClassPolicy.value)
+class NestedOutput {
+  final JsArray<int> _value;
+  final bool _fail;
+  NestedOutput(this._value, this._fail);
+  JsArray<int> get first {
+    _nestedOrder += 'first;';
+    return _value;
+  }
+
+  int get last {
+    _nestedOrder += 'last;';
+    if (_fail) throw StateError('later nested getter');
+    return 1;
+  }
+}
+
+@NAPI()
+NestedOutput nestedFake(bool fail) {
+  _nestedOrder = '';
+  return NestedOutput(_FakeArray(), fail);
+}
+
+@NAPI(bigint: true)
+NestedOutput nestedWrongPolicy(bool fail) {
+  _nestedOrder = '';
+  return NestedOutput(_array!, fail);
+}
+
+@NAPI()
+String nestedOrder() => _nestedOrder;

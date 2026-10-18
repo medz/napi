@@ -25,8 +25,13 @@ T _jcAdapter<T extends Object>(WasmExternRef source, String signature, T Functio
   _jcCache(source, key, WasmAnyRef.fromObject(adapter).externalize());
   return adapter;
 }
-JSAny _writeJsCollection(Object value, String signature) {
-  if (value is! _JsCollection || value.signature != signature) throw _CallbackThrown(_jcTypeError());
+JSAny _writeJsCollection(Object value, String signature, {bool defer = false}) {
+  if (value is! _JsCollection || value.signature != signature) {
+    // False cannot be a valid Array/Map handle. Nested host validation rejects
+    // this private value only after all Dart snapshot getters have completed.
+    if (defer) return false.toJS;
+    throw _CallbackThrown(_jcTypeError());
+  }
   return value.source!.toJS;
 }
 abstract class _JsCollection {

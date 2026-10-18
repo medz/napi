@@ -68,6 +68,51 @@ typedef Numbers = JsArray<int>;
     }
   });
 
+  test('copied containers discover terminal handle policies without changing root contexts', () async {
+    final module = await read('''
+@NAPI() List<JsArray<int>> arrays(List<JsArray<int>> value) => value;
+@NAPI() Map<String, JsMap<String, int?>> maps(Map<String, JsMap<String, int?>> value) => value;
+@NAPI() Dictionary<JsArray<int>?> dictionary(Dictionary<JsArray<int>?> value) => value;
+@NAPI() (JsArray<T>, JsMap<String, T?>) record<T>((JsArray<T>, JsMap<String, T?>) value) => value;
+@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+class Packet { Packet(this.items); final JsArray<int> items; }
+@NAPI() Packet packet(Packet value) => value;
+''');
+    final wasm = lower(validate(module));
+    final native = validateNative(module);
+    expect(wasm.conversions.whereType<JsCollectionConversion>(), isEmpty);
+    expect(
+      conversionGraph(wasm.conversions).whereType<JsCollectionConversion>(),
+      isNotEmpty,
+    );
+    final scalarOnly = lower(
+      validate(
+        BindingModule(
+          source: module.source,
+          functions: [module.functions.first],
+        ),
+      ),
+    );
+    expect(emitDart(scalarOnly), contains('final class _NapiHostValue'));
+    final dart = emitDart(wasm);
+    final boundary = emitBoundary(wasm);
+    expect(dart, contains('final class _NapiHostValue'));
+    expect(dart, contains('_jcAdapter<'));
+    expect(dart, isNot(contains('external WasmExternRef _boxOpaque')));
+    expect(boundary, contains(r'const $jcPolicies ='));
+    expect(boundary, contains(r'$jcAdmit(value,'));
+    expect(boundary, contains('if (value === false)'));
+    expect(boundary, isNot(contains('function boxOpaque')));
+    for (final (index, conversion) in wasm.conversions.indexed) {
+      expect(boundary, contains('case $index:'));
+      expect(conversion, isNot(isA<JsCollectionConversion>()));
+    }
+    expect(emitDeclarations(wasm), emitNativeDeclarations(native));
+    expect(emitDeclarations(wasm), contains('globalThis.Array<T>'));
+    expect(native.jsCollections, isNotEmpty);
+    expect(emitNativeDart(native), contains('jsCollectionResult'));
+  });
+
   test('unused modules emit no collection runtime', () async {
     final module = await read('@NAPI() int add(int a, int b) => a + b;');
     final wasm = lower(validate(module));
@@ -153,7 +198,9 @@ assert.equal(api.scalar(new Map([['a', 7]])), 7);
   for (final source in [
     '@NAPI() JsArray<List<int>> bad(JsArray<List<int>> value) => value;',
     '@NAPI() JsMap<Object, int> bad(JsMap<Object, int> value) => value;',
-    '@NAPI() List<JsArray<int>> bad(List<JsArray<int>> value) => value;',
+    '@NAPI() Map<JsArray<int>, int> bad(Map<JsArray<int>, int> value) => value;',
+    '@NAPI() Map<(JsMap<String,int>,), int> bad(Map<(JsMap<String,int>,), int> value) => value;',
+    '@NAPI() List<JsArray<List<int>>> bad(List<JsArray<List<int>>> value) => value;',
     '@NAPI() int bad(JsArray<int> Function() callback) => 0;',
     '@NAPI() JsArray<List<T>> bad<T>(JsArray<List<T>> value) => value;',
     '@NAPI() JsArray<JsArray<T>> bad<T>(JsArray<JsArray<T>> value) => value;',
@@ -162,7 +209,8 @@ assert.equal(api.scalar(new Map([['a', 7]])), 7);
     '@NAPI() JsArray<Future<T>> bad<T>(JsArray<Future<T>> value) => value;',
     '@NAPI() JsArray<Stream<T>> bad<T>(JsArray<Stream<T>> value) => value;',
     '@NAPI() int bad<T>(JsArray<T> Function() callback) => 0;',
-    '@NAPI(classPolicy: ClassPolicy.value, valueConstructor: "new") class Packet { Packet(this.items); final JsArray<int> items; } @NAPI() Packet packet(Packet value) => value;',
+    '@NAPI(classPolicy: ClassPolicy.value, valueConstructor: "new") class Packet { Packet(this.items); final JsArray<int> items; } @NAPI() Map<Packet,int> bad(Map<Packet,int> value) => value;',
+    '@NAPI(classPolicy: ClassPolicy.value, valueConstructor: "new") class Packet { Packet(this.items); final JsArray<int> items; } @NAPI() (Packet, Map<Packet,int>) bad((Packet, Map<Packet,int>) value) => value;',
   ]) {
     test('unsupported payload is diagnostic: $source', () async {
       final module = await read(source);

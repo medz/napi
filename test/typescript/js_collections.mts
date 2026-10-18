@@ -1,6 +1,7 @@
 import * as api from '@napi/js-collections-fixture';
 import * as direct from '@napi/js-collections-fixture/BACKEND';
 import * as external from '@napi/js-collections-external';
+import * as nestedOnly from '@napi/js-collections-nested';
 const array: number[] = api.remember([1]);
 const same: number[] = direct.remember(external.remember(array));
 const map: Map<string, number | null> = api.rememberMap(new Map([['a', 1], ['b', null]]));
@@ -57,3 +58,24 @@ const directPayload: Payload | null = direct.stringPayload(new Map<string, Paylo
 const externalPayload: Payload | null = external.stringPayload(new Map<string, Payload>(), 'key');
 const selectedNumber: number | null = api.keyedScalar(new Map<object, number>(), {});
 void [original, saved, nullablePayload, originalMap, payloadKey, captured, payloadEvents, sourceLater, sourceEvents, directPayload, externalPayload, selectedNumber];
+
+const nestedInput = {arrays: [array, null], maps: new Map([['first', map]]), dictionaries: {leaf: array}};
+const nestedResult: {arrays: Array<number[] | null>; maps: Map<string, Map<string, number | null> | null>; dictionaries: {[key: string]: number[]}} = api.nested(nestedInput);
+const nestedCopy = nestedOnly.nested(external.nested(nestedInput));
+const nestedRead: number | null = api.nestedAccess(nestedInput, false);
+const nestedValue: api.NestedValue = api.nestedValue({array, map}, []);
+const nestedCaptured: number[][] = api.nestedCaptured({first: {trigger: array}, last: array});
+const nestedPromise: Promise<typeof nestedResult> = api.nestedLater(nestedInput);
+const nestedStream: AsyncIterableIterator<typeof nestedResult, undefined, undefined> = api.nestedEvents(nestedInput);
+const nestedPayloads: Payload[][] = api.nestedPayloads<Payload>([[undefined]]);
+// @ts-expect-error Nullable handle leaves permit null, not undefined.
+api.nested({...nestedInput, arrays: [undefined]});
+// @ts-expect-error A handle retains its scalar element declaration.
+api.nested({...nestedInput, arrays: [['bad']]});
+// @ts-expect-error Dictionary handle leaves are non-null.
+api.nested({...nestedInput, dictionaries: {leaf: null}});
+// @ts-expect-error Value-class fields use handle types, not arbitrary objects.
+api.nestedValue({array: {}, map}, []);
+// @ts-expect-error The opaque payload type is retained inside both array layers.
+api.nestedPayloads<Payload>([['bad']]);
+void [nestedResult, nestedCopy, nestedRead, nestedValue, nestedCaptured, nestedPromise, nestedStream, nestedPayloads];

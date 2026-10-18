@@ -29,6 +29,9 @@ String emitBoundary(ModulePlan plan) {
     for (final (index, conversion) in conversions.indexed)
       if (conversion is JsCollectionConversion) index: conversion,
   };
+  final jsCollectionLeaves = conversionGraph(conversions)
+      .whereType<JsCollectionConversion>()
+      .toList();
   final binaries = {
     for (final (index, conversion) in conversions.indexed)
       if (conversion is BinaryConversion) index: conversion,
@@ -61,7 +64,7 @@ String emitBoundary(ModulePlan plan) {
   };
   return '''// Generated JS imports for the Wasm boundary, not a consumer entry.
 ${plan.classes.isEmpty ? '' : "import {readReference, writeReference} from './references.mjs';"}
-${jsCollections.isEmpty ? '' : '$jsCollectionsPolicy\nconst \$jcPolicies = ${jsCollectionPolicies(jsCollections.values)};\n$wasmJsCollectionsPolicy\n'}$sharedBytesPolicy
+${jsCollectionLeaves.isEmpty ? '' : '$jsCollectionsPolicy\nconst \$jcPolicies = ${jsCollectionPolicies(jsCollectionLeaves)};\n$wasmJsCollectionsPolicy\n'}$sharedBytesPolicy
 $wasmSharedBytesPolicy
 ${nestedOpaque ? '$opaqueStructuralPolicy\n' : ''}${signals ? '$cancellationPolicy\n$wasmCancellationPolicy' : ''}
 ${hasBinary ? '$binaryPolicy\n$wasmBinaryPolicy' : ''}

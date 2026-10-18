@@ -78,7 +78,9 @@ final class DartStructuralEmitter {
         final signature = jsonEncode(conversion.signatureKey)
             .replaceAll(r'$', r'\$');
         if (output) {
-          _code.writeln('  return _writeJsCollection(value, $signature);');
+          _code.writeln(
+            '  return _writeJsCollection(value, $signature, defer: depth != 0);',
+          );
         } else {
           String element(ValueConversion c) => switch (c) {
             OpaqueConversion() => '_JsElement<${c.dartType}>(true, null, null)',
