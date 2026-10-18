@@ -173,10 +173,12 @@ LinkedDartModule linkDartModule({
 /// argument-preserving function can therefore stay directly importable from
 /// `.wasm` while its host dependency calls the linked Dart core. This separate
 /// facade never shifts any of the core module's global indices.
+/// [voidFunctions] selects zero-result signatures from [nativeFunctions].
 Uint8List buildPublicWasmFacade({
   required String hostSpecifier,
   required List<String> exportNames,
   Map<String, int> nativeFunctions = const {},
+  Set<String> voidFunctions = const {},
   String coreSpecifier = './core.wasm',
 }) {
   _checkSpecifier(hostSpecifier);
@@ -185,6 +187,9 @@ Uint8List buildPublicWasmFacade({
   if (names.toSet().length != names.length ||
       names.any((name) => name.isEmpty)) {
     throw ArgumentError('Facade export names must be nonempty and unique.');
+  }
+  if (voidFunctions.any((name) => !nativeFunctions.containsKey(name))) {
+    throw ArgumentError('Void facade functions must name native functions.');
   }
   if (nativeFunctions.values.any((arity) => arity < 0)) {
     throw ArgumentError('Native facade function arities must be nonnegative.');
@@ -215,14 +220,20 @@ Uint8List buildPublicWasmFacade({
   }
   final output = BytesBuilder(copy: false)..add(_header);
   if (nativeFunctions.isNotEmpty) {
-    final arities = nativeFunctions.values.toSet().toList();
-    final types = BytesBuilder(copy: false)..add(_u32(arities.length));
-    for (final arity in arities) {
+    final signatures = {
+      for (final function in nativeFunctions.entries)
+        (
+          arity: function.value,
+          returnsVoid: voidFunctions.contains(function.key),
+        ),
+    }.toList();
+    final types = BytesBuilder(copy: false)..add(_u32(signatures.length));
+    for (final signature in signatures) {
       types
         ..addByte(0x60)
-        ..add(_u32(arity))
-        ..add(List.filled(arity, 0x6f))
-        ..add(const [1, 0x6f]);
+        ..add(_u32(signature.arity))
+        ..add(List.filled(signature.arity, 0x6f))
+        ..add(signature.returnsVoid ? const [0] : const [1, 0x6f]);
     }
     final payload = types.takeBytes();
     output
@@ -235,7 +246,14 @@ Uint8List buildPublicWasmFacade({
         ..add(_name(coreSpecifier))
         ..add(_name(function.key))
         ..addByte(0)
-        ..add(_u32(arities.indexOf(function.value)));
+        ..add(
+          _u32(
+            signatures.indexOf((
+              arity: function.value,
+              returnsVoid: voidFunctions.contains(function.key),
+            )),
+          ),
+        );
       exports
         ..add(_name(function.key))
         ..addByte(0)

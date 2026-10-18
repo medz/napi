@@ -156,6 +156,12 @@ Future<BuiltModule> buildModule({
               if (f.representation == ExportRepresentation.nativeFunction)
                 f.binding.exportName: f.inputs.length,
           },
+          voidFunctions: {
+            for (final f in plan.functions)
+              if (f.representation == ExportRepresentation.nativeFunction &&
+                  f.output == null)
+                f.binding.exportName,
+          },
         ),
       );
     }

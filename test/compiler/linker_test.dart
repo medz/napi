@@ -185,6 +185,18 @@ void main() {
     }
   });
 
+  test('void facade metadata rejects unknown functions', () {
+    expect(
+      () => buildPublicWasmFacade(
+        hostSpecifier: './host.mjs',
+        exportNames: ['callable'],
+        nativeFunctions: {'fixed': 0},
+        voidFunctions: {'callable'},
+      ),
+      throwsArgumentError,
+    );
+  });
+
   test('global-only facade binary remains unchanged', () {
     expect(
       buildPublicWasmFacade(
@@ -246,16 +258,26 @@ console.log('native-facade-ok');
         'napi-mixed-facade-',
       );
       addTearDown(() => directory.delete(recursive: true));
-      const nativeFunctions = {'zero': 0, 'identity': 1, 'first': 2, 'echo': 1};
+      const nativeFunctions = {
+        'zero': 0,
+        'identity': 1,
+        'first': 2,
+        'echo': 1,
+        'empty': 0,
+        'discard': 1,
+      };
+      const voidFunctions = {'empty', 'discard'};
       await File('${directory.path}/module.wasm').writeAsBytes(
         buildPublicWasmFacade(
           hostSpecifier: './host.mjs',
           exportNames: ['Counter', 'arity'],
           nativeFunctions: nativeFunctions,
+          voidFunctions: voidFunctions,
         ),
       );
-      await File('${directory.path}/core.wasm')
-          .writeAsBytes(_nativeCoreModule(nativeFunctions));
+      await File('${directory.path}/core.wasm').writeAsBytes(
+        _nativeCoreModule(nativeFunctions, voidFunctions: voidFunctions),
+      );
       await File('${directory.path}/host.mjs').writeAsString('''
 export class Counter { constructor(value) { this.value = value; } }
 export function arity() { return arguments.length; }
@@ -263,17 +285,17 @@ export function arity() { return arguments.length; }
       await File('${directory.path}/consumer.mjs').writeAsString('''
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {Counter, arity, zero, identity, first, echo} from './module.wasm';
+import {Counter, arity, zero, identity, first, echo, empty, discard} from './module.wasm';
 import * as core from './core.wasm';
 const module = new WebAssembly.Module(readFileSync(new URL('./module.wasm', import.meta.url)));
 assert.deepEqual(WebAssembly.Module.imports(module), [
   {module: './host.mjs', name: 'Counter', kind: 'global'},
   {module: './host.mjs', name: 'arity', kind: 'global'},
-  ...['zero', 'identity', 'first', 'echo'].map(name => ({module: './core.wasm', name, kind: 'function'})),
+  ...['zero', 'identity', 'first', 'echo', 'empty', 'discard'].map(name => ({module: './core.wasm', name, kind: 'function'})),
 ]);
 assert.deepEqual(WebAssembly.Module.exports(module), [
   {name: 'Counter', kind: 'global'}, {name: 'arity', kind: 'global'},
-  ...['zero', 'identity', 'first', 'echo'].map(name => ({name, kind: 'function'})),
+  ...['zero', 'identity', 'first', 'echo', 'empty', 'discard'].map(name => ({name, kind: 'function'})),
 ]);
 assert.equal(new Counter(9).value, 9);
 assert.equal(arity(undefined, null), 2);
@@ -281,6 +303,10 @@ assert.equal(zero.length, 0);
 assert.equal(identity.length, 1);
 assert.equal(first.length, 2);
 assert.equal(zero(), null);
+assert.equal(empty(), undefined);
+assert.equal(discard({value: 1}), undefined);
+assert.equal(empty, core.empty);
+assert.equal(discard, core.discard);
 assert.equal(identity, core.identity);
 assert.equal(identity(), undefined);
 assert.equal(identity(null), null);
@@ -349,16 +375,18 @@ List<int> _module(List<List<int>> imports) => [
   ]),
 ];
 
-List<int> _nativeCoreModule(Map<String, int> functions) => [
+List<int> _nativeCoreModule(
+  Map<String, int> functions, {
+  Set<String> voidFunctions = const {},
+}) => [
   ..._header,
   ..._section(1, [
     ..._u32(functions.length),
-    for (final arity in functions.values) ...[
+    for (final function in functions.entries) ...[
       0x60,
-      ..._u32(arity),
-      ...List.filled(arity, 0x6f),
-      1,
-      0x6f,
+      ..._u32(function.value),
+      ...List.filled(function.value, 0x6f),
+      if (voidFunctions.contains(function.key)) 0 else ...[1, 0x6f],
     ],
   ]),
   ..._section(3, [
@@ -375,10 +403,11 @@ List<int> _nativeCoreModule(Map<String, int> functions) => [
   ]),
   ..._section(10, [
     ..._u32(functions.length),
-    for (final arity in functions.values) ...[
-      4,
+    for (final function in functions.entries) ...[
+      voidFunctions.contains(function.key) ? 2 : 4,
       0,
-      if (arity == 0) ...[0xd0, 0x6f] else ...[0x20, 0],
+      if (!voidFunctions.contains(function.key))
+        if (function.value == 0) ...[0xd0, 0x6f] else ...[0x20, 0],
       0x0b,
     ],
   ]),

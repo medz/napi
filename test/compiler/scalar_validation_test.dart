@@ -72,12 +72,26 @@ void main() {
     },
   );
 
+  test('void is a result type but never a parameter type', () {
+    final module = _module(_function(result: const VoidType()));
+    expect(validate(module).bindings, same(module));
+    expect(
+      () => validate(
+        _module(
+          _function(parameters: [ParameterBinding('value', const VoidType())]),
+        ),
+      ),
+      throwsA(
+        isA<BindingDiagnostic>().having((e) => e.code, 'code', 'NAPI_TYPE'),
+      ),
+    );
+  });
+
   test(
     'rejects unsupported types and forged scalar metadata in both positions',
     () {
       final unsupported = <BindingType>[
         const DynamicType(),
-        const VoidType(),
         const NeverType(),
         const SafeIntType(nullability: TypeNullability.legacy),
         _declared('String', nullability: TypeNullability.legacy),

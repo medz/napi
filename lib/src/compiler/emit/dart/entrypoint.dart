@@ -128,9 +128,20 @@ WasmExternRef _referenceViews(WasmExternRef reference) {
     final returnsVoid =
         call.returnsFuture ||
         (!call.returnsStream && output == null && !constructor);
+    // Dart void exports return a reference null. Direct public Wasm functions
+    // need the SDK's zero-result type to return JavaScript undefined.
+    final nativeVoid =
+        call is FunctionPlan &&
+        call.representation == ExportRepresentation.nativeFunction &&
+        returnsVoid;
+    final resultType = nativeVoid
+        ? 'WasmVoid'
+        : returnsVoid
+        ? 'void'
+        : 'WasmExternRef?';
     result.writeln("@pragma('wasm:export', '${call.coreExportName}')");
     result.writeln(
-      '${returnsVoid ? 'void' : 'WasmExternRef?'} _export$index(${[
+      '$resultType _export$index(${[
         if (call.returnsFuture) 'WasmExternRef capability',
         if (instance) 'WasmExternRef reference',
         for (var i = 0; i < parameters.length; i++) ...[if (_optional(parameters[i])) 'WasmI32 d$i', 'WasmExternRef? p$i'],
@@ -177,7 +188,7 @@ WasmExternRef _referenceViews(WasmExternRef reference) {
           result.writeln('  } on _StructureViolation catch (error) {');
           result.writeln(
             returnsVoid
-                ? '    _reportStructureError(error);\n    return;'
+                ? '    _reportStructureError(error);\n    return${nativeVoid ? ' WasmVoid()' : ''};'
                 : '    return _reportStructureError(error);',
           );
           result.writeln(
@@ -187,7 +198,7 @@ WasmExternRef _referenceViews(WasmExternRef reference) {
             call.returnsFuture
                 ? '    _failFuture(capability, error, stack, $errorContext);\n    return;'
                 : returnsVoid
-                ? '    _normalizeError(error);\n    return;'
+                ? '    _normalizeError(error);\n    return${nativeVoid ? ' WasmVoid()' : ''};'
                 : '    return _normalizeError(error);',
           );
           result.writeln('  }');
@@ -256,6 +267,7 @@ WasmExternRef _referenceViews(WasmExternRef reference) {
       }
     }
     if (output == null) {
+      if (nativeVoid) result.writeln('  return WasmVoid();');
       result.writeln('}');
       continue;
     }
