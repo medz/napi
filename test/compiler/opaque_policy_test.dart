@@ -530,7 +530,10 @@ $router
       wasm.functions.first.representation,
       ExportRepresentation.nativeFunction,
     );
-    expect(wasm.functions[4].inputs.single.typescriptType, 'Array<Router<T>>');
+    expect(
+      wasm.functions[4].inputs.single.typescriptType,
+      'ReadonlyArray<Router<T>>',
+    );
     final types = emitDeclarations(wasm);
     expect(emitNativeDeclarations(native), types);
     expect(types, contains(r'globalThis.Promise<$napiAwaited<{ then: T }>>'));

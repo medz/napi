@@ -1271,6 +1271,11 @@ final class _Reader {
         ? null
         : TypeAliasBinding(
             declaration: _id(type.alias!.element),
+            nullable:
+                type.alias!.element.aliasedType.nullabilitySuffix ==
+                NullabilitySuffix.question,
+            documentation: type.alias!.element.documentationComment,
+            source: _source(type.alias!.element),
             typeArguments: type.alias!.typeArguments.indexed.map(
               (t) => _type(t.$2, owner: owner, path: '$path.alias:${t.$1}'),
             ),

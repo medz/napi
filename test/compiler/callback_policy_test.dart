@@ -106,7 +106,7 @@ typedef Transform = Later<List<(int, String?)>?> Function((bool, List<int?>) sou
       );
       expect(
         transform.typescriptType,
-        '(arg0: { \$1: boolean; \$2: Array<number | null> }) => globalThis.Promise<Array<{ \$1: number; \$2: string | null }> | null>',
+        '(arg0: { \$1: boolean; \$2: Array<number | null> }) => globalThis.Promise<ReadonlyArray<{ \$1: number; \$2: string | null }> | null>',
       );
       final big = inputs[1] as CallbackConversion;
       expect(big.returnsFuture, isTrue);
@@ -229,7 +229,7 @@ typedef Transform = Later<List<(int, String?)>?> Function((bool, List<int?>) sou
         );
         expect(
           callbacks[9].typescriptType,
-          contains('globalThis.Promise<Array<'),
+          contains('globalThis.Promise<ReadonlyArray<'),
         );
         expect(
           callbacks[9].typescriptType,
@@ -333,6 +333,7 @@ typedef Transform = Later<List<(int, String?)>?> Function((bool, List<int?>) sou
 @NAPI() int optional([int Function(int)? callback]) => callback?.call(1) ?? 0;
 @NAPI(bigint: true) int big(int Function(int) callback) => callback(1);
 @NAPI() int record(List<int> Function((int, {String text})) callback) => callback((1, text: 'x')).length;
+@NAPI() List<int> list(List<int> Function(List<int>) callback) => callback([1, 2]);
 @NAPI() Future<int> asynchronous(Future<int> Function(int) callback) => callback(1);
 @NAPI() Future<void> asyncVoid(Future<void> Function() callback) => callback();
 @NAPI(bigint: true) Future<int> asyncBig(Future<int> Function(int) callback) => callback(1);
@@ -360,12 +361,16 @@ const value: number = api.run((n, s) => n + s.length);
 const big: bigint = api.big(n => n + 1n);
 api.optional(); api.optional(undefined); api.optional(null);
 api.record(r => [r.$1, r.text.length]);
+api.record(r => [r.$1, r.text.length] as const);
+const list: number[] = api.list(values => { values.push(3); return values; });
+api.list(() => [1, 2] as const);
 const calls = new api.Calls(() => {});
 calls.run(n => n * 2);
 const asynchronous: Promise<number> = api.asynchronous(async n => n + 1);
 const empty: Promise<void> = api.asyncVoid(async () => {});
 const wide: Promise<bigint> = api.asyncBig(async n => n + 1n);
 const record: Promise<number[]> = api.asyncRecord(async r => [r.$1, r.text.length]);
+api.asyncRecord(async r => [r.$1, r.text.length] as const);
 const syncInFuture: Promise<number> = api.syncInFuture(n => n + 1);
 api.asyncOptional(); api.asyncOptional(null); api.asyncOptional(undefined);
 api.asyncOptional(async n => n);
@@ -400,7 +405,7 @@ api.asyncOptional(async () => null);
 api.asyncBig(async (n: number) => n);
 // @ts-expect-error Async callbacks retain record/list child conversion.
 api.asyncRecord(async r => [r.text]);
-void [value, big, asynchronous, empty, wide, record, syncInFuture, globalName];
+void [value, big, asynchronous, empty, wide, record, syncInFuture, globalName, list];
 '''
             .replaceAll('BACKEND', entry.key),
       );

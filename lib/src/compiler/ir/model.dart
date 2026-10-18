@@ -169,9 +169,17 @@ final class RecordTypeBinding extends BindingType {
 final class TypeAliasBinding {
   final DeclarationId declaration;
   final List<BindingType> typeArguments;
+
+  /// Nullability of the typedef itself, separate from a nullable use site.
+  final bool nullable;
+  final String? documentation;
+  final SourceLocation? source;
   TypeAliasBinding({
     required this.declaration,
     Iterable<BindingType> typeArguments = const [],
+    this.nullable = false,
+    this.documentation,
+    this.source,
   }) : typeArguments = List.unmodifiable(typeArguments);
 }
 

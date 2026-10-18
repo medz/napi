@@ -491,7 +491,7 @@ List<ValueClassSchema> validateValueClasses(BindingModule module) {
 }
 
 final _identifier = RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$');
-const _reserved = {
+const javascriptReservedWords = {
   'await',
   'break',
   'case',
@@ -931,12 +931,12 @@ ValidatedModule validate(BindingModule module) {
           (segment) =>
               !_identifier.hasMatch(segment) ||
               segment.startsWith('_') ||
-              _reserved.contains(segment),
+              javascriptReservedWords.contains(segment),
         )) {
       reject('NAPI_NAME', 'Expected a public Dart function call path.');
     }
     if (!_identifier.hasMatch(function.exportName) ||
-        _reserved.contains(function.exportName) ||
+        javascriptReservedWords.contains(function.exportName) ||
         // These are valid Dart identifiers and declaration parameter names,
         // but cannot be local bindings in an unaliased strict-mode ESM import.
         const {'eval', 'arguments'}.contains(function.exportName) ||
@@ -1889,7 +1889,7 @@ void _referenceName(
 }) {
   if (!_identifier.hasMatch(name) ||
       (!topLevel && name.startsWith('_')) ||
-      _reserved.contains(name) ||
+      javascriptReservedWords.contains(name) ||
       const {'eval', 'arguments'}.contains(name) ||
       (topLevel && name == 'then')) {
     throw BindingDiagnostic(
@@ -1974,7 +1974,7 @@ Set<DeclarationId> validateOpaqueParameters(
     final name = parameter.declaration.name;
     if (!_identifier.hasMatch(name) ||
         name == '_' ||
-        _reserved.contains(name) ||
+        javascriptReservedWords.contains(name) ||
         const {
           'any',
           'unknown',
@@ -2400,7 +2400,7 @@ void validateCallParameters(
     void reject(String code, String message) =>
         throw BindingDiagnostic(code, message, parameter.source ?? source);
     if (!_identifier.hasMatch(parameter.name) ||
-        _reserved.contains(parameter.name)) {
+        javascriptReservedWords.contains(parameter.name)) {
       reject('NAPI_PARAMETER', 'Unsupported backend parameter name.');
     }
     final optional =

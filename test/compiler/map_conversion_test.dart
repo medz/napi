@@ -76,7 +76,7 @@ void main() {
     expect(conversion.dartType, 'Map<String, List<target.Map?>>');
     expect(
       conversion.typescriptType,
-      'globalThis.Map<string, Array<Map | null>>',
+      'globalThis.Map<string, ReadonlyArray<Map | null>>',
     );
     expect(echo.representation, ExportRepresentation.nativeFunction);
     expect(module.functions.first.inputs.single, isA<ReferenceConversion>());
