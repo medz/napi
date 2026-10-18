@@ -320,13 +320,17 @@ String emitResult(
   }
   if (!returnsFuture) return payload;
   final resolved = _needsPromiseResolution(output)
-      ? '\$napiAwaited<$payload>'
+      // A dictionary's index signature does not require a `then` entry.
+      ? '${output is DictionaryConversion ? '$payload | ' : ''}\$napiAwaited<$payload>'
       : payload;
   return 'globalThis.Promise<$resolved>';
 }
 
 bool _needsPromiseResolution(ValueConversion? output) =>
-    output is OpaqueConversion || output is ReferenceConversion;
+    output is OpaqueConversion ||
+    output is ReferenceConversion ||
+    output is DictionaryConversion && _needsPromiseResolution(output.value) ||
+    output is RecordConversion && _needsPromiseResolution(output.named['then']);
 
 /// Unlike TypeScript's Awaited, distribute a nullable or union-valued `then`:
 /// its callable branch resolves, while its non-callable branch returns T.

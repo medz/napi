@@ -39,7 +39,9 @@ final class NativeStructuralEmitter {
     if (!containsValueClass(conversion) &&
         !conversionGraph([conversion]).any(
           (value) =>
-              value is BinaryConversion || value is SharedBytesConversion,
+              value is BinaryConversion ||
+              value is SharedBytesConversion ||
+              value is OpaqueConversion,
         )) {
       return _read(conversion);
     }
@@ -88,16 +90,19 @@ final class NativeStructuralEmitter {
       '${conversion.dartType} $name(Pointer<Void> env, Pointer<Void> value, _NativeReadState state, String path, int depth) {',
     );
     _code.writeln('  state.visit(path);');
-    if (conversion.nullable) {
+    if (conversion.nullable && conversion is! OpaqueConversion) {
       _code.writeln('  if (_api.isNull(env, value)) return null;');
     }
     switch (conversion) {
       case AbortSignalConversion():
       case CallbackConversion():
       case JsCollectionConversion():
-      case OpaqueConversion():
         throw StateError(
-          'Signal, callback and opaque structural leaves are unsupported',
+          'Signal, callback and JS collection structural leaves are unsupported',
+        );
+      case OpaqueConversion():
+        _code.writeln(
+          '  final owned = _api.ownHostValue(env, value);\n  state.owned?.add(owned);\n  return owned;',
         );
       case SharedBytesConversion():
         _code.writeln('  return _api.sharedBytes(env, value, path);');
@@ -221,9 +226,8 @@ final class NativeStructuralEmitter {
       case AbortSignalConversion():
       case CallbackConversion():
       case JsCollectionConversion():
-      case OpaqueConversion():
         throw StateError(
-          'Signal, callback and opaque structural leaves are unsupported',
+          'Signal, callback and JS collection structural leaves are unsupported',
         );
       case BinaryConversion():
         final bytes = conversion.kind == BinaryKind.uint8List
@@ -235,7 +239,8 @@ final class NativeStructuralEmitter {
           '  final snapshot = typed_data.Uint8List.fromList(bytes);\n'
           '  return snapshot${conversion.kind == BinaryKind.byteBuffer ? '.buffer' : ''};',
         );
-      case ScalarConversion() ||
+      case OpaqueConversion() ||
+          ScalarConversion() ||
           ReferenceConversion() ||
           SharedBytesConversion():
         _code.writeln('  return value;');
@@ -381,9 +386,12 @@ final class NativeStructuralEmitter {
       case AbortSignalConversion():
       case CallbackConversion():
       case JsCollectionConversion():
-      case OpaqueConversion():
         throw StateError(
-          'Signal, callback and opaque structural leaves are unsupported',
+          'Signal, callback and JS collection structural leaves are unsupported',
+        );
+      case OpaqueConversion():
+        _code.writeln(
+          '  return _api.hostValue(env, value as NativeHostValue).address;',
         );
       case SharedBytesConversion():
         _code.writeln(
@@ -466,12 +474,12 @@ final class NativeStructuralEmitter {
     ScalarConversion() ||
     ReferenceConversion() ||
     BinaryConversion() ||
-    SharedBytesConversion() => [],
+    SharedBytesConversion() ||
+    OpaqueConversion() => [],
     AbortSignalConversion() ||
     CallbackConversion() ||
-    JsCollectionConversion() ||
-    OpaqueConversion() => throw StateError(
-      'Signal, callback and opaque structural leaves are unsupported',
+    JsCollectionConversion() => throw StateError(
+      'Signal, callback and JS collection structural leaves are unsupported',
     ),
   };
 
@@ -483,7 +491,8 @@ final class NativeStructuralEmitter {
     if (conversion is ScalarConversion ||
         conversion is ReferenceConversion ||
         conversion is BinaryConversion ||
-        conversion is SharedBytesConversion) {
+        conversion is SharedBytesConversion ||
+        conversion is OpaqueConversion) {
       return _normalizers[conversion] = _read(conversion);
     }
     final name = '_normalizeNativeStructure${_next++}';
@@ -503,9 +512,7 @@ final class NativeStructuralEmitter {
       case CallbackConversion():
       case JsCollectionConversion():
       case OpaqueConversion():
-        throw StateError(
-          'Signal, callback and opaque structural leaves are unsupported',
-        );
+        throw StateError('Signal, callback or unreachable leaf conversion');
       case ListConversion():
         _code.writeln(
           '''  final length = _api.inspectShape(env, value, true, const [], path, 10000 - state.work, depth, state.contains(env, value));
@@ -634,7 +641,8 @@ final class NativeStructuralEmitter {
     if (conversion is ScalarConversion ||
         conversion is ReferenceConversion ||
         conversion is BinaryConversion ||
-        conversion is SharedBytesConversion) {
+        conversion is SharedBytesConversion ||
+        conversion is OpaqueConversion) {
       _code.writeln('  return value as ${conversion.dartType};\n}');
       return name;
     }
@@ -645,9 +653,7 @@ final class NativeStructuralEmitter {
       case CallbackConversion():
       case JsCollectionConversion():
       case OpaqueConversion():
-        throw StateError(
-          'Signal, callback and opaque structural leaves are unsupported',
-        );
+        throw StateError('Signal, callback or unreachable leaf conversion');
       case ListConversion(:final element):
         _code.writeln('''  final result = <${element.dartType}>[];
   for (var i = 0; i < items.length; i++) {

@@ -9,6 +9,11 @@ import 'structural.dart';
 
 String emitDart(ModulePlan plan) {
   final resources = plan.resourcePolicies.isNotEmpty;
+  final nestedOpaque = plan.conversions.any(
+    (root) =>
+        root is! OpaqueConversion &&
+        conversionGraph([root]).any((leaf) => leaf is OpaqueConversion),
+  );
   final streams = plan.calls.any((call) => call.returnsStream);
   final signals = plan.conversions.any((c) => c is AbortSignalConversion);
   final jsCollections = plan.conversions.any(
@@ -44,6 +49,7 @@ String emitDart(ModulePlan plan) {
   if (plan.calls.any((call) => call.returnsFuture) || streams) {
     result.writeln(withCallbackErrors(futureEntrypointPrelude));
   }
+  if (nestedOpaque) result.writeln(opaqueStructuralEntrypointPrelude);
   if (streams) result.writeln(streamEntrypointPrelude);
   if (binary) result.writeln(binaryEntrypointPrelude);
   if (jsCollections) result.writeln(jsCollectionsEntrypointPrelude);

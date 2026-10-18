@@ -81,6 +81,14 @@ String emitNativeDart(NativeModulePlan plan) {
       if (call.output != null) call.output!,
     ].any(containsDictionary),
   );
+  bool hasNestedOpaque(Iterable<ValueConversion> values) => values.any(
+    (root) =>
+        root is! OpaqueConversion &&
+        conversionGraph([root]).any((leaf) => leaf is OpaqueConversion),
+  );
+  final hasOpaqueStructuralInputs = plan.calls.any(
+    (call) => hasNestedOpaque(call.inputs),
+  );
   final structures = NativeStructuralEmitter(hasResources: hasResources);
   final code = StringBuffer();
   if (hasBinary) {
@@ -220,6 +228,7 @@ ${tests.declarations}  int? canonical;''');
             conversionGraph(call.inputs)
                 .any((value) => value is ReferenceConversion));
     final parameters = call.parameters;
+    final tracksInputOwners = hasNestedOpaque(call.inputs);
     final hasOpaqueInputs = call.inputs.any(
       (value) => value is OpaqueConversion,
     );
@@ -246,6 +255,9 @@ ${tests.declarations}  int? canonical;''');
     code.writeln(
       'int ${call.callback}(int envAddress, int infoAddress${call.returnsFuture ? ', int token' : ''}) {\n${call.returnsFuture ? '  _api.beginFuture(token);\n' : ''}',
     );
+    if (tracksInputOwners) {
+      code.writeln('  final pendingInputs = <NativeHostValue>[];');
+    }
     if (retainsResources && !call.isCleanup) {
       code.writeln('  final operation = ResourceOperation();');
       if (call.returnsStream) {
@@ -405,6 +417,7 @@ ${tests.declarations}  int? canonical;''');
         _readReference(code, conversion, index, 'a$index', retainsResources);
       } else if (conversion is OpaqueConversion) {
         code.writeln('    a$index = _api.ownHostValue(call.env, raw$index);');
+        if (tracksInputOwners) code.writeln('    pendingInputs.add(a$index);');
       } else if (conversion is CallbackConversion) {
         _readCallback(code, conversion, index, structures, hasResources);
       } else if (conversion is AbortSignalConversion) {
@@ -448,7 +461,7 @@ ${tests.declarations}  int? canonical;''');
               ? retainsResources
                     ? 'operation'
                     : 'null'
-              : ''}), $path, 0);',
+              : ''}${tracksInputOwners ? '${hasResources ? ', ' : ''}owned: pendingInputs' : ''}), $path, 0);',
         );
       } else {
         throw StateError('Unsupported native input conversion');
@@ -493,6 +506,7 @@ ${tests.declarations}  int? canonical;''');
       );
       code.writeln('    final env = Pointer<Void>.fromAddress(envAddress);');
       if (!call.isCleanup) _checkSignals(code, call);
+      if (tracksInputOwners) code.writeln('    pendingInputs.clear();');
       code.writeln(
         '    _api.completeFuture(envAddress, token, ${call.isCleanup ? 'control.dispose(() => $invocation)' : invocation}, (value) {',
       );
@@ -501,10 +515,11 @@ ${tests.declarations}  int? canonical;''');
       code.writeln(
         '  } catch (error, stack) {\n'
         '    _api.rejectFuture(envAddress, token, error, stack, ${_quote(call.context)});\n'
-        '    return 0;\n  }\n}',
+        '    return 0;\n  }${tracksInputOwners ? ' finally {\n    for (final value in pendingInputs) { value.release(); }\n  }' : ''}\n}',
       );
     } else {
       _checkSignals(code, call);
+      if (tracksInputOwners) code.writeln('    pendingInputs.clear();');
       if (call.returnsStream) {
         code.writeln('    final stream = $invocation;');
         code.writeln('    final streamEnv = call.env;');
@@ -540,7 +555,7 @@ ${tests.declarations}  int? canonical;''');
         _writeResult(code, call.output, structures, 'call.env');
       }
       code.writeln(
-        '  } catch (error) {\n    return _api.fail(envAddress, error);\n  }${retainsResources ? ' finally {\n    ${call.returnsStream ? 'if (!operationTransferred) ' : ''}operation.release();\n  }' : ''}\n}',
+        '  } catch (error) {\n    return _api.fail(envAddress, error);\n  }${retainsResources || tracksInputOwners ? ' finally {\n${tracksInputOwners ? '    for (final value in pendingInputs) { value.release(); }\n' : ''}${retainsResources ? '    ${call.returnsStream ? 'if (!operationTransferred) ' : ''}operation.release();\n' : ''}  }' : ''}\n}',
       );
     }
   }
@@ -582,12 +597,13 @@ ${tests.declarations}  int? canonical;''');
   }
   if (hasStructures) {
     code.writeln(
-      hasResources
+      hasResources || hasOpaqueStructuralInputs
           ? nativeStructuralPrelude.replaceFirst(
               'final class _NativeReadState {',
-              '''final class _NativeReadState {
-  _NativeReadState(this.operation);
-  final ResourceOperation? operation;''',
+              'final class _NativeReadState {\n'
+                  '  _NativeReadState(${hasResources ? 'this.operation' : ''}${hasOpaqueStructuralInputs ? '${hasResources ? ', ' : ''}{this.owned}' : ''});\n'
+                  '${hasResources ? '  final ResourceOperation? operation;\n' : ''}'
+                  '${hasOpaqueStructuralInputs ? '  final List<NativeHostValue>? owned;\n' : ''}',
             )
           : nativeStructuralPrelude,
     );

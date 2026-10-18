@@ -14,6 +14,11 @@ import 'streams.dart';
 String emitBoundary(ModulePlan plan) {
   final conversions = plan.conversions;
   final resources = plan.resourcePolicies.isNotEmpty;
+  final nestedOpaque = plan.conversions.any(
+    (root) =>
+        root is! OpaqueConversion &&
+        conversionGraph([root]).any((leaf) => leaf is OpaqueConversion),
+  );
   final streams = plan.calls.any((call) => call.returnsStream);
   final signals = conversions.any((c) => c is AbortSignalConversion);
   final sharedBytes = {
@@ -58,6 +63,7 @@ String emitBoundary(ModulePlan plan) {
 ${plan.classes.isEmpty ? '' : "import {readReference, writeReference} from './references.mjs';"}
 ${jsCollections.isEmpty ? '' : '$jsCollectionsPolicy\nconst \$jcPolicies = ${jsCollectionPolicies(jsCollections.values)};\n$wasmJsCollectionsPolicy\n'}$sharedBytesPolicy
 $wasmSharedBytesPolicy
+${nestedOpaque ? opaqueStructuralPolicy : ''}
 ${signals ? '$cancellationPolicy\n$wasmCancellationPolicy' : ''}
 ${hasBinary ? '$binaryPolicy\n$wasmBinaryPolicy' : ''}
 ${resources ? '$settlementObserver\n' : ''}const policies = ${jsonEncode(policies)};

@@ -143,6 +143,14 @@ final class _NapiHostValue {
 }
 ''';
 
+/// Only private non-null envelopes cross the structural JSAny representation.
+const opaqueStructuralEntrypointPrelude = r'''
+@pragma('wasm:import', 'napi.boxOpaque')
+external WasmExternRef _boxOpaque(WasmExternRef? value);
+@pragma('wasm:import', 'napi.unboxOpaque')
+external WasmExternRef? _unboxOpaque(WasmExternRef value);
+''';
+
 /// Cached adapters retain their JS function while reachable from Dart. Exception
 /// envelopes have a separate traced lifetime across catch/save/rethrow calls.
 const callbackEntrypointPrelude =
