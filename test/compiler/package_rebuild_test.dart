@@ -175,6 +175,56 @@ void main() {
       },
     );
 
+    for (final name in ['LICENSE', 'README.md']) {
+      for (final spelling in [name, name.toLowerCase()]) {
+        test(
+          'first selecting $name preserves unselected author $spelling',
+          () async {
+            await assemble();
+            final author = await File('${output.path}/$spelling')
+                .writeAsString('unselected author content');
+            if (!await File('${output.path}/$name').exists()) {
+              markTestSkipped('This filesystem distinguishes case.');
+              return;
+            }
+            final replacement = await File('${root.path}/replacement')
+                .writeAsString('new selected asset');
+            final before = await File('${output.path}/$packageOwnershipFile')
+                .readAsString();
+            await expectLater(
+              assemble(
+                overrides: {'version': '1.0.1'},
+                assets: {name: replacement},
+              ),
+              throwsArgumentError,
+            );
+            expect(await author.readAsString(), 'unselected author content');
+            expect((await package())['files'], isNot(contains(name)));
+            expect((await package())['version'], '1.0.0');
+            expect(
+              await File('${output.path}/$packageOwnershipFile').readAsString(),
+              before,
+            );
+          },
+        );
+      }
+
+      test('an already selected $name permits explicit replacement', () async {
+        final replacement = await File('${root.path}/replacement')
+            .writeAsString('first selection');
+        await assemble(assets: {name: replacement});
+        await File('${output.path}/$name').writeAsString('author edit');
+        await replacement.writeAsString('explicit replacement');
+        await assemble(assets: {name: replacement});
+        expect(
+          await File('${output.path}/$name').readAsString(),
+          'explicit replacement',
+        );
+        expect((await package())['files'], contains(name));
+        expect((await PackageOwnership.read(output))!.assets, contains(name));
+      });
+    }
+
     test('removes only stale generated callable files', () async {
       for (final name in wasmCallFiles) {
         await File('${source.path}/$name').writeAsString(name);

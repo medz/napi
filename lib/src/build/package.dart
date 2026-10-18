@@ -281,7 +281,12 @@ Future<Directory> _assemblePackage({
       'exports': packageEntrypoints(targets, rootTarget.name),
     });
     staging = await target.parent.createTemp('.napi-package-');
-    await previous?.copyAuthors(staging, artifactNames);
+    if (previous != null) {
+      await previous.copyAuthors(staging, {
+        ...artifactNames,
+        ...assets.keys.where((name) => !previous.assets.contains(name)),
+      });
+    }
     for (final entry in files.entries) {
       final destination = File('${staging.path}/${entry.key}');
       await destination.parent.create(recursive: true);
