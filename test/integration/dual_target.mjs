@@ -18,6 +18,13 @@ async function check(name, selected) {
   assert.notEqual(native.Counter, wasm.Counter);
   assert.notEqual(native.singleton(), wasm.singleton());
   for (const current of [native, wasm]) {
+    const original = Object.freeze({label: 'row', values: Object.freeze([1, 2])});
+    const row = current.appendRow(original);
+    assert.deepEqual(row, {label: 'row', values: [1, 2, 3]});
+    assert.notEqual(row, original);
+    assert.notEqual(row.values, original.values);
+    row.values.push(4);
+    assert.deepEqual(original, {label: 'row', values: [1, 2]});
     current.reset();
     assert.equal(current.add(4), 6);
     assert.equal(current.add(4, 3), 7);

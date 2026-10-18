@@ -3,6 +3,7 @@ import 'dart:convert';
 import '../../analysis/validate.dart';
 import '../../ir/model.dart';
 import '../../lowering/plan.dart';
+import 'documentation.dart';
 
 /// Allocate every recursive alias before expanding any body. Names are private;
 /// the selected public name denotes only the ordinary output representation.
@@ -47,11 +48,28 @@ String emitValueDeclarations(
   return [
     for (final entry in representatives.entries)
       'type ${aliases[entry.key]} = ${_body(entry.value)};',
-    for (final node in defaults)
+    for (final node in defaults) ...[
+      if (node.classBinding.documentation != null)
+        emitDocumentation(node.classBinding.documentation),
       'export type ${node.classBinding.exportName} = ${node.typescriptName};',
+    ],
   ].join('\n');
 }
 
-String _body(ValueClassConversion node) => node.fields.isEmpty
-    ? '{ [key: string]: never }'
-    : '{ ${[for (final field in node.fields) '${jsonEncode(field.name)}${field.optional ? '?' : ''}: ${field.conversion.typescriptType}${field.optional ? ' | undefined' : ''}'].join('; ')} }';
+String _body(ValueClassConversion node) {
+  if (node.fields.isEmpty) return '{ [key: string]: never }';
+  String property(ValueClassField field) =>
+      '${jsonEncode(field.name)}${field.optional ? '?' : ''}: ${field.conversion.typescriptType}${field.optional ? ' | undefined' : ''}';
+  if (node.fields.every((field) => field.binding.documentation == null)) {
+    return '{ ${node.fields.map(property).join('; ')} }';
+  }
+  return [
+    '{',
+    for (final field in node.fields) ...[
+      if (field.binding.documentation != null)
+        emitDocumentation(field.binding.documentation, indent: '  '),
+      '  ${property(field)};',
+    ],
+    '}',
+  ].join('\n');
+}

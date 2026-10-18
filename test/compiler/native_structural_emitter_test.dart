@@ -145,7 +145,10 @@ void main() {
     expect(types, contains('Array<Array<number | null> | null> | null'));
     expect(types, contains('wide: bigint'));
     expect(types, contains('huge: bigint'));
-    expect(types, contains('optional: (value?: Array<number | null> | null)'));
+    expect(
+      types,
+      contains('optional: (value?: ReadonlyArray<number | null> | null)'),
+    );
     expect(types, contains('Record<PropertyKey, never>'));
     await File('${directory.path}/module.d.mts').writeAsString(types);
     final consumer = File('${directory.path}/consumer.mts');

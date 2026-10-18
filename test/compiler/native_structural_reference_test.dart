@@ -240,16 +240,16 @@ void main() {
     final types = emitNativeDeclarations(await read());
     expect(types, contains('head: Box | null'));
     expect(types, contains('tail: Array<Box | null> | null'));
-    expect(types, contains('constructor(members: Array<Box | null>);'));
+    expect(types, contains('constructor(members: ReadonlyArray<Box | null>);'));
     expect(types, contains('get members(): Array<Box | null>;'));
-    expect(types, contains('set members(next: Array<Box | null>);'));
+    expect(types, contains('set members(next: ReadonlyArray<Box | null>);'));
     expect(
       types,
       contains(
-        'static from(options?: { members?: Array<Box | null> | null | undefined }): Group;',
+        'static from(options?: { members?: ReadonlyArray<Box | null> | null | undefined }): Group;',
       ),
     );
-    expect(types, contains('take(values: Array<Box | null>): void;'));
+    expect(types, contains('take(values: ReadonlyArray<Box | null>): void;'));
     await File('${directory.path}/module.d.mts').writeAsString(types);
     final consumer = File('${directory.path}/consumer.mts');
     await consumer.writeAsString('''

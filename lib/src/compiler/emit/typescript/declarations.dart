@@ -3,6 +3,8 @@ import '../../analysis/validate.dart';
 import '../../analysis/result.dart';
 import '../../ir/model.dart';
 import '../../lowering/plan.dart';
+import 'aliases.dart';
+import 'documentation.dart';
 import 'values.dart';
 
 String emitDeclarations(ModulePlan plan) => emitBindingDeclarations(
@@ -175,6 +177,15 @@ String emitBindingDeclarations({
   final hasResources = classes.any(
     (c) => c.classPolicy == ClassPolicy.resource,
   );
+  final recordAliases = emitRecordAliases(
+    classes,
+    values,
+    conversions,
+    reservedNames: {
+      for (final function in functions) function.exportName,
+      for (final binding in classes) binding.exportName,
+    },
+  );
   bool callable(_DeclarationCall call) =>
       call.returnsFuture ||
       call.returnsStream ||
@@ -203,8 +214,11 @@ String emitBindingDeclarations({
         conversions,
         reservedNames: {for (final function in functions) function.exportName},
       ),
+    if (recordAliases.isNotEmpty) recordAliases,
     '// Generated declarations for the binding module.',
-    for (final function in functions)
+    for (final function in functions) ...[
+      if (function.documentation != null)
+        emitDocumentation(function.documentation),
       ...emitFunctionDeclarations(
         function.exportName,
         function.parameters,
@@ -215,7 +229,10 @@ String emitBindingDeclarations({
         returnsStream: functionCalls[function]!.returnsStream,
         callable: callable(functionCalls[function]!),
       ),
+    ],
     for (final shape in references) ...[
+      if (shape.binding.documentation != null)
+        emitDocumentation(shape.binding.documentation),
       'export declare class ${shape.binding.exportName}${emitTypeParameters(shape.binding.typeParameters, invariant: true)} {',
       if (shape.binding.typeParameters.isNotEmpty)
         '  ${emitOpaquePhantom(shape.binding.typeParameters, classId: genericHierarchy ? shape.classId : null)}',
@@ -224,8 +241,11 @@ String emitBindingDeclarations({
         for (final parameters in emitParameterVariants(
           constructor.parameters,
           memberCalls[constructor]!.inputs,
-        ))
-          '  constructor($parameters);'
+        )) ...[
+          if (constructor.binding.documentation != null)
+            emitDocumentation(constructor.binding.documentation, indent: '  '),
+          '  constructor($parameters);',
+        ]
       else
         '  private constructor();',
       for (final (member, declaration) in [
@@ -245,7 +265,9 @@ String emitBindingDeclarations({
         for (final parameters in emitParameterVariants(
           declaration.parameters,
           declaration.inputs,
-        ))
+        )) ...[
+          if (member.binding.documentation != null)
+            emitDocumentation(member.binding.documentation, indent: '  '),
           switch (member.kind) {
             ReferenceMemberKind.method =>
               '  ${member.isStatic ? 'static ' : ''}${emitMemberName(member.exportName)}${emitTypeParameters(declaration.methodTypes)}($parameters): ${emitResult(declaration.output, returnsFuture: member.returnsFuture, returnsStream: member.returnsStream)};',
@@ -256,6 +278,7 @@ String emitBindingDeclarations({
             ReferenceMemberKind.constructor =>
               '  static ${emitMemberName(member.exportName)}${emitTypeParameters(shape.binding.typeParameters)}($parameters): ${shape.binding.exportName}${emitLogicalTypeArguments(shape.binding.typeParameters)};',
           },
+        ],
       ...emitWriteOnlyReads(shape, references, (ref) {
         final member = references[ref.classId].members[ref.memberIndex];
         if (referenceMemberInScope(member, references[ref.classId], shape) !=

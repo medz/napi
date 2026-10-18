@@ -4,6 +4,19 @@ import * as wasm from '@napi/dual-fixture/wasm';
 import * as direct from '@napi/dual-fixture/module.wasm';
 import * as nativeRoot from '@napi/dual-external';
 import * as selectedNative from '@napi/dual-external/native';
+import type {Row} from '@napi/dual-fixture';
+
+const inputRow = {label: 'row', values: [1, 2]} as const;
+const row: Row = root.appendRow(inputRow);
+const nativeRow: native.Row = native.appendRow(inputRow);
+const wasmRow: wasm.Row = wasm.appendRow(inputRow);
+const externalRow: selectedNative.Row = nativeRoot.appendRow(inputRow);
+for (const value of [row, nativeRow, wasmRow, externalRow]) value.values.push(4);
+// @ts-expect-error Readonly inputs retain their element type.
+root.appendRow({label: 'row', values: ['bad']} as const);
+// @ts-expect-error The public record type retains required fields.
+const missingRow: Row = {label: 'row'};
+void missingRow;
 
 const a: wasm.Counter = new root.Counter();
 const b: direct.Counter = a;

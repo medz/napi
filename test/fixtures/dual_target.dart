@@ -6,6 +6,16 @@ int _calls = 0;
 int _cleanups = 0;
 final _singleton = Counter(7);
 
+/// A labeled row of copied numbers.
+typedef Row = ({String label, List<int> values});
+
+/// Appends a number to the copied row without changing the JavaScript input.
+@NAPI()
+Row appendRow(Row row) {
+  row.values.add(3);
+  return row;
+}
+
 @NAPI()
 int calls() => _calls;
 @NAPI()

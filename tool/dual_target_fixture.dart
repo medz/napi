@@ -51,6 +51,7 @@ Future<void> verifyDualTargetFixture(
                 'fail',
                 'structuralDefaults',
                 'namedDefaults',
+                'appendRow',
               ])
                 ExternalFunction(name),
               ExternalClass('Counter'),
@@ -120,6 +121,15 @@ Future<void> verifyDualTargetFixture(
       throw StateError('Target/selector declarations differ.');
     }
     declarations = types;
+    for (final text in [
+      'export type Row = ',
+      'A labeled row of copied numbers.',
+      'Appends a number to the copied row without changing the JavaScript input.',
+    ]) {
+      if (!types.contains(text)) {
+        throw StateError('Missing public type or Dartdoc: $text');
+      }
+    }
     final pack = await Process.run('npm', [
       'pack',
       '--ignore-scripts',

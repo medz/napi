@@ -351,11 +351,13 @@ final class ReferenceConversion extends ValueConversion {
 
 final class ListConversion extends ValueConversion {
   final ValueConversion element;
+  final ValueDirection direction;
   final bool _qualifiedType;
   ListConversion._(
     super.type,
     super.context,
     this.element, {
+    required this.direction,
     this._qualifiedType = false,
   });
   ListConversion(
@@ -363,12 +365,14 @@ final class ListConversion extends ValueConversion {
     super.context, {
     required bool bigint,
     List<ClassBinding> classes = const [],
+    this.direction = ValueDirection.output,
   }) : _qualifiedType = false,
        element = conversionFor(
          type.typeArguments.single,
          context,
          bigint: bigint,
          classes: classes,
+         direction: direction,
        );
   @override
   String get dartType => 'List<${element.dartType}>${nullable ? '?' : ''}';
@@ -376,7 +380,7 @@ final class ListConversion extends ValueConversion {
   String get jsType => 'object';
   @override
   String get typescriptType =>
-      '${_qualifiedType ? 'globalThis.' : ''}Array<${element.typescriptType}>${nullable ? ' | null' : ''}';
+      '${_qualifiedType ? 'globalThis.' : ''}${direction == ValueDirection.input ? 'ReadonlyArray' : 'Array'}<${element.typescriptType}>${nullable ? ' | null' : ''}';
 }
 
 final class MapConversion extends ValueConversion {
@@ -509,20 +513,22 @@ bool containsDictionary(ValueConversion value) =>
     conversionGraph([value]).any((c) => c is DictionaryConversion);
 
 final class RecordConversion extends ValueConversion {
+  final RecordTypeBinding type;
   final List<ValueConversion> positional;
   final Map<String, ValueConversion> named;
   final bool _qualifiedType;
   RecordConversion._(
-    super.type,
-    super.context,
+    this.type,
+    String context,
     Iterable<ValueConversion> positional,
     Map<String, ValueConversion> named, {
     this._qualifiedType = false,
   }) : positional = List.unmodifiable(positional),
-       named = Map.unmodifiable(named);
+       named = Map.unmodifiable(named),
+       super(type, context);
   RecordConversion(
-    RecordTypeBinding super.type,
-    super.context, {
+    this.type,
+    String context, {
     required bool bigint,
     List<ClassBinding> classes = const [],
   }) : _qualifiedType = false,
@@ -538,7 +544,8 @@ final class RecordConversion extends ValueConversion {
              bigint: bigint,
              classes: classes,
            ),
-       });
+       }),
+       super(type, context);
   Map<String, ValueConversion> get fields => {
     for (final (index, field) in positional.indexed) '\$${index + 1}': field,
     ...named,
@@ -733,7 +740,10 @@ final class _ConversionBuilder {
           type,
           context,
           child(type.typeArguments.single),
-          qualifiedType: _shadowsBuiltin('Array'),
+          direction: direction,
+          qualifiedType: _shadowsBuiltin(
+            direction == ValueDirection.input ? 'ReadonlyArray' : 'Array',
+          ),
         );
       }
       if (type.declaration ==

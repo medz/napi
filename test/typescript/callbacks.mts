@@ -9,9 +9,11 @@ const bigint: bigint = api.callBigInt(n => n + 1n, 1n);
 const wide: bigint = api.callWide(n => n + 1n, 1n);
 const bool: boolean = api.callBool(b => !b, true);
 const number: number = api.callDouble(n => n / 2, 1);
-const list: number[] = api.callList(value => [...value, 3]);
+const list: number[] = api.callList(value => { value.push(3); return value; });
+api.callList(() => [1, 2] as const);
 const record: {$1: number[]; label: string} = api.callRecord(
-  row => ({$1: [...row.$1, 3], label: row.label}), {$1: [1], label: 'row'});
+  row => { row.$1.push(3); return {$1: row.$1, label: row.label} as const; },
+  {$1: [1], label: 'row'} as const);
 const nested: Array<Array<number | null>> | null = api.callNested(value => value, [[1, null]]);
 const ordered: number = api.callbackArgumentOrder((value, list) => value + list.length);
 api.callNested(() => null, null);
@@ -41,7 +43,10 @@ const asyncValue: Promise<number> = api.callAsync(async n => n + 1, 3);
 const asyncVoid: Promise<void> = api.callAsyncVoid(async () => {});
 const asyncWide: Promise<bigint> = api.callAsyncWide(async n => n + 1n, 1n);
 const asyncRecord: Promise<{$1: Array<number | null>; label: string}> =
-  api.callAsyncRecord(async row => ({$1: [...row.$1, null], label: row.label}));
+  api.callAsyncRecord(async row => {
+    row.$1.push(null);
+    return {$1: [...row.$1, null], label: row.label} as const;
+  });
 const asyncExternal: Promise<number> = plainAsyncCallback(async n => n + 1, 3);
 const asyncResource: Promise<number> = resource.applyAsync(async n => n + 1);
 const asyncCleanup: Promise<void> = new api.CallbackCleanup(2).close(async () => {});
