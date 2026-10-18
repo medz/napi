@@ -1,0 +1,12 @@
+# Consumer suites opt in so ordinary discovery does not compile them twice.
+paths:
+  - test/compiler
+  - test/harness
+  - test/runtime
+presets:
+  callback-wasm:
+    paths: [test/consumers/callback_wasm_test.dart]
+    concurrency: 1
+  callback-native:
+    paths: [test/consumers/callback_native_test.dart]
+    concurrency: 1

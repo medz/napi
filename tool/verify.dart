@@ -13,7 +13,6 @@ import 'future_fixture.dart';
 import 'void_fixture.dart';
 import 'resource_fixture.dart';
 import 'opaque_fixture.dart';
-import 'callback_fixture.dart';
 import 'stream_fixture.dart';
 import 'cancellation_fixture.dart';
 import 'binary_fixture.dart';
@@ -173,9 +172,6 @@ final consumerFixtures = <String, Future<void> Function(Directory)>{
   },
   'opaque': (root) async {
     await verifyOpaqueFixture(root.absolute);
-  },
-  'callback': (root) async {
-    await verifyCallbackFixture(root.absolute);
   },
   'stream': (root) async {
     await verifyStreamFixture(root.absolute);

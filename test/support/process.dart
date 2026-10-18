@@ -8,11 +8,14 @@ import 'dart:typed_data';
 /// This does not terminate descendants. Use only for commands that do not spawn
 /// subprocesses; compiler, npm and nested consumer runners need tree ownership.
 /// A descendant holding an inherited output pipe is reported, not reaped.
+/// Set [checkExitCode] to false only to assert an expected nonzero result;
+/// startup, I/O and timeout failures still throw.
 Future<ProcessResult> runProcess(
   String executable,
   List<String> arguments, {
   required Duration timeout,
   String? workingDirectory,
+  bool checkExitCode = true,
 }) async {
   final cwd = workingDirectory ?? Directory.current.path;
   final command =
@@ -116,7 +119,7 @@ Future<ProcessResult> runProcess(
       timeout,
     );
   }
-  if (outputError != null || code != 0) {
+  if (outputError != null || (checkExitCode && code != 0)) {
     throw ProcessException(executable, arguments, context, code);
   }
   return ProcessResult(process.pid, code, stdout, stderr);

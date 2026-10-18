@@ -10,7 +10,8 @@ Future<void> reportNodeVersions() async {
   await _nodeExecutables;
 }
 
-Future<List<String>> _readNodeExecutables() async {
+/// Node runtimes selected for independent generated-consumer tests.
+List<String> nodeExecutables() {
   final configured = Platform.environment['NAPI_NODE_EXECUTABLES'];
   final executables = <String>[];
   if (configured == null) {
@@ -41,6 +42,11 @@ Future<List<String>> _readNodeExecutables() async {
       executables.add(executable);
     }
   }
+  return List.unmodifiable(executables);
+}
+
+Future<List<String>> _readNodeExecutables() async {
+  final executables = nodeExecutables();
   for (final executable in executables) {
     final version = await Process.run(executable, ['--version']);
     if (version.exitCode != 0) {

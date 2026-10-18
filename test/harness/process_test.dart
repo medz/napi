@@ -91,6 +91,22 @@ void main() {
     },
   );
 
+  test('expected nonzero exit retains code and both streams', () async {
+    final result = await runProcess(
+      node,
+      [
+        '-e',
+        "console.log('expected output'); console.error('expected failure'); process.exitCode = 7;",
+      ],
+      timeout: const Duration(seconds: 10),
+      workingDirectory: directory.path,
+      checkExitCode: false,
+    );
+    expect(result.exitCode, 7);
+    expect(result.stdout, 'expected output\n');
+    expect(result.stderr, 'expected failure\n');
+  });
+
   test('timeout reports output discarded before the child hangs', () async {
     Object? failure;
     try {

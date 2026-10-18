@@ -209,6 +209,8 @@ The deployment target alone does not prove execution on older macOS releases.
 
 ```sh
 dart run tool/native_verify.dart /absolute/path/to/runtime-bundle
+NAPI_TEST_NATIVE_RUNTIME=/absolute/path/to/runtime-bundle \
+  dart test -P callback-native
 ```
 
 This explicit native check runs the same scalar/argument assertions as Wasm,
@@ -223,9 +225,9 @@ A further package checks the shared [Future contract](futures.md), including
 pending receiver/argument retention and ordinary Promise rejection behavior.
 The resource package adds cleanup identity, nested-resource leases, thenable
 settlement, failure rollback, wrapper readoption and teardown checks.
-The callback packages cover annotated and external selections, eight TypeScript
-configurations per Node version, 100,000 calls, weak adapter identity, retained
-functions, strict Promise inputs, exact failures, GC, reentry, resource closing,
+The separate callback preset covers annotated and external selections, eight
+TypeScript configurations on one fixed host, 100,000 calls, weak adapter identity,
+retained functions, strict Promise inputs, exact failures, GC, reentry, resource closing,
 foreign-owner completion and normal/terminated Workers.
 General CI also checks native metadata, emission, AOT compilation and manifest
 validation, plus distribution provenance/cache regressions using synthetic

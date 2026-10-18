@@ -121,6 +121,9 @@ jobs:
       - run: node -p '"NAPI_NODE_EXECUTABLES=" + JSON.stringify([process.execPath, process.env.NAPI_NODE_26])' >> "$GITHUB_ENV"
       - run: dart pub get
       - run: npm install --prefix .dart_tool/js --no-save --no-package-lock --ignore-scripts --no-audit --no-fund typescript@7.0.2
+      - name: Callback consumer suite
+        if: matrix.shard == 0
+        run: dart test -P callback-wasm
       - run: dart run tool/verify.dart --total-shards 2 --shard-index ${{ matrix.shard }}
 
   publication:

@@ -1,11 +1,8 @@
 import assert from 'node:assert/strict';
-import {spawnSync} from 'node:child_process';
-import {fileURLToPath} from 'node:url';
 import {Worker, isMainThread, parentPort, workerData} from 'node:worker_threads';
 import {runInNewContext} from 'node:vm';
 
 const packageName = '@napi/callback-fixture';
-const filename = fileURLToPath(import.meta.url);
 const turn = () => new Promise(resolve => setImmediate(resolve));
 
 function thrown(call) {
@@ -717,24 +714,5 @@ if (!isMainThread) {
     });
   }
 } else {
-  const cases = ['late-rejection', 'scalars', 'structures', 'void', 'validation', 'many', 'reentry',
-    'exact-errors', 'conversion-errors', 'scalar-intrinsics', 'stored-errors', 'retained-gc', 'scheduled',
-    'resources', 'identity', 'async-values', 'async-validation', 'async-errors',
-    'async-retention', 'async-resources', 'foreign-owner', 'pending-natural-exit',
-    'queued-teardown', 'external', 'worker-only', 'workers-with-main'];
-  for (const name of cases) {
-    const result = spawnSync(process.execPath, ['--expose-gc', '--unhandled-rejections=throw', filename, name], {
-      encoding: 'utf8', timeout: 30_000, maxBuffer: 4 * 1024 * 1024,
-    });
-    assert.ifError(result.error);
-    assert.equal(result.signal, null, `${name}: ${result.stderr}`);
-    if (name === 'late-rejection') {
-      assert.notEqual(result.status, 0, 'late unhandled rejection must fail after the last scenario assertion');
-      assert.match(result.stderr, /callback-late-rejection/);
-    } else {
-      assert.equal(result.status, 0, `${name}: ${result.stdout}\n${result.stderr}`);
-    }
-    console.log(`Callback contract: ${name} passed`);
-  }
-  console.log(`Callback contract: ${cases.length} fresh-process scenarios passed`);
+  throw Error('Pass one callback scenario; package:test owns scenario execution.');
 }
