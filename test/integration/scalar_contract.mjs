@@ -172,4 +172,26 @@ export function verifyScalars(api) {
   assert.equal(echoWideInt(signed64Max), signed64Max);
   assert.equal(echoBigInt(huge), huge);
   assert.equal(coercions, 0, 'errors never stringify hostile argument values');
+
+  // Import-time integer validation also protects no-argument scalar outputs.
+  const isSafeInteger = Number.isSafeInteger;
+  try {
+    for (const replacement of [() => true, () => false]) {
+      Number.isSafeInteger = replacement;
+      const before = calls();
+      assert.equal(echo(7), 7);
+      assert.equal(nullableInt(null), null);
+      for (const value of [0.5, 2 ** 53, -(2 ** 53), NaN, Infinity]) {
+        assert.throws(() => add(value, 0), inputError('add', 'a', RangeError));
+        assert.throws(() => nullableInt(value), inputError('nullableInt', 'value', RangeError));
+      }
+      assert.equal(calls(), before, 'replaced integer checks cannot admit invalid inputs');
+      for (const negative of [false, true]) {
+        assert.throws(() => unsafeIntResult(negative), outputError('unsafeIntResult'));
+        assert.throws(() => unsafeNullableIntResult(negative), outputError('unsafeNullableIntResult'));
+      }
+    }
+  } finally {
+    Number.isSafeInteger = isSafeInteger;
+  }
 }

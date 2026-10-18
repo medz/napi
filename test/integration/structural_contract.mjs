@@ -276,4 +276,25 @@ export function verifyStructures(api) {
   });
   assert.deepEqual(structuralLists(reentrant), [[4]]);
   assert.deepEqual(structuralLists([[8]]), [[8]], 'reflection failures leave no conversion state');
+
+  const isSafeInteger = Number.isSafeInteger;
+  try {
+    for (const replacement of [() => true, () => false]) {
+      Number.isSafeInteger = replacement;
+      assert.deepEqual(structuralLists([[7, null]]), [[7, null]]);
+      assert.deepEqual(structuralSaved(), [[7, null]], 'nested output-only leaves keep integer validation');
+      const before = structuralCalls();
+      for (const value of [0.5, 2 ** 53]) {
+        reject(() => structuralLists([[value]]), RangeError,
+          'structuralLists.value[0][0]', 'safe integer');
+        reject(() => structuralSingle({$1: value}), RangeError,
+          'structuralSingle.value.$1', 'safe integer');
+      }
+      assert.equal(structuralCalls(), before, 'invalid nested integers never enter Dart');
+      reject(() => structuralUnsafeOutput(), RangeError,
+        'structuralUnsafeOutput result[0]', 'safe integer');
+    }
+  } finally {
+    Number.isSafeInteger = isSafeInteger;
+  }
 }

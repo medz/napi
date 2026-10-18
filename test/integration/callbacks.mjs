@@ -261,6 +261,33 @@ function conversionErrors(api) {
   assert.equal(api.callTwice(n => n, 1), 3);
 }
 
+async function scalarIntrinsics(api) {
+  const external = await import('@napi/callback-external');
+  const isSafeInteger = Number.isSafeInteger;
+  try {
+    for (const replacement of [() => true, () => false]) {
+      Number.isSafeInteger = replacement;
+      assert.equal(api.callTwice(n => n, 2), 5);
+      assert.deepEqual(api.callList(values => values), [1, 2]);
+      assert.equal(await api.callAsync(async n => n, 7), 7);
+      assert.equal(external.plainCallback(n => n, 8), 8);
+      assert.equal(await external.plainAsyncCallback(async n => n, 9), 9);
+      let invoked = 0;
+      assert.throws(() => api.callbackUnsafeArgument(() => { invoked++; return 1; }), RangeError);
+      assert.equal(invoked, 0, 'unsafe Dart callback arguments never reach JavaScript');
+      for (const value of [0.5, 2 ** 53]) {
+        assert.throws(() => api.callTwice(() => value, 1), RangeError);
+        assert.throws(() => api.callList(() => [value]), RangeError);
+        assert.throws(() => external.plainCallback(() => value, 1), RangeError);
+        await assert.rejects(api.callAsync(async () => value, 1), RangeError);
+        await assert.rejects(external.plainAsyncCallback(async () => value, 1), RangeError);
+      }
+    }
+  } finally {
+    Number.isSafeInteger = isSafeInteger;
+  }
+}
+
 function savedError(api) {
   const value = {saved: true};
   assert.equal(api.saveThrow(() => { throw value; }), 1);
@@ -578,6 +605,7 @@ async function scenario(name) {
     case 'reentry': reentry(api); break;
     case 'exact-errors': await errors(api); break;
     case 'conversion-errors': conversionErrors(api); break;
+    case 'scalar-intrinsics': await scalarIntrinsics(api); break;
     case 'stored-errors': {
       const weak = savedError(api);
       for (let round = 0; round < 12; round++) {
@@ -685,7 +713,7 @@ if (!isMainThread) {
   await scenario(process.argv[2]);
 } else {
   const cases = ['scalars', 'structures', 'void', 'validation', 'many', 'reentry',
-    'exact-errors', 'conversion-errors', 'stored-errors', 'retained-gc', 'scheduled',
+    'exact-errors', 'conversion-errors', 'scalar-intrinsics', 'stored-errors', 'retained-gc', 'scheduled',
     'resources', 'identity', 'async-values', 'async-validation', 'async-errors',
     'async-retention', 'async-resources', 'foreign-owner', 'pending-natural-exit',
     'queued-teardown', 'external', 'worker-only', 'workers-with-main'];
