@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:napi/src/compiler/emit/js/settlement.dart';
 import 'package:test/test.dart';
 
+import '../support/process.dart';
+
 void main() {
   test(
     'settlement observation retains work without handling rejection',
@@ -101,11 +103,10 @@ assert.throws(() => observer.observe(Promise.resolve(), 'late'));
 promiseHooks.onSettled = onSettled;
 ''',
       );
-      final result = await Process.run(Platform.environment['NODE'] ?? 'node', [
+      await runProcess(Platform.environment['NODE'] ?? 'node', [
         '--expose-gc',
         script.path,
-      ]).timeout(const Duration(seconds: 20));
-      expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
+      ], timeout: const Duration(seconds: 20));
     },
   );
 }
