@@ -24,8 +24,6 @@ counter.increment(); // 2, executed in Dart
 
 `@scope/counter` is the example package built below. Imports initialize the
 selected backend; consumers do not register bindings or call application `main`.
-This compiler builds on [#115](https://github.com/medz/napi/issues/115).
-The current development work is not a new release or the complete binding API.
 
 The product follows napi-rs's model: one Dart export declaration, generated
 bindings and TypeScript types, and npm packages for native and Wasm targets.
@@ -34,14 +32,13 @@ preserve the same supported calls, including `new Counter()` and argument
 presence. The experimental native target generates scalar, structural, value-class,
 reference-class, resource, Future, Stream and retained/async-callback AOT bindings
 for macOS arm64; see [native builds](doc/native.md) for its explicit runtime-bundle requirement.
-See [the architecture and delivery plan](doc/architecture.md) and
-[#144](https://github.com/medz/napi/issues/144) for its validation gates.
+See [the architecture](doc/architecture.md) for backend boundaries and
+[compatibility](#verify) for supported toolchains.
 
 ## Supported bindings
 
 - Resolved `@NAPI()` discovery with renaming, class/member selection and reexports
 - External selections for unmodified third-party libraries, sharing annotation metadata
-- Analyzer-independent declarations, validation, lowering, and Dart/JS/TypeScript emitters
 - Required positional scalar functions: `bool`, `String`, `double`, `int`, `BigInt`, and nullable forms
 - Optional positional and named scalar arguments with resolved Dart defaults and exact presence capture
 - Nested Lists, Maps, explicit Dictionaries and records with strict fields, reference/opaque value leaves and bounded traversal on both targets (opaque Map keys remain unsupported)
@@ -59,9 +56,7 @@ See [the architecture and delivery plan](doc/architecture.md) and
 - Typed callbacks with scalar/List/record conversions, weak adapter identity, retained ownership and Promise results
 - Stream async iterators with FIFO reads, bounded snapshots, cancellation and resource cleanup integration
 - Explicit AbortSignal inputs with cooperative Future cancellation and once-only Stream subscription cancellation
-- Direct imports, installed package resolution, artifact inspection, and strict TypeScript tests
 - Fresh single- or dual-target npm packages with explicit entries, assets and atomic no-replace publication
-- Shared scalar/default/class consumer contracts for Wasm and native
 - Precompiled native bridge/runtime; business builds use only the ordinary Dart SDK
 
 Wasm uses generated JavaScript dependencies; native uses an automatic ESM entry.
@@ -69,11 +64,8 @@ Wasm uses generated JavaScript dependencies; native uses an automatic ESM entry.
 its root at build time; `/native` and `/wasm` select a backend explicitly. There
 is no automatic runtime selection or implicit fallback.
 
-The annotation frontend records complete declaration metadata; build-time checks
-reject unsupported signatures before writing output. Non-generic cross-type class
-identity, generic payload storage, retained/async callbacks and Stream iterators are implemented;
-broader generic specialization and replacement builds remain work in
-[#114](https://github.com/medz/napi/issues/114). See [annotation syntax and scope](doc/annotations.md) and the
+Build-time checks reject unsupported signatures before writing output.
+See [annotation syntax and scope](doc/annotations.md) and the
 [scalar conversion contract](doc/scalars.md), [argument presence and defaults](doc/arguments.md),
 [structural values](doc/structural.md), [JS container handles and collection ownership](doc/collections.md),
 [binary snapshots](doc/binary.md),
@@ -105,7 +97,8 @@ Future<void> main() async {
 ```
 
 Run `dart run tool/build.dart`, then pack/install `npm-package` in the Node
-consumer. The output must be a new path; replacement builds are not supported.
+consumer. Use a new output path, or follow the [managed rebuild rules](doc/packaging.md#managed-rebuilds)
+for a package created by this builder on local macOS APFS.
 For native, supply `target: BuildTarget.native` and `nativeRuntime` with the
 qualified runtime bundle. See [native prerequisites](doc/native.md) and
 [explicit dual-target builds](doc/packaging.md#explicit-dual-target-packages).
@@ -194,7 +187,7 @@ node .dart_tool/scalar-example/test.mjs
 ```
 
 Relative `.wasm` imports use a sibling `module.d.wasm.ts` and TypeScript's
-`allowArbitraryExtensions` option. The installed test package's root and
+`allowArbitraryExtensions` option. A single-target Wasm package's root and
 `./module.wasm` subpath both resolve directly to the Wasm file.
 
 See [the Wasm backend design](doc/foundation.md) for export representation,

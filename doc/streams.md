@@ -100,16 +100,12 @@ finalizers never execute JavaScript or business cancellation in a dead realm.
 
 The shared Dart kernel owns subscription state, FIFO admission and cancellation.
 Wasm carries event envelopes as traced host references. Native uses owned host
-values and a private reference wrapper with `next` and `return`; it reuses ABI 14,
-the existing owner event pump, Future transport and delivery acknowledgement.
-There is no additional C event queue or VM build requirement. Native snapshots
+values and a private reference wrapper with `next` and `return`, plus the owner
+event pump, Future transport and delivery acknowledgement. Native snapshots
 have per-item host-reference cost; the 64-item limit is not a zero-allocation or
 byte-budget claim.
 
-The implementation targets the pinned Dart 3.13.5 compiler/runtime. Verification
-uses fresh annotation and external-selection npm packages after deleting their
-source/build projects, Node 24.19.0 and 26.11.1, and TypeScript 7.0.2 with NodeNext
-and Bundler resolution, both optional-property modes and both function-variance
-modes. Native remains experimental and qualified only for macOS arm64; the
-WasmGC SDK adapter and native runtime coupling are described in
-[the architecture](architecture.md) and [native builds](native.md).
+Both backends require the pinned Dart 3.13.5 compiler/runtime. Native remains
+experimental and qualified only for macOS arm64; the WasmGC SDK adapter and
+native runtime coupling are described in [the architecture](architecture.md),
+[native builds](native.md) and [supported toolchains](../README.md#verify).

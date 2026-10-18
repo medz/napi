@@ -133,7 +133,7 @@ Promise assimilation can fulfill with a different value or reject instead of
 returning the original root thenable. The binding preserves standard Promise
 semantics and does not hide `then`, box results or fabricate a Promise-like
 object. Unconditional identity for arbitrary root thenables remains an explicit
-boundary in [Future contracts](futures.md); this resource work does not claim it.
+boundary in [Future contracts](futures.md).
 [Callbacks](callbacks.md) and [Stream iterators](streams.md) have their own
 operation-lifetime integration. Streams transfer the original call leases and
 notify subscriptions when an owner closes. Cleanup waits for cancellation and
@@ -178,10 +178,9 @@ Future calls. The object Future allocates and returns a reference wrapper.
 The tested resource methods add roughly 83–107 ns, and object Futures add
 0.32–0.75 µs including final-settlement observation. Same-target variation reached
 2.87% on native and 9.42% on Wasm; small scalar-Future differences are within that
-noise. These local microbenchmarks do not predict application throughput. Sources,
-raw samples and balanced summaries are retained under
-`.dart_tool/evidence/resource-bindings/cost/`. Resource-free synchronous artifact
-and cost comparisons are recorded in [native measurements](native.md#resource-bindings-and-synchronous-modules).
+noise. These local microbenchmarks do not predict application throughput.
+Resource-free synchronous comparisons are in
+[native measurements](native.md#resource-bindings-and-synchronous-modules).
 
 ## Shared Dart kernel
 
@@ -210,29 +209,11 @@ rules; generated adapters use their owning runtime Zone. Asynchronous errors and
 stacks are forwarded without applying Zone error interception twice. Synchronous
 throws follow normal Zone interception when converted to asynchronous failures.
 
-## Verification
+## Compatibility
 
-`dart run tool/resource_fixture.dart [native-runtime-bundle]` builds a fresh Dart
-consumer through the public package API, packs its npm package, removes original
-business/build sources and installs offline into a relocated consumer. The shared
-suite runs 25 fresh-process scenarios and checks strict TypeScript declarations,
-cleanup signatures and
-Promise identity, state guards, nested and distinct-resource leases, rollback,
-thenable adoption, exact rejection events, wrapper GC/readoption, independent
-module graphs, process liveness and normal/terminated Workers. The full Wasm and
-native verification commands include this fixture.
-
-The toolchain is Dart 3.13.5, Node 24.19.0/26.11.1 and TypeScript 7.0.2 in NodeNext
-and Bundler modes. Native uses the experimental macOS arm64 runtime bundle,
-private ABI 15 (57 slots), pinned to Dart revision
-`04bcd1036cdc799ac6564988f159ee454d42c822`. Wasm uses that SDK's version-specific
-compiler and host adapter, not WASI/emnapi. Other native targets and hosts remain
-unqualified.
-
-Deterministic kernel tests additionally cover cleanup Zones, multiple leases,
-reentry, failed cleanup and partial-acquisition rollback on Dart VM and Wasm:
-
-```sh
-dart test test/runtime/resources_test.dart
-dart test --platform node --compiler dart2wasm test/runtime/resources_test.dart
-```
+Resource bindings use Dart 3.13.5, Node 24.19.0/26.11.1 and TypeScript 7.0.2.
+Native requires the experimental macOS arm64 ABI 15 runtime bundle pinned to
+Dart revision `04bcd1036cdc799ac6564988f159ee454d42c822`. Wasm uses that SDK's
+version-specific compiler and host adapter, not WASI/emnapi. Other native targets
+and hosts remain unqualified. See [native requirements](native.md) and
+[repository test commands](testing.md).

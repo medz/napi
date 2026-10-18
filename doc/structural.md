@@ -142,22 +142,12 @@ equally inside containers. [SharedBytes](shared-bytes.md) leaves retain their li
 shared views inside structural values. Opaque leaves preserve the original JS
 value without inspecting it.
 
-The shared generated-consumer contract covers nested nullable values, cloning,
-strict leaves, descriptor failures, cycles, depth/work boundaries, recovery,
-TypeScript, output List getter failures, Proxy reflection order/length capture,
-UTF-16 error paths and same-module reentry with GC. Map consumers additionally
-cover key collisions, NaN and signed zero, overridden intrinsics, cross-realm
-branding, record/reference keys, bigint keys/values, failed-output identity
-rollback and Dart-held Map reference collection. Dictionary consumers cover
-null-prototype special keys, own-data descriptors, key ordering and JSON paths,
-mixed Map/Dictionary signatures, class members, alias recognition and GC. Fresh native/Wasm npm
-consumers run it with the original native source/build directories removed.
-Tested with Dart 3.13.5, Node 24.19.0/26.11.1 and TypeScript 7.0.2. Native execution
-is qualified on macOS arm64 and requires an ABI 15 bundle. The compiler/runtime
-use private experimental SDK APIs; other native platforms remain unqualified.
+Both targets use the pinned Dart 3.13.5 compiler/runtime and experimental SDK
+APIs. Native execution requires the macOS arm64 ABI 15 bundle; other native
+platforms remain unqualified. See [supported toolchains](../README.md#verify).
 
 Non-null structural defaults, opaque Map keys and remaining generic reference
-specializations remain separate work. Nested JS collection handles and open
+specializations are not supported. Nested JS collection handles and open
 generic resource/value classes are still unsupported. Failed input conversion
 does not invoke the exported business method, reference
 constructor or setter. Explicit [value-class constructors](values.md) execute

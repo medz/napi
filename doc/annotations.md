@@ -153,8 +153,7 @@ The source library imports only `package:napi/napi.dart` for `NAPI`. The separat
 build entrypoint exposes the command, its result and source diagnostics without
 pulling analyzer or host-only build dependencies into the Wasm source graph.
 
-The scalar fixture now uses annotations, including renamed functions and a
-reexported entry library. Real Node consumers still use:
+Direct-Wasm consumers import generated exports normally:
 
 ```js
 import { add } from './module.wasm';
@@ -206,8 +205,7 @@ use the explicit mappings described above.
 
 ## Migrating earlier bindings
 
-The rebuild does not preserve every API from the removed implementation. Use
-these current contracts when adapting source and package consumers:
+Use these mappings when adapting earlier source and package consumers:
 
 | Earlier assumption | Current mapping |
 | --- | --- |
