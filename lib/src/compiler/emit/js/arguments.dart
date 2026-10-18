@@ -165,7 +165,7 @@ function intern(reference, expectedId, context, pending, receiver, newTarget) {
       _endFuture(result, '  ', resource: resource);
     } else {
       result.writeln(
-        '${resource ? '    ' : '  '}return ${function.returnsStream ? 'adoptStream($invocation${resource ? ', capability' : ''})' : _output(function.output, invocation)};',
+        '${resource ? '    ' : '  '}${function.output == null && !function.returnsStream ? '' : 'return '}${function.returnsStream ? 'adoptStream($invocation${resource ? ', capability' : ''})' : _output(function.output, invocation)};',
       );
       if (resource) {
         _endResource(result, '  ');

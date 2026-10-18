@@ -818,7 +818,6 @@ ValidatedModule validate(BindingModule module) {
       referenceClasses: module.classes,
       isAsync: function.isAsync,
       isGenerator: function.isGenerator,
-      allowVoid: false,
       opaqueParameters: opaque,
     );
   }
@@ -1613,7 +1612,6 @@ void validateCallResult(
   List<ClassBinding> referenceClasses = const [],
   bool isAsync = false,
   bool isGenerator = false,
-  bool allowVoid = true,
   Set<DeclarationId> opaqueParameters = const {},
 }) {
   Never reject(String message) =>
@@ -1637,12 +1635,7 @@ void validateCallResult(
     reject('A Stream result must be non-nullable with one payload type.');
   }
   final payload = resultPayload(type);
-  if (payload == null) {
-    if (!future && !stream && !allowVoid) {
-      reject('This backend does not support synchronous void functions.');
-    }
-    return;
-  }
+  if (payload == null) return;
   validateValueType(
     payload,
     source,

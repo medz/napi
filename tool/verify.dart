@@ -9,6 +9,7 @@ import 'structural_fixture.dart';
 import 'package_assembly_fixture.dart';
 import 'class_fixture.dart';
 import 'future_fixture.dart';
+import 'void_fixture.dart';
 import 'resource_fixture.dart';
 import 'opaque_fixture.dart';
 import 'callback_fixture.dart';
@@ -151,6 +152,7 @@ Future<void> main() async {
   await run('node', ['test.mjs'], cwd: kinds.path);
   await typescript(kinds, 'consumer.mts');
   await verifyFutureFixture(root.absolute);
+  await verifyVoidFixture(root.absolute);
   await verifyResourceFixture(root.absolute);
   await verifyOpaqueFixture(root.absolute);
   await verifyCallbackFixture(root.absolute);

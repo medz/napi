@@ -17,6 +17,15 @@ it directly from `.wasm`, without a JavaScript entrypoint or manual initializati
 | `int` with `@NAPI(bigint: true)` | `bigint` | Primitive bigint from −2⁶³ through 2⁶³−1 |
 | `BigInt` | `bigint` | Primitive arbitrary-precision bigint; no fixed 64-bit limit |
 
+Ordinary synchronous `void` functions and methods return JavaScript `undefined` on both
+backends, with a TypeScript `void` result. Arguments keep their usual validation,
+presence and defaults, and business exceptions still throw synchronously.
+Resource cleanup methods follow the [resource contract](resources.md) instead:
+their JavaScript result is `Promise<void>`, including Dart `void` cleanup methods,
+and failures reject that Promise.
+`void` parameters and `async void` exports are rejected; asynchronous completion
+uses `Future<void>`.
+
 A nullable Dart scalar uses the same representation plus `null`. For example,
 `String?` becomes `string | null`, and `int?` becomes `number | null` or
 `bigint | null` according to the function's policy. Typedefs retain the underlying
