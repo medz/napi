@@ -221,6 +221,45 @@ class Derived extends Base {
         throwsA(defaultDiagnostic()),
       );
     });
+
+    test('direct resource defaults retain before later input conversion '
+        '(${native ? 'native' : 'wasm'})', () async {
+      final input = source('entry.dart', '''
+import 'package:napi/napi.dart';
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+class Point {
+  const Point();
+  void close([Point other = const Point()]) {}
+}
+@NAPI() bool run([Point? point = const Point(), int Function()? callback]) =>
+    point != null;
+''');
+      final module = await read(input, native: native);
+      final parameter = module.functions.single.parameters.first;
+      expect(
+        () => validateParameterDefault(
+          parameter,
+          module.functions.single.source,
+          referenceClasses: module.classes,
+        ),
+        throwsA(defaultDiagnostic()),
+      );
+      final generated = native
+          ? emitNativeDart(validateNative(module))
+          : emitDart(lower(validate(module)));
+      if (native) {
+        final lease = generated.indexOf(
+          'if (reference0 != null) operation.retain(_resourceControl(reference0))',
+        );
+        expect(lease, greaterThan(0));
+        expect(lease, lessThan(generated.indexOf('_api.checkCallback(')));
+        expect(generated, contains('ResourceOperation(exempt: control)'));
+        expect(
+          generated,
+          contains('operation.retain(_resourceControl(reference0))'),
+        );
+      }
+    });
   }
 
   test('default comparison retains constructor library identity', () async {
@@ -279,15 +318,6 @@ import 'package:napi/napi.dart';
 }''',
       'Point.kind(Kind.one)',
     ),
-    (
-      'resource object',
-      '''@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
-class Point {
-  const Point();
-  void close() {}
-}''',
-      'Point()',
-    ),
   ]) {
     test('rejects a $name default', () async {
       final input = source('entry.dart', '''
@@ -304,6 +334,40 @@ $declaration
             validate(module);
           }
         }, throwsA(defaultDiagnostic()));
+      }
+    });
+  }
+
+  for (final (name, declaration) in [
+    (
+      'containers',
+      '@NAPI() bool run([List<Point> points = const [Point()]]) => true;',
+    ),
+    (
+      'value constructors',
+      '''@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+class Holder {
+  final Point point;
+  const Holder({this.point = const Point()});
+}''',
+    ),
+  ]) {
+    test('resource defaults remain unsupported in $name', () async {
+      final input = source('entry.dart', '''
+import 'package:napi/napi.dart';
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+class Point {
+  const Point();
+  void close() {}
+}
+$declaration
+''');
+      for (final native in [false, true]) {
+        final module = await read(input, native: native);
+        expect(
+          () => native ? validateNative(module) : validate(module),
+          throwsA(defaultDiagnostic()),
+        );
       }
     });
   }

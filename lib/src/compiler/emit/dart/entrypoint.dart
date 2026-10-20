@@ -137,6 +137,26 @@ ${tests.declarations}  return externRefForJSAny(<JSAny?>[
   }
   for (final (index, call) in plan.calls.indexed) {
     final parameters = call.parameters;
+    if (resources && plan.needsResourceOperation(call)) {
+      for (final (i, parameter) in parameters.indexed) {
+        if (call.inputs[i] is! ReferenceConversion ||
+            parameter.defaultValue == null ||
+            parameter.defaultValue is ScalarDefault) {
+          continue;
+        }
+        final value = renderDartDefault(
+          parameter,
+          call.inputs[i],
+          declarationSource: declarationSource,
+        );
+        // Admit the canonical default before host getters can reenter cleanup.
+        result.writeln('''
+@pragma('wasm:export', '${call.coreExportName}:default:$i')
+WasmExternRef _default${index}_$i() =>
+    WasmAnyRef.fromObject($value as Object).externalize();
+''');
+      }
+    }
     final output = call.output;
     final errorContext = jsonEncode(
       call is FunctionPlan

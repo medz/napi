@@ -144,7 +144,8 @@ cancellation](cancellation.md) are supported. Other generic specializations are
 diagnosed; an abort does not preempt arbitrary Dart execution.
 [Typed callback inputs](callbacks.md) and [Stream results](streams.md) use their
 documented supported signatures; other combinations produce build diagnostics.
-Resource defaults and constants requiring private constructors are rejected.
+Resource defaults inside containers or value-class inputs, and constants requiring
+private constructors, are rejected.
 A composite must have
 a selected operation whose call contract satisfies every view sharing that JS name; the compiler
 does not synthesize a new overload or union conversion from incompatible

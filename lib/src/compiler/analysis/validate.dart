@@ -438,6 +438,7 @@ List<ValueClassSchema> validateValueClasses(BindingModule module) {
         constructor.parameters,
         constructor.source,
         referenceClasses: module.classes,
+        allowResourceDefaults: false,
       );
       final parameters = constructor.parameters.map((p) => p.name).toSet();
       if (parameters.length != constructor.parameters.length) {
@@ -2393,6 +2394,7 @@ void validateCallParameters(
   List<ParameterBinding> parameters,
   SourceLocation source, {
   bool scalarOnly = false,
+  bool allowResourceDefaults = true,
   List<ClassBinding> referenceClasses = const [],
   Set<DeclarationId> opaqueParameters = const {},
 }) {
@@ -2474,6 +2476,7 @@ void validateCallParameters(
         parameter,
         source,
         referenceClasses: referenceClasses,
+        allowResourceDefaults: allowResourceDefaults,
       );
     }
   }
@@ -2484,6 +2487,7 @@ void validateParameterDefault(
   ParameterBinding parameter,
   SourceLocation source, {
   List<ClassBinding> referenceClasses = const [],
+  bool allowResourceDefaults = false,
 }) {
   final constant = parameter.defaultValue;
   final value = constant is ScalarDefault ? constant.value : null;
@@ -2507,8 +2511,12 @@ void validateParameterDefault(
         parameter.source ?? source,
       );
     }
-    if (_portableDefaultParameter(type, referenceClasses) &&
-        !_defaultGraphHasResource(constant, referenceClasses) &&
+    final directReference =
+        allowResourceDefaults && isReferenceType(type, referenceClasses);
+    if ((directReference ||
+            _portableDefaultParameter(type, referenceClasses)) &&
+        (directReference ||
+            !_defaultGraphHasResource(constant, referenceClasses)) &&
         _structuralDefaultFits(
           constant,
           type,
@@ -2522,7 +2530,8 @@ void validateParameterDefault(
       'Non-null defaults require a compatible const graph of scalars, selected '
           'reference/value objects, Lists, Maps, Dictionaries or records. '
           'Object defaults need publicly callable const constructors; resource '
-          'and opaque defaults remain unsupported.',
+          'defaults require direct reference parameters. Resource defaults in '
+          'containers or value constructors, and opaque defaults, remain unsupported.',
       parameter.source ?? source,
     );
   }

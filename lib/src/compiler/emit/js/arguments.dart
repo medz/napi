@@ -391,8 +391,19 @@ String _arguments(
       '${jsonEncode(call.inputs[i].context)});',
     );
   }
-  String reference(int i) =>
-      '${_optional(parameters[i]) ? 'd$i ? null : ' : ''}${retainReferences ? 'retainResourceReference(capability, ' : ''}unwrap${(call.inputs[i] as ReferenceConversion).classId}(p$i, ${jsonEncode(call.inputs[i].context)}, ${call.inputs[i].nullable})${retainReferences ? ')' : ''}';
+  String reference(int i) {
+    final conversion = call.inputs[i] as ReferenceConversion;
+    final supplied =
+        '${retainReferences ? 'retainResourceReference(capability, ' : ''}unwrap${conversion.classId}(p$i, ${jsonEncode(conversion.context)}, ${conversion.nullable})${retainReferences ? ')' : ''}';
+    if (!_optional(parameters[i])) return supplied;
+    final constant = parameters[i].defaultValue;
+    final omitted =
+        retainReferences && constant != null && constant is! ScalarDefault
+        ? 'retainResourceReference(capability, core[${jsonEncode('${call.coreExportName}:default:$i')}]())'
+        : 'null';
+    return 'd$i ? $omitted : $supplied';
+  }
+
   final directInputs = call.inputs.any(
     (c) => c is CallbackConversion || c is AbortSignalConversion,
   );

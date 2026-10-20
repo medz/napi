@@ -75,3 +75,19 @@ native.objectDefaults(null);
 new wasm.DefaultIntBox('13');
 // @ts-expect-error Structural value fields retain reference ownership.
 wasm.objectDefaultValue({token});
+
+const constResource: wasm.ConstResource = wasm.resourceDefault(undefined);
+const namedResource: boolean = wasm.namedResourceDefault({value: undefined});
+const nullResource: boolean = native.namedResourceDefault({value: null});
+const resourceConstructor: root.DefaultBase = root.DefaultBase.resource(undefined);
+const resourceMember: boolean = new root.DefaultChild().checkResource(undefined);
+const resourceFuture: Promise<number> = native.resourceDefaultLater(() => {}, {value: undefined});
+const resourceStream: AsyncIterableIterator<number, undefined, undefined> =
+  root.resourceDefaultSequence({value: undefined});
+const resourceSignal: number = wasm.resourceDefaultSignal(new AbortController().signal);
+void [constResource, namedResource, nullResource, resourceConstructor,
+  resourceMember, resourceFuture, resourceStream, resourceSignal];
+// @ts-expect-error Non-null resource defaults retain their nullability.
+root.resourceDefault(null);
+// @ts-expect-error Default resources retain backend ownership.
+native.resourceDefault(constResource);

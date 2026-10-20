@@ -80,6 +80,7 @@ TypeScript shapes. Numeric policies compose through fields and recursion,
 including an enclosing `@NAPI(bigint: true)` function.
 Defaults may include [publicly constructible const objects](arguments.md),
 directly or inside supported containers; they remain Dart constants.
+Resource defaults in value-class input fields remain unsupported.
 
 ## Validation and construction order
 

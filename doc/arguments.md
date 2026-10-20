@@ -73,8 +73,11 @@ value class with a public const constructor. This also applies to optional
 fields in a value class's configured input constructor. Optional positional holes
 still work independently when later arguments are supplied.
 
-Resource and opaque defaults remain unsupported, including empty containers
-declared with those element types. Constants requiring private constructors,
+Direct resource parameters support const defaults and acquire the same operation
+leases as explicit inputs; see [resource defaults](resources.md#constant-defaults).
+Resources inside container defaults or value-class input defaults remain
+unsupported. Opaque defaults remain unsupported, including empty containers
+declared with opaque element types. Constants requiring private constructors,
 private type names or unsupported constant kinds produce `NAPI_DEFAULT`.
 Defaults exceeding the
 structural work/depth or generated-text limit produce `NAPI_DEFAULT`.
