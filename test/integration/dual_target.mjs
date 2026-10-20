@@ -7,10 +7,22 @@ import {spawnSync} from 'node:child_process';
 import {Worker, isMainThread, parentPort, workerData} from 'node:worker_threads';
 
 async function check(name, selected) {
-  const [root, native, wasm, direct] = await Promise.all([
-    import(name), import(name + '/native'), import(name + '/wasm'),
-    import(name + '/module.wasm'),
-  ]);
+  let onSignalRead;
+  const aborted = Object.getOwnPropertyDescriptor(AbortSignal.prototype, 'aborted');
+  let loaded;
+  Object.defineProperty(AbortSignal.prototype, 'aborted', {...aborted, get() {
+    const callback = onSignalRead;
+    onSignalRead = undefined;
+    callback?.();
+    return Reflect.apply(aborted.get, this, []);
+  }});
+  try {
+    loaded = await Promise.all([
+      import(name), import(name + '/native'), import(name + '/wasm'),
+      import(name + '/module.wasm'),
+    ]);
+  } finally { Object.defineProperty(AbortSignal.prototype, 'aborted', aborted); }
+  const [root, native, wasm, direct] = loaded;
   assert.equal(root.Counter, (selected === 'native' ? native : wasm).Counter);
   assert.equal(root.add, (selected === 'native' ? native : wasm).add);
   assert.equal(wasm.Counter, direct.Counter);
@@ -133,6 +145,7 @@ async function check(name, selected) {
     assert.equal(await child.laterObject(), true);
     assert.equal(await child.laterObject({}), false);
     assert.deepEqual(await Array.fromAsync(child.sequenceObject(undefined)), [true]);
+    await resourceDefaults(current, callback => { onSignalRead = callback; });
     assert.throws(() => current.identity({value: 4}), TypeError);
   }
   assert.throws(() => native.identity(wasm.singleton()), TypeError);
@@ -140,6 +153,75 @@ async function check(name, selected) {
   native.reset(); wasm.reset();
   native.add(1);
   assert.equal(wasm.calls(), 0);
+}
+
+async function resourceDefaults(api, onSignalRead) {
+  const canonical = api.ConstResource.constant(21);
+  assert.equal(api.resourceDefault(), canonical);
+  assert.equal(api.resourceDefault(undefined), canonical);
+  assert.equal(api.resourceDefault(canonical), canonical);
+  for (const options of [undefined, {}, {value: undefined}, {value: canonical}]) {
+    assert.equal(api.namedResourceDefault(options), true);
+  }
+  assert.equal(api.namedResourceDefault({value: null}), false);
+  assert.equal(api.DefaultBase.resource(undefined).original, true);
+  assert.equal(new api.DefaultChild().checkResource(), true);
+  const beforeInvalid = api.ConstResource.calls;
+  assert.throws(() => api.resourceDefault(null), TypeError);
+  assert.throws(() => api.resourceDefaultChecked(undefined, 'bad'), TypeError);
+  assert.equal(api.ConstResource.calls, beforeInvalid);
+  await api.ConstResource.constant(25).close();
+  assert.equal(api.ConstResource.cleanups(25), 1, 'failed conversion releases its default lease');
+  await canonical.close();
+  assert.throws(() => api.resourceDefault(), /closing|closed/i);
+  assert.throws(() => api.DefaultBase.resource(), /closing|closed/i);
+  assert.throws(() => new api.DefaultChild().checkResource(), /closing|closed/i);
+  const fresh = new api.ConstResource(50);
+  assert.equal(api.resourceDefault(fresh), fresh);
+  assert.equal(api.DefaultBase.resource(fresh).original, false);
+
+  const futureResource = api.ConstResource.constant(22);
+  let futureClosed;
+  const pending = api.resourceDefaultLater(() => {
+    futureClosed = futureResource.close();
+    assert.equal(api.ConstResource.cleanups(22), 0, 'callback cannot clean up an accepted Future use');
+  }, {value: undefined});
+  assert.equal(api.ConstResource.cleanups(22), 0);
+  await assert.rejects(api.resourceDefaultLater(() => {}), /closing|closed/i);
+  assert.equal(await api.resourceDefaultLater(() => {}, {value: fresh}), 50);
+  assert.equal(await pending, 22);
+  await futureClosed;
+  assert.equal(api.ConstResource.cleanups(22), 1);
+  assert.equal(futureResource.close(), futureClosed);
+
+  const streamResource = api.ConstResource.constant(23);
+  const stream = api.resourceDefaultSequence({value: undefined});
+  const first = await stream.next();
+  assert.equal(first.value, 23);
+  assert.equal(first.done, false);
+  await streamResource.close();
+  const last = await stream.next();
+  assert.equal(last.value, undefined);
+  assert.equal(last.done, true);
+  await stream.return();
+  assert.equal(api.ConstResource.cancellations, 1);
+  assert.equal(api.ConstResource.cleanups(23), 1);
+  assert.throws(() => api.resourceDefaultSequence(), /closing|closed/i);
+
+  const signalResource = api.ConstResource.constant(24);
+  const signal = new AbortController().signal;
+  let signalClosed;
+  onSignalRead(() => {
+    signalClosed = signalResource.close();
+    assert.equal(api.ConstResource.cleanups(24), 0, 'default lease precedes signal admission');
+  });
+  try { assert.equal(api.resourceDefaultSignal(signal, undefined), 24); }
+  finally { onSignalRead(undefined); }
+  assert(signalClosed instanceof Promise, 'captured signal intrinsic exercised reentrant cleanup');
+  await signalClosed;
+  assert.equal(api.ConstResource.cleanups(24), 1);
+  assert.throws(() => api.resourceDefaultSignal(signal), /closing|closed/i);
+  await fresh.close();
 }
 
 if (!isMainThread) {

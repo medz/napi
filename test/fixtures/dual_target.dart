@@ -126,8 +126,12 @@ class DefaultBase {
     : original = identical(value, _token);
   DefaultBase.namedObject({DefaultToken value = _token})
     : original = identical(value, _token);
+  DefaultBase.resource([ConstResource value = _syncResource])
+    : original = identical(value, _syncResource);
   bool check({List<int> value = _empty}) => identical(value, _empty);
   bool checkObject({DefaultToken value = _token}) => identical(value, _token);
+  bool checkResource([ConstResource value = _syncResource]) =>
+      identical(value, _syncResource);
   Future<bool> later([List<int> value = _empty]) async =>
       identical(value, _empty);
   Stream<bool> sequence([List<int> value = _empty]) async* {
@@ -242,3 +246,85 @@ bool genericObjectDefault([DefaultIntBox value = _objectBox]) =>
 @NAPI()
 bool factoryObjectDefault([DefaultProjection value = _projection]) =>
     identical(value, _projection);
+
+const _syncResource = ConstResource(21);
+const _futureResource = ConstResource(22);
+const _streamResource = ConstResource(23);
+const _signalResource = ConstResource(24);
+const _failedResource = ConstResource(25);
+final _constCleanups = <int, int>{};
+int _constCalls = 0;
+int _constCancellations = 0;
+
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+class ConstResource {
+  final int value;
+  const ConstResource(this.value);
+  void close() => _constCleanups.update(value, (n) => n + 1, ifAbsent: () => 1);
+  static int cleanups(int value) => _constCleanups[value] ?? 0;
+  static int get calls => _constCalls;
+  static int get cancellations => _constCancellations;
+  static ConstResource constant(int value) => switch (value) {
+    21 => _syncResource,
+    22 => _futureResource,
+    23 => _streamResource,
+    24 => _signalResource,
+    25 => _failedResource,
+    _ => throw ArgumentError.value(value),
+  };
+}
+
+@NAPI()
+ConstResource resourceDefault([ConstResource value = _syncResource]) {
+  _constCalls++;
+  return value;
+}
+
+@NAPI()
+bool namedResourceDefault({ConstResource? value = _syncResource}) {
+  _constCalls++;
+  return identical(value, _syncResource);
+}
+
+@NAPI()
+Future<int> resourceDefaultLater(
+  void Function() callback, {
+  ConstResource value = _futureResource,
+}) async {
+  _constCalls++;
+  callback();
+  await Future<void>.delayed(const Duration(milliseconds: 2));
+  return value.value;
+}
+
+@NAPI()
+Stream<int> resourceDefaultSequence({
+  ConstResource value = _streamResource,
+}) async* {
+  _constCalls++;
+  try {
+    yield value.value;
+    yield value.value + 1;
+  } finally {
+    _constCancellations++;
+  }
+}
+
+@NAPI()
+int resourceDefaultSignal(
+  AbortSignal signal, [
+  ConstResource value = _signalResource,
+]) {
+  _constCalls++;
+  signal.throwIfAborted();
+  return value.value;
+}
+
+@NAPI()
+int resourceDefaultChecked([
+  ConstResource value = _failedResource,
+  int amount = 1,
+]) {
+  _constCalls++;
+  return value.value + amount;
+}

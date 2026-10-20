@@ -41,6 +41,19 @@ resource policy. The alias fixes the real Dart type arguments before cleanup and
 other member signatures are checked. Open opaque generic resource classes remain
 unsupported.
 
+## Constant defaults
+
+A direct resource parameter may use a public const constructor, for example
+`read([Resource resource = const Resource(7)])`. Omission and `undefined` select
+that same canonical Dart object; they do not create a fresh resource per call.
+Named parameters and nullable parameters follow the usual presence rules.
+
+Default resources use the same operation leases as explicit inputs. Cleanup
+waits for accepted Future or Stream operations. Once the canonical resource is closing
+or closed, another call using that default is rejected; callers may supply a
+different open resource explicitly. Resource defaults inside containers or
+value-class input fields remain unsupported.
+
 ## State and cleanup
 
 | State | New receiver/input operation | Valid cleanup call |

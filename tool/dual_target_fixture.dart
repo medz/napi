@@ -60,6 +60,12 @@ Future<void> verifyDualTargetFixture(
                 'valueFieldDefault',
                 'genericObjectDefault',
                 'factoryObjectDefault',
+                'resourceDefault',
+                'namedResourceDefault',
+                'resourceDefaultLater',
+                'resourceDefaultSequence',
+                'resourceDefaultSignal',
+                'resourceDefaultChecked',
               ])
                 ExternalFunction(name),
               ExternalClass('Counter'),
@@ -77,6 +83,13 @@ Future<void> verifyDualTargetFixture(
               ),
               ExternalClass(
                 'Resource',
+                config: const NAPI(
+                  classPolicy: ClassPolicy.resource,
+                  cleanup: 'close',
+                ),
+              ),
+              ExternalClass(
+                'ConstResource',
                 config: const NAPI(
                   classPolicy: ClassPolicy.resource,
                   cleanup: 'close',

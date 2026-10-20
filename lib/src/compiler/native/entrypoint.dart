@@ -365,8 +365,14 @@ ${tests.declarations}  int? canonical;''');
         code.writeln('    final ${conversion.dartType} reference$index;');
         if (_optional(parameter)) {
           code.writeln(
-            '    if (default$index) {\n      reference$index = ${renderDartDefault(parameter, conversion, declarationSource: declarationSource)};\n    } else {',
+            '    if (default$index) {\n      reference$index = ${renderDartDefault(parameter, conversion, declarationSource: declarationSource)};',
           );
+          if (retainsResources) {
+            code.writeln(
+              '      ${conversion.nullable ? 'if (reference$index != null) ' : ''}operation.retain(_resourceControl(reference$index));',
+            );
+          }
+          code.writeln('    } else {');
         }
         _readReference(
           code,
