@@ -1,7 +1,8 @@
 ## 0.16.1
 
-- Keep a library's canonical Dart import identity when generating const object
-  defaults, including builds started from a file inside a package's `lib/`.
+- Fix const-default type-cast failures for package `lib/` files and relative
+  reexports. Preserve Dart library identities and diagnose conflicting file/package
+  imports before generation. Rebuild generated npm packages after upgrading.
 
 ## 0.16.0
 

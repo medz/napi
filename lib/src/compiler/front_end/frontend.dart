@@ -156,12 +156,14 @@ final class _Reader {
   final _typeParameterIds = <a.TypeParameterElement, DeclarationId>{};
   final _opaqueParameters = <DeclarationId>{};
   final _defaultIdentities = <DartObject, Object>{};
+  final _libraryImportUris = <a.LibraryElement, Set<Uri>>{};
   _Reader(this.entry, this.annotationClass);
 
   Future<BindingModule> readExternal(
     ResolvedLibraryResult root,
     ExternalLibrary selections,
   ) async {
+    _indexLibraryImports(root.element);
     final selected = <(ExternalDeclaration, a.Element)>[];
     for (final selection in selections.declarations) {
       final name = selection.name;
@@ -484,6 +486,7 @@ final class _Reader {
   }
 
   Future<BindingModule> read(ResolvedLibraryResult root) async {
+    _indexLibraryImports(root.element);
     final candidates = root.element.exportNamespace.definedNames2.entries
         .where((e) => e.value is! a.MultiplyDefinedElement)
         .map((e) => MapEntry(e.key, _exportDeclaration(e.value)))
@@ -1472,6 +1475,57 @@ final class _Reader {
     );
   }
 
+  // Analyzer canonicalizes package files even when Dart loads them through a
+  // relative file import. Keep the URI graph used by the compiler instead.
+  void _indexLibraryImports(a.LibraryElement root) {
+    final pending = [(root, root.uri)];
+    while (pending.isNotEmpty) {
+      final (library, uri) = pending.removeLast();
+      if (library.uri.scheme == 'dart') continue;
+      final uris = _libraryImportUris.putIfAbsent(library, () => <Uri>{});
+      if (!uris.add(uri)) continue;
+      final fragments = [(library.firstFragment, uri)];
+      final seen = <(a.LibraryFragment, Uri)>{};
+      while (fragments.isNotEmpty) {
+        final (fragment, uri) = fragments.removeLast();
+        if (!seen.add((fragment, uri))) continue;
+        for (final directive in [
+          ...fragment.libraryImports,
+          ...fragment.libraryExports,
+        ]) {
+          if (directive.uri case a.DirectiveUriWithLibrary(
+            :final library,
+            :final relativeUri,
+          )) {
+            pending.add((library, uri.resolveUri(relativeUri)));
+          }
+        }
+        for (final part in fragment.partIncludes) {
+          if (part.uri case a.DirectiveUriWithUnit(
+            :final libraryFragment,
+            :final relativeUri,
+          )) {
+            fragments.add((libraryFragment, uri.resolveUri(relativeUri)));
+          }
+        }
+      }
+    }
+  }
+
+  Uri _libraryImportUri(a.LibraryElement library) {
+    final uris = _libraryImportUris[library];
+    if (uris == null) return library.uri;
+    if (uris.length != 1) {
+      throw BindingDiagnostic(
+        'NAPI_INPUT',
+        'Library ${library.uri} is loaded through distinct import URIs: '
+            '${uris.join(', ')}. Use consistent import URIs for this library.',
+        _source(library),
+      );
+    }
+    return uris.single;
+  }
+
   DeclarationId _id(a.Element element) {
     if (element is a.TypeParameterElement &&
         _typeParameterIds.containsKey(element)) {
@@ -1479,7 +1533,7 @@ final class _Reader {
     }
     final owner = element.enclosingElement;
     return DeclarationId(
-      element.library?.uri ?? entry,
+      element.library == null ? entry : _libraryImportUri(element.library!),
       element.name ?? '@${element.firstFragment.offset}',
       owner: owner == null || owner is a.LibraryElement ? null : _id(owner),
       slot:

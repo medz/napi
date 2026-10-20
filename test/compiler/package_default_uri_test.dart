@@ -24,11 +24,13 @@ void main() {
   late File packages;
   late File bindings;
   late File facade;
+  late File toolFacade;
   setUp(() async {
     root = await Directory.systemTemp.createTemp('napi package default URI ');
     root = Directory(await root.resolveSymbolicLinks());
     addTearDown(() => root.delete(recursive: true));
     await Directory('${root.path}/lib').create();
+    await Directory('${root.path}/tool').create();
     await Directory('${root.path}/.dart_tool').create();
     await File('${root.path}/pubspec.yaml').writeAsString('''
 name: $_packageName
@@ -67,16 +69,23 @@ const _constructed = Point(11);
 ''');
     facade = File('${root.path}/lib/entry.dart');
     await facade.writeAsString("export 'bindings.dart';\n");
+    toolFacade = File('${root.path}/tool/entry.dart');
+    await toolFacade.writeAsString("export '../lib/bindings.dart';\n");
   });
 
   test(
-    'file entrypoints use one package identity for const defaults',
+    'file entrypoints retain loaded library identities for const defaults',
     () async {
-      final canonical = Uri.parse('package:$_packageName/bindings.dart');
-      for (final input in [bindings, facade]) {
-        final importUri = Uri.parse(
-          'package:$_packageName/${input.uri.pathSegments.last}',
-        );
+      final packageBindings = Uri.parse('package:$_packageName/bindings.dart');
+      for (final (input, importUri, canonical) in [
+        (bindings, packageBindings, packageBindings),
+        (
+          facade,
+          Uri.parse('package:$_packageName/entry.dart'),
+          packageBindings,
+        ),
+        (toolFacade, toolFacade.uri, bindings.uri),
+      ]) {
         for (final native in [false, true]) {
           for (final external in [false, true]) {
             final module =
@@ -114,7 +123,7 @@ const _constructed = Point(11);
                 .map((match) => match.group(1)!)
                 .where(
                   (uri) =>
-                      uri == canonical.toString() ||
+                      uri == packageBindings.toString() ||
                       uri == bindings.uri.toString(),
                 )
                 .toSet();
@@ -126,16 +135,51 @@ const _constructed = Point(11);
   );
 
   test(
+    'mixed file and package identities fail before generating bindings',
+    () async {
+      final input = File('${root.path}/tool/mixed.dart');
+      await input.writeAsString('''
+import 'package:napi/napi.dart';
+import '../lib/bindings.dart' as local;
+import 'package:$_packageName/bindings.dart' as packaged;
+export '../lib/bindings.dart';
+@NAPI() bool mixed(local.Point left, packaged.Point right) => identical(left, right);
+''');
+      await expectLater(
+        AnnotationFrontend(packagesPath: packages.path).read(input.uri),
+        throwsA(
+          isA<BindingDiagnostic>()
+              .having((error) => error.code, 'code', 'NAPI_INPUT')
+              .having(
+                (error) => error.message,
+                'file URI',
+                contains(bindings.uri.toString()),
+              )
+              .having(
+                (error) => error.message,
+                'package URI',
+                contains('package:$_packageName/bindings.dart'),
+              ),
+        ),
+      );
+    },
+  );
+
+  test(
     'fresh package executes private and public constructor defaults',
     () async {
-      await buildLibrary(
-        library: bindings.absolute.uri,
-        output: Directory('${root.path}/output'),
-        packagesPath: packages.path,
-      );
+      for (final (name, input) in [('lib', bindings), ('tool', toolFacade)]) {
+        await buildLibrary(
+          library: input.absolute.uri,
+          output: Directory('${root.path}/output_$name'),
+          packagesPath: packages.path,
+        );
+      }
       await File('${root.path}/check.mjs').writeAsString('''
 import assert from 'node:assert/strict';
-import * as api from './output/module.wasm';
+import * as lib from './output_lib/module.wasm';
+import * as tool from './output_tool/module.wasm';
+for (const api of [lib, tool]) {
 const named = api.named();
 const constructed = api.constructed();
 assert.equal(named.value, 7);
@@ -144,6 +188,7 @@ assert.equal(api.named(undefined), named);
 assert.equal(api.constructed(undefined), constructed);
 assert.equal(api.named(named), named);
 assert.equal(api.constructed(constructed), constructed);
+}
 ''');
       final result = await Process.run('node', [
         'check.mjs',
