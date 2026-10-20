@@ -137,7 +137,6 @@ final class ExternalFrontend implements BindingFrontend {
       return await _Reader(
         File(path).absolute.uri,
         null,
-        importUri: library.scheme == 'package' ? library : null,
       ).readExternal(result, selections);
     } finally {
       await contexts.dispose();
@@ -147,7 +146,6 @@ final class ExternalFrontend implements BindingFrontend {
 
 final class _Reader {
   final Uri entry;
-  final Uri? importUri;
   final a.ClassElement? annotationClass;
   final _externalConfigs = <a.Element, NAPI>{};
   final _aliasMemberConfigs = <a.TypeAliasElement, Map<a.Element, NAPI>>{};
@@ -158,7 +156,7 @@ final class _Reader {
   final _typeParameterIds = <a.TypeParameterElement, DeclarationId>{};
   final _opaqueParameters = <DeclarationId>{};
   final _defaultIdentities = <DartObject, Object>{};
-  _Reader(this.entry, this.annotationClass, {this.importUri});
+  _Reader(this.entry, this.annotationClass);
 
   Future<BindingModule> readExternal(
     ResolvedLibraryResult root,
@@ -248,7 +246,7 @@ final class _Reader {
     }
     final module = BindingModule(
       source: entry,
-      importUri: importUri,
+      importUri: root.element.uri,
       functions: functions,
       classes: classes,
     );
@@ -545,6 +543,7 @@ final class _Reader {
     }
     final module = BindingModule(
       source: entry,
+      importUri: root.element.uri,
       functions: functions,
       classes: classes,
     );

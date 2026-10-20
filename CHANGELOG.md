@@ -1,3 +1,8 @@
+## 0.16.1
+
+- Keep a library's canonical Dart import identity when generating const object
+  defaults, including builds started from a file inside a package's `lib/`.
+
 ## 0.16.0
 
 - Support const reference and value objects as Dart defaults, directly and inside
