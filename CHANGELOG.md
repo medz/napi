@@ -1,3 +1,9 @@
+## 0.16.1
+
+- Fix const-default type-cast failures for package `lib/` files and relative
+  reexports. Preserve Dart library identities and diagnose conflicting file/package
+  imports before generation. Rebuild generated npm packages after upgrading.
+
 ## 0.16.0
 
 - Support const reference and value objects as Dart defaults, directly and inside

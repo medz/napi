@@ -553,7 +553,7 @@ final class BindingModule {
   /// Resolved source file used for analysis, diagnostics and existence checks.
   final Uri source;
 
-  /// Requested library identity retained when generating the target import.
+  /// Canonical library identity used by generated target imports.
   final Uri importUri;
   final List<FunctionBinding> functions;
   final List<ClassBinding> classes;
