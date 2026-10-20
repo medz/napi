@@ -277,6 +277,19 @@ final class ObjectDefault extends ConstantDefault {
        supertypes = List.unmodifiable(supertypes);
 }
 
+/// A public const binding whose object cannot be reconstructed independently.
+/// Its private implementation remains in the declaring Dart library.
+final class NamedObjectDefault extends ConstantDefault {
+  final DeclaredType type;
+  final DeclarationId variable;
+  final List<DeclaredType> supertypes;
+  NamedObjectDefault(
+    this.type,
+    this.variable,
+    Iterable<DeclaredType> supertypes,
+  ) : supertypes = List.unmodifiable(supertypes);
+}
+
 final class ParameterBinding {
   final String name;
   final BindingType type;

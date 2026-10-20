@@ -3,7 +3,7 @@ import 'dart:typed_data';
 
 import 'model.dart';
 
-/// Dart syntax for a completely represented constant graph.
+/// Dart syntax for evaluated defaults, including constructors and const bindings.
 /// This encoding also compares defaults; list/map actual types and map order
 /// remain observable, while record named fields are ordered by name.
 String constantDefaultSource(
@@ -105,6 +105,30 @@ String constantDefaultSource(
           emit(named[name]!, depth + 1);
         }
         write(')');
+      case NamedObjectDefault(:final variable):
+        final owner = variable.owner;
+        if (declarationSource == null ||
+            variable.name.startsWith('_') ||
+            (owner == null
+                ? variable.kind != DeclarationKind.variable
+                : variable.kind != DeclarationKind.field ||
+                      owner.owner != null ||
+                      owner.name.startsWith('_') ||
+                      !const {
+                        DeclarationKind.classType,
+                        DeclarationKind.enumType,
+                        DeclarationKind.mixinType,
+                        DeclarationKind.extensionType,
+                      }.contains(owner.kind))) {
+          throw const FormatException(
+            'Constant object binding must be public.',
+          );
+        }
+        write(
+          owner == null
+              ? declarationSource(variable)
+              : '${declarationSource(owner)}.${variable.name}',
+        );
     }
   }
 
@@ -265,7 +289,9 @@ String parameterDefaultKey(ParameterBinding parameter) {
 
 /// Library identity matters when comparing otherwise identical default syntax.
 String constantDeclarationKey(DeclarationId declaration) =>
-    '${declaration.library}#${declaration.name}';
+    declaration.owner == null
+    ? '${declaration.library}#${declaration.name}'
+    : '${constantDeclarationKey(declaration.owner!)}.${declaration.name}';
 
 /// Declarations named by reconstruction, excluding a factory's private result.
 Iterable<DeclarationId> constantDefaultDeclarations(
@@ -303,6 +329,8 @@ Iterable<DeclarationId> constantDefaultDeclarations(
     case ObjectDefault(:final constructorType, :final positional, :final named):
       yield* typeDeclarations(constructorType);
       children.addAll([...positional, ...named.values]);
+    case NamedObjectDefault(:final variable):
+      yield variable.owner ?? variable;
   }
   for (final child in children) {
     yield* constantDefaultDeclarations(child);

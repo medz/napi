@@ -91,3 +91,17 @@ void [constResource, namedResource, nullResource, resourceConstructor,
 root.resourceDefault(null);
 // @ts-expect-error Default resources retain backend ownership.
 native.resourceDefault(constResource);
+
+const originPoint: wasm.NamedPoint = wasm.originPointDefault(undefined);
+const staticOriginPoint: native.NamedPoint = native.staticObjectDefault();
+const originContainers: boolean = root.namedContainerDefaults(undefined, new Map());
+const originValueField: boolean = native.namedValueFieldDefault({point: undefined});
+const originResource: wasm.NamedResource = wasm.originResourceDefault();
+const staticOriginResource: wasm.NamedResource = wasm.NamedResource.origin;
+const originUse: number = wasm.namedResourceUse(() => {}, originResource);
+void [originPoint, staticOriginPoint, originContainers, originValueField,
+  staticOriginResource, originUse];
+// @ts-expect-error Public constants do not expose their private Dart constructor.
+new wasm.NamedPoint();
+// @ts-expect-error Constant object defaults retain reference ownership.
+native.namedValueFieldDefault({point: originPoint});

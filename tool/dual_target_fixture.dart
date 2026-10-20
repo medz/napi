@@ -66,6 +66,12 @@ Future<void> verifyDualTargetFixture(
                 'resourceDefaultSequence',
                 'resourceDefaultSignal',
                 'resourceDefaultChecked',
+                'originPointDefault',
+                'staticObjectDefault',
+                'namedContainerDefaults',
+                'namedValueFieldDefault',
+                'originResourceDefault',
+                'namedResourceUse',
               ])
                 ExternalFunction(name),
               ExternalClass('Counter'),
@@ -74,6 +80,14 @@ Future<void> verifyDualTargetFixture(
               ExternalClass('DefaultToken'),
               ExternalClass('DefaultIntBox'),
               ExternalClass('DefaultProjection'),
+              ExternalClass('NamedPoint'),
+              ExternalClass(
+                'NamedValue',
+                config: const NAPI(
+                  classPolicy: ClassPolicy.value,
+                  valueConstructor: 'new',
+                ),
+              ),
               ExternalClass(
                 'DefaultValue',
                 config: const NAPI(
@@ -90,6 +104,13 @@ Future<void> verifyDualTargetFixture(
               ),
               ExternalClass(
                 'ConstResource',
+                config: const NAPI(
+                  classPolicy: ClassPolicy.resource,
+                  cleanup: 'close',
+                ),
+              ),
+              ExternalClass(
+                'NamedResource',
                 config: const NAPI(
                   classPolicy: ClassPolicy.resource,
                   cleanup: 'close',
