@@ -2511,11 +2511,13 @@ void validateParameterDefault(
         parameter.source ?? source,
       );
     }
-    final directReference =
-        allowResourceDefaults && isReferenceType(type, referenceClasses);
-    if ((directReference ||
+    final admittedResourceDefault =
+        allowResourceDefaults &&
+        (isReferenceType(type, referenceClasses) ||
+            _resourceContainerDefault(type, referenceClasses));
+    if ((admittedResourceDefault ||
             _portableDefaultParameter(type, referenceClasses)) &&
-        (directReference ||
+        (admittedResourceDefault ||
             !_defaultGraphHasResource(constant, referenceClasses)) &&
         _structuralDefaultFits(
           constant,
@@ -2530,9 +2532,9 @@ void validateParameterDefault(
       'Non-null defaults require a compatible const graph of scalars, selected '
           'reference/value objects, Lists, Maps, Dictionaries or records. '
           'Object defaults need accessible const constructors or bindings; resource '
-          'defaults require direct reference parameters. Resource defaults in '
-          'containers or value constructors, and opaque defaults, remain unsupported. '
-          'Value-object defaults containing class-valued fields are unsupported '
+          'defaults require direct references or built-in containers. Resource '
+          'defaults in value constructors and opaque defaults remain unsupported. '
+          'Value-object defaults containing class-valued fields are unsupported 
           'when the library exports resources.',
       parameter.source ?? source,
     );
@@ -2834,6 +2836,25 @@ bool _sameReferenceDefault(ParameterBinding left, ParameterBinding right) =>
     (left.defaultIdentity != null &&
         identical(left.defaultIdentity, right.defaultIdentity)) ||
     parameterDefaultKey(left) == parameterDefaultKey(right);
+
+bool _resourceContainerDefault(BindingType type, List<ClassBinding> classes) {
+  if (type.nullability == TypeNullability.legacy) return false;
+  bool child(BindingType type) =>
+      _isBackendScalar(type) ||
+      isReferenceType(type, classes) ||
+      _resourceContainerDefault(type, classes);
+  if (type is RecordTypeBinding) {
+    return type.positional.every(child) && type.named.values.every(child);
+  }
+  if (type is! DeclaredType) return false;
+  if (type.declaration == dictionaryDeclaration) {
+    return type.typeArguments.length == 1 && child(type.typeArguments.single);
+  }
+  return type.declaration.library == Uri.parse('dart:core') &&
+      ((type.declaration.name == 'List' && type.typeArguments.length == 1) ||
+          (type.declaration.name == 'Map' && type.typeArguments.length == 2)) &&
+      type.typeArguments.every(child);
+}
 
 bool _portableDefaultParameter(
   BindingType type,

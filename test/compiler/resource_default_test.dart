@@ -4,6 +4,7 @@ import 'package:napi/src/compiler/analysis/validate.dart';
 import 'package:napi/src/compiler/emit/dart/entrypoint.dart';
 import 'package:napi/src/compiler/emit/js/arguments.dart';
 import 'package:napi/src/compiler/front_end/frontend.dart';
+import 'package:napi/src/compiler/ir/defaults.dart';
 import 'package:napi/src/compiler/ir/model.dart';
 import 'package:napi/src/compiler/lowering/plan.dart';
 import 'package:napi/src/compiler/native/entrypoint.dart';
@@ -105,6 +106,109 @@ $source
     });
   }
 
+  for (final native in [false, true]) {
+    test('built-in container defaults retain resource leaves before admission '
+        '(${native ? 'native' : 'wasm'})', () async {
+      final module = await read('''
+@NAPI() class Child extends Resource {
+  const Child([super.value = 11]);
+}
+const _items = <Resource?>[_default, null, Child(), _default];
+@NAPI() bool containers(
+  AbortSignal signal,
+  int Function() callback, {
+  List<Resource?>? items = _items,
+  Map<Resource, Resource?> mapping = const {_default: Child(), Child(): null},
+  Dictionary<Resource?> dictionary = const Dictionary({'item': _default}),
+  ({Resource value, List<Resource?> items}) record = (value: _default, items: _items),
+  List<Resource> empty = const <Never>[],
+  required Resource supplied,
+}) => identical(items, _items);
+''', native: native);
+      final parameters = module.functions.single.parameters;
+      final items = parameters[2].defaultValue as ListDefault;
+      expect(items.elements, hasLength(4));
+      expect((items.elements[1] as ScalarDefault).value, isNull);
+      final inherited = items.elements[2] as ObjectDefault;
+      expect(inherited.type.declaration.name, 'Child');
+      expect(
+        inherited.supertypes.map((type) => type.declaration.name),
+        contains('Resource'),
+      );
+      expect(parameters[3].defaultValue, isA<MapDefault>());
+      expect(parameters[4].defaultValue, isA<MapDefault>());
+      expect(parameters[5].defaultValue, isA<RecordDefault>());
+      expect(
+        constantDefaultSource(
+          parameters.singleWhere((p) => p.name == 'empty').defaultValue!,
+        ),
+        'const <Never>[]',
+      );
+      if (native) {
+        final plan = validateNative(module);
+        final generated = emitNativeDart(plan);
+        final call = plan.functions.single;
+        final start = generated.indexOf('int ${call.callback}(');
+        final body = generated.substring(
+          start,
+          generated.indexOf('\n}\n', start),
+        );
+        final retain = body.indexOf('operation.retain(');
+        expect(retain, greaterThanOrEqualTo(0));
+        expect(retain, lessThan(body.indexOf('_api.checkCallback(')));
+        expect(retain, lessThan(body.indexOf('_api.abortSignal(')));
+        expect(generated, contains('const <Never>[]'));
+      } else {
+        final plan = lower(validate(module));
+        final dart = emitDart(plan);
+        final javascript = emitArgumentCalls(plan);
+        final call = plan.functions.single;
+        final getter = '${call.coreExportName}:default:2';
+        expect(dart, contains("@pragma('wasm:export', '$getter')"));
+        final admission = javascript.indexOf('core["$getter"](operation)');
+        expect(admission, greaterThanOrEqualTo(0));
+        final body = javascript.substring(
+          javascript.lastIndexOf('const call', admission),
+          javascript.indexOf('\n};', admission),
+        );
+        final retain = body.indexOf('core["$getter"](operation)');
+        final direct = body.indexOf('const reference7');
+        expect(direct, greaterThanOrEqualTo(0));
+        expect(direct, lessThan(retain));
+        expect(retain, lessThan(body.indexOf('prepareAbortSignal(')));
+        expect(retain, lessThan(body.indexOf('checkCallback(')));
+        expect(body, contains('d2 ? 1 : 0'));
+        expect(dart, contains('const <Never>[]'));
+      }
+    });
+  }
+
+  test(
+    'direct references precede container defaults without callbacks',
+    () async {
+      final plan = lower(
+        validate(
+          await read('''
+@NAPI() int mixed(Resource supplied, {
+  List<Resource> items = const [_default],
+}) => items.length;
+'''),
+        ),
+      );
+      final generated = emitArgumentCalls(plan);
+      final getter = '${plan.functions.single.coreExportName}:default:1';
+      final admission = generated.indexOf('core["$getter"](operation)');
+      expect(admission, greaterThanOrEqualTo(0));
+      final body = generated.substring(
+        generated.lastIndexOf('const call', admission),
+        generated.indexOf('\n};', admission),
+      );
+      final direct = body.indexOf('const reference0');
+      expect(direct, greaterThanOrEqualTo(0));
+      expect(direct, lessThan(body.indexOf('core["$getter"](operation)')));
+    },
+  );
+
   test(
     'required and null resource inputs need no Wasm default getter',
     () async {
@@ -114,6 +218,7 @@ $source
 @NAPI() Resource required(Resource resource) => resource;
 @NAPI() Resource? nullable([Resource? resource]) => resource;
 @NAPI() Resource? explicitNull({Resource? resource = null}) => resource;
+@NAPI() List<Resource>? absentList([List<Resource>? values]) => values;
 '''),
         ),
       );
@@ -137,12 +242,13 @@ class Value {
 @NAPI() Value take(Value value) => value;''',
     ),
     (
-      'list',
-      '@NAPI() int take([List<Resource> resources = const [_default]]) => resources.length;',
-    ),
-    (
-      'record',
-      '@NAPI() int take([({Resource resource}) value = (resource: _default)]) => value.resource.value;',
+      'value object',
+      '''@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+class Value {
+  final Resource resource;
+  const Value(this.resource);
+}
+@NAPI() int take([Value value = const Value(_default)]) => value.resource.value;''',
     ),
   ]) {
     test('resource $name defaults remain diagnosed', () async {

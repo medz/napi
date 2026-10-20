@@ -251,6 +251,48 @@ async function resourceDefaults(api, onSignalRead) {
   await signalClosed;
   assert.equal(api.ConstResource.cleanups(24), 1);
   assert.throws(() => api.resourceDefaultSignal(signal), /closing|closed/i);
+  assert.equal(api.resourceContainerDefaults(), true);
+  assert.equal(api.resourceContainerDefaults(undefined, undefined, undefined, undefined), true);
+  for (const options of [undefined, {}, {values: undefined}]) {
+    assert.equal(api.namedResourceContainerDefault(options), true);
+  }
+  assert.equal(api.namedResourceContainerDefault({values: null}), false);
+  const beforeContainerErrors = api.ConstResource.calls;
+  assert.throws(() => api.resourceContainerChecked(undefined, 'bad'), TypeError);
+  assert.throws(() => api.resourceContainerDefaults(undefined,
+    new Map([['both', [{}]]])), TypeError);
+  assert.equal(api.ConstResource.calls, beforeContainerErrors);
+  await api.ConstResource.constant(28).close();
+  assert.equal(api.ConstResource.cleanups(28), 1);
+
+  const containerResource = api.ConstResource.constant(26);
+  let containerClosed;
+  const containerPending = api.resourceContainerLater(() => {
+    containerClosed = containerResource.close();
+    assert.equal(api.ConstResource.cleanups(26), 0);
+  }, {values: undefined});
+  assert.throws(() => api.resourceContainerDefaults(), /closing|closed/i);
+  await assert.rejects(api.resourceContainerLater(() => {}), /closing|closed/i);
+  assert.equal(await api.resourceContainerLater(() => {}, {values: [fresh, fresh]}), 100);
+  assert.equal(api.resourceContainerDefaults([fresh, fresh],
+    new Map([['both', [fresh]]]), {both: [fresh]}, {$1: [fresh], resource: fresh}), false);
+  assert.equal(await containerPending, 52);
+  await containerClosed;
+  assert.equal(api.ConstResource.cleanups(26), 1, 'duplicate default references release every lease');
+  assert.throws(() => api.namedResourceContainerDefault(), /closing|closed/i);
+  assert.equal(api.namedResourceContainerDefault({values: null}), false);
+
+  const containerSignalResource = api.ConstResource.constant(27);
+  let containerSignalClosed;
+  onSignalRead(() => {
+    containerSignalClosed = containerSignalResource.close();
+    assert.equal(api.ConstResource.cleanups(27), 0);
+  });
+  try { assert.equal(api.resourceContainerSignal(new AbortController().signal), 27); }
+  finally { onSignalRead(undefined); }
+  assert(containerSignalClosed instanceof Promise);
+  await containerSignalClosed;
+  assert.equal(api.ConstResource.cleanups(27), 1);
   await fresh.close();
 }
 

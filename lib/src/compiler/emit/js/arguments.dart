@@ -391,6 +391,15 @@ String _arguments(
       '${jsonEncode(call.inputs[i].context)});',
     );
   }
+  final defaultContainers = [
+    for (final (i, parameter) in parameters.indexed)
+      if (retainReferences &&
+          call.inputs[i] is! ReferenceConversion &&
+          containsDefaultReference(call.inputs[i]) &&
+          parameter.defaultValue != null &&
+          parameter.defaultValue is! ScalarDefault)
+        i,
+  ];
   String reference(int i) {
     final conversion = call.inputs[i] as ReferenceConversion;
     final supplied =
@@ -404,9 +413,11 @@ String _arguments(
     return 'd$i ? $omitted : $supplied';
   }
 
-  final directInputs = call.inputs.any(
-    (c) => c is CallbackConversion || c is AbortSignalConversion,
-  );
+  final directInputs =
+      defaultContainers.isNotEmpty ||
+      call.inputs.any(
+        (c) => c is CallbackConversion || c is AbortSignalConversion,
+      );
   if (directInputs) {
     // Match Native: complete presence and direct-reference admission before
     // binding callbacks, then enter Dart's per-parameter value conversion.
@@ -414,6 +425,11 @@ String _arguments(
       if (conversion is ReferenceConversion) {
         result.writeln('${indent}const reference$i = ${reference(i)};');
       }
+    }
+    for (final i in defaultContainers) {
+      result.writeln(
+        '${indent}if (d$i) core[${jsonEncode('${call.coreExportName}:default:$i')}](operation);',
+      );
     }
     for (final (i, conversion) in call.inputs.indexed) {
       if (conversion is CallbackConversion) {

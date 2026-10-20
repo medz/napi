@@ -139,7 +139,7 @@ ${tests.declarations}  return externRefForJSAny(<JSAny?>[
     final parameters = call.parameters;
     if (resources && plan.needsResourceOperation(call)) {
       for (final (i, parameter) in parameters.indexed) {
-        if (call.inputs[i] is! ReferenceConversion ||
+        if (!containsDefaultReference(call.inputs[i]) ||
             parameter.defaultValue == null ||
             parameter.defaultValue is ScalarDefault) {
           continue;
@@ -150,11 +150,22 @@ ${tests.declarations}  return externRefForJSAny(<JSAny?>[
           declarationSource: declarationSource,
         );
         // Admit the canonical default before host getters can reenter cleanup.
-        result.writeln('''
+        if (call.inputs[i] is ReferenceConversion) {
+          result.writeln('''
 @pragma('wasm:export', '${call.coreExportName}:default:$i')
 WasmExternRef _default${index}_$i() =>
     WasmAnyRef.fromObject($value as Object).externalize();
 ''');
+        } else {
+          result.writeln('''
+@pragma('wasm:export', '${call.coreExportName}:default:$i')
+void _default${index}_$i(WasmExternRef prepared) {
+  final operation = prepared.internalize().toObject() as ResourceOperation;
+  try {
+${emitDartDefaultResourceRetains(call.inputs[i], value, indent: '    ')}  } catch (error) { _normalizeResourceError(error); }
+}
+''');
+        }
       }
     }
     final output = call.output;
