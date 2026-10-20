@@ -45,18 +45,18 @@ abstract class _JsCollection {
   }
 }
 // Raw externref cannot cross a Dart Function invocation in the pinned SDK.
-// Direct methods keep opaque fields raw; only scalar closures use JS interop.
+// Direct methods keep opaque fields raw; typed closures use JS interop.
 final class _JsElement<T> {
   final bool opaque;
-  final T Function(JSAny?)? readScalar;
-  final JSAny? Function(T)? writeScalar;
-  const _JsElement(this.opaque, this.readScalar, this.writeScalar);
+  final T Function(JSAny?)? readValue;
+  final JSAny? Function(T)? writeValue;
+  const _JsElement(this.opaque, this.readValue, this.writeValue);
   T read(WasmExternRef? value) => opaque
       ? _NapiHostValue(value) as T
-      : readScalar!(_jcJS(value));
+      : readValue!(_jcJS(value));
   WasmExternRef? write(T value) => opaque
       ? value == null ? WasmExternRef.nullRef : (value as _NapiHostValue).value
-      : _jcRef(writeScalar!(value));
+      : _jcRef(writeValue!(value));
   T? readGet(WasmExternRef? value) => value.isNull ? null
       : read(opaque ? _jcField(value!, WasmI32.fromInt(0)) : value);
 }

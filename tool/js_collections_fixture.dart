@@ -84,8 +84,19 @@ dependencies:
     'keyedScalar',
     'firstPayload',
     'firstScalar',
+    'nestedNumbers',
+    'nestedFakeWrite',
+    'nestedCallback',
+    'nestedAsyncCallback',
   ];
-  const bigints = ['bigBooleans', 'int64', 'intKey', 'wrongPolicy'];
+  const bigints = [
+    'bigBooleans',
+    'int64',
+    'intKey',
+    'wrongPolicy',
+    'nestedInt64',
+    'nestedWriteWrongPolicy',
+  ];
   await File('${project.path}/build.dart').writeAsString('''
 import 'dart:io';
 import 'package:napi/build.dart';
@@ -105,6 +116,8 @@ Future<void> main() async {
           ExternalClass('Holder'),
           ExternalClass('ArrayPayloads'),
           ExternalClass('MapPayloads'),
+          ExternalClass('NestedArrays'),
+          ExternalClass('NestedMaps'),
           ExternalClass('Owner', config: NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')),
         ] else ...const [
           ExternalFunction('read'),

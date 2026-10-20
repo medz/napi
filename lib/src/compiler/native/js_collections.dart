@@ -4,14 +4,19 @@ final class NativeJsElement<T> {
   final String kind;
   final bool nullable;
   final bool bigint;
+  final T Function(NapiApi, Pointer<Void>, Pointer<Void>, String)? readHandle;
+  final int Function(NapiApi, Pointer<Void>, T, String)? writeHandle;
   const NativeJsElement(
     this.kind, {
     this.nullable = false,
     this.bigint = false,
+    this.readHandle,
+    this.writeHandle,
   });
   T read(NapiApi api, Pointer<Void> env, Pointer<Void> value, String path) {
     if (kind == 'opaque') return api.ownHostValue(env, value) as T;
     if (nullable && api.isNull(env, value)) return null as T;
+    if (readHandle case final read?) return read(api, env, value, path);
     return switch (kind) {
       'boolean' => api.boolean(env, value, path),
       'string' => api.string(env, value, path),
@@ -37,6 +42,7 @@ final class NativeJsElement<T> {
 
   int write(NapiApi api, Pointer<Void> env, T value, String path) {
     if (nullable && value == null) return api.nullResult(env);
+    if (writeHandle case final write?) return write(api, env, value, path);
     return switch (kind) {
       'opaque' => api.hostValue(env, value as NativeHostValue).address,
       'boolean' => api.booleanResult(env, value as bool),

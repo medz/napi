@@ -2212,7 +2212,7 @@ void _validateJsCollection(
   if (!_supportedJsCollectionElements(collection, opaqueParameters)) {
     throw BindingDiagnostic(
       'NAPI_JS_COLLECTION',
-      'JsArray/JsMap support scalar or direct opaque elements; nested, reference and resource elements are not supported.',
+      'JsArray/JsMap support scalars, direct opaque elements and nested JS collection handles; reference and resource elements are not supported.',
       source,
     );
   }
@@ -2226,7 +2226,13 @@ bool _supportedJsCollectionElements(
         (collection.declaration == jsMapDeclaration ? 2 : 1) &&
     collection.typeArguments.every(
       (element) =>
-          _isBackendScalar(element) || isOpaqueType(element, opaqueParameters),
+          _isBackendScalar(element) ||
+          isOpaqueType(element, opaqueParameters) ||
+          (isJsCollectionType(element) &&
+              _supportedJsCollectionElements(
+                element as DeclaredType,
+                opaqueParameters,
+              )),
     );
 
 bool _containsCallback(BindingType type) => switch (type) {

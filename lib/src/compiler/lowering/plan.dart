@@ -102,18 +102,31 @@ final class JsCollectionConversion extends ValueConversion {
     Set<DeclarationId> opaqueParameters,
   ) => isOpaqueType(type, opaqueParameters)
       ? OpaqueConversion(type as TypeParameterType, context)
+      : isJsCollectionType(type)
+      ? JsCollectionConversion(
+          type as DeclaredType,
+          context,
+          bigint: bigint,
+          opaqueParameters: opaqueParameters,
+        )
       : ScalarConversion(type, context, bigint: bigint);
 
   static Object _signature(ValueConversion value) => switch (value) {
     ScalarConversion() => [value.kind.name, value.bigint, value.nullable],
     OpaqueConversion() => ['opaque', value.nullable],
+    JsCollectionConversion() => [
+      'collection',
+      value.nullable,
+      _collectionSignature(value),
+    ],
     _ => throw StateError('Unsupported JS collection element'),
   };
-  String get signatureKey => jsonEncode([
-    isMap,
-    if (key case final k?) _signature(k),
-    _signature(value),
-  ]);
+  static Object _collectionSignature(JsCollectionConversion value) => [
+    value.isMap,
+    if (value.key case final key?) _signature(key),
+    _signature(value.value),
+  ];
+  String get signatureKey => jsonEncode(_collectionSignature(this));
   @override
   String get dartType =>
       'napi.${isMap ? 'JsMap<${key!.dartType}, ${value.dartType}>' : 'JsArray<${value.dartType}>'}${nullable ? '?' : ''}';

@@ -12,7 +12,7 @@ Both targets use these mappings:
 | `List<T>` | `Array<T>` | Independent container on each conversion |
 | `Map<K, V>` | `Map<K, V>` | Independent container on each conversion |
 | `Dictionary<V>` | String-keyed object | Independent container on each conversion |
-| `JsArray<T>` / `JsMap<K, V>` | Original JS Array or Map | Retains the existing JS container; scalar and direct opaque elements |
+| `JsArray<T>` / `JsMap<K, V>` | Original JS Array or Map | Retains the existing JS container; scalar, nested handle and direct opaque elements |
 | Exported Dart reference class | Bound class instance | Dart owns its state; methods expose supported operations |
 
 See [structural conversion](structural.md) for strict input validation, element
@@ -67,8 +67,18 @@ For `const output = echo([source])`, the returned outer array is new and
 `output[0] === source`. Admission does not inspect the handle's elements; later
 Dart reads and writes observe the live source. [Typed callbacks](callbacks.md)
 also accept and return handles, directly or inside Lists and records. Handles
-cannot be structural Map keys or elements of another handle. Other handle element
-types remain unsupported.
+can be keys or values of another handle:
+
+```dart
+@NAPI()
+JsArray<int>? first(JsArray<JsArray<int>?> values) => values.get(0);
+```
+
+Calling `first([source])` returns the original `source` array. Reading an inner
+handle checks its Array/Map brand without walking its elements; subsequent reads
+and writes use its own element policy. Saving the inner handle keeps it usable
+after the outer container removes it. `JsMap` handle keys retain the original JS
+key identity. Handles cannot be keys of an ordinary copied Dart Map.
 
 Admission checks the genuine container brand without walking its contents.
 Cross-realm containers work; Proxy containers are rejected. Each operation
