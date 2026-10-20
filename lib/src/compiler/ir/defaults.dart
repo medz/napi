@@ -3,10 +3,13 @@ import 'dart:typed_data';
 
 import 'model.dart';
 
-/// Canonical Dart syntax for a completely represented built-in constant graph.
+/// Dart syntax for a completely represented constant graph.
 /// This encoding also compares defaults; list/map actual types and map order
 /// remain observable, while record named fields are ordered by name.
-String constantDefaultSource(ConstantDefault value) {
+String constantDefaultSource(
+  ConstantDefault value, {
+  String Function(DeclarationId)? declarationSource,
+}) {
   if (value is ScalarDefault) return _scalarSource(value.value);
   final budget = ConstantDefaultBudget();
   final output = StringBuffer();
@@ -26,6 +29,18 @@ String constantDefaultSource(ConstantDefault value) {
       }
     }
 
+    String typeSource(BindingType type) {
+      final source = constantTypeSource(
+        type,
+        budget: budget,
+        declarationSource: declarationSource,
+      );
+      if (source == null) {
+        throw const FormatException('Constant type cannot be named publicly.');
+      }
+      return source;
+    }
+
     switch (value) {
       case ScalarDefault(:final value):
         if (value is String && value.length > ConstantDefaultBudget.maxText) {
@@ -36,18 +51,14 @@ String constantDefaultSource(ConstantDefault value) {
         if (type is! DeclaredType || type.typeArguments.length != 1) {
           throw const FormatException('Invalid List default type.');
         }
-        write(
-          'const <${constantTypeSource(type.typeArguments.single, budget: budget)}>[',
-        );
+        write('const <${typeSource(type.typeArguments.single)}>[');
         children(elements);
         write(']');
       case MapDefault(:final type, :final entries):
         if (type is! DeclaredType || type.typeArguments.length != 2) {
           throw const FormatException('Invalid Map default type.');
         }
-        write(
-          'const <${type.typeArguments.map((t) => constantTypeSource(t, budget: budget)).join(', ')}>{',
-        );
+        write('const <${type.typeArguments.map(typeSource).join(', ')}>{');
         var first = true;
         for (final (key, value) in entries) {
           if (!first) write(', ');
@@ -68,6 +79,31 @@ String constantDefaultSource(ConstantDefault value) {
           emit(named[name]!, depth + 1);
         }
         if (positional.length == 1 && named.isEmpty) write(',');
+        write(')');
+      case ObjectDefault(
+        :final constructorType,
+        :final constructor,
+        :final positional,
+        :final named,
+      ):
+        if (constructor.kind != DeclarationKind.constructor ||
+            constructor.owner != constructorType.declaration ||
+            constructorType.declaration.kind != DeclarationKind.classType ||
+            constructor.name.startsWith('_') ||
+            named.keys.any((name) => name.startsWith('_'))) {
+          throw const FormatException('Constant constructor must be public.');
+        }
+        write('const ${typeSource(constructorType)}');
+        if (constructor.name != 'new') write('.${constructor.name}');
+        write('(');
+        children(positional);
+        var first = positional.isEmpty;
+        for (final name in named.keys.toList()..sort()) {
+          if (!first) write(', ');
+          first = false;
+          write('$name: ');
+          emit(named[name]!, depth + 1);
+        }
         write(')');
     }
   }
@@ -100,11 +136,12 @@ final class ConstantDefaultLimit implements Exception {
       'Structural default exceeds 10000 expanded values/type nodes, depth 64, or 1 MiB of generated text.';
 }
 
-/// Only library-independent types can be reconstructed in this first slice.
+/// Public user types require a declaration renderer for their import prefix.
 String? constantTypeSource(
   BindingType type, {
   ConstantDefaultBudget? budget,
   int depth = 0,
+  String Function(DeclarationId)? declarationSource,
 }) {
   budget ??= ConstantDefaultBudget();
   budget.visit(
@@ -129,6 +166,7 @@ String? constantTypeSource(
           field,
           budget: budget,
           depth: depth + 1,
+          declarationSource: declarationSource,
         );
         if (text == null) return null;
         fields.add(text);
@@ -140,6 +178,7 @@ String? constantTypeSource(
           named[name]!,
           budget: budget,
           depth: depth + 1,
+          declarationSource: declarationSource,
         );
         if (text == null) return null;
         namedFields.add('$text $name');
@@ -170,11 +209,34 @@ String? constantTypeSource(
           argument,
           budget: budget,
           depth: depth + 1,
+          declarationSource: declarationSource,
         );
         if (text == null) return null;
         args.add(text);
       }
       return '${declaration.name}${args.isEmpty ? '' : '<${args.join(', ')}>'}$suffix';
+    case DeclaredType(:final declaration, :final typeArguments)
+        when declarationSource != null &&
+            declaration.owner == null &&
+            !declaration.name.startsWith('_') &&
+            const {
+              DeclarationKind.classType,
+              DeclarationKind.enumType,
+              DeclarationKind.mixinType,
+              DeclarationKind.extensionType,
+            }.contains(declaration.kind):
+      final args = <String>[];
+      for (final argument in typeArguments) {
+        final text = constantTypeSource(
+          argument,
+          budget: budget,
+          depth: depth + 1,
+          declarationSource: declarationSource,
+        );
+        if (text == null) return null;
+        args.add(text);
+      }
+      return '${declarationSource(declaration)}${args.isEmpty ? '' : '<${args.join(', ')}>'}$suffix';
     default:
       return null;
   }
@@ -195,7 +257,56 @@ String parameterDefaultKey(ParameterBinding parameter) {
       return _scalarSource(n.toDouble());
     }
   }
-  return constantDefaultSource(value);
+  return constantDefaultSource(
+    value,
+    declarationSource: constantDeclarationKey,
+  );
+}
+
+/// Library identity matters when comparing otherwise identical default syntax.
+String constantDeclarationKey(DeclarationId declaration) =>
+    '${declaration.library}#${declaration.name}';
+
+/// Declarations named by reconstruction, excluding a factory's private result.
+Iterable<DeclarationId> constantDefaultDeclarations(
+  ConstantDefault value,
+) sync* {
+  Iterable<DeclarationId> typeDeclarations(BindingType type) sync* {
+    if (type is DeclaredType) {
+      if (type.declaration.library != Uri.parse('dart:core')) {
+        yield type.declaration;
+      }
+      for (final argument in type.typeArguments) {
+        yield* typeDeclarations(argument);
+      }
+    } else if (type is RecordTypeBinding) {
+      for (final field in [...type.positional, ...type.named.values]) {
+        yield* typeDeclarations(field);
+      }
+    }
+  }
+
+  final children = <ConstantDefault>[];
+  switch (value) {
+    case ScalarDefault():
+      break;
+    case ListDefault(:final type, :final elements):
+      yield* typeDeclarations(type);
+      children.addAll(elements);
+    case MapDefault(:final type, :final entries):
+      yield* typeDeclarations(type);
+      for (final (key, value) in entries) {
+        children.addAll([key, value]);
+      }
+    case RecordDefault(:final positional, :final named):
+      children.addAll([...positional, ...named.values]);
+    case ObjectDefault(:final constructorType, :final positional, :final named):
+      yield* typeDeclarations(constructorType);
+      children.addAll([...positional, ...named.values]);
+  }
+  for (final child in children) {
+    yield* constantDefaultDeclarations(child);
+  }
 }
 
 String _scalarSource(Object? value) {

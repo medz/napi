@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import '../analysis/reference_views.dart' show hasCompositeReferenceViews;
 import '../analysis/validate.dart' show resourcePolicies;
-import '../emit/dart/entrypoint.dart' show renderDartDefault;
+import '../emit/dart/defaults.dart';
 import '../ir/model.dart';
 import '../lowering/plan.dart'
     show
@@ -93,8 +93,20 @@ String emitNativeDart(NativeModulePlan plan) {
   final hasOpaqueStructuralInputs = plan.calls.any(
     (call) => hasNestedOpaque(call.inputs),
   );
-  final structures = NativeStructuralEmitter(hasResources: hasResources);
+  final defaultImports = defaultImportPrefixes(
+    plan.calls.expand((call) => call.parameters),
+    plan.calls.expand((call) => [...call.inputs, ?call.output]),
+  );
+  String declarationSource(DeclarationId declaration) =>
+      defaultDeclarationSource(declaration, defaultImports);
+  final structures = NativeStructuralEmitter(
+    hasResources: hasResources,
+    defaultDeclarationSource: declarationSource,
+  );
   final code = StringBuffer();
+  for (final entry in defaultImports.entries) {
+    code.writeln('import ${_quote(entry.key.toString())} as ${entry.value};');
+  }
   if (hasBinary) {
     code.writeln("import 'dart:typed_data' as typed_data;");
   }
@@ -353,7 +365,7 @@ ${tests.declarations}  int? canonical;''');
         code.writeln('    final ${conversion.dartType} reference$index;');
         if (_optional(parameter)) {
           code.writeln(
-            '    if (default$index) {\n      reference$index = ${renderDartDefault(parameter, conversion)};\n    } else {',
+            '    if (default$index) {\n      reference$index = ${renderDartDefault(parameter, conversion, declarationSource: declarationSource)};\n    } else {',
           );
         }
         _readReference(
@@ -413,7 +425,7 @@ ${tests.declarations}  int? canonical;''');
             ? '_api.defaultOption(call.env, options, $option)'
             : '_api.omittedOrUndefined(call, $index)';
         code.writeln(
-          '    if ($defaulted) {\n      a$index = ${renderDartDefault(parameter, conversion)};\n    } else {',
+          '    if ($defaulted) {\n      a$index = ${renderDartDefault(parameter, conversion, declarationSource: declarationSource)};\n    } else {',
         );
       }
       if (!preflight) code.writeln('    final raw$index = $raw;');

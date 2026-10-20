@@ -255,6 +255,28 @@ final class RecordDefault extends ConstantDefault {
       named = Map.unmodifiable(named);
 }
 
+/// An evaluated const invocation, retaining its original public constructor.
+/// Factories may create a different, private [type]; only [constructorType]
+/// needs to be named in generated Dart.
+final class ObjectDefault extends ConstantDefault {
+  final DeclaredType type;
+  final DeclaredType constructorType;
+  final DeclarationId constructor;
+  final List<ConstantDefault> positional;
+  final Map<String, ConstantDefault> named;
+  final List<DeclaredType> supertypes;
+  ObjectDefault(
+    this.type,
+    this.constructorType,
+    this.constructor,
+    Iterable<ConstantDefault> positional,
+    Map<String, ConstantDefault> named, {
+    Iterable<DeclaredType> supertypes = const [],
+  }) : positional = List.unmodifiable(positional),
+       named = Map.unmodifiable(named),
+       supertypes = List.unmodifiable(supertypes);
+}
+
 final class ParameterBinding {
   final String name;
   final BindingType type;
@@ -262,6 +284,14 @@ final class ParameterBinding {
   final ParameterKind kind;
   final String? defaultSource;
   final ConstantDefault? defaultValue;
+
+  /// Shared only for canonically equal constants read in one frontend session.
+  /// An opaque token preserves identity without retaining analyzer metadata.
+  final Object? defaultIdentity;
+
+  /// The frontend proved the evaluated constant's type assignable to [type].
+  /// Its represented graph and supported boundary types still need validation.
+  final bool defaultTypeIsAssignable;
   final bool hasDefault;
   final SourceLocation? source;
   final String? documentation;
@@ -275,6 +305,8 @@ final class ParameterBinding {
     this.kind = ParameterKind.requiredPositional,
     this.defaultSource,
     this.defaultValue,
+    this.defaultIdentity,
+    this.defaultTypeIsAssignable = false,
     bool hasDefault = false,
     this.source,
     this.documentation,

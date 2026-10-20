@@ -84,7 +84,7 @@ void main() {
       expect(emitReferences(), isNot(contains('import ')));
       expect(emitBoundary(module), isNot(contains("from './calls.mjs'")));
       await input.writeAsString(
-        "import 'package:napi/napi.dart'; @NAPI() class Box {} @NAPI() List<Box> bad([List<Box> value = const []]) => value;",
+        "import 'package:napi/napi.dart'; @NAPI(classPolicy: ClassPolicy.resource, cleanup: 'dispose') class Box { void dispose() {} } @NAPI() List<Box> bad([List<Box> value = const []]) => value;",
       );
       await expectLater(
         () async => lower(

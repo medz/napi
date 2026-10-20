@@ -52,3 +52,26 @@ void [defaults, namedDefault, defaultObject, defaultNamed, inherited];
 wasm.structuralDefaults(null);
 // @ts-expect-error Supplied lists still use their scalar contract.
 native.namedDefaults({wide: [1n]});
+
+const objectDefaults: boolean = wasm.objectDefaults(undefined, {});
+const token: native.DefaultToken = native.objectDefaultToken(undefined);
+const sameToken: boolean = native.namedObjectDefault({token});
+const nullableToken: boolean = native.namedObjectDefault({token: null});
+const objectValue: wasm.DefaultValue = wasm.objectDefaultValue({value: undefined});
+const fieldDefault: boolean = wasm.valueFieldDefault({token: undefined});
+const concreteDefault: boolean = wasm.genericObjectDefault(new wasm.DefaultIntBox(13));
+const factoryDefault: boolean = native.factoryObjectDefault(new native.DefaultProjection(17));
+const afterHole: number = root.objectDefaultAfter(undefined, 0);
+const objectBase: root.DefaultBase = root.DefaultBase.namedObject({value: undefined});
+const inheritedObject: Promise<boolean> = new root.DefaultChild().laterObject({});
+const externalDefault: boolean = nativeRoot.objectDefaults(undefined, {value: 9});
+void [objectDefaults, sameToken, nullableToken, objectValue, fieldDefault,
+  concreteDefault, factoryDefault, afterHole, objectBase, inheritedObject, externalDefault];
+// @ts-expect-error Reference defaults retain their nominal input type.
+wasm.objectDefaultToken({value: 7});
+// @ts-expect-error Non-null defaults do not permit null.
+native.objectDefaults(null);
+// @ts-expect-error The concrete class retains its selected integer type.
+new wasm.DefaultIntBox('13');
+// @ts-expect-error Structural value fields retain reference ownership.
+wasm.objectDefaultValue({token});

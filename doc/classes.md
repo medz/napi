@@ -36,8 +36,9 @@ Abstract classes can expose factory constructors backed by a concrete Dart objec
 Parameters/results use strict scalar, selected reference, [value-class](values.md) or nested List/Map/Dictionary/record
 types, including nullable nodes. Containers are cloned while their reference
 leaves preserve live wrapper identity. This also applies to constructors, methods,
-fields and accessors. Optional references may default to null; structural
-parameters also support [built-in constant defaults](arguments.md). Omission
+fields and accessors. Optional references may default to null or a
+[publicly constructible constant](arguments.md). Structural parameters support
+the same constants in their containers. Omission
 and `undefined` apply the default. Required nullable references still require a
 value, with `null` accepted. Named parameters use the ordinary options-object
 policy. Void methods return `undefined`. Invalid input fails before business code;
@@ -143,7 +144,8 @@ cancellation](cancellation.md) are supported. Other generic specializations are
 diagnosed; an abort does not preempt arbitrary Dart execution.
 [Typed callback inputs](callbacks.md) and [Stream results](streams.md) use their
 documented supported signatures; other combinations produce build diagnostics.
-Non-null reference and value-class defaults are rejected. A composite must have
+Resource defaults and constants requiring private constructors are rejected.
+A composite must have
 a selected operation whose call contract satisfies every view sharing that JS name; the compiler
 does not synthesize a new overload or union conversion from incompatible
 operations.

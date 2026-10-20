@@ -122,11 +122,22 @@ class DefaultBase {
   DefaultBase([List<int> value = _empty]) : original = identical(value, _empty);
   DefaultBase.named({List<int> value = _empty})
     : original = identical(value, _empty);
+  DefaultBase.object([DefaultToken value = _token])
+    : original = identical(value, _token);
+  DefaultBase.namedObject({DefaultToken value = _token})
+    : original = identical(value, _token);
   bool check({List<int> value = _empty}) => identical(value, _empty);
+  bool checkObject({DefaultToken value = _token}) => identical(value, _token);
   Future<bool> later([List<int> value = _empty]) async =>
       identical(value, _empty);
   Stream<bool> sequence([List<int> value = _empty]) async* {
     yield identical(value, _empty);
+  }
+
+  Future<bool> laterObject([DefaultValue value = _value]) async =>
+      identical(value, _value);
+  Stream<bool> sequenceObject([DefaultToken value = _token]) async* {
+    yield identical(value, _token);
   }
 
   List<int> snapshot([List<int> value = const [1, 2]]) {
@@ -145,3 +156,89 @@ class DefaultChild extends DefaultBase {
   @override
   bool check({List<int> value = const [7]}) => identical(value, _empty);
 }
+
+@NAPI()
+class DefaultToken {
+  final int value;
+  const DefaultToken([this.value = 7]);
+}
+
+@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+class DefaultValue {
+  final DefaultToken token;
+  final int value;
+  const DefaultValue({this.token = _token, this.value = 9});
+}
+
+class DefaultValueChild extends DefaultValue {
+  const DefaultValueChild();
+}
+
+class DefaultBox<T> {
+  final T value;
+  const DefaultBox(this.value);
+}
+
+@NAPI()
+typedef DefaultIntBox = DefaultBox<int>;
+
+abstract class Projection<T> {
+  const factory Projection(T value) = _DefaultProjection<T, int>;
+  T get value;
+}
+
+class _DefaultProjection<T, U> implements Projection<T> {
+  @override
+  final T value;
+  const _DefaultProjection(this.value);
+}
+
+@NAPI()
+typedef DefaultProjection = Projection<int>;
+
+const _token = DefaultToken();
+const _value = DefaultValue();
+const _objectList = <DefaultValueChild>[DefaultValueChild()];
+const _objectMap = <String, DefaultToken>{'token': _token};
+const _objectDictionary = Dictionary<DefaultValue>({'value': _value});
+const _objectRecord = (token: _token, value: _value);
+const _objectBox = DefaultIntBox(13);
+const _projection = DefaultProjection(17);
+
+@NAPI()
+bool objectDefaults([
+  DefaultToken token = _token,
+  DefaultValue value = _value,
+  List<DefaultValue> values = _objectList,
+  Map<String, DefaultToken> mapping = _objectMap,
+  Dictionary<DefaultValue> dictionary = _objectDictionary,
+  ({DefaultToken token, DefaultValue value}) record = _objectRecord,
+]) {
+  _calls++;
+  return identical(token, _token) &&
+      identical(value, _value) &&
+      identical(values, _objectList) &&
+      identical(mapping, _objectMap) &&
+      identical(dictionary, _objectDictionary) &&
+      identical(record.token, _token) &&
+      identical(record.value, _value);
+}
+
+@NAPI()
+DefaultToken objectDefaultToken([DefaultToken token = _token]) => token;
+@NAPI()
+int objectDefaultAfter([DefaultToken token = _token, int after = 3]) =>
+    token.value + after;
+@NAPI()
+bool namedObjectDefault({DefaultToken? token = _token}) =>
+    identical(token, _token);
+@NAPI()
+DefaultValue objectDefaultValue([DefaultValue value = _value]) => value;
+@NAPI()
+bool valueFieldDefault(DefaultValue value) => identical(value.token, _token);
+@NAPI()
+bool genericObjectDefault([DefaultIntBox value = _objectBox]) =>
+    identical(value, _objectBox);
+@NAPI()
+bool factoryObjectDefault([DefaultProjection value = _projection]) =>
+    identical(value, _projection);
