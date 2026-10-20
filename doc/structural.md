@@ -153,7 +153,7 @@ equally inside containers. [SharedBytes](shared-bytes.md) leaves retain their li
 shared views inside structural values. Opaque leaves preserve the original JS
 value without inspecting it.
 
-Defaults containing reference, resource, opaque or value-class leaves, opaque
+Structural defaults containing resource or opaque leaves, opaque
 Map keys and JS collection handles as Map keys are not supported.
 Open generic resource/value classes are still unsupported. Failed input conversion
 does not invoke the exported business method, reference constructor or setter.
