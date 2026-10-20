@@ -56,6 +56,10 @@ Object defaults use their evaluated public const constructor and arguments;
 private constant variables and public factories redirecting to private classes
 retain their original Dart identity. Constructor arguments may include other
 publicly constructible constants without exporting those helper types to JS.
+Private constructors and auxiliary constant values also work when the default
+names a public const variable, directly or through constant aliases. A public
+static const on a public class can supply the same kind of object. Its private
+implementation and helper values stay in Dart.
 Actual constant types are preserved, including `const <Never>[]`, nested
 Dictionary representations, map insertion order and canonical const identity.
 Defaults stay in Dart; returning one still uses the normal output conversion.
@@ -77,8 +81,9 @@ Direct resource parameters support const defaults and acquire the same operation
 leases as explicit inputs; see [resource defaults](resources.md#constant-defaults).
 Resources inside container defaults or value-class input defaults remain
 unsupported. Opaque defaults remain unsupported, including empty containers
-declared with opaque element types. Constants requiring private constructors,
-private type names or unsupported constant kinds produce `NAPI_DEFAULT`.
+declared with opaque element types. An object that has neither a reconstructible
+public constructor nor a reachable public const binding produces `NAPI_DEFAULT`.
+Unsupported constant kinds outside those objects are also diagnosed.
 Defaults exceeding the
 structural work/depth or generated-text limit produce `NAPI_DEFAULT`.
 

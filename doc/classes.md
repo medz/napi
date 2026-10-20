@@ -37,7 +37,7 @@ Parameters/results use strict scalar, selected reference, [value-class](values.m
 types, including nullable nodes. Containers are cloned while their reference
 leaves preserve live wrapper identity. This also applies to constructors, methods,
 fields and accessors. Optional references may default to null or a
-[publicly constructible constant](arguments.md). Structural parameters support
+[const object](arguments.md). Structural parameters support
 the same constants in their containers. Omission
 and `undefined` apply the default. Required nullable references still require a
 value, with `null` accepted. Named parameters use the ordinary options-object
@@ -144,8 +144,8 @@ cancellation](cancellation.md) are supported. Other generic specializations are
 diagnosed; an abort does not preempt arbitrary Dart execution.
 [Typed callback inputs](callbacks.md) and [Stream results](streams.md) use their
 documented supported signatures; other combinations produce build diagnostics.
-Resource defaults inside containers or value-class inputs, and constants requiring
-private constructors, are rejected.
+Resource defaults inside containers or value-class inputs, and object defaults
+without a usable public constructor or const binding, are rejected.
 A composite must have
 a selected operation whose call contract satisfies every view sharing that JS name; the compiler
 does not synthesize a new overload or union conversion from incompatible

@@ -145,6 +145,36 @@ async function check(name, selected) {
     assert.equal(await child.laterObject(), true);
     assert.equal(await child.laterObject({}), false);
     assert.deepEqual(await Array.fromAsync(child.sequenceObject(undefined)), [true]);
+    const origin = current.originPointDefault();
+    const staticOrigin = current.staticObjectDefault();
+    assert.equal(origin.value, 31);
+    assert.equal(origin.checksum, 39);
+    assert.equal(staticOrigin.value, 32);
+    assert.equal(staticOrigin.checksum, 41);
+    assert.equal(current.originPointDefault(undefined), origin);
+    assert.equal(current.originPointDefault(origin), origin);
+    assert.equal(current.staticObjectDefault(undefined), staticOrigin);
+    assert.equal(current.namedContainerDefaults(), true);
+    assert.equal(current.namedContainerDefaults(undefined, undefined, undefined), true);
+    assert.equal(current.namedContainerDefaults([origin]), false);
+    assert.equal(current.namedValueFieldDefault({}), true);
+    assert.equal(current.namedValueFieldDefault({point: undefined}), true);
+    assert.equal(current.namedValueFieldDefault({point: origin}), true);
+    assert.equal(current.namedValueFieldDefault({point: staticOrigin}), false);
+    assert.throws(() => current.namedValueFieldDefault({point: null}), TypeError);
+    const originResource = current.originResourceDefault();
+    assert.equal(current.originResourceDefault(undefined), originResource);
+    assert.equal(current.originResourceDefault(originResource), originResource);
+    assert.equal(current.NamedResource.origin, originResource);
+    let originClosed;
+    assert.equal(current.namedResourceUse(() => {
+      originClosed = originResource.close();
+      assert.equal(current.NamedResource.cleanups, 0);
+    }), 33);
+    await originClosed;
+    assert.equal(current.NamedResource.cleanups, 1);
+    assert.equal(originResource.close(), originClosed);
+    assert.throws(() => current.originResourceDefault(), /closing|closed/i);
     await resourceDefaults(current, callback => { onSignalRead = callback; });
     assert.throws(() => current.identity({value: 4}), TypeError);
   }

@@ -2883,6 +2883,15 @@ bool _defaultGraphHasResource(
   List<ClassBinding> classes,
 ) {
   bool child(ConstantDefault value) => _defaultGraphHasResource(value, classes);
+  bool resource(DeclaredType type, List<DeclaredType> supertypes) =>
+      classes.any(
+        (binding) =>
+            _defaultResourceClass(binding, classes) &&
+            [
+              type,
+              ...supertypes,
+            ].any((type) => referenceClassMatches(binding, type)),
+      );
   return switch (value) {
     ScalarDefault() => false,
     ListDefault(:final elements) => elements.any(child),
@@ -2897,16 +2906,13 @@ bool _defaultGraphHasResource(
       :final positional,
       :final named,
     ) =>
-      classes.any(
-            (binding) =>
-                _defaultResourceClass(binding, classes) &&
-                [
-                  type,
-                  ...supertypes,
-                ].any((type) => referenceClassMatches(binding, type)),
-          ) ||
+      resource(type, supertypes) ||
           positional.any(child) ||
           named.values.any(child),
+    NamedObjectDefault(:final type, :final supertypes) => resource(
+      type,
+      supertypes,
+    ),
   };
 }
 
@@ -3028,8 +3034,10 @@ bool _structuralDefaultFits(
                 type.named.containsKey(e.key) &&
                 _structuralDefaultFits(e.value, type.named[e.key]!, classes),
           );
-    case ObjectDefault(:final type, :final supertypes):
+    case ObjectDefault(:final type, :final supertypes) ||
+        NamedObjectDefault(:final type, :final supertypes):
       return expected is DeclaredType &&
+          expected.semantics == ValueSemantics.reference &&
           (rootTypeIsAssignable ||
               [
                 type,

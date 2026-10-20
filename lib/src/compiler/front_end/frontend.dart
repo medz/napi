@@ -1209,19 +1209,21 @@ final class _Reader {
                 declarationSource: constantDeclarationKey,
               ) ==
               null) {
-        return null;
+        return _namedObjectDefault(value, actual, budget);
       }
       final positional = <ConstantDefault>[];
       final named = <String, ConstantDefault>{};
-      for (final value in invocation.positionalArguments) {
-        final child = _constantDefault(value, budget, depth + 1);
-        if (child == null) return null;
+      for (final argument in invocation.positionalArguments) {
+        final child = _constantDefault(argument, budget, depth + 1);
+        if (child == null) return _namedObjectDefault(value, actual, budget);
         positional.add(child);
       }
       for (final entry in invocation.namedArguments.entries) {
-        if (entry.key.startsWith('_')) return null;
+        if (entry.key.startsWith('_')) {
+          return _namedObjectDefault(value, actual, budget);
+        }
         final child = _constantDefault(entry.value, budget, depth + 1);
-        if (child == null) return null;
+        if (child == null) return _namedObjectDefault(value, actual, budget);
         named[entry.key] = child;
       }
       return ObjectDefault(
@@ -1277,6 +1279,50 @@ final class _Reader {
       named[entry.key] = child;
     }
     return RecordDefault(type, positional, named);
+  }
+
+  NamedObjectDefault? _namedObjectDefault(
+    DartObject value,
+    a.InterfaceType type,
+    ConstantDefaultBudget budget,
+  ) {
+    if (type.element is! a.ClassElement) return null;
+    var variable = value.variable;
+    final visited = <a.VariableElement>{};
+    while (variable != null && variable.isConst && visited.add(variable)) {
+      budget.visit(0, leaf: true);
+      final owner = variable.enclosingElement;
+      final public =
+          variable.isPublic &&
+          (variable is a.TopLevelVariableElement ||
+              variable is a.FieldElement &&
+                  variable.isStatic &&
+                  owner is a.InterfaceElement &&
+                  owner.isPublic);
+      if (public && variable.computeConstantValue() == value) {
+        return NamedObjectDefault(
+          _type(type) as DeclaredType,
+          _id(variable),
+          type.allSupertypes.map((type) => _type(type) as DeclaredType),
+        );
+      }
+      var initializer = variable.constantInitializer;
+      while (initializer is ParenthesizedExpression) {
+        initializer = initializer.expression;
+      }
+      final target = switch (initializer) {
+        SimpleIdentifier(:final element) => element,
+        PrefixedIdentifier(:final identifier) => identifier.element,
+        PropertyAccess(:final propertyName) => propertyName.element,
+        _ => null,
+      };
+      variable = target is a.GetterElement
+          ? target.variable
+          : target is a.VariableElement
+          ? target
+          : null;
+    }
+    return null;
   }
 
   void _checkConstantType(

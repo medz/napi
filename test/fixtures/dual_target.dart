@@ -328,3 +328,78 @@ int resourceDefaultChecked([
   _constCalls++;
   return value.value + amount;
 }
+
+enum _PointKind { origin }
+
+int _pointHelper() => 5;
+
+@NAPI()
+class NamedPoint {
+  final int value;
+  final _PointKind _kind;
+  final Set<int> _tags;
+  final int Function() _helper;
+  const NamedPoint._(this.value, this._kind, this._tags, this._helper);
+  int get checksum => value + _kind.index + _tags.single + _helper();
+}
+
+const namedOrigin = NamedPoint._(31, _PointKind.origin, {3}, _pointHelper);
+const _namedAlias = namedOrigin;
+
+class NamedHolder {
+  static const origin = NamedPoint._(32, _PointKind.origin, {4}, _pointHelper);
+}
+
+const _namedList = <NamedPoint>[_namedAlias, NamedHolder.origin];
+const _namedMap = <String, NamedPoint>{'origin': _namedAlias};
+const _namedRecord = (first: _namedAlias, second: NamedHolder.origin);
+
+@NAPI()
+NamedPoint originPointDefault([NamedPoint value = _namedAlias]) => value;
+@NAPI()
+NamedPoint staticObjectDefault([NamedPoint value = NamedHolder.origin]) =>
+    value;
+@NAPI()
+bool namedContainerDefaults([
+  List<NamedPoint> values = _namedList,
+  Map<String, NamedPoint> mapping = _namedMap,
+  ({NamedPoint first, NamedPoint second}) record = _namedRecord,
+]) =>
+    identical(values, _namedList) &&
+    identical(mapping, _namedMap) &&
+    identical(record.first, _namedAlias) &&
+    identical(record.second, NamedHolder.origin);
+
+@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+class NamedValue {
+  final NamedPoint point;
+  const NamedValue({this.point = _namedAlias});
+}
+
+@NAPI()
+bool namedValueFieldDefault(NamedValue value) =>
+    identical(value.point, _namedAlias);
+
+int _namedResourceCleanups = 0;
+
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+class NamedResource {
+  final int value;
+  const NamedResource._(this.value);
+  static const origin = NamedResource._(33);
+  static int get cleanups => _namedResourceCleanups;
+  void close() => _namedResourceCleanups++;
+}
+
+@NAPI()
+NamedResource originResourceDefault([
+  NamedResource value = NamedResource.origin,
+]) => value;
+@NAPI()
+int namedResourceUse(
+  void Function() callback, [
+  NamedResource value = NamedResource.origin,
+]) {
+  callback();
+  return value.value;
+}
