@@ -80,7 +80,10 @@ still work independently when later arguments are supplied.
 Direct resource parameters support const defaults and acquire the same operation
 leases as explicit inputs; see [resource defaults](resources.md#constant-defaults).
 Resources inside container defaults or value-class input defaults remain
-unsupported. Opaque defaults remain unsupported, including empty containers
+unsupported. When a library exports resources, value-object defaults may contain
+only scalar fields or built-in containers of scalars. Supply objects with reference
+or nested value-class fields explicitly.
+Opaque defaults remain unsupported, including empty containers
 declared with opaque element types. An object that has neither a reconstructible
 public constructor nor a reachable public const binding produces `NAPI_DEFAULT`.
 Unsupported constant kinds outside those objects are also diagnosed.

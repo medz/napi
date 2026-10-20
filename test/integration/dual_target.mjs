@@ -125,11 +125,11 @@ async function check(name, selected) {
     assert.equal(current.namedObjectDefault({token: suppliedToken}), false);
     assert.throws(() => current.namedObjectDefault({token: {value: 7}}), TypeError);
     const defaultValue = current.objectDefaultValue();
-    assert.deepEqual(defaultValue, {token: defaultToken, value: 9});
+    assert.deepEqual(defaultValue, {value: 9});
     defaultValue.value = 20;
-    assert.deepEqual(current.objectDefaultValue(undefined), {token: defaultToken, value: 9});
+    assert.deepEqual(current.objectDefaultValue(undefined), {value: 9});
     assert.equal(current.valueFieldDefault({}), true);
-    assert.equal(current.valueFieldDefault({token: undefined, value: undefined}), true);
+    assert.equal(current.valueFieldDefault({token: undefined}), true);
     assert.equal(current.valueFieldDefault({token: suppliedToken}), false);
     assert.throws(() => current.valueFieldDefault({token: null}), TypeError);
     assert.equal(current.genericObjectDefault(), true);

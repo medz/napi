@@ -191,7 +191,7 @@ use the explicit mappings described above.
 
 ## Migrating earlier bindings
 
-When upgrading from 0.14.x, change the Dart dependency to `napi: ^0.15.0` and
+When upgrading from 0.14.x, change the Dart dependency to `napi: ^0.16.0` and
 use Dart **3.13.5** exactly. The compiler adapter now pins that SDK version.
 
 1. Replace `@napi` with `@NAPI()`. Keep importing `package:napi/napi.dart` in
