@@ -2529,9 +2529,11 @@ void validateParameterDefault(
       'NAPI_DEFAULT',
       'Non-null defaults require a compatible const graph of scalars, selected '
           'reference/value objects, Lists, Maps, Dictionaries or records. '
-          'Object defaults need publicly callable const constructors; resource '
+          'Object defaults need accessible const constructors or bindings; resource '
           'defaults require direct reference parameters. Resource defaults in '
-          'containers or value constructors, and opaque defaults, remain unsupported.',
+          'containers or value constructors, and opaque defaults, remain unsupported. '
+          'Value-object defaults containing reference fields are unsupported '
+          'when the library exports resources.',
       parameter.source ?? source,
     );
   }
@@ -2837,12 +2839,13 @@ bool _portableDefaultParameter(
   BindingType type,
   List<ClassBinding> classes, [
   Set<ClassBinding>? seen,
+  bool withinValueDefault = false,
 ]) {
   if (_isBackendScalar(type)) return true;
   if (type.nullability == TypeNullability.legacy) return false;
   final visited = seen ?? <ClassBinding>{};
   bool child(BindingType type) =>
-      _portableDefaultParameter(type, classes, visited);
+      _portableDefaultParameter(type, classes, visited, withinValueDefault);
   if (type is RecordTypeBinding) {
     return type.positional.every(child) && type.named.values.every(child);
   }
@@ -2859,11 +2862,23 @@ bool _portableDefaultParameter(
       .firstOrNull;
   if (binding == null || _defaultResourceClass(binding, classes)) return false;
   if (binding.classPolicy != ClassPolicy.value) {
+    // A public value field can return a resource subtype or composite view.
+    // Its declared reference type alone cannot prove the const field value safe.
+    if (withinValueDefault &&
+        classes.any(
+          (binding) =>
+              binding.classPolicy == ClassPolicy.resource ||
+              binding.cleanup != null,
+        )) {
+      return false;
+    }
     return binding.typeParameters.isEmpty && isClosedConcreteType(type);
   }
   if (!visited.add(binding)) return true;
-  return _valueChildren(binding, ValueDirection.input).every(child) &&
-      _valueChildren(binding, ValueDirection.output).every(child);
+  bool valueField(BindingType type) =>
+      _portableDefaultParameter(type, classes, visited, true);
+  return _valueChildren(binding, ValueDirection.input).every(valueField) &&
+      _valueChildren(binding, ValueDirection.output).every(valueField);
 }
 
 bool _defaultResourceClass(ClassBinding binding, List<ClassBinding> classes) =>

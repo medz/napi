@@ -207,6 +207,62 @@ const origin = $constructor();
     });
   }
 
+  for (final (name, declaration) in [
+    ('direct value default', '@NAPI() int take([Value value = origin]) => 7;'),
+    (
+      'container value default',
+      '@NAPI() int take([List<Value> values = const [origin]]) => values.length;',
+    ),
+    (
+      'value input field default',
+      '''@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+class Envelope {
+  final Value value;
+  const Envelope({this.value = origin});
+}
+@NAPI() int take(Envelope input) => 7;''',
+    ),
+  ]) {
+    test(
+      '$name cannot hide an actual resource behind an ordinary base type',
+      () async {
+        for (final actual in ['ResourceChild', 'Composite']) {
+          final input = source('entry.dart', '''
+import 'package:napi/napi.dart';
+@NAPI() class Base { const Base(); }
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+class ResourceChild extends Base {
+  const ResourceChild();
+  void close() {}
+}
+class Composite implements Base, ResourceChild {
+  const Composite();
+  void close() {}
+}
+@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+class Value {
+  final Base handle;
+  const Value(this.handle);
+  const Value._(this.handle);
+}
+const origin = Value._($actual());
+$declaration
+''');
+          for (final native in [false, true]) {
+            await expectLater(() async {
+              final module = await read(input, native: native);
+              if (native) {
+                validateNative(module);
+              } else {
+                validate(module);
+              }
+            }, rejectedDefault());
+          }
+        }
+      },
+    );
+  }
+
   test(
     'a named const resource leaf cannot enter a container default',
     () async {

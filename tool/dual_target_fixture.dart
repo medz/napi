@@ -89,6 +89,13 @@ Future<void> verifyDualTargetFixture(
                 ),
               ),
               ExternalClass(
+                'ReferenceFieldValue',
+                config: const NAPI(
+                  classPolicy: ClassPolicy.value,
+                  valueConstructor: 'new',
+                ),
+              ),
+              ExternalClass(
                 'DefaultValue',
                 config: const NAPI(
                   classPolicy: ClassPolicy.value,

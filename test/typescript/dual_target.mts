@@ -74,7 +74,7 @@ native.objectDefaults(null);
 // @ts-expect-error The concrete class retains its selected integer type.
 new wasm.DefaultIntBox('13');
 // @ts-expect-error Structural value fields retain reference ownership.
-wasm.objectDefaultValue({token});
+wasm.valueFieldDefault({token});
 
 const constResource: wasm.ConstResource = wasm.resourceDefault(undefined);
 const namedResource: boolean = wasm.namedResourceDefault({value: undefined});

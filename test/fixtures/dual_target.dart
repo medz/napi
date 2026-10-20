@@ -169,9 +169,14 @@ class DefaultToken {
 
 @NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
 class DefaultValue {
-  final DefaultToken token;
   final int value;
-  const DefaultValue({this.token = _token, this.value = 9});
+  const DefaultValue({this.value = 9});
+}
+
+@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+class ReferenceFieldValue {
+  final DefaultToken token;
+  const ReferenceFieldValue({this.token = _token});
 }
 
 class DefaultValueChild extends DefaultValue {
@@ -239,7 +244,8 @@ bool namedObjectDefault({DefaultToken? token = _token}) =>
 @NAPI()
 DefaultValue objectDefaultValue([DefaultValue value = _value]) => value;
 @NAPI()
-bool valueFieldDefault(DefaultValue value) => identical(value.token, _token);
+bool valueFieldDefault(ReferenceFieldValue value) =>
+    identical(value.token, _token);
 @NAPI()
 bool genericObjectDefault([DefaultIntBox value = _objectBox]) =>
     identical(value, _objectBox);
