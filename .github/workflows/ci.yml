@@ -131,6 +131,7 @@ jobs:
     if: ${{ always() && needs.scope.result == 'success' && needs.scope.outputs.scope == 'full' }}
     name: Native consumers (macOS arm64)
     runs-on: macos-14
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dart-lang/setup-dart@v1
@@ -156,7 +157,7 @@ jobs:
           echo "NAPI_TEST_RUNTIME_ARCHIVE=$RUNNER_TEMP/runtime.zip" >> "$GITHUB_ENV"
           echo "NAPI_RUNTIME_CACHE=$RUNNER_TEMP/napi-runtime" >> "$GITHUB_ENV"
       - run: dart test test/compiler/native_runtime_test.dart test/compiler/native_bundle_test.dart
-      - run: dart run tool/native_verify.dart --packages-only
+      - run: dart run tool/native_verify.dart
 
   publication:
     needs: scope

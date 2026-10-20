@@ -38,17 +38,28 @@ suites compiled to Wasm.
 
 ## Native consumers
 
-On macOS arm64, run the installed native and dual-target packages with automatic
-runtime acquisition:
+On macOS arm64, run all native consumers, dual-target packages and callbacks with
+automatic runtime acquisition:
 
 ```sh
-dart run tool/native_verify.dart --packages-only
+dart run tool/native_verify.dart
 ```
 
 `NAPI_RUNTIME_CACHE` selects the cache directory. The first native build downloads
-the pinned runtime; the dual builds reuse it offline. CI runs this command on
-macOS 14 with both Node versions. For the broader native suite, use
-`dart run tool/native_verify.dart /absolute/path/to/runtime-bundle`.
+the pinned runtime; the remaining builds reuse the verified bundle. Dual-target
+packages also check offline cache reuse. Each fixture is built and installed
+once, then checked with every configured Node version. CI runs the complete
+suite on macOS 14 with both Node versions.
+
+For an offline run, supply a qualified bundle:
+
+```sh
+dart run tool/native_verify.dart /absolute/path/to/runtime-bundle
+```
+
+`--packages-only` runs just the native package and dual-target package checks,
+with the same optional bundle argument. The host-value fixture exercises a
+handwritten private ABI module; it does not test generated opaque declarations.
 
 The download/cache tests use `NAPI_TEST_RUNTIME_ARCHIVE` for the published ZIP.
 Without it, ordinary test discovery skips the successful-download cases. The
@@ -70,10 +81,9 @@ per backend in NodeNext and Bundler modes. Set `NAPI_TEST_NODE` to choose the
 TypeScript host; otherwise it uses `node` from `PATH`, independently of
 `NAPI_NODE_EXECUTABLES`.
 
-The native preset requires `NAPI_TEST_NATIVE_RUNTIME` to name a valid runtime
-bundle. Use the broader native verification command above for the other native
-consumers. CI runs the Wasm callback preset and native package checks; the full
-native callback suite currently needs an explicit local run.
+When run directly, the native preset requires `NAPI_TEST_NATIVE_RUNTIME` to name
+a valid runtime bundle. The complete native verification command above obtains
+the bundle and runs this preset automatically. CI runs both callback backends.
 
 Callback Node scenarios have command deadlines and clean up their child
 processes. Compiler/npm/TypeScript process-tree cancellation is not implemented;
