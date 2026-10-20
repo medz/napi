@@ -293,6 +293,20 @@ async function resourceDefaults(api, onSignalRead) {
   assert(containerSignalClosed instanceof Promise);
   await containerSignalClosed;
   assert.equal(api.ConstResource.cleanups(27), 1);
+
+  const containerStreamResource = api.ConstResource.constant(29);
+  const containerStream = api.resourceContainerSequence({values: undefined});
+  const containerFirst = await containerStream.next();
+  assert.equal(containerFirst.value, 29);
+  assert.equal(containerFirst.done, false);
+  await containerStreamResource.close();
+  const containerLast = await containerStream.next();
+  assert.equal(containerLast.value, undefined);
+  assert.equal(containerLast.done, true);
+  await containerStream.return();
+  assert.equal(api.ConstResource.cancellations, 2);
+  assert.equal(api.ConstResource.cleanups(29), 1);
+  assert.throws(() => api.resourceContainerSequence(), /closing|closed/i);
   await fresh.close();
 }
 

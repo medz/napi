@@ -261,6 +261,7 @@ const _failedResource = ConstResource(25);
 const _containerResource = ConstResource(26);
 const _containerSignalResource = ConstResource(27);
 const _containerFailedResource = ConstResource(28);
+const _containerStreamResource = ConstResource(29);
 const _resourceList = <ConstResource>[_containerResource, _containerResource];
 const _resourceMap = <String, List<ConstResource>>{'both': _resourceList};
 const _resourceDictionary = Dictionary<List<ConstResource>>({
@@ -288,6 +289,7 @@ class ConstResource {
     26 => _containerResource,
     27 => _containerSignalResource,
     28 => _containerFailedResource,
+    29 => _containerStreamResource,
     _ => throw ArgumentError.value(value),
   };
 }
@@ -377,6 +379,19 @@ Future<int> resourceContainerLater(
   callback();
   await Future<void>.delayed(const Duration(milliseconds: 2));
   return values.fold<int>(0, (sum, resource) => sum + resource.value);
+}
+
+@NAPI()
+Stream<int> resourceContainerSequence({
+  List<ConstResource> values = const [_containerStreamResource],
+}) async* {
+  _constCalls++;
+  try {
+    yield values.single.value;
+    yield values.single.value + 1;
+  } finally {
+    _constCancellations++;
+  }
 }
 
 @NAPI()

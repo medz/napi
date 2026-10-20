@@ -69,6 +69,7 @@ Future<void> verifyDualTargetFixture(
                 'resourceContainerDefaults',
                 'namedResourceContainerDefault',
                 'resourceContainerLater',
+                'resourceContainerSequence',
                 'resourceContainerSignal',
                 'resourceContainerChecked',
                 'originPointDefault',
