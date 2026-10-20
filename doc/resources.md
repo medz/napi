@@ -43,7 +43,7 @@ unsupported.
 
 ## Constant defaults
 
-A direct resource parameter may use a public const constructor or a public
+A resource parameter may use a public const constructor or a public
 [const object binding](arguments.md), for example
 `read([Resource resource = const Resource(7)])`. Omission and `undefined` select
 that same canonical Dart object; they do not create a fresh resource per call.
@@ -52,8 +52,11 @@ Named parameters and nullable parameters follow the usual presence rules.
 Default resources use the same operation leases as explicit inputs. Cleanup
 waits for accepted Future or Stream operations. Once the canonical resource is closing
 or closed, another call using that default is rejected; callers may supply a
-different open resource explicitly. Resource defaults inside containers or
-value-class input fields remain unsupported.
+different open resource explicitly. Built-in List, Map, Dictionary and record
+defaults may also contain resources. Their leaves, including Map keys and repeated
+aliases, are retained before callbacks, signal getters or value constructors run.
+The original Dart const containers and objects retain their identity. Resource
+defaults in value-class input fields remain unsupported.
 
 ## State and cleanup
 
