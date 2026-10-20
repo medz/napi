@@ -1,12 +1,14 @@
 import 'dart:convert';
 
 import '../../ir/model.dart';
-import 'entrypoint.dart' show renderDartDefault;
+import 'defaults.dart' show renderDartDefault;
 import '../../lowering/plan.dart';
 
 /// The JavaScript boundary validates and snapshots inputs before these readers
 /// run. Records use declaration field order; Maps use flat key/value arrays.
 final class DartStructuralEmitter {
+  final String Function(DeclarationId)? defaultDeclarationSource;
+  DartStructuralEmitter({this.defaultDeclarationSource});
   final _code = StringBuffer();
   var _next = 0;
   final _memo = <(ValueConversion, bool, bool), String>{};
@@ -222,7 +224,7 @@ final class DartStructuralEmitter {
             final read =
                 "${functions[index]}(fields[${2 * index + 1}], '\$path.$path')";
             final value = field.optional
-                ? '(fields[${2 * index}] as JSBoolean).toDart ? ${renderDartDefault(parameter, field.conversion)} : $read'
+                ? '(fields[${2 * index}] as JSBoolean).toDart ? ${renderDartDefault(parameter, field.conversion, declarationSource: defaultDeclarationSource)} : $read'
                 : read;
             _code.writeln(
               '  final ${field.conversion.dartType} a$index = $value;',

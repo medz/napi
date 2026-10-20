@@ -52,11 +52,29 @@ Future<void> verifyDualTargetFixture(
                 'structuralDefaults',
                 'namedDefaults',
                 'appendRow',
+                'objectDefaults',
+                'objectDefaultToken',
+                'objectDefaultAfter',
+                'namedObjectDefault',
+                'objectDefaultValue',
+                'valueFieldDefault',
+                'genericObjectDefault',
+                'factoryObjectDefault',
               ])
                 ExternalFunction(name),
               ExternalClass('Counter'),
               ExternalClass('DefaultBase'),
               ExternalClass('DefaultChild'),
+              ExternalClass('DefaultToken'),
+              ExternalClass('DefaultIntBox'),
+              ExternalClass('DefaultProjection'),
+              ExternalClass(
+                'DefaultValue',
+                config: const NAPI(
+                  classPolicy: ClassPolicy.value,
+                  valueConstructor: 'new',
+                ),
+              ),
               ExternalClass(
                 'Resource',
                 config: const NAPI(

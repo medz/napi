@@ -87,6 +87,52 @@ async function check(name, selected) {
     const snapshot = base.snapshot();
     snapshot[0] = 9;
     assert.deepEqual(base.snapshot(), [1, 2]);
+    assert.equal(current.objectDefaults(), true);
+    assert.equal(current.objectDefaults(...Array(6).fill(undefined)), true);
+    const defaultToken = current.objectDefaultToken();
+    assert.equal(current.objectDefaultToken(undefined), defaultToken);
+    const suppliedToken = new current.DefaultToken(7);
+    assert.equal(current.objectDefaultToken(suppliedToken), suppliedToken);
+    assert.equal(current.objectDefaults(suppliedToken), false);
+    assert.equal(current.objectDefaults(undefined, {}), false);
+    assert.equal(current.objectDefaults(undefined, undefined, []), false);
+    assert.equal(current.objectDefaults(undefined, undefined, undefined, new Map()), false);
+    const beforeObjects = current.calls();
+    assert.throws(() => current.objectDefaults(null), TypeError);
+    assert.throws(() => current.objectDefaults(undefined, undefined, [{value: 'bad'}]), TypeError);
+    assert.throws(() => current.objectDefaults(undefined, undefined, undefined,
+      new Map([['token', {value: 7}]])), TypeError);
+    assert.equal(current.calls(), beforeObjects);
+    assert.equal(current.objectDefaultAfter(), 10);
+    assert.equal(current.objectDefaultAfter(undefined, 0), 7);
+    assert.equal(current.objectDefaultAfter(new current.DefaultToken(5), 0), 5);
+    for (const options of [undefined, {}, {token: undefined}, {token: defaultToken}]) {
+      assert.equal(current.namedObjectDefault(options), true);
+    }
+    assert.equal(current.namedObjectDefault({token: null}), false);
+    assert.equal(current.namedObjectDefault({token: suppliedToken}), false);
+    assert.throws(() => current.namedObjectDefault({token: {value: 7}}), TypeError);
+    const defaultValue = current.objectDefaultValue();
+    assert.deepEqual(defaultValue, {token: defaultToken, value: 9});
+    defaultValue.value = 20;
+    assert.deepEqual(current.objectDefaultValue(undefined), {token: defaultToken, value: 9});
+    assert.equal(current.valueFieldDefault({}), true);
+    assert.equal(current.valueFieldDefault({token: undefined, value: undefined}), true);
+    assert.equal(current.valueFieldDefault({token: suppliedToken}), false);
+    assert.throws(() => current.valueFieldDefault({token: null}), TypeError);
+    assert.equal(current.genericObjectDefault(), true);
+    assert.equal(current.genericObjectDefault(undefined), true);
+    assert.equal(current.genericObjectDefault(new current.DefaultIntBox(13)), false);
+    assert.equal(current.factoryObjectDefault(), true);
+    assert.equal(current.factoryObjectDefault(undefined), true);
+    assert.equal(current.factoryObjectDefault(new current.DefaultProjection(17)), false);
+    assert.equal(current.DefaultBase.object().original, true);
+    assert.equal(current.DefaultBase.namedObject({value: undefined}).original, true);
+    assert.equal(child.checkObject({value: undefined}), true);
+    assert.equal(child.checkObject({value: suppliedToken}), false);
+    assert.equal(await child.laterObject(), true);
+    assert.equal(await child.laterObject({}), false);
+    assert.deepEqual(await Array.fromAsync(child.sequenceObject(undefined)), [true]);
     assert.throws(() => current.identity({value: 4}), TypeError);
   }
   assert.throws(() => native.identity(wasm.singleton()), TypeError);

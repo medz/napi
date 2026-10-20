@@ -121,6 +121,29 @@ class _Middle extends Base {
     );
   }
 
+  test('inherited const defaults compare canonical values across constructor calls', () async {
+    for (final expression in ['Point(7)', 'Point.same(7)']) {
+      final module = await read(
+        write('''
+import 'package:napi/napi.dart';
+@NAPI() class Point {
+  final int x;
+  const Point([this.x = 7]);
+  const Point.same(int x) : this(x);
+}
+@NAPI() class Base {
+  int read([Point point = const Point()]) => point.x;
+}
+@NAPI() class Child extends Base {
+  @override int read([Point point = const $expression]) => point.x;
+}
+'''),
+      );
+      expect(() => validate(module), returnsNormally);
+      expect(() => validateNative(module), returnsNormally);
+    }
+  });
+
   test(
     'safe inherited signatures keep selected declaration defaults and exports',
     () async {

@@ -203,17 +203,18 @@ const _items = <Dictionary<int>>[Dictionary<int>(<String, Never>{})];
   );
 
   test(
-    'empty const graphs cannot bypass unsupported declared default leaves',
+    'const graphs cannot bypass unsupported declared default leaves',
     () async {
       final root = await Directory.systemTemp.createTemp('napi-const-default-');
       addTearDown(() => root.delete(recursive: true));
       final file = File('${root.path}/entry.dart');
       for (final declaration in [
         '@NAPI() bool run<T>([List<T> value = const <Never>[]]) => true;',
-        '@NAPI() class Item { const Item(); } '
+        '@NAPI(classPolicy: ClassPolicy.resource, cleanup: "dispose") '
+            'class Item { void dispose() {} } '
             '@NAPI() bool run([List<Item> value = const <Never>[]]) => true;',
-        '@NAPI() class Item { const Item(); } '
-            '@NAPI() bool run([List<Item> value = const [Item()]]) => true;',
+        '@NAPI() class Item { const Item._(); } '
+            '@NAPI() bool run([List<Item> value = const [Item._()]]) => true;',
       ]) {
         await file.writeAsString(
           "import 'package:napi/napi.dart';\n$declaration",

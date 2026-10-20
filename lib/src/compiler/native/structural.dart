@@ -1,7 +1,7 @@
 import 'dart:convert';
 
-import '../emit/dart/entrypoint.dart' show renderDartDefault;
-import '../ir/model.dart' show ParameterKind;
+import '../emit/dart/defaults.dart' show renderDartDefault;
+import '../ir/model.dart' show DeclarationId, ParameterKind;
 import '../lowering/plan.dart';
 
 String _quote(String value) => jsonEncode(value).replaceAll(r'$', r'\$');
@@ -42,7 +42,11 @@ String nativeJsCollectionRead(
 /// Typed traversal owns only callback-scoped JS handles and ordinary Dart values.
 final class NativeStructuralEmitter {
   final bool hasResources;
-  NativeStructuralEmitter({this.hasResources = false});
+  final String Function(DeclarationId)? defaultDeclarationSource;
+  NativeStructuralEmitter({
+    this.hasResources = false,
+    this.defaultDeclarationSource,
+  });
   final _code = StringBuffer();
   var _next = 0;
   final _reads = Map<ValueConversion, String>.identity();
@@ -727,7 +731,7 @@ final class NativeStructuralEmitter {
           final materialized =
               '${functions[index]}(items[${2 * index + 1}], path + ${_quote('.${field.name}')} )';
           final expression = field.optional
-              ? '(items[${2 * index}] as bool) ? ${renderDartDefault(field.parameter!, field.conversion)} : $materialized'
+              ? '(items[${2 * index}] as bool) ? ${renderDartDefault(field.parameter!, field.conversion, declarationSource: defaultDeclarationSource)} : $materialized'
               : materialized;
           _code.writeln(
             '  final ${field.conversion.dartType} child$index = $expression;',

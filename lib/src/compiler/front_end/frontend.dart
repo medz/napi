@@ -157,6 +157,7 @@ final class _Reader {
   final _documentation = <a.Element, String>{};
   final _typeParameterIds = <a.TypeParameterElement, DeclarationId>{};
   final _opaqueParameters = <DeclarationId>{};
+  final _defaultIdentities = <DartObject, Object>{};
   _Reader(this.entry, this.annotationClass, {this.importUri});
 
   Future<BindingModule> readExternal(
@@ -1114,6 +1115,10 @@ final class _Reader {
     final opaque =
         type is TypeParameterType &&
         _opaqueParameters.contains(type.declaration);
+    final defaultValue = element.hasDefaultValue
+        ? element.computeConstantValue()
+        : null;
+    final defaultType = defaultValue?.type;
     return ParameterBinding(
       element.name ?? '',
       type,
@@ -1130,7 +1135,16 @@ final class _Reader {
           ? ParameterKind.optionalPositional
           : ParameterKind.requiredPositional,
       defaultSource: element.defaultValueCode,
-      defaultValue: element.hasDefaultValue ? _parameterDefault(element) : null,
+      defaultValue: element.hasDefaultValue
+          ? _parameterDefault(element, defaultValue)
+          : null,
+      defaultIdentity: defaultValue == null || !defaultValue.hasKnownValue
+          ? null
+          : _defaultIdentities.putIfAbsent(defaultValue, Object.new),
+      defaultTypeIsAssignable:
+          defaultType != null &&
+          (element.library?.typeSystem.isSubtypeOf(defaultType, element.type) ??
+              false),
       hasDefault: element.hasDefaultValue,
       source: element.firstFragment.libraryFragment == null
           ? null
@@ -1142,12 +1156,12 @@ final class _Reader {
     );
   }
 
-  ConstantDefault? _parameterDefault(a.FormalParameterElement element) {
+  ConstantDefault? _parameterDefault(
+    a.FormalParameterElement element,
+    DartObject? value,
+  ) {
     try {
-      return _constantDefault(
-        element.computeConstantValue(),
-        ConstantDefaultBudget(),
-      );
+      return _constantDefault(value, ConstantDefaultBudget());
     } on ConstantDefaultLimit catch (error) {
       throw BindingDiagnostic(
         'NAPI_DEFAULT',
@@ -1181,7 +1195,50 @@ final class _Reader {
     if (actual == null) return null;
     _checkConstantType(actual, budget);
     final type = _type(actual);
-    if (constantTypeSource(type) == null) return null;
+    final invocation = value.constructorInvocation;
+    if (invocation != null && actual is a.InterfaceType) {
+      final constructor = invocation.constructor;
+      final constructorType = _type(constructor.returnType);
+      if (constructor.enclosingElement is! a.ClassElement ||
+          constructor.isPrivate ||
+          constructor.enclosingElement.isPrivate ||
+          constructorType is! DeclaredType ||
+          type is! DeclaredType ||
+          constantTypeSource(
+                constructorType,
+                declarationSource: constantDeclarationKey,
+              ) ==
+              null) {
+        return null;
+      }
+      final positional = <ConstantDefault>[];
+      final named = <String, ConstantDefault>{};
+      for (final value in invocation.positionalArguments) {
+        final child = _constantDefault(value, budget, depth + 1);
+        if (child == null) return null;
+        positional.add(child);
+      }
+      for (final entry in invocation.namedArguments.entries) {
+        if (entry.key.startsWith('_')) return null;
+        final child = _constantDefault(entry.value, budget, depth + 1);
+        if (child == null) return null;
+        named[entry.key] = child;
+      }
+      return ObjectDefault(
+        type,
+        constructorType,
+        _id(constructor),
+        positional,
+        named,
+        supertypes: actual.allSupertypes.map(
+          (type) => _type(type) as DeclaredType,
+        ),
+      );
+    }
+    if (constantTypeSource(type, declarationSource: constantDeclarationKey) ==
+        null) {
+      return null;
+    }
     if (actual.isDartCoreList) {
       final values = value.toListValue();
       if (values == null) return null;

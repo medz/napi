@@ -51,8 +51,11 @@ Internal int defaults retain Dart precision even when the JS input policy is
 safe-number; normal result range checks still apply. An unresolved, unsupported
 or type-incompatible scalar default produces `NAPI_DEFAULT` at the parameter
 before compilation or output creation. Non-null `List`, `Map`, `Dictionary` and
-record defaults are supported when both the declared type and the complete
-constant graph contain only structural containers and scalar/null leaves.
+record defaults may contain scalars, null and selected reference/value objects.
+Object defaults use their evaluated public const constructor and arguments;
+private constant variables and public factories redirecting to private classes
+retain their original Dart identity. Constructor arguments may include other
+publicly constructible constants without exporting those helper types to JS.
 Actual constant types are preserved, including `const <Never>[]`, nested
 Dictionary representations, map insertion order and canonical const identity.
 Defaults stay in Dart; returning one still uses the normal output conversion.
@@ -65,9 +68,15 @@ int first({Map<String, List<int>> values = _fallbacks}) => values['small']!.firs
 
 Omission, `undefined` options and `{values: undefined}` select the same Dart
 constant. A supplied `null` remains invalid for this non-null parameter.
-Defaults containing reference, resource, opaque or value-class leaves remain
-unsupported, including empty constants whose declared type contains such a
-leaf. Custom constant objects are not reconstructed. Defaults exceeding the
+For example, `Point point = const Point(0, 0)` works for an exported reference or
+value class with a public const constructor. This also applies to optional
+fields in a value class's configured input constructor. Optional positional holes
+still work independently when later arguments are supplied.
+
+Resource and opaque defaults remain unsupported, including empty containers
+declared with those element types. Constants requiring private constructors,
+private type names or unsupported constant kinds produce `NAPI_DEFAULT`.
+Defaults exceeding the
 structural work/depth or generated-text limit produce `NAPI_DEFAULT`.
 
 Both targets preserve the actual argument count and own-property presence before

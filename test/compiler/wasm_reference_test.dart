@@ -209,8 +209,8 @@ final _shared = Box();
       'NAPI_TYPE',
     ),
     (
-      'nonnull class default',
-      '@NAPI() class Box { const Box(); } @NAPI() Box identity([Box x = const Box()]) => x;',
+      'private constructor class default',
+      '@NAPI() class Box { const Box._(); } @NAPI() Box identity([Box x = const Box._()]) => x;',
       'NAPI_DEFAULT',
     ),
     (

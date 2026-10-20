@@ -231,6 +231,8 @@ ParameterBinding _projectParameter(
   kind: parameter.kind,
   defaultSource: parameter.defaultSource,
   defaultValue: parameter.defaultValue,
+  defaultIdentity: parameter.defaultIdentity,
+  defaultTypeIsAssignable: parameter.defaultTypeIsAssignable,
   hasDefault: parameter.hasDefault,
   source: parameter.source,
   documentation: parameter.documentation,
@@ -2467,21 +2469,31 @@ void validateCallParameters(
     if (!optional && parameter.hasDefault) {
       reject('NAPI_DEFAULT', 'Required parameters cannot have defaults.');
     }
-    if (optional) validateParameterDefault(parameter, source);
+    if (optional) {
+      validateParameterDefault(
+        parameter,
+        source,
+        referenceClasses: referenceClasses,
+      );
+    }
   }
 }
 
 /// Validate evaluated defaults shared by native and Wasm backends.
 void validateParameterDefault(
   ParameterBinding parameter,
-  SourceLocation source,
-) {
+  SourceLocation source, {
+  List<ClassBinding> referenceClasses = const [],
+}) {
   final constant = parameter.defaultValue;
   final value = constant is ScalarDefault ? constant.value : null;
   final type = parameter.type;
   if (constant != null && constant is! ScalarDefault) {
     try {
-      constantDefaultSource(constant);
+      constantDefaultSource(
+        constant,
+        declarationSource: constantDeclarationKey,
+      );
     } on ConstantDefaultLimit catch (error) {
       throw BindingDiagnostic(
         'NAPI_DEFAULT',
@@ -2495,16 +2507,22 @@ void validateParameterDefault(
         parameter.source ?? source,
       );
     }
-    if (_portableDefaultParameter(type) &&
-        _structuralDefaultFits(constant, type)) {
+    if (_portableDefaultParameter(type, referenceClasses) &&
+        !_defaultGraphHasResource(constant, referenceClasses) &&
+        _structuralDefaultFits(
+          constant,
+          type,
+          referenceClasses,
+          rootTypeIsAssignable: parameter.defaultTypeIsAssignable,
+        )) {
       return;
     }
     throw BindingDiagnostic(
       'NAPI_DEFAULT',
-      'Non-null structural defaults require a completely represented built-in '
-          'const List, Map, Dictionary or record graph with scalar/null leaves '
-          'and compatible actual types. Reference, resource and opaque defaults '
-          'remain unsupported.',
+      'Non-null defaults require a compatible const graph of scalars, selected '
+          'reference/value objects, Lists, Maps, Dictionaries or records. '
+          'Object defaults need publicly callable const constructors; resource '
+          'and opaque defaults remain unsupported.',
       parameter.source ?? source,
     );
   }
@@ -2514,8 +2532,8 @@ void validateParameterDefault(
     throw BindingDiagnostic(
       'NAPI_DEFAULT',
       type.semantics == ValueSemantics.reference
-          ? 'Non-null reference defaults are not supported; a nullable reference parameter may use a null default.'
-          : 'Non-null structural defaults must be completely represented built-in const graphs with scalar/null leaves; a nullable structural parameter may use a null default.',
+          ? 'Non-null reference defaults need a represented public const constructor; a nullable reference parameter may use a null default.'
+          : 'Non-null structural defaults must be completely represented const graphs; a nullable structural parameter may use a null default.',
       parameter.source ?? source,
     );
   }
@@ -2802,25 +2820,92 @@ bool referenceMemberDefaultsAccept(
 }
 
 bool _sameReferenceDefault(ParameterBinding left, ParameterBinding right) =>
+    (left.defaultIdentity != null &&
+        identical(left.defaultIdentity, right.defaultIdentity)) ||
     parameterDefaultKey(left) == parameterDefaultKey(right);
 
-bool _portableDefaultParameter(BindingType type) {
+bool _portableDefaultParameter(
+  BindingType type,
+  List<ClassBinding> classes, [
+  Set<ClassBinding>? seen,
+]) {
   if (_isBackendScalar(type)) return true;
+  if (type.nullability == TypeNullability.legacy) return false;
+  final visited = seen ?? <ClassBinding>{};
+  bool child(BindingType type) =>
+      _portableDefaultParameter(type, classes, visited);
   if (type is RecordTypeBinding) {
-    return type.positional.every(_portableDefaultParameter) &&
-        type.named.values.every(_portableDefaultParameter);
+    return type.positional.every(child) && type.named.values.every(child);
   }
   if (type is! DeclaredType) return false;
   if (type.declaration == dictionaryDeclaration) {
-    return type.typeArguments.length == 1 &&
-        _portableDefaultParameter(type.typeArguments.single);
+    return type.typeArguments.length == 1 && child(type.typeArguments.single);
   }
-  return type.declaration.library == Uri.parse('dart:core') &&
-      const {'List', 'Map'}.contains(type.declaration.name) &&
-      type.typeArguments.every(_portableDefaultParameter);
+  if (type.declaration.library == Uri.parse('dart:core')) {
+    return const {'List', 'Map'}.contains(type.declaration.name) &&
+        type.typeArguments.every(child);
+  }
+  final binding = classes
+      .where((c) => referenceClassMatches(c, type))
+      .firstOrNull;
+  if (binding == null || _defaultResourceClass(binding, classes)) return false;
+  if (binding.classPolicy != ClassPolicy.value) {
+    return binding.typeParameters.isEmpty && isClosedConcreteType(type);
+  }
+  if (!visited.add(binding)) return true;
+  return _valueChildren(binding, ValueDirection.input).every(child) &&
+      _valueChildren(binding, ValueDirection.output).every(child);
 }
 
-bool _defaultTypeFits(BindingType actual, BindingType expected) {
+bool _defaultResourceClass(ClassBinding binding, List<ClassBinding> classes) =>
+    binding.classPolicy == ClassPolicy.resource ||
+    binding.cleanup != null ||
+    classes.any(
+      (ancestor) =>
+          (ancestor.classPolicy == ClassPolicy.resource ||
+              ancestor.cleanup != null) &&
+          binding.allSupertypes.any(
+            (type) => referenceClassMatches(ancestor, type),
+          ),
+    );
+
+bool _defaultGraphHasResource(
+  ConstantDefault value,
+  List<ClassBinding> classes,
+) {
+  bool child(ConstantDefault value) => _defaultGraphHasResource(value, classes);
+  return switch (value) {
+    ScalarDefault() => false,
+    ListDefault(:final elements) => elements.any(child),
+    MapDefault(:final entries) => entries.any(
+      (entry) => child(entry.$1) || child(entry.$2),
+    ),
+    RecordDefault(:final positional, :final named) =>
+      positional.any(child) || named.values.any(child),
+    ObjectDefault(
+      :final type,
+      :final supertypes,
+      :final positional,
+      :final named,
+    ) =>
+      classes.any(
+            (binding) =>
+                _defaultResourceClass(binding, classes) &&
+                [
+                  type,
+                  ...supertypes,
+                ].any((type) => referenceClassMatches(binding, type)),
+          ) ||
+          positional.any(child) ||
+          named.values.any(child),
+  };
+}
+
+bool _defaultTypeFits(
+  BindingType actual,
+  BindingType expected,
+  List<ClassBinding> classes,
+) {
   if (actual is NeverType) {
     return actual.nullability == TypeNullability.nonNullable ||
         expected.nullability == TypeNullability.nullable;
@@ -2839,12 +2924,12 @@ bool _defaultTypeFits(BindingType actual, BindingType expected) {
     return actual.positional.length == expected.positional.length &&
         actual.named.length == expected.named.length &&
         actual.positional.indexed.every(
-          (e) => _defaultTypeFits(e.$2, expected.positional[e.$1]),
+          (e) => _defaultTypeFits(e.$2, expected.positional[e.$1], classes),
         ) &&
         actual.named.entries.every(
           (e) =>
               expected.named.containsKey(e.key) &&
-              _defaultTypeFits(e.value, expected.named[e.key]!),
+              _defaultTypeFits(e.value, expected.named[e.key]!, classes),
         );
   }
   if (actual is! DeclaredType || expected is! DeclaredType) return false;
@@ -2859,16 +2944,31 @@ bool _defaultTypeFits(BindingType actual, BindingType expected) {
         _defaultTypeFits(
           actual.typeArguments[1],
           expected.typeArguments.single,
+          classes,
+        );
+  }
+  if (actual.declaration != expected.declaration) {
+    final binding = classes
+        .where((binding) => referenceClassMatches(binding, actual))
+        .firstOrNull;
+    return binding != null &&
+        binding.allSupertypes.any(
+          (type) => _defaultTypeFits(type, expected, const []),
         );
   }
   return actual.declaration == expected.declaration &&
       actual.typeArguments.length == expected.typeArguments.length &&
       actual.typeArguments.indexed.every(
-        (e) => _defaultTypeFits(e.$2, expected.typeArguments[e.$1]),
+        (e) => _defaultTypeFits(e.$2, expected.typeArguments[e.$1], classes),
       );
 }
 
-bool _structuralDefaultFits(ConstantDefault value, BindingType expected) {
+bool _structuralDefaultFits(
+  ConstantDefault value,
+  BindingType expected,
+  List<ClassBinding> classes, {
+  bool rootTypeIsAssignable = false,
+}) {
   switch (value) {
     case ScalarDefault(:final value):
       if (value == null) {
@@ -2890,33 +2990,41 @@ bool _structuralDefaultFits(ConstantDefault value, BindingType expected) {
           type.declaration.library == Uri.parse('dart:core') &&
           type.declaration.name == 'List' &&
           type.typeArguments.length == 1 &&
-          _defaultTypeFits(type, expected) &&
+          (rootTypeIsAssignable || _defaultTypeFits(type, expected, classes)) &&
           elements.every(
-            (v) => _structuralDefaultFits(v, type.typeArguments.single),
+            (v) =>
+                _structuralDefaultFits(v, type.typeArguments.single, classes),
           );
     case MapDefault(:final type, :final entries):
       return type is DeclaredType &&
           type.declaration.library == Uri.parse('dart:core') &&
           type.declaration.name == 'Map' &&
           type.typeArguments.length == 2 &&
-          _defaultTypeFits(type, expected) &&
+          (rootTypeIsAssignable || _defaultTypeFits(type, expected, classes)) &&
           entries.every(
             (e) =>
-                _structuralDefaultFits(e.$1, type.typeArguments[0]) &&
-                _structuralDefaultFits(e.$2, type.typeArguments[1]),
+                _structuralDefaultFits(e.$1, type.typeArguments[0], classes) &&
+                _structuralDefaultFits(e.$2, type.typeArguments[1], classes),
           );
     case RecordDefault(:final type, :final positional, :final named):
       return type is RecordTypeBinding &&
-          _defaultTypeFits(type, expected) &&
+          (rootTypeIsAssignable || _defaultTypeFits(type, expected, classes)) &&
           positional.length == type.positional.length &&
           named.length == type.named.length &&
           positional.indexed.every(
-            (e) => _structuralDefaultFits(e.$2, type.positional[e.$1]),
+            (e) => _structuralDefaultFits(e.$2, type.positional[e.$1], classes),
           ) &&
           named.entries.every(
             (e) =>
                 type.named.containsKey(e.key) &&
-                _structuralDefaultFits(e.value, type.named[e.key]!),
+                _structuralDefaultFits(e.value, type.named[e.key]!, classes),
           );
+    case ObjectDefault(:final type, :final supertypes):
+      return expected is DeclaredType &&
+          (rootTypeIsAssignable ||
+              [
+                type,
+                ...supertypes,
+              ].any((type) => _defaultTypeFits(type, expected, classes)));
   }
 }

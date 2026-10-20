@@ -3,12 +3,18 @@ import 'dart:convert';
 import '../../analysis/reference_views.dart';
 import '../../lowering/plan.dart';
 import '../../ir/model.dart';
-import '../../ir/defaults.dart';
 import '../../sdk_adapter/entrypoint.dart';
 import '../../sdk_adapter/js_collections.dart';
+import 'defaults.dart';
 import 'structural.dart';
 
 String emitDart(ModulePlan plan) {
+  final defaultImports = defaultImportPrefixes(
+    plan.calls.expand((call) => call.parameters),
+    plan.conversions,
+  );
+  String declarationSource(DeclarationId declaration) =>
+      defaultDeclarationSource(declaration, defaultImports);
   final resources = plan.resourcePolicies.isNotEmpty;
   final nestedOpaque = plan.conversions.any(
     (root) =>
@@ -32,6 +38,7 @@ String emitDart(ModulePlan plan) {
   final source = jsonEncode(plan.source.toString()).replaceAll(r'$', r'\$');
   final result = StringBuffer(
     "import $source as target;\n"
+    '${defaultImports.entries.map((entry) => "import ${jsonEncode(entry.key.toString()).replaceAll(r'$', r'\$')} as ${entry.value};\n").join()}'
     "${asyncCallbacks || streams ? "import 'dart:async';\n" : ''}"
     "import 'dart:typed_data' as typed_data;\n"
     "import 'package:napi/runtime.dart';\n"
@@ -108,7 +115,9 @@ ${tests.declarations}  return externRefForJSAny(<JSAny?>[
       result.writeln('  ].toJS)!;\n}');
     }
   }
-  final structural = DartStructuralEmitter();
+  final structural = DartStructuralEmitter(
+    defaultDeclarationSource: declarationSource,
+  );
   final hasStructural =
       callbacks.isNotEmpty ||
       plan.conversions.any(
@@ -171,7 +180,7 @@ ${tests.declarations}  return externRefForJSAny(<JSAny?>[
       if (_optional(parameters[i])) {
         result.writeln('  if (d$i.toIntSigned() != 0) {');
         result.writeln(
-          '    a$i = ${renderDartDefault(parameters[i], conversion)};',
+          '    a$i = ${renderDartDefault(parameters[i], conversion, declarationSource: declarationSource)};',
         );
         result.writeln('  } else {');
       }
@@ -524,7 +533,7 @@ void _emitResourceCall(
     result.writeln('  final ${conversion.dartType} a$i;');
     if (_optional(parameter)) {
       result.writeln(
-        '  if (d$i.toIntSigned() != 0) {\n    a$i = ${renderDartDefault(parameter, conversion)};\n  } else {',
+        '  if (d$i.toIntSigned() != 0) {\n    a$i = ${renderDartDefault(parameter, conversion, declarationSource: structural.defaultDeclarationSource)};\n  } else {',
       );
     }
     if (conversion is CallbackConversion) {
@@ -705,30 +714,6 @@ bool _optional(ParameterBinding p) =>
 bool _named(ParameterBinding p) =>
     p.kind == ParameterKind.requiredNamed ||
     p.kind == ParameterKind.optionalNamed;
-
-String renderDartDefault(ParameterBinding p, ValueConversion conversion) {
-  final constant = p.defaultValue;
-  if (constant != null && constant is! ScalarDefault) {
-    // Dictionary is an extension type: the const graph uses actual erased
-    // types, while this cast restores only the static boundary-facing type.
-    return '(${constantDefaultSource(constant)} as ${conversion.dartType})';
-  }
-  final value = (constant as ScalarDefault?)?.value;
-  if (value == null) return 'null';
-  if (value is String) return jsonEncode(value).replaceAll(r'$', r'\$');
-  if (value is double) {
-    if (value.isNaN) return 'double.nan';
-    if (value.isInfinite) {
-      return value.isNegative ? 'double.negativeInfinity' : 'double.infinity';
-    }
-  }
-  if (value is int &&
-      conversion is ScalarConversion &&
-      conversion.kind == ScalarKind.doubleValue) {
-    return value.toDouble().toString();
-  }
-  return value.toString();
-}
 
 String _read(ScalarConversion conversion, String value) {
   if (conversion.usesBigInt) {
