@@ -78,7 +78,7 @@ Optional fields use the Dart parameter default when absent or explicitly
 fields accept `null`. Input optionality and output required fields have separate
 TypeScript shapes. Numeric policies compose through fields and recursion,
 including an enclosing `@NAPI(bigint: true)` function.
-Defaults may include [publicly constructible const objects](arguments.md),
+Defaults may include [const objects](arguments.md),
 directly or inside supported containers; they remain Dart constants.
 Resource defaults in value-class input fields remain unsupported.
 

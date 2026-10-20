@@ -41,9 +41,10 @@ The table describes converted leaf types, not Dart type spelling in TypeScript.
 List inputs accept recursively readonly arrays; outputs are mutable arrays.
 Record fields are always required, including fields whose value can be `null`.
 Optional nullable List/Map/Dictionary/record parameters can omit the argument, pass `undefined`
-to select the default, or pass `null`. Non-null constant defaults are supported
-when their declared type and constant graph contain only structural containers
-and scalar/null leaves. Defaults preserve Dart const identity; returning them
+to select the default, or pass `null`. Non-null constant defaults support
+structural containers with scalar, null and selected reference/value objects.
+Resource objects remain unsupported inside these defaults.
+Defaults preserve Dart const identity; returning them
 still creates ordinary copied JS containers. See [argument defaults](arguments.md)
 for supported constants and limits.
 

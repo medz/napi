@@ -37,7 +37,7 @@ Parameters/results use strict scalar, selected reference, [value-class](values.m
 types, including nullable nodes. Containers are cloned while their reference
 leaves preserve live wrapper identity. This also applies to constructors, methods,
 fields and accessors. Optional references may default to null or a
-[publicly constructible constant](arguments.md). Structural parameters support
+[const object](arguments.md). Structural parameters support
 the same constants in their containers. Omission
 and `undefined` apply the default. Required nullable references still require a
 value, with `null` accepted. Named parameters use the ordinary options-object
