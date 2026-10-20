@@ -121,6 +121,27 @@ class Packet { Packet(this.items); final JsArray<int> items; }
     expect(emitNativeLoader(['add']), isNot(contains(r'$jc')));
   });
 
+  test('nested handle signatures retain deep element policies', () async {
+    final module = await read('''
+@NAPI() JsArray<JsMap<JsArray<int>, JsArray<T?>>?> nested<T>(JsArray<JsMap<JsArray<int>, JsArray<T?>>?> value) => value;
+@NAPI() JsArray<JsMap<JsArray<int>, JsArray<U?>>?> renamed<U>(JsArray<JsMap<JsArray<int>, JsArray<U?>>?> value) => value;
+@NAPI(bigint: true) JsArray<JsMap<JsArray<int>, JsArray<T?>>?> wide<T>(JsArray<JsMap<JsArray<int>, JsArray<T?>>?> value) => value;
+''');
+    final wasm = lower(validate(module));
+    final native = validateNative(module);
+    for (final inputs in [
+      wasm.functions.map((f) => f.inputs.single),
+      native.functions.map((f) => f.inputs.single),
+    ]) {
+      final values = inputs.cast<JsCollectionConversion>().toList();
+      expect(values[0].value, isA<JsCollectionConversion>());
+      expect(values[0].value.nullable, isTrue);
+      expect(values[0].signatureKey, values[1].signatureKey);
+      expect(values[0].signatureKey, isNot(values[2].signatureKey));
+    }
+    expect(emitDeclarations(wasm), emitNativeDeclarations(native));
+  });
+
   test('direct opaque leaves retain raw values and logical TS types', () async {
     final module = await read('''
 @NAPI() JsArray<T> array<T>(JsArray<T> value) => value;
@@ -171,6 +192,7 @@ import 'package:napi/napi.dart';
 @NAPI() V first<K,V>(JsMap<K,V> map) => map.entries.first.\$2;
 @NAPI() T? get<T>(JsArray<T> array) => array.get(0);
 @NAPI() int scalar(JsMap<String,int> map) => map.entries.first.\$2;
+@NAPI() T deep<T>(JsArray<JsMap<String, JsArray<T>>> values) => values.get(0)!.get('items')!.get(0) as T;
 ''');
       await buildLibrary(
         library: input.uri,
@@ -186,6 +208,9 @@ assert.equal(api.first(new Map([[undefined, object]])), object);
 assert.equal(api.get([undefined]), undefined);
 assert.equal(api.get([]), null);
 assert.equal(api.scalar(new Map([['a', 7]])), 7);
+for (const value of [null, undefined, object]) {
+  assert.equal(api.deep([new Map([['items', [value]]])]), value);
+}
 ''');
       final result = await Process.run('node', [
         'check.mjs',
@@ -202,7 +227,6 @@ assert.equal(api.scalar(new Map([['a', 7]])), 7);
     '@NAPI() Map<(JsMap<String,int>,), int> bad(Map<(JsMap<String,int>,), int> value) => value;',
     '@NAPI() List<JsArray<List<int>>> bad(List<JsArray<List<int>>> value) => value;',
     '@NAPI() JsArray<List<T>> bad<T>(JsArray<List<T>> value) => value;',
-    '@NAPI() JsArray<JsArray<T>> bad<T>(JsArray<JsArray<T>> value) => value;',
     '@NAPI() class Value {} @NAPI() JsArray<Value> bad(JsArray<Value> value) => value;',
     '@NAPI(classPolicy: ClassPolicy.resource, cleanup: "close") class Resource { void close() {} } @NAPI() JsArray<Resource> bad(JsArray<Resource> value) => value;',
     '@NAPI() JsArray<Future<T>> bad<T>(JsArray<Future<T>> value) => value;',

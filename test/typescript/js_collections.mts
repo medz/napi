@@ -79,3 +79,28 @@ api.nestedValue({array: {}, map}, []);
 // @ts-expect-error The opaque payload type is retained inside both array layers.
 api.nestedPayloads<Payload>([['bad']]);
 void [nestedResult, nestedCopy, nestedRead, nestedValue, nestedCaptured, nestedPromise, nestedStream, nestedPayloads];
+
+const innerPayloads: Payload[] = [undefined, {id: 1}];
+const liveArrays = new api.NestedArrays<Payload>([innerPayloads, null]);
+const liveSource: Array<Payload[] | null> = liveArrays.source();
+const liveInner: Payload[] | null = liveArrays.saved();
+const liveRead: Promise<Payload | null> = liveArrays.delayedRead(0);
+liveArrays.put(0, undefined); liveArrays.same(innerPayloads);
+const liveMapSource = new Map<number[], Map<string, Payload | null>>([[array, new Map([['key', undefined]])]]);
+const liveMaps = new api.NestedMaps<Payload>(liveMapSource);
+const liveMapKey: number[] | null = liveMaps.key();
+const liveMapValue: Map<string, Payload | null> | null = liveMaps.value();
+liveMaps.putEntry(array, new Map([['key', null]])); liveMaps.put('key', undefined);
+const liveNumbers: number[][] = direct.nestedNumbers([[1]]);
+const liveBigints: bigint[][] = external.nestedInt64([[1n]]);
+const callbackInner: Payload[] | null = api.nestedCallback<Payload>(value => value, [innerPayloads, null]);
+const asyncCallbackInner: Promise<Payload[] | null> = external.nestedAsyncCallback<Payload>(async value => value, [innerPayloads, null]);
+// @ts-expect-error Nullable child handles permit null, not undefined.
+new api.NestedArrays<Payload>([undefined]);
+// @ts-expect-error The payload declaration survives both live Array layers.
+liveArrays.put(0, 'wrong');
+// @ts-expect-error Child Map keys remain numeric Arrays.
+new api.NestedMaps<Payload>(new Map([[['wrong'], new Map()]]));
+// @ts-expect-error Nested bigint policy requires bigint leaves.
+api.nestedInt64([[1]]);
+void [liveSource, liveInner, liveRead, liveMapKey, liveMapValue, liveNumbers, liveBigints, callbackInner, asyncCallbackInner];

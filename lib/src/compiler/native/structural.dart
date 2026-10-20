@@ -26,17 +26,21 @@ String nativeJsCollectionRead(
   JsCollectionConversion conversion,
   String env,
   String value,
-  String path,
-) {
+  String path, {
+  String api = '_api',
+}) {
   final method = conversion.isMap ? 'jsMap' : 'jsArray';
   final elements = [?conversion.key, conversion.value];
   final policies = elements
       .map(
-        (c) =>
-            'const NativeJsElement<${c.dartType}>(${_quote(c is OpaqueConversion ? 'opaque' : (c as ScalarConversion).kind.name)}, nullable: ${c.nullable}, bigint: ${c is ScalarConversion && c.bigint})',
+        (c) => c is JsCollectionConversion
+            ? 'NativeJsElement<${c.dartType}>(\'handle\', nullable: ${c.nullable}, '
+                  'readHandle: (api, env, value, path) => ${nativeJsCollectionRead(c, 'env', 'value', 'path', api: 'api')}, '
+                  'writeHandle: (api, env, value, path) => api.jsCollectionResult(env, value${c.nullable ? '!' : ''}, ${_quote(c.signatureKey)}, path))'
+            : 'const NativeJsElement<${c.dartType}>(${_quote(c is OpaqueConversion ? 'opaque' : (c as ScalarConversion).kind.name)}, nullable: ${c.nullable}, bigint: ${c is ScalarConversion && c.bigint})',
       )
       .join(', ');
-  return '_api.$method($env, $value, ${_quote(conversion.signatureKey)}, $path, $policies)';
+  return '$api.$method($env, $value, ${_quote(conversion.signatureKey)}, $path, $policies)';
 }
 
 /// Typed traversal owns only callback-scoped JS handles and ordinary Dart values.

@@ -428,3 +428,89 @@ NestedOutput nestedWrongPolicy(bool fail) {
 
 @NAPI()
 String nestedOrder() => _nestedOrder;
+
+@NAPI()
+class NestedArrays<T> {
+  final JsArray<JsArray<T>?> _source;
+  JsArray<T>? _saved;
+  NestedArrays(this._source);
+  JsArray<JsArray<T>?> source() => _source;
+  bool load(int index) {
+    _saved = _source.get(index);
+    return _saved != null;
+  }
+
+  JsArray<T>? saved() => _saved;
+  bool same(JsArray<T> value) => identical(_saved, value);
+  T? read(int index) => _saved!.get(index);
+  void put(int index, T value) => _saved!.set(index, value);
+  void replace(int index) => _source.set(index, _saved);
+  Future<T?> delayedRead(int index) async {
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+    return _saved!.get(index);
+  }
+}
+
+@NAPI()
+class NestedMaps<T> {
+  final JsMap<JsArray<int>, JsMap<String, T?>> _source;
+  Iterator<(JsArray<int>, JsMap<String, T?>)>? _iterator;
+  (JsArray<int>, JsMap<String, T?>)? _entry;
+  NestedMaps(this._source);
+  JsMap<JsArray<int>, JsMap<String, T?>> source() => _source;
+  void start() => _iterator = _source.entries.iterator;
+  bool next() {
+    if (!_iterator!.moveNext()) {
+      _entry = null;
+      return false;
+    }
+    _entry = _iterator!.current;
+    return true;
+  }
+
+  JsArray<int>? key() => _entry?.$1;
+  JsMap<String, T?>? value() => _entry?.$2;
+  bool sameKey(JsArray<int> key) => identical(_entry!.$1, key);
+  bool sameValue(JsMap<String, T?> value) => identical(_entry!.$2, value);
+  int? readKey(int index) => _entry!.$1.get(index);
+  void writeKey(int index, int value) => _entry!.$1.set(index, value);
+  T? read(String key) => _entry!.$2.get(key);
+  void put(String key, T? value) => _entry!.$2.set(key, value);
+  void putEntry(JsArray<int> key, JsMap<String, T?> value) =>
+      _source.set(key, value);
+}
+
+JsArray<int>? _nestedNumber;
+
+@NAPI()
+JsArray<JsArray<int>> nestedNumbers(JsArray<JsArray<int>> value) {
+  final inner = _nestedNumber = value.get(0)!;
+  inner.set(0, inner.get(0)!);
+  return value;
+}
+
+@NAPI(bigint: true)
+JsArray<JsArray<int>> nestedInt64(JsArray<JsArray<int>> value) {
+  final inner = value.get(0)!;
+  inner.set(0, inner.get(0)!);
+  return value;
+}
+
+@NAPI(bigint: true)
+void nestedWriteWrongPolicy(JsArray<JsArray<int>> value) =>
+    value.set(0, _nestedNumber!);
+
+@NAPI()
+void nestedFakeWrite(JsArray<JsArray<int>> value) => value.set(0, _FakeArray());
+
+@NAPI()
+JsArray<T>? nestedCallback<T>(
+  JsArray<JsArray<T>?> Function(JsArray<JsArray<T>?>) callback,
+  JsArray<JsArray<T>?> value,
+) => callback(value).get(0);
+
+@NAPI()
+Future<JsArray<T>?> nestedAsyncCallback<T>(
+  Future<JsArray<JsArray<T>?>> Function(JsArray<JsArray<T>?>) callback,
+  JsArray<JsArray<T>?> value,
+) async => (await callback(value)).get(0);

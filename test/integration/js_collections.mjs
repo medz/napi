@@ -374,7 +374,65 @@ async function nested(api) {
   assert.equal(other.nestedPayloads([array])[0], array);
   assert.equal(api.nestedPayloads([array])[0], array);
 }
-const cases = {direct, scalars, maps, accessors, admission, captures, futures, streams, retained, opaque, opaqueAsync, opaqueRetained, nested};
+async function nestedHandles(api) {
+  const payload = {id: 1}, inner = [undefined, null, payload], outer = [];
+  let gets = 0;
+  Object.defineProperty(outer, '0', {configurable: true, get() {gets++; return inner;}});
+  const arrays = new api.NestedArrays(outer);
+  assert.equal(arrays.source(), outer); assert.equal(gets, 0);
+  assert(arrays.load(0)); assert.equal(gets, 1);
+  assert.equal(arrays.saved(), inner); assert(arrays.same(inner));
+  assert.equal(arrays.read(0), undefined); assert.equal(arrays.read(1), null);
+  arrays.replace(1); assert.equal(outer[1], inner);
+  const pending = arrays.delayedRead(2);
+  outer.length = 0; inner[2] = undefined;
+  assert.equal(await pending, undefined);
+  arrays.put(2, payload); assert.equal(inner[2], payload);
+  const reason = Symbol('nested getter');
+  Object.defineProperty(outer, '0', {configurable: true, get() {throw reason;}});
+  exact(() => arrays.load(0), reason);
+  Object.defineProperty(outer, '0', {configurable: true, writable: true, value: null});
+  assert(!arrays.load(0)); assert.equal(arrays.saved(), null);
+  outer[0] = undefined; assert.throws(() => arrays.load(0), TypeError);
+
+  // Entry handles keep the live child containers after the outer Map is cleared.
+  const key = [11], values = new Map([['undefined', undefined], ['null', null], ['object', payload]]);
+  const graph = new Map([[key, values]]), maps = new api.NestedMaps(graph);
+  assert.equal(maps.source(), graph);
+  maps.start(); assert(maps.next()); graph.clear();
+  assert.equal(maps.key(), key); assert(maps.sameKey(key));
+  assert.equal(maps.value(), values); assert(maps.sameValue(values));
+  assert.equal(maps.read('undefined'), undefined); assert.equal(maps.read('null'), null);
+  assert.equal(maps.read('object'), payload);
+  key[0] = 12; assert.equal(maps.readKey(0), 12);
+  maps.writeKey(0, 13); assert.equal(key[0], 13);
+  maps.put('new', undefined); assert(values.has('new')); assert.equal(values.get('new'), undefined);
+  maps.putEntry(key, values); assert.equal(graph.get(key), values);
+  for (const graph of [new Map([[{}, values]]), new Map([[key, []]])]) {
+    const invalid = new api.NestedMaps(graph); invalid.start();
+    assert.throws(() => invalid.next(), TypeError);
+  }
+
+  const numbers = [[21]], bigints = [[1n << 62n]];
+  assert.equal(api.nestedNumbers(numbers), numbers);
+  assert.equal(api.nestedInt64(bigints), bigints);
+  assert.throws(() => api.nestedNumbers([[1n]]), TypeError);
+  assert.throws(() => api.nestedInt64([[1]]), TypeError);
+  assert.throws(() => api.nestedInt64([[1n << 63n]]), RangeError);
+  assert.throws(() => api.nestedNumbers([[2 ** 53]]), RangeError);
+  assert.throws(() => api.nestedWriteWrongPolicy(bigints), TypeError);
+  assert.equal(bigints[0][0], 1n << 62n);
+  assert.throws(() => api.nestedFakeWrite(numbers), TypeError);
+  assert.equal(numbers[0][0], 21);
+  const callbackSource = [inner, null];
+  assert.equal(api.nestedCallback(value => {
+    assert.equal(value, callbackSource); return value;
+  }, callbackSource), inner);
+  assert.equal(await api.nestedAsyncCallback(async value => {
+    assert.equal(value, callbackSource); await tick(); return value;
+  }, callbackSource), inner);
+}
+const cases = {direct, scalars, maps, accessors, admission, captures, futures, streams, retained, opaque, opaqueAsync, opaqueRetained, nested, nestedHandles};
 async function worker(held) {
   const thread = new Worker(new URL(import.meta.url), {workerData: {held}});
   await new Promise((resolve, reject) => {

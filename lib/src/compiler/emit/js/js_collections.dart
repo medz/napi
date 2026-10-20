@@ -11,16 +11,29 @@ String jsCollectionPolicies(Iterable<JsCollectionConversion> conversions) {
       'integer': c.kind == ScalarKind.integer,
     },
     OpaqueConversion() => {'opaque': true},
+    JsCollectionConversion() => {
+      'collection': c.isMap ? 'map' : 'array',
+      'nullable': c.nullable,
+    },
     _ => throw StateError('Unsupported JS collection element'),
   };
-  return jsonEncode({
-    for (final c in conversions)
-      c.signatureKey: {
-        'map': c.isMap,
-        'key': c.key == null ? null : element(c.key!),
-        'value': element(c.value),
-      },
-  });
+  final policies = <String, Object>{};
+  void add(JsCollectionConversion c) {
+    if (policies.containsKey(c.signatureKey)) return;
+    policies[c.signatureKey] = {
+      'map': c.isMap,
+      'key': c.key == null ? null : element(c.key!),
+      'value': element(c.value),
+    };
+    for (final child in [?c.key, c.value]) {
+      if (child is JsCollectionConversion) add(child);
+    }
+  }
+
+  for (final c in conversions) {
+    add(c);
+  }
+  return jsonEncode(policies);
 }
 
 /// Operations act on the original container. Admission does not read elements.
@@ -58,10 +71,12 @@ function $jcIndex(index) {
 // BigInt text is private Wasm transport only, never the public JS value.
 function $jcInput(value, policy, path, text) {
   if (policy.opaque) return value;
+  if (policy.collection) return $jcAdmit(value, policy.collection === 'map', policy.nullable, path);
   return $jcScalar(text && value !== null && policy.type === 'bigint' ? $jcBigInt(value) : value, policy, path);
 }
 function $jcOutput(value, policy, path, text) {
   if (policy.opaque) return value;
+  if (policy.collection) return $jcAdmit(value, policy.collection === 'map', policy.nullable, path);
   value = $jcScalar(value, policy, path);
   return text && value !== null && policy.type === 'bigint' ? $jcApply($jcBigText, value, []) : value;
 }
