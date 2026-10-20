@@ -2534,7 +2534,7 @@ void validateParameterDefault(
           'Object defaults need accessible const constructors or bindings; resource '
           'defaults require direct references or built-in containers. Resource '
           'defaults in value constructors and opaque defaults remain unsupported. '
-          'Value-object defaults containing class-valued fields are unsupported 
+          'Value-object defaults containing class-valued fields are unsupported '
           'when the library exports resources.',
       parameter.source ?? source,
     );
