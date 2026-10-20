@@ -1,3 +1,15 @@
+## 0.16.0
+
+- Support const reference and value objects as Dart defaults, directly and inside
+  supported List, Map, Dictionary and record defaults. Preserve canonical Dart
+  identity, generic types and public factory constructors.
+- Use public const variables and static constants for object defaults with private
+  constructors or auxiliary Dart values, including private aliases.
+- Support direct const resource defaults with the same operation leases and
+  disposal behavior as explicit inputs, including Futures, Streams and reentry.
+- Refresh usage guides for annotations, external selections, shared JavaScript
+  containers and native runtime distribution.
+
 ## 0.15.0
 
 - Rebuild binding generation around one `@NAPI()` export model and the separate
