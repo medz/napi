@@ -258,6 +258,16 @@ const _futureResource = ConstResource(22);
 const _streamResource = ConstResource(23);
 const _signalResource = ConstResource(24);
 const _failedResource = ConstResource(25);
+const _containerResource = ConstResource(26);
+const _containerSignalResource = ConstResource(27);
+const _containerFailedResource = ConstResource(28);
+const _containerStreamResource = ConstResource(29);
+const _resourceList = <ConstResource>[_containerResource, _containerResource];
+const _resourceMap = <String, List<ConstResource>>{'both': _resourceList};
+const _resourceDictionary = Dictionary<List<ConstResource>>({
+  'both': _resourceList,
+});
+const _resourceRecord = (_resourceList, resource: _containerResource);
 final _constCleanups = <int, int>{};
 int _constCalls = 0;
 int _constCancellations = 0;
@@ -276,6 +286,10 @@ class ConstResource {
     23 => _streamResource,
     24 => _signalResource,
     25 => _failedResource,
+    26 => _containerResource,
+    27 => _containerSignalResource,
+    28 => _containerFailedResource,
+    29 => _containerStreamResource,
     _ => throw ArgumentError.value(value),
   };
 }
@@ -333,6 +347,70 @@ int resourceDefaultChecked([
 ]) {
   _constCalls++;
   return value.value + amount;
+}
+
+@NAPI()
+bool resourceContainerDefaults([
+  List<ConstResource> values = _resourceList,
+  Map<String, List<ConstResource>> mapping = _resourceMap,
+  Dictionary<List<ConstResource>> dictionary = _resourceDictionary,
+  (List<ConstResource>, {ConstResource resource}) record = _resourceRecord,
+]) {
+  _constCalls++;
+  return identical(values, _resourceList) &&
+      identical(values[0], values[1]) &&
+      identical(mapping, _resourceMap) &&
+      identical(dictionary, _resourceDictionary) &&
+      identical(record.$1, _resourceList) &&
+      identical(record.resource, _containerResource);
+}
+
+@NAPI()
+bool namedResourceContainerDefault({
+  List<ConstResource>? values = _resourceList,
+}) => identical(values, _resourceList);
+
+@NAPI()
+Future<int> resourceContainerLater(
+  void Function() callback, {
+  List<ConstResource> values = _resourceList,
+}) async {
+  _constCalls++;
+  callback();
+  await Future<void>.delayed(const Duration(milliseconds: 2));
+  return values.fold<int>(0, (sum, resource) => sum + resource.value);
+}
+
+@NAPI()
+Stream<int> resourceContainerSequence({
+  List<ConstResource> values = const [_containerStreamResource],
+}) async* {
+  _constCalls++;
+  try {
+    yield values.single.value;
+    yield values.single.value + 1;
+  } finally {
+    _constCancellations++;
+  }
+}
+
+@NAPI()
+int resourceContainerSignal(
+  AbortSignal signal, [
+  List<ConstResource> values = const [_containerSignalResource],
+]) {
+  _constCalls++;
+  signal.throwIfAborted();
+  return values.single.value;
+}
+
+@NAPI()
+int resourceContainerChecked([
+  List<ConstResource> values = const [_containerFailedResource],
+  int amount = 1,
+]) {
+  _constCalls++;
+  return values.single.value + amount;
 }
 
 enum _PointKind { origin }

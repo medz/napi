@@ -60,3 +60,56 @@ String renderDartDefault(
   }
   return value.toString();
 }
+
+String emitDartDefaultResourceRetains(
+  ValueConversion conversion,
+  String value, {
+  String operation = 'operation',
+  String indent = '  ',
+}) {
+  if (!containsDefaultReference(conversion)) return '';
+  final result = StringBuffer('$indent{\n');
+  var next = 0;
+  void emit(ValueConversion conversion, String value, String indent) {
+    if (!containsDefaultReference(conversion)) return;
+    final local = '_napiDefaultResource${next++}';
+    result.writeln('${indent}final $local = $value;');
+    if (conversion.nullable) {
+      result.writeln('${indent}if ($local != null) {');
+      indent += '  ';
+    }
+    switch (conversion) {
+      case ReferenceConversion():
+        result.writeln('$indent$operation.retain(_resourceControl($local));');
+      case ListConversion(:final element) ||
+          DictionaryConversion(value: final element):
+        final item = '_napiDefaultResource${next++}';
+        final values = conversion is DictionaryConversion
+            ? '$local.values'
+            : local;
+        result.writeln('${indent}for (final $item in $values) {');
+        emit(element, item, '$indent  ');
+        result.writeln('$indent}');
+      case MapConversion(:final key, :final value):
+        final entry = '_napiDefaultResource${next++}';
+        result.writeln('${indent}for (final $entry in $local.entries) {');
+        emit(key, '$entry.key', '$indent  ');
+        emit(value, '$entry.value', '$indent  ');
+        result.writeln('$indent}');
+      case RecordConversion():
+        for (final field in conversion.fields.entries) {
+          emit(field.value, '$local.${field.key}', indent);
+        }
+      default:
+        throw StateError('Unsupported resource default conversion');
+    }
+    if (conversion.nullable) {
+      indent = indent.substring(0, indent.length - 2);
+      result.writeln('$indent}');
+    }
+  }
+
+  emit(conversion, value, '$indent  ');
+  result.writeln('$indent}');
+  return result.toString();
+}

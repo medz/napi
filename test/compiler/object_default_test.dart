@@ -340,10 +340,6 @@ $declaration
 
   for (final (name, declaration) in [
     (
-      'containers',
-      '@NAPI() bool run([List<Point> points = const [Point()]]) => true;',
-    ),
-    (
       'value constructors',
       '''@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
 class Holder {

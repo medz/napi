@@ -105,3 +105,16 @@ void [originPoint, staticOriginPoint, originContainers, originValueField,
 new wasm.NamedPoint();
 // @ts-expect-error Constant object defaults retain reference ownership.
 native.namedValueFieldDefault({point: originPoint});
+
+const resourceContainers: boolean = wasm.resourceContainerDefaults(undefined,
+  new Map([['both', [constResource]]]), {both: [constResource]},
+  {$1: [constResource], resource: constResource});
+const nullableResourceContainer: boolean = native.namedResourceContainerDefault({values: null});
+const resourceContainerFuture: Promise<number> = wasm.resourceContainerLater(() => {}, {values: undefined});
+const resourceContainerStream: AsyncIterableIterator<number, undefined, undefined> =
+  native.resourceContainerSequence({values: undefined});
+void [resourceContainers, nullableResourceContainer, resourceContainerFuture, resourceContainerStream];
+// @ts-expect-error Non-null resource container defaults still reject null.
+wasm.resourceContainerDefaults(null);
+// @ts-expect-error Resources inside defaultable containers retain backend ownership.
+native.resourceContainerLater(() => {}, {values: [constResource]});

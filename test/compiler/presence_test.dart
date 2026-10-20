@@ -210,9 +210,6 @@ const _items = <Dictionary<int>>[Dictionary<int>(<String, Never>{})];
       final file = File('${root.path}/entry.dart');
       for (final declaration in [
         '@NAPI() bool run<T>([List<T> value = const <Never>[]]) => true;',
-        '@NAPI(classPolicy: ClassPolicy.resource, cleanup: "dispose") '
-            'class Item { void dispose() {} } '
-            '@NAPI() bool run([List<Item> value = const <Never>[]]) => true;',
         '@NAPI() class Item { const Item._(); } '
             '@NAPI() bool run([List<Item> value = const [Item._()]]) => true;',
       ]) {

@@ -22,6 +22,7 @@ import '../lowering/plan.dart'
         ValueClassConversion,
         ValueConversion,
         containsDictionary,
+        containsDefaultReference,
         containsValueClass,
         conversionGraph,
         dartOpaqueTypeArguments,
@@ -382,6 +383,31 @@ ${tests.declarations}  int? canonical;''');
           retainsResources,
         );
         if (_optional(parameter)) code.writeln('    }');
+      }
+      if (retainsResources) {
+        for (final (index, parameter) in parameters.indexed) {
+          final conversion = call.inputs[index];
+          if (!_optional(parameter) ||
+              conversion is ReferenceConversion ||
+              !containsDefaultReference(conversion) ||
+              parameter.defaultValue == null ||
+              parameter.defaultValue is ScalarDefault) {
+            continue;
+          }
+          code.writeln('    if (default$index) {');
+          code.write(
+            emitDartDefaultResourceRetains(
+              conversion,
+              renderDartDefault(
+                parameter,
+                conversion,
+                declarationSource: declarationSource,
+              ),
+              indent: '      ',
+            ),
+          );
+          code.writeln('    }');
+        }
       }
       for (final (index, parameter) in parameters.indexed) {
         final conversion = call.inputs[index];

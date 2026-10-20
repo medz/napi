@@ -43,7 +43,8 @@ Record fields are always required, including fields whose value can be `null`.
 Optional nullable List/Map/Dictionary/record parameters can omit the argument, pass `undefined`
 to select the default, or pass `null`. Non-null constant defaults support
 structural containers with scalar, null and selected reference/value objects.
-Resource objects remain unsupported inside these defaults.
+Resource leaves acquire operation leases before callbacks or signal getters can
+reenter cleanup, including repeated aliases and Map keys.
 Defaults preserve Dart const identity; returning them
 still creates ordinary copied JS containers. See [argument defaults](arguments.md)
 for supported constants and limits.
@@ -153,7 +154,7 @@ equally inside containers. [SharedBytes](shared-bytes.md) leaves retain their li
 shared views inside structural values. Opaque leaves preserve the original JS
 value without inspecting it.
 
-Structural defaults containing resource or opaque leaves, opaque
+Structural defaults containing opaque leaves, opaque
 Map keys and JS collection handles as Map keys are not supported.
 Open generic resource/value classes are still unsupported. Failed input conversion
 does not invoke the exported business method, reference constructor or setter.

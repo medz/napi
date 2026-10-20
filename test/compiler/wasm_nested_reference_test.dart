@@ -60,48 +60,28 @@ void main() {
     validate(await AnnotationFrontend(packagesPath: packages).read(input.uri)),
   );
 
-  test(
-    'nested conversions retain selected class IDs and existing default policy',
-    () async {
-      final module = await plan();
-      final rows = module.functions.singleWhere(
-        (f) => f.binding.exportName == 'echoRows',
-      );
-      expect(rows.representation, ExportRepresentation.nativeFunction);
-      final record =
-          (rows.inputs.single as ListConversion).element as RecordConversion;
-      expect((record.named['item'] as ReferenceConversion).classId, 0);
-      expect(
-        ((record.named['aliases'] as ListConversion).element
-                as ReferenceConversion)
-            .classId,
-        0,
-      );
-      expect(
-        emitDeclarations(module),
-        contains('Array<{ aliases: Array<Counter | null>; item: Counter }>'),
-      );
-      expect(emitReferences(), isNot(contains('import ')));
-      expect(emitBoundary(module), isNot(contains("from './calls.mjs'")));
-      await input.writeAsString(
-        "import 'package:napi/napi.dart'; @NAPI(classPolicy: ClassPolicy.resource, cleanup: 'dispose') class Box { void dispose() {} } @NAPI() List<Box> bad([List<Box> value = const []]) => value;",
-      );
-      await expectLater(
-        () async => lower(
-          validate(
-            await AnnotationFrontend(packagesPath: packages).read(input.uri),
-          ),
-        ),
-        throwsA(
-          isA<BindingDiagnostic>().having(
-            (e) => e.code,
-            'code',
-            'NAPI_DEFAULT',
-          ),
-        ),
-      );
-    },
-  );
+  test('nested conversions retain selected class IDs', () async {
+    final module = await plan();
+    final rows = module.functions.singleWhere(
+      (f) => f.binding.exportName == 'echoRows',
+    );
+    expect(rows.representation, ExportRepresentation.nativeFunction);
+    final record =
+        (rows.inputs.single as ListConversion).element as RecordConversion;
+    expect((record.named['item'] as ReferenceConversion).classId, 0);
+    expect(
+      ((record.named['aliases'] as ListConversion).element
+              as ReferenceConversion)
+          .classId,
+      0,
+    );
+    expect(
+      emitDeclarations(module),
+      contains('Array<{ aliases: Array<Counter | null>; item: Counter }>'),
+    );
+    expect(emitReferences(), isNot(contains('import ')));
+    expect(emitBoundary(module), isNot(contains("from './calls.mjs'")));
+  });
 
   test(
     'external class structure selections use the same runtime mapping',

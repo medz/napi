@@ -482,6 +482,20 @@ Iterable<ValueConversion> conversionGraph(
   }
 }
 
+/// Reference leaves of built-in default containers; value fields stay separate.
+bool containsDefaultReference(ValueConversion conversion) =>
+    switch (conversion) {
+      ReferenceConversion() => true,
+      ListConversion(:final element) => containsDefaultReference(element),
+      MapConversion(:final key, :final value) =>
+        containsDefaultReference(key) || containsDefaultReference(value),
+      DictionaryConversion(:final value) => containsDefaultReference(value),
+      RecordConversion() => conversion.fields.values.any(
+        containsDefaultReference,
+      ),
+      _ => false,
+    };
+
 bool containsValueClass(ValueConversion value) =>
     conversionGraph([value]).any((c) => c is ValueClassConversion);
 
