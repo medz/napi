@@ -263,6 +263,41 @@ $declaration
     );
   }
 
+  test('a nested value field cannot hide an actual resource subtype', () async {
+    final input = source('entry.dart', '''
+import 'package:napi/napi.dart';
+@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+class Base {
+  final int value;
+  const Base(this.value);
+}
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+class ResourceChild extends Base {
+  const ResourceChild() : super(7);
+  void close() {}
+}
+@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+class Envelope {
+  final Base item;
+  const Envelope(this.item);
+  const Envelope._(this.item);
+}
+const origin = Envelope._(ResourceChild());
+@NAPI() int take([Envelope value = origin]) => value.item.value;
+''');
+    for (final native in [false, true]) {
+      final module = await read(input, native: native);
+      expect(
+        module.functions.single.parameters.single.defaultValue,
+        isA<NamedObjectDefault>(),
+      );
+      expect(
+        () => native ? validateNative(module) : validate(module),
+        rejectedDefault(),
+      );
+    }
+  });
+
   test(
     'a named const resource leaf cannot enter a container default',
     () async {

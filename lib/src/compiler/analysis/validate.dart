@@ -2532,7 +2532,7 @@ void validateParameterDefault(
           'Object defaults need accessible const constructors or bindings; resource '
           'defaults require direct reference parameters. Resource defaults in '
           'containers or value constructors, and opaque defaults, remain unsupported. '
-          'Value-object defaults containing reference fields are unsupported '
+          'Value-object defaults containing class-valued fields are unsupported '
           'when the library exports resources.',
       parameter.source ?? source,
     );
@@ -2861,17 +2861,17 @@ bool _portableDefaultParameter(
       .where((c) => referenceClassMatches(c, type))
       .firstOrNull;
   if (binding == null || _defaultResourceClass(binding, classes)) return false;
+  // A class-valued field can hold a resource subtype or composite view,
+  // even when its declared class uses value semantics.
+  if (withinValueDefault &&
+      classes.any(
+        (binding) =>
+            binding.classPolicy == ClassPolicy.resource ||
+            binding.cleanup != null,
+      )) {
+    return false;
+  }
   if (binding.classPolicy != ClassPolicy.value) {
-    // A public value field can return a resource subtype or composite view.
-    // Its declared reference type alone cannot prove the const field value safe.
-    if (withinValueDefault &&
-        classes.any(
-          (binding) =>
-              binding.classPolicy == ClassPolicy.resource ||
-              binding.cleanup != null,
-        )) {
-      return false;
-    }
     return binding.typeParameters.isEmpty && isClosedConcreteType(type);
   }
   if (!visited.add(binding)) return true;

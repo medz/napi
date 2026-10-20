@@ -81,9 +81,9 @@ including an enclosing `@NAPI(bigint: true)` function.
 Defaults may include [const objects](arguments.md),
 directly or inside supported containers; they remain Dart constants.
 Resource defaults in value-class input fields remain unsupported.
-When a library exports resources, a const value-object default cannot contain
-reference fields, directly or through nested structures. Supply that value
-explicitly instead.
+When a library exports resources, const value-object defaults may contain only
+scalar fields or built-in containers of scalars. Supply objects with reference or
+nested value-class fields explicitly instead.
 
 ## Validation and construction order
 
