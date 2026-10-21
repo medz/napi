@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import '../../lowering/plan.dart';
+import '../../ir/model.dart' show ClassBinding;
 import 'arguments.dart';
 import 'binary.dart';
 import 'callbacks.dart';
@@ -39,6 +40,7 @@ String emitBoundary(ModulePlan plan) {
   final collectionStructures = jsCollectionStructurePolicies(
     jsCollectionLeaves,
     resources: resources,
+    classes: plan.allClasses,
     functionContracts: functionContracts,
   );
   final binaries = {
@@ -68,6 +70,7 @@ String emitBoundary(ModulePlan plan) {
           prefix: 'structure$index',
           leafAdapter: BoundaryLeafAdapter(
             resources: resources,
+            classes: plan.allClasses,
             functionContracts: functionContracts,
           ),
           generateRead: !outputs.contains(index),
@@ -133,7 +136,7 @@ ${plan.calls.any((call) => call.returnsFuture) || streams ? '${emitFuturePolicy(
 ${conversionDependencies(conversions).any((c) => c is MapConversion) ? mapStructuralPolicy : ''}
 ${conversionDependencies(conversions).any((c) => c is DictionaryConversion) ? dictionaryStructuralPolicy : ''}
 $collectionStructures${structures.values.map((s) => s.source).join('\n')}${callbacks.isEmpty ? '' : '\n${_emitCallbacks({for (final entry in callbacks.entries)
-          if (entry.value.direction == ValueDirection.input) entry.key: entry.value}, resources: resources, functionContracts: functionContracts)}'}
+          if (entry.value.direction == ValueDirection.input) entry.key: entry.value}, resources: resources, classes: plan.allClasses, functionContracts: functionContracts)}'}
 ${_emitCallbackErrors(futures: plan.calls.any((call) => call.returnsFuture) || streams)}
 ${plan.classes.isNotEmpty || plan.functions.any((f) => f.representation == ExportRepresentation.callableGlobal) ? argumentPolicy : ''}
 ''';
@@ -142,6 +145,7 @@ ${plan.classes.isNotEmpty || plan.functions.any((f) => f.representation == Expor
 String _emitCallbacks(
   Map<int, CallbackConversion> callbacks, {
   required bool resources,
+  required List<ClassBinding> classes,
   required Map<String, int> functionContracts,
 }) {
   final asynchronous = callbacks.values.any(
@@ -255,6 +259,7 @@ function settleCallback(record, envelope) {
         prefix: 'callback${id}Result',
         leafAdapter: BoundaryLeafAdapter(
           resources: resources,
+          classes: classes,
           bigintText: true,
           functionContracts: functionContracts,
         ),

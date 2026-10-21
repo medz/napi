@@ -194,15 +194,7 @@ const origin = $constructor();
 @NAPI() int take([List<Base> values = origin]) => values.length;
 ''');
       for (final native in [false, true]) {
-        final module = await read(input, native: native);
-        expect(
-          module.functions.single.parameters.single.defaultValue,
-          privateConstructor ? isA<NamedObjectDefault>() : isA<ObjectDefault>(),
-        );
-        expect(
-          () => native ? validateNative(module) : validate(module),
-          rejectedDefault(),
-        );
+        await expectLater(read(input, native: native), rejectedDefault());
       }
     });
   }
@@ -224,7 +216,7 @@ class Envelope {
     ),
   ]) {
     test(
-      '$name cannot hide an actual resource behind an ordinary base type',
+      '$name retains an actual resource behind an ordinary base type',
       () async {
         for (final actual in ['ResourceChild', 'Composite']) {
           final input = source('entry.dart', '''
@@ -249,21 +241,42 @@ const origin = Value._($actual());
 $declaration
 ''');
           for (final native in [false, true]) {
-            await expectLater(() async {
-              final module = await read(input, native: native);
-              if (native) {
-                validateNative(module);
-              } else {
-                validate(module);
-              }
-            }, rejectedDefault());
+            final module = await read(input, native: native);
+            final objects = [
+              for (final parameter in [
+                for (final function in module.functions) ...function.parameters,
+                for (final binding in module.classes)
+                  for (final member in binding.members)
+                    if (member.kind == MemberKind.constructor)
+                      ...member.parameters,
+              ])
+                ...defaultResourceObjects(parameter, module.classes),
+            ];
+            expect(objects, hasLength(1));
+            expect(objects.single.type.declaration.name, actual);
+            expect(objects.single.expression, isNotNull);
+            if (native) {
+              final plan = validateNative(module);
+              expect(
+                plan.needsResourceOperation(plan.functions.single),
+                isTrue,
+              );
+              emitNativeDart(plan);
+            } else {
+              final plan = lower(validate(module));
+              expect(
+                plan.needsResourceOperation(plan.functions.single),
+                isTrue,
+              );
+              emitDart(plan);
+            }
           }
         }
       },
     );
   }
 
-  test('a nested value field cannot hide an actual resource subtype', () async {
+  test('a nested value field retains an actual resource subtype', () async {
     final input = source('entry.dart', '''
 import 'package:napi/napi.dart';
 @NAPI(classPolicy: ClassPolicy.value)
@@ -292,9 +305,17 @@ const origin = Envelope._(ResourceChild());
         isA<NamedObjectDefault>(),
       );
       expect(
-        () => native ? validateNative(module) : validate(module),
-        rejectedDefault(),
+        defaultResourceObjects(
+          module.functions.single.parameters.single,
+          module.classes,
+        ).single.type.declaration.name,
+        'ResourceChild',
       );
+      if (native) {
+        emitNativeDart(validateNative(module));
+      } else {
+        emitDart(lower(validate(module)));
+      }
     }
   });
 

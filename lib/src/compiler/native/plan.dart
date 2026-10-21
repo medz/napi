@@ -8,9 +8,13 @@ import '../lowering/plan.dart'
         OpaqueConversion,
         SharedBytesConversion,
         JsCollectionConversion,
+        ReferenceConversion,
         ValueConversion,
+        containsJsCollectionReference,
+        conversionGraph,
         conversionDependencies,
-        conversionFor;
+        conversionFor,
+        hasDefaultResources;
 
 enum NativeCallKind {
   function,
@@ -109,6 +113,7 @@ final class NativeModulePlan {
             ParameterBinding(
               parameter.name,
               parameter.type,
+              defaultObjects: parameter.defaultObjects,
               kind: parameter.kind,
               presence: conversion.inputs[i] is OpaqueConversion
                   ? conversion.isOptionalParameter(i)
@@ -123,6 +128,34 @@ final class NativeModulePlan {
         returnsStream: conversion.returnsStream,
       ),
   ];
+  late final bool _hasResources = resourcePolicies(
+    classes.map((value) => value.shape).toList(),
+  ).isNotEmpty;
+  late final bool hasResourceCollections =
+      _hasResources &&
+      jsCollections.any(
+        (value) =>
+            containsJsCollectionReference(value, classes: bindings.classes),
+      );
+  late final bool hasResourceCallbacks =
+      _hasResources &&
+      callbacks.any(
+        (value) =>
+            conversionDependencies([...value.inputs, ?value.output])
+                .any((conversion) => conversion is ReferenceConversion) ||
+            hasDefaultResources(const [], [
+              ...value.inputs,
+              ?value.output,
+            ], bindings.classes),
+      );
+  bool needsResourceOperation(NativeCallPlan call) =>
+      _hasResources &&
+      (((hasResourceCollections || hasResourceCallbacks) &&
+              !(call.isConstructor && call.member == null)) ||
+          (call.owner != null && !call.isConstructor && !call.isStatic) ||
+          conversionGraph(call.inputs)
+              .any((value) => value is ReferenceConversion) ||
+          hasDefaultResources(call.parameters, call.inputs, bindings.classes));
   bool get hasFutures => hasStreams || calls.any((call) => call.returnsFuture);
   bool get hasBinary => calls.any(
     (call) =>

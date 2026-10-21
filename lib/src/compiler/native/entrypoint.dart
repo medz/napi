@@ -21,8 +21,7 @@ import '../lowering/plan.dart'
         JsCollectionConversion,
         ValueClassConversion,
         ValueConversion,
-        containsDefaultReference,
-        containsJsCollectionReference,
+        hasDefaultResources,
         containsValueClass,
         conversionDependencies,
         conversionGraph,
@@ -74,15 +73,8 @@ String emitNativeDart(NativeModulePlan plan) {
     for (final binding in plan.classes) binding.shape,
   ]);
   final hasResources = policies.isNotEmpty;
-  final scopedCollections =
-      hasResources && plan.jsCollections.any(containsJsCollectionReference);
-  final scopedCallbacks =
-      hasResources &&
-      plan.callbacks.any(
-        (callback) =>
-            conversionDependencies([...callback.inputs, ?callback.output])
-                .any((value) => value is ReferenceConversion),
-      );
+  final scopedCollections = plan.hasResourceCollections;
+  final scopedCallbacks = plan.hasResourceCallbacks;
   final hasCompositeViews = hasCompositeReferenceViews([
     for (final binding in plan.classes) binding.shape,
   ]);
@@ -115,11 +107,13 @@ String emitNativeDart(NativeModulePlan plan) {
   final defaultImports = defaultImportPrefixes(
     plan.calls.expand((call) => call.parameters),
     plan.calls.expand((call) => [...call.inputs, ?call.output]),
+    classes: plan.bindings.classes,
   );
   String declarationSource(DeclarationId declaration) =>
       defaultDeclarationSource(declaration, defaultImports);
   final structures = NativeStructuralEmitter(
     hasResources: hasResources,
+    classes: plan.bindings.classes,
     defaultDeclarationSource: declarationSource,
     callbackReader: callbackReader,
     functionExport: functionExport,
@@ -276,12 +270,7 @@ ${tests.declarations}  int? canonical;''');
     final scopedOperation =
         (scopedCollections || scopedCallbacks) &&
         !(call.isConstructor && call.member == null);
-    final retainsResources =
-        hasResources &&
-        (scopedOperation ||
-            hasReceiver ||
-            conversionGraph(call.inputs)
-                .any((value) => value is ReferenceConversion));
+    final retainsResources = plan.needsResourceOperation(call);
     final parameters = call.parameters;
     final tracksInputOwners = functionValue != null
         ? conversionGraph(call.inputs).any((value) => value is OpaqueConversion)
@@ -438,8 +427,15 @@ ${tests.declarations}  int? canonical;''');
             );
           }
           if (retainsResources && functionValue == null) {
-            code.writeln(
-              '      ${conversion.nullable ? 'if (reference$index != null) ' : ''}operation.retain(_resourceControl(reference$index));',
+            code.write(
+              emitDartDefaultResourceRetains(
+                conversion,
+                'reference$index',
+                indent: '      ',
+                parameter: parameter,
+                classes: plan.bindings.classes,
+                declarationSource: declarationSource,
+              ),
             );
           }
           if (functionValue == null) code.writeln('    } else {');
@@ -458,9 +454,11 @@ ${tests.declarations}  int? canonical;''');
           final conversion = call.inputs[index];
           if (!_optional(parameter) ||
               conversion is ReferenceConversion ||
-              !containsDefaultReference(conversion) ||
-              parameter.defaultValue == null ||
-              parameter.defaultValue is ScalarDefault) {
+              !hasDartDefaultResourceRetains(
+                parameter,
+                conversion,
+                plan.bindings.classes,
+              )) {
             continue;
           }
           code.writeln('    if (default$index) {');
@@ -473,6 +471,9 @@ ${tests.declarations}  int? canonical;''');
                 declarationSource: declarationSource,
               ),
               indent: '      ',
+              parameter: parameter,
+              classes: plan.bindings.classes,
+              declarationSource: declarationSource,
             ),
           );
           code.writeln('    }');
@@ -790,10 +791,14 @@ void _emitCallbackAdapter(
   ).any((value) => value is ReferenceConversion || value is CallbackConversion);
   final resourceValues =
       hasResources &&
-      conversionDependencies([
-        ...conversion.inputs,
-        ?conversion.output,
-      ], includeFunctions: false).any((value) => value is ReferenceConversion);
+      (conversionDependencies(
+            [...conversion.inputs, ?conversion.output],
+            includeFunctions: false,
+          ).any((value) => value is ReferenceConversion) ||
+          hasDefaultResources(const [], [
+            ...conversion.inputs,
+            ?conversion.output,
+          ], structures.classes));
   code.writeln(
     '${conversion.dartType} $name(Pointer<Void> env, Pointer<Void> value, String path) {',
   );

@@ -1,19 +1,28 @@
 import 'dart:convert';
 
+import '../../analysis/validate.dart' show defaultResourceObjects;
 import '../../ir/defaults.dart';
 import '../../ir/model.dart';
 import '../../lowering/plan.dart';
 
 Map<Uri, String> defaultImportPrefixes(
   Iterable<ParameterBinding> parameters,
-  Iterable<ValueConversion> conversions,
-) {
+  Iterable<ValueConversion> conversions, {
+  List<ClassBinding> classes = const [],
+}) {
   final imports = <Uri, String>{};
-  final defaults = [
-    for (final parameter in parameters) ?parameter.defaultValue,
+  final allParameters = [
+    ...parameters,
     for (final conversion in conversionDependencies(conversions))
       if (conversion is ValueClassConversion)
-        for (final field in conversion.fields) ?field.parameter?.defaultValue,
+        for (final field in conversion.fields) ?field.parameter,
+  ];
+  final defaults = [
+    for (final parameter in allParameters) ...[
+      ?parameter.defaultValue,
+      for (final object in defaultResourceObjects(parameter, classes))
+        ?object.expression,
+    ],
   ];
   for (final value in defaults) {
     for (final declaration in constantDefaultDeclarations(value)) {
@@ -61,13 +70,33 @@ String renderDartDefault(
   return value.toString();
 }
 
+bool hasDartDefaultResourceRetains(
+  ParameterBinding parameter,
+  ValueConversion conversion,
+  List<ClassBinding> classes,
+) =>
+    parameter.defaultValue != null &&
+    parameter.defaultValue is! ScalarDefault &&
+    (parameter.defaultObjects != null
+        ? defaultResourceObjects(parameter, classes).isNotEmpty
+        : containsDefaultReference(conversion));
+
 String emitDartDefaultResourceRetains(
   ValueConversion conversion,
   String value, {
   String operation = 'operation',
   String indent = '  ',
   String Function(String value)? retainReference,
+  ParameterBinding? parameter,
+  List<ClassBinding> classes = const [],
+  String Function(DeclarationId)? declarationSource,
 }) {
+  if (parameter?.defaultObjects != null) {
+    return [
+      for (final object in defaultResourceObjects(parameter!, classes))
+        '$indent${retainReference?.call(_defaultObjectSource(object, declarationSource)) ?? '$operation.retain(_resourceControl(${_defaultObjectSource(object, declarationSource)}))'};\n',
+    ].join();
+  }
   if (!containsDefaultReference(conversion)) return '';
   final result = StringBuffer('$indent{\n');
   var next = 0;
@@ -117,9 +146,16 @@ String emitDartDefaultResourceRetains(
   return result.toString();
 }
 
+String _defaultObjectSource(
+  DefaultObjectBinding object,
+  String Function(DeclarationId)? declarationSource,
+) =>
+    '((${constantDefaultSource(object.expression!, declarationSource: declarationSource)})${object.expressionNullable ? '!' : ''}${object.fieldPath.map((field) => '.$field').join()} as Object)';
+
 String emitDartValueDefaultReferences(
   Iterable<ValueConversion> conversions, {
   required String Function(DeclarationId) declarationSource,
+  List<ClassBinding> classes = const [],
 }) {
   final result = StringBuffer(
     'void _visitValueDefaultReferences(String id, void Function(Object) retain) {\n'
@@ -132,11 +168,12 @@ String emitDartValueDefaultReferences(
     if (conversion.direction != ValueDirection.input) continue;
     for (final (index, field) in conversion.fields.indexed) {
       final parameter = field.parameter!;
-      final constant = parameter.defaultValue;
       if (!field.optional ||
-          constant == null ||
-          constant is ScalarDefault ||
-          !containsDefaultReference(field.conversion)) {
+          !hasDartDefaultResourceRetains(
+            parameter,
+            field.conversion,
+            classes,
+          )) {
         continue;
       }
       final id = '${conversion.schemaId}:$index';
@@ -152,6 +189,9 @@ String emitDartValueDefaultReferences(
           ),
           indent: '      ',
           retainReference: (value) => 'retain($value)',
+          parameter: parameter,
+          classes: classes,
+          declarationSource: declarationSource,
         ),
       );
       result.writeln('      return;');

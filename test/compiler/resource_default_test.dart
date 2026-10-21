@@ -9,6 +9,8 @@ import 'package:napi/src/compiler/ir/model.dart';
 import 'package:napi/src/compiler/lowering/plan.dart';
 import 'package:napi/src/compiler/native/entrypoint.dart';
 import 'package:napi/src/compiler/native/plan.dart';
+import 'package:napi/src/compiler/sdk_adapter/dart_aot_adapter.dart';
+import 'package:napi/src/compiler/sdk_adapter/dart_sdk_adapter.dart';
 import 'package:test/test.dart';
 
 const _resource = '''
@@ -20,6 +22,15 @@ class Resource {
 }
 const _default = Resource();
 ''';
+
+const _nestedDefaults = [
+  ('Inner', 'const Inner(_default)'),
+  ('List<Inner>', 'const [Inner(_default)]'),
+  ('Map<String, Inner>', "const {'item': Inner(_default)}"),
+  ('Map<Inner, int>', 'const {Inner(_default): 1}'),
+  ('Dictionary<Inner>', "const Dictionary({'item': Inner(_default)})"),
+  ('(Inner,)', 'const (Inner(_default),)'),
+];
 
 void main() {
   final packages = File('.dart_tool/package_config.json').absolute.path;
@@ -69,10 +80,11 @@ $source
         );
         final defaultBranch = body.indexOf('if (default2)');
         final explicitBranch = body.indexOf('} else {', defaultBranch);
-        final retain = body.indexOf(
-          'operation.retain(_resourceControl(reference2))',
-          defaultBranch,
-        );
+        final retain =
+            RegExp(
+              r'operation\.retain\(_resourceControl\([^\n;]*const [_a-zA-Z0-9]+\.Resource\(',
+            ).firstMatch(body.substring(defaultBranch))!.start +
+            defaultBranch;
         expect(retain, greaterThan(defaultBranch));
         expect(retain, lessThan(explicitBranch));
         expect(retain, lessThan(body.indexOf('_api.checkCallback(')));
@@ -88,7 +100,7 @@ $source
         );
         final getter = '${call.coreExportName}:default:2';
         expect(dart, contains("@pragma('wasm:export', '$getter')"));
-        final getterCall = javascript.indexOf('core["$getter"]()');
+        final getterCall = javascript.indexOf('core["$getter"](operation)');
         expect(getterCall, greaterThanOrEqualTo(0));
         final body = javascript.substring(
           javascript.lastIndexOf('const call', getterCall),
@@ -231,15 +243,8 @@ const _items = <Resource?>[_default, null, Child(), _default];
     },
   );
 
-  for (final (fieldType, defaultValue) in [
-    ('Inner', 'const Inner(_default)'),
-    ('List<Inner>', 'const [Inner(_default)]'),
-    ('Map<String, Inner>', "const {'item': Inner(_default)}"),
-    ('Map<Inner, int>', 'const {Inner(_default): 1}'),
-    ('Dictionary<Inner>', "const Dictionary({'item': Inner(_default)})"),
-    ('(Inner,)', 'const (Inner(_default),)'),
-  ]) {
-    test('value defaults do not hide resource graphs in $fieldType', () async {
+  for (final (fieldType, defaultValue) in _nestedDefaults) {
+    test('value defaults retain stored resources in $fieldType', () async {
       final declaration =
           '''
 @NAPI(classPolicy: ClassPolicy.value)
@@ -256,15 +261,35 @@ class Outer {
 ''';
       for (final native in [false, true]) {
         final module = await read(declaration, native: native);
+        final parameter = module.classes
+            .singleWhere((binding) => binding.exportName == 'Outer')
+            .members
+            .singleWhere((member) => member.kind == MemberKind.constructor)
+            .parameters
+            .single;
         expect(
-          () => native ? validateNative(module) : validate(module),
-          throwsA(
-            isA<BindingDiagnostic>().having(
-              (error) => error.code,
-              'code',
-              'NAPI_DEFAULT',
-            ),
-          ),
+          defaultResourceObjects(
+            parameter,
+            module.classes,
+          ).map((object) => object.type.declaration.name),
+          ['Resource'],
+        );
+        final String generated;
+        if (native) {
+          final plan = validateNative(module);
+          expect(plan.needsResourceOperation(plan.functions.single), isTrue);
+          generated = emitNativeDart(plan);
+          expect(generated, contains('operation.retain(_resourceControl('));
+        } else {
+          final plan = lower(validate(module));
+          expect(plan.needsResourceOperation(plan.functions.single), isTrue);
+          generated = emitDart(plan);
+          expect(generated, contains('_visitValueDefaultReferences('));
+        }
+        expect(
+          RegExp(r'retain\([^\n;]*const [_a-zA-Z0-9]+\.Resource\(')
+              .hasMatch(generated),
+          isTrue,
         );
       }
     });
@@ -292,30 +317,71 @@ class Value {
   ]) {
     test('resource $name defaults follow the supported shape', () async {
       for (final native in [false, true]) {
-        Future<void> check() async {
-          final module = await read(declaration, native: native);
-          if (native) {
-            validateNative(module);
-          } else {
-            validate(module);
-          }
-        }
-
-        if (name == 'value constructor field') {
-          await check();
+        final module = await read(declaration, native: native);
+        final String generated;
+        if (native) {
+          final plan = validateNative(module);
+          expect(plan.needsResourceOperation(plan.functions.single), isTrue);
+          generated = emitNativeDart(plan);
         } else {
-          await expectLater(
-            check,
-            throwsA(
-              isA<BindingDiagnostic>().having(
-                (error) => error.code,
-                'code',
-                'NAPI_DEFAULT',
-              ),
-            ),
-          );
+          final plan = lower(validate(module));
+          expect(plan.needsResourceOperation(plan.functions.single), isTrue);
+          generated = emitDart(plan);
         }
+        expect(
+          RegExp(r'retain\([^\n;]*const [_a-zA-Z0-9]+\.Resource\(')
+              .hasMatch(generated),
+          isTrue,
+        );
       }
     });
   }
+
+  test('nested resource defaults compile in both backends', () async {
+    final declaration =
+        '''
+@NAPI(classPolicy: ClassPolicy.value)
+class Inner {
+  final Resource resource;
+  const Inner(this.resource);
+}
+${[for (final (index, (fieldType, defaultValue)) in _nestedDefaults.indexed) '''
+@NAPI(classPolicy: ClassPolicy.value)
+class Outer$index {
+  final $fieldType item;
+  const Outer$index({this.item = $defaultValue});
+}
+@NAPI() Outer$index echo$index(Outer$index value) => value;
+'''].join()}
+@NAPI(classPolicy: ClassPolicy.value)
+class Field {
+  final Resource resource;
+  const Field({this.resource = _default});
+}
+@NAPI() Field field(Field value) => value;
+@NAPI() int object([Inner value = const Inner(_default)]) => value.resource.value;
+''';
+    for (final native in [false, true]) {
+      final module = await read(declaration, native: native);
+      final entry = await File('${directory.path}/entry-$native.dart')
+          .writeAsString(
+            native
+                ? emitNativeDart(validateNative(module))
+                : emitDart(lower(validate(module))),
+          );
+      if (native) {
+        await DartAotAdapter().compile(
+          sourcePath: entry.path,
+          outputPath: '${directory.path}/module.aot',
+          packagesPath: packages,
+        );
+      } else {
+        await DartSdkAdapter().compile(
+          sourcePath: entry.path,
+          outputPath: '${directory.path}/module.wasm',
+          packagesPath: packages,
+        );
+      }
+    }
+  }, timeout: const Timeout(Duration(minutes: 2)));
 }

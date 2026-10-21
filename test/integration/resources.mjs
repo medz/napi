@@ -236,6 +236,54 @@ async function valueResourceDefaultFailure(api) {
   assert.equal(api.resourceCleanupCalls(301), 1, 'constructor failures release container default leases');
 }
 
+async function actualDefaultGraphs(api) {
+  const owner = api.resourceGraphOwner(600);
+  let closing;
+  const later = new Proxy([1], {
+    getOwnPropertyDescriptor(target, key) {
+      if (key === '0' && !closing) {
+        closing = promise(() => owner.close());
+        assert.equal(api.resourceCleanupCalls(600), 0, 'private stored defaults are retained before later inputs');
+      }
+      return Reflect.getOwnPropertyDescriptor(target, key);
+    },
+  });
+  const pending = promise(() => api.resourceHiddenHold(later, 620));
+  assert(closing instanceof Promise);
+  await turn();
+  assert.equal(api.resourceCleanupCalls(600), 0);
+  api.resourceComplete(620);
+  assert.equal(await pending, 601);
+  await closing;
+  assert.equal(api.resourceCleanupCalls(600), 1);
+  await rejects(() => api.resourceHiddenHold([], 621));
+
+  const fieldOwner = api.resourceGraphOwner(601);
+  let fieldClosing;
+  const field = new Proxy({marker: 7}, {
+    getOwnPropertyDescriptor(target, key) {
+      if (key === 'marker' && !fieldClosing) {
+        fieldClosing = promise(() => fieldOwner.close());
+        assert.equal(api.resourceCleanupCalls(601), 0, 'lazy value defaults are retained before later fields');
+      }
+      return Reflect.getOwnPropertyDescriptor(target, key);
+    },
+  });
+  const lazy = promise(() => api.resourceHiddenArray([field], 622));
+  assert(fieldClosing instanceof Promise);
+  await turn();
+  assert.equal(api.resourceCleanupCalls(601), 0);
+  api.resourceComplete(622);
+  assert.equal(await lazy, 601);
+  await fieldClosing;
+  assert.equal(api.resourceCleanupCalls(601), 1);
+  await rejects(() => api.resourceHiddenArray([{}], 623));
+
+  await promise(() => api.resourceGraphOwner(602).close());
+  assert.equal(api.resourceIgnoredDefault(), 7, 'ignored constructor arguments are outside the stored resource graph');
+  assert.equal(api.resourceIgnoredDefault(undefined), 7);
+}
+
 async function genericResources(api) {
   let traps = 0;
   const hostile = new Proxy({}, {
@@ -692,6 +740,8 @@ async function scenario(name) {
       await valueResourceDefaults(await import('@napi/resources-external'));
       await genericResources(api);
       await genericResources(await import('@napi/resources-external'));
+      await actualDefaultGraphs(api);
+      await actualDefaultGraphs(await import('@napi/resources-external'));
       break;
     case 'nested': await nested(api); break;
     case 'input-reentry': await inputReentry(api); break;

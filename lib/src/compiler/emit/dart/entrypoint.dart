@@ -12,6 +12,7 @@ String emitDart(ModulePlan plan) {
   final defaultImports = defaultImportPrefixes(
     plan.calls.expand((call) => call.parameters),
     plan.conversions,
+    classes: plan.allClasses,
   );
   String declarationSource(DeclarationId declaration) =>
       defaultDeclarationSource(declaration, defaultImports);
@@ -89,6 +90,7 @@ String emitDart(ModulePlan plan) {
       emitDartValueDefaultReferences(
         plan.conversions,
         declarationSource: declarationSource,
+        classes: plan.allClasses,
       ),
     );
     if (callbacks.isNotEmpty) result.writeln(callbackResourceEntrypointPrelude);
@@ -166,15 +168,23 @@ ${tests.declarations}  return externRefForJSAny(<JSAny?>[
       entry.value,
       entry.key,
       resources: resources,
+      classes: plan.allClasses,
     );
   }
   for (final (index, call) in plan.calls.indexed) {
     final parameters = call.parameters;
     if (resources && plan.needsResourceOperation(call)) {
       for (final (i, parameter) in parameters.indexed) {
-        if (!containsDefaultReference(call.inputs[i]) ||
-            parameter.defaultValue == null ||
+        if (parameter.defaultValue == null ||
             parameter.defaultValue is ScalarDefault) {
+          continue;
+        }
+        if (call.inputs[i] is! ReferenceConversion &&
+            !hasDartDefaultResourceRetains(
+              parameter,
+              call.inputs[i],
+              plan.allClasses,
+            )) {
           continue;
         }
         final value = renderDartDefault(
@@ -186,8 +196,12 @@ ${tests.declarations}  return externRefForJSAny(<JSAny?>[
         if (call.inputs[i] is ReferenceConversion) {
           result.writeln('''
 @pragma('wasm:export', '${call.coreExportName}:default:$i')
-WasmExternRef _default${index}_$i() =>
-    WasmAnyRef.fromObject($value as Object).externalize();
+WasmExternRef? _default${index}_$i(WasmExternRef prepared) {
+  final operation = prepared.internalize().toObject() as ResourceOperation;
+  try {
+${emitDartDefaultResourceRetains(call.inputs[i], value, indent: '    ', parameter: parameter, classes: plan.allClasses, declarationSource: declarationSource)}    return WasmAnyRef.fromObject($value as Object).externalize();
+  } catch (error) { return _normalizeResourceError(error); }
+}
 ''');
         } else {
           result.writeln('''
@@ -195,7 +209,7 @@ WasmExternRef _default${index}_$i() =>
 void _default${index}_$i(WasmExternRef prepared) {
   final operation = prepared.internalize().toObject() as ResourceOperation;
   try {
-${emitDartDefaultResourceRetains(call.inputs[i], value, indent: '    ')}  } catch (error) { _normalizeResourceError(error); }
+${emitDartDefaultResourceRetains(call.inputs[i], value, indent: '    ', parameter: parameter, classes: plan.allClasses, declarationSource: declarationSource)}  } catch (error) { _normalizeResourceError(error); }
 }
 ''');
         }
@@ -468,13 +482,18 @@ void _emitCallbackAdapter(
   CallbackConversion callback,
   int context, {
   required bool resources,
+  required List<ClassBinding> classes,
 }) {
   final resourceValues =
       resources &&
-      conversionDependencies([
-        ...callback.inputs,
-        ?callback.output,
-      ], includeFunctions: false).any((value) => value is ReferenceConversion);
+      (conversionDependencies(
+            [...callback.inputs, ?callback.output],
+            includeFunctions: false,
+          ).any((value) => value is ReferenceConversion) ||
+          hasDefaultResources(const [], [
+            ...callback.inputs,
+            ?callback.output,
+          ], classes));
   String quote(String value) => jsonEncode(value).replaceAll(r'$', r'\$');
   const structureFailure =
       '_CallbackThrown(_callbackStructureError(externRefForJSAny(error.path.toJS)!, externRefForJSAny(error.message.toJS)!, WasmI32.fromInt(error.range ? 1 : 0)))';
