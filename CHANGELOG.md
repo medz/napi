@@ -1,3 +1,22 @@
+## 0.17.0
+
+- Support resource objects inside const container defaults, with operation leases
+  and disposal behavior matching explicit inputs.
+- Extend `JsArray` and `JsMap` elements with references, resources, binary values,
+  nested handles, copied structures, value classes and typed function values.
+  Preserve the original JavaScript container and validate elements on access.
+- Export Dart function values through fields, copied containers and higher-order
+  signatures, including Future and Stream results. Preserve function identity
+  when the input and output conversions agree.
+- Support optional and named callback parameters, binary and structured payloads,
+  and selected class references. Keep asynchronous resource leases tied to actual
+  callback payloads.
+- Infer value-class input constructors from Dart declarations; select a different
+  constructor or factory with `@NAPI()`. Remove the `valueConstructor` option;
+  existing declarations using it must migrate to constructor selection.
+- Fix nullable and non-nullable function values sharing a generated adapter, and
+  describe asymmetric value-class function conversions accurately in TypeScript.
+
 ## 0.16.1
 
 - Fix const-default type-cast failures for package `lib/` files and relative
