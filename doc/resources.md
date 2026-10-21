@@ -121,6 +121,12 @@ accepted resource early. It does not reread mutable JavaScript
 getters in a second resource traversal. Repeated aliases acquire one lease per
 raw control. Partial conversion failures release every lease already acquired.
 
+[JavaScript collection handles](collections.md) retain resource elements when
+Dart accesses them, rather than traversing the container during admission.
+Saved handles use the operation of the current exported call. This also covers
+accesses first made after `await` and during a stream subscription. A detached
+Timer cannot start a new resource use after its exported call has finished.
+
 Synchronous calls release after result conversion, including failure paths.
 Future calls retain their leases through result conversion and the public
 Promise's actual settlement. Dropping that Promise does not cancel Dart work or
@@ -135,7 +141,9 @@ and releases on a subsequent microtask. This waits for recursive thenable
 adoption without attaching a hidden rejection handler, rereading `then` or
 changing the host's `unhandledRejection` / `rejectionHandled` Promise identity.
 Primitive/void results and rejected conversions need no settlement observer.
-Ordinary calls with no resource leases do not activate it. Native acknowledgement
+Calls that may acquire resources lazily through collection handles prepare this
+tracking before business code starts, even if their initial lease set is empty.
+Other calls with no resource leases do not activate it. Native acknowledgement
 returns to Dart through its owning event pump, not a reentrant V8 hook callback.
 
 The observer is private to each loaded module and is removed when its last
@@ -182,6 +190,11 @@ await control.dispose(() => raw.close(reason));
 order. It detaches its retained state before release can invoke cleanup and
 reenter the binding. Its optional exempt control is used for cleanup's own raw
 resource, not arbitrary other resources.
+
+`operation.run(body)` makes that operation available as `ResourceOperation.current`
+while the body and its asynchronous continuations execute. It preserves the Dart
+error Zone. This scope does not extend the operation's lifetime: resource access
+after `release()` is rejected.
 
 The cleanup callback runs in the first disposal call's Zone even if the last
 lease is released in another Zone. The cached Future follows Dart error-zone

@@ -94,6 +94,12 @@ dependencies:
     'concreteReference',
     'writeReferenceResource',
     'writeConflictingResource',
+    'collectionCleanups',
+    'collectionEvents',
+    'collectionWaiting',
+    'collectionComplete',
+    'collectionTimers',
+    'collectionTimerResult',
   ];
   const bigints = [
     'bigBooleans',
@@ -133,6 +139,7 @@ Future<void> main() async {
           ExternalClass('TextItem'),
           ExternalClass('ResourceItem', config: NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')),
           ExternalClass('OtherResource', config: NAPI(classPolicy: ClassPolicy.resource, cleanup: 'release')),
+          ExternalClass('ResourceCollections'),
           ExternalClass('Owner', config: NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')),
         ] else ...const [
           ExternalFunction('read'),

@@ -494,7 +494,6 @@ void [value, big, asynchronous, empty, wide, record, syncInFuture, globalName, l
         '@NAPI() int run(JsArray<T> Function<T>(JsArray<T>) callback) => 1;',
     'nested handle element':
         '@NAPI() int run(JsArray<List<int>> Function() callback) => 1;',
-    'resource handle element': '@NAPI(classPolicy: ClassPolicy.resource, cleanup: "close") class Box { Box(); void close() {} } @NAPI() int run(JsArray<Box> Function() callback) => 1;',
     'bare enclosing opaque':
         '@NAPI() int run<T>(T Function(JsArray<T>) callback) => 1;',
     'structural Map with handle':

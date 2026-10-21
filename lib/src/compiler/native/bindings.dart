@@ -2113,13 +2113,18 @@ final class NapiApi {
     _futures[token]!.operation = operation;
   }
 
-  void retainFuture(int token, List<Object?> values, {int? observeEnv}) {
+  void retainFuture(
+    int token,
+    List<Object?> values, {
+    int? observeEnv,
+    bool observeEmpty = false,
+  }) {
     final pending = _futures[token]!;
     pending.roots = values;
     final operation = pending.operation;
     if (observeEnv != null &&
         operation is ResourceOperation &&
-        !operation.isEmpty) {
+        (observeEmpty || !operation.isEmpty)) {
       _check(_observeFuture(Pointer.fromAddress(observeEnv), token));
     }
   }

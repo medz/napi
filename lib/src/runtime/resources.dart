@@ -188,6 +188,10 @@ final class _ResourceLease implements OperationLease {
 final class ResourceOperation implements OperationLease {
   ResourceOperation({this._exempt});
 
+  static final _zoneKey = Object();
+  static ResourceOperation? get current =>
+      Zone.current[_zoneKey] as ResourceOperation?;
+
   ResourceControl? _exempt;
   final _leases = Map<ResourceControl, OperationLease>.identity();
   _ResourceStreamNotice? _stream;
@@ -197,10 +201,27 @@ final class ResourceOperation implements OperationLease {
   @override
   bool get isReleased => _released;
 
+  /// Runs a call and its asynchronous continuations in this operation's scope.
+  R run<R>(R Function() body) {
+    if (_released) throw StateError('Resource operation is released.');
+    if (identical(current, this)) return body();
+    return runZoned(body, zoneValues: {_zoneKey: this});
+  }
+
   void retain(ResourceControl? control) {
     if (_released) throw StateError('Resource operation is released.');
-    if (control == null || identical(control, _exempt)) return;
-    _leases.putIfAbsent(control, control.retainOperation);
+    if (control == null ||
+        identical(control, _exempt) ||
+        _leases.containsKey(control)) {
+      return;
+    }
+    _leases[control] = control.retainOperation();
+    final notice = _stream;
+    if (notice == null) return;
+    notice.attach(control);
+    if (!_released && control.state != ResourceState.open) {
+      control._cancelStreams([notice]);
+    }
   }
 
   /// Transfers close notification to one stream without strongly rooting it.
@@ -211,23 +232,15 @@ final class ResourceOperation implements OperationLease {
     if (_released || _stream != null) {
       throw StateError('Resource operation cannot attach another stream.');
     }
-    if (_leases.isEmpty) return;
-    final notice = _ResourceStreamNotice(
-      this,
-      target,
-      cancel,
-      _leases.keys.toList(),
-    );
+    final notice = _ResourceStreamNotice(this, target, cancel);
     _stream = notice;
-    for (final control in notice.controls) {
-      final streams = control._streams ??= {};
-      for (final previous in streams.toList(growable: false)) {
-        if (previous.target.target == null) previous.operation.release();
-      }
-      streams.add(notice);
+    for (final control in _leases.keys.toList(growable: false)) {
+      notice.attach(control);
+      if (_released) return;
     }
     // All links exist before cancellation can synchronously reenter cleanup.
     for (final control in notice.controls.toList(growable: false)) {
+      if (_released) break;
       if (control.state != ResourceState.open) control._cancelStreams([notice]);
     }
   }
@@ -250,28 +263,39 @@ final class ResourceOperation implements OperationLease {
 }
 
 final class _ResourceStreamNotice {
-  _ResourceStreamNotice(
-    this.operation,
-    Object target,
-    this.cancel,
-    this.controls,
-  ) : target = WeakReference(target);
+  _ResourceStreamNotice(this.operation, Object target, this.cancel)
+    : target = WeakReference(target);
 
   final ResourceOperation operation;
   final WeakReference<Object> target;
   final Future<void> Function(Object) cancel;
-  final List<ResourceControl> controls;
+  final List<ResourceControl> controls = [];
   Future<void>? _future;
+
+  void attach(ResourceControl control) {
+    controls.add(control);
+    final streams = control._streams ??= {};
+    streams.add(this);
+    for (final previous in streams.toList(growable: false)) {
+      if (!identical(previous, this) && previous.target.target == null) {
+        previous.operation.release();
+      }
+    }
+  }
 
   Future<void> request() {
     final existing = _future;
     if (existing != null) return existing;
+    final completion = Completer<void>();
+    _future = completion.future;
     final value = target.target;
     if (value == null) {
       operation.release();
-      return _future = Future<void>.value();
+      completion.complete();
+    } else {
+      completion.complete(Future<void>.sync(() => cancel(value)));
     }
-    return _future = Future<void>.sync(() => cancel(value));
+    return completion.future;
   }
 
   void detach() {

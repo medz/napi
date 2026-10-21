@@ -12,7 +12,7 @@ Both targets use these mappings:
 | `List<T>` | `Array<T>` | Independent container on each conversion |
 | `Map<K, V>` | `Map<K, V>` | Independent container on each conversion |
 | `Dictionary<V>` | String-keyed object | Independent container on each conversion |
-| `JsArray<T>` / `JsMap<K, V>` | Original JS Array or Map | Retains the existing JS container; scalar, ordinary reference, nested handle and direct opaque elements |
+| `JsArray<T>` / `JsMap<K, V>` | Original JS Array or Map | Retains the existing JS container; scalar, selected reference, nested handle and direct opaque elements |
 | Exported Dart reference class | Bound class instance | Dart owns its state; methods expose supported operations |
 
 See [structural conversion](structural.md) for strict input validation, element
@@ -124,18 +124,30 @@ the original JS source alive does not pin an unused Dart handle. An opaque
 resource wrapper remains an uninterpreted JS value: retaining it does not acquire
 a permanent resource lease or prevent explicit cleanup.
 
-Ordinary selected reference classes also work as elements and keys, including
+Selected reference classes also work as elements and keys, including
 opaque generic references and concrete specializations. Reads and writes use the
 same module brand and most-specific class checks as direct class arguments;
 returning a stored object preserves its wrapper identity. A reference used as a
 Map key therefore addresses that exact JS wrapper. Removing a slot does not
 invalidate an object still retained by Dart.
 
-Resource objects are rejected on access or assignment, including resource
-subtypes viewed through an ordinary base class. A container is admitted without
-reading its contents, so merely accepting a handle does not validate all of its
-elements or acquire resource leases. Copied containers, value classes and binary
-values are not supported as typed handle elements.
+Resource classes are supported as typed elements and keys, including resource
+subtypes viewed through an ordinary base class. The current exported call retains
+each resource when Dart reads or writes it, including Map key and entry access.
+Admitting a container does not inspect its elements or acquire resource leases.
+Saving a handle for a later call uses that later call's operation.
+
+Cleanup waits for accepted uses, including accesses first made after `await` and
+standard Promise settlement of thenable results. A stream can acquire its first
+resource during subscription or later events; closing that resource cancels the
+stream before cleanup. An operation may reuse a resource it already accepted
+while closing, but new operations reject it. See [resource lifecycle](resources.md).
+
+Resource access from detached work after its exported call finishes is rejected;
+for example, return a Future that includes a Timer's resource work rather than
+starting that Timer from a void export. Keeping a handle or extracted Dart object
+alive does not give it a permanent resource lease. Copied containers, value
+classes and binary values remain unsupported as typed handle elements.
 
 Handles remain usable when saved by Dart or across await/Timer callbacks in their
 owner. Existing Future/Stream retention and resource operation leases apply;

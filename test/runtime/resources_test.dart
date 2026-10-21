@@ -450,6 +450,92 @@ void main() {
     expect(uncaught, isEmpty);
   });
 
+  test(
+    'operation scope follows async work and restores nested calls',
+    () async {
+      final operation = ResourceOperation();
+      final nested = ResourceOperation();
+      final control = ResourceControl.forObject(Object());
+      final errorZone = Zone.current.errorZone;
+      final parent = ResourceOperation.current;
+      final pending = operation.run(() async {
+        expect(ResourceOperation.current, same(operation));
+        expect(Zone.current.errorZone, same(errorZone));
+        final zone = Zone.current;
+        operation.run(() => expect(Zone.current, same(zone)));
+        nested.run(() => expect(ResourceOperation.current, same(nested)));
+        expect(ResourceOperation.current, same(operation));
+        await Future<void>.delayed(Duration.zero);
+        expect(ResourceOperation.current, same(operation));
+        expect(Zone.current.errorZone, same(errorZone));
+        ResourceOperation.current!.retain(control);
+      });
+      expect(ResourceOperation.current, same(parent));
+      await pending;
+      var cleaned = false;
+      final disposed = control.dispose(() => cleaned = true);
+      expect(cleaned, isFalse);
+      operation.release();
+      nested.release();
+      await disposed;
+      expect(cleaned, isTrue);
+      expect(ResourceOperation.current, same(parent));
+    },
+  );
+
+  test('detached async work cannot retain after its operation ends', () async {
+    final operation = ResourceOperation();
+    final control = ResourceControl.forObject(Object());
+    final gate = Completer<void>();
+    final pending = operation.run(() async {
+      await gate.future;
+      expect(ResourceOperation.current, same(operation));
+      expect(
+        () => ResourceOperation.current!.retain(control),
+        throwsStateError,
+      );
+    });
+    operation.release();
+    expect(() => operation.run(() {}), throwsStateError);
+    gate.complete();
+    await pending;
+    await control.dispose(() {});
+    expect(control.state, ResourceState.closed);
+  });
+
+  test(
+    'stream cancellation registers resources acquired after attachment',
+    () async {
+      final first = ResourceControl.forObject(Object());
+      final second = ResourceControl.forObject(Object());
+      final operation = ResourceOperation();
+      final target = Object();
+      final gate = Completer<void>();
+      final cleaned = <String>[];
+      var cancels = 0;
+      late Future<void> secondDone;
+      operation.attachStream(target, (_) {
+        cancels++;
+        secondDone = second.dispose(() => cleaned.add('second'));
+        operation.release();
+        return gate.future;
+      });
+      expect(
+        () => operation.attachStream(target, (_) async {}),
+        throwsStateError,
+      );
+      operation.retain(first);
+      operation.retain(second);
+      final firstDone = first.dispose(() => cleaned.add('first'));
+      expect(cancels, 1, reason: 'reentrant disposal must share cancellation');
+      expect(cleaned, isEmpty);
+      expect(operation.isReleased, isTrue);
+      gate.complete();
+      await Future.wait([firstDone, secondDone]);
+      expect(cleaned.toSet(), {'first', 'second'});
+    },
+  );
+
   test('one operation deduplicates resource aliases until its final release', () async {
     final first = ResourceControl.forObject(Object());
     final second = ResourceControl.forObject(Object());

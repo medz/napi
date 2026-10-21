@@ -41,9 +41,8 @@ String nativeJsCollectionRead(
         }
         if (c is ReferenceConversion) {
           final object = 'value${c.nullable ? '!' : ''}';
-          String checkResource(String value) => hasResources
-              ? "if (_resourceControl($value) != null) throw NapiTypeError('\$path: resource objects are unsupported in JS collections'); "
-              : '';
+          String checkResource(String value) =>
+              hasResources ? '_retainJsCollectionResource($value, path); ' : '';
           return 'NativeJsElement<${c.dartType}>(\'reference\', nullable: ${c.nullable}, '
               'readHandle: (api, env, value, path) { '
               'final object = api.ownerValue(env, value, path, ${c.classId}); '

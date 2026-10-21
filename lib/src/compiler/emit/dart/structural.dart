@@ -32,7 +32,7 @@ final class DartStructuralEmitter {
         return '_JsElement<$type>(false, (value) => $nullable${_readScalar(conversion, bigintText: true)}, (value) => $nullable${_writeScalar(conversion)})';
       case ReferenceConversion():
         final path = jsonEncode(conversion.context).replaceAll(r'$', r'\$');
-        final guard = resources ? '_jcRejectResource(object, $path); ' : '';
+        final guard = resources ? '_jcRetainResource(object, $path); ' : '';
         return '_JsElement<$type>(false, (value) { '
             '${conversion.nullable ? 'if (value == null) return null; ' : ''}'
             'final object = externRefForJSAny(value!)!.internalize().toObject() as $type; '

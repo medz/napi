@@ -535,7 +535,110 @@ class OtherItem {
 @NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
 class ResourceItem extends RefItem {
   ResourceItem(super.value);
-  void close() {}
+  void close() {
+    _collectionCleanups.update(value, (count) => count + 1, ifAbsent: () => 1);
+    _collectionEvents.add('close:$value');
+  }
+}
+
+final _collectionCleanups = <int, int>{};
+final _collectionEvents = <String>[];
+final _collectionGates = <int, Completer<void>>{};
+List<int> _collectionTimer = [];
+
+Future<void> _collectionGate(int token) =>
+    (_collectionGates[token] = Completer<void>()).future;
+
+@NAPI()
+int collectionCleanups(int id) => _collectionCleanups[id] ?? 0;
+@NAPI()
+List<String> collectionEvents() => List.of(_collectionEvents);
+@NAPI()
+bool collectionWaiting(int token) => _collectionGates.containsKey(token);
+@NAPI()
+void collectionComplete(int token) =>
+    _collectionGates.remove(token)!.complete();
+
+@NAPI()
+void collectionTimers(JsArray<ResourceItem> resources, JsArray<int> scalars) {
+  _collectionTimer = [];
+  Timer(const Duration(milliseconds: 1), () {
+    try {
+      resources.get(0);
+      _collectionTimer.add(0);
+    } catch (_) {
+      _collectionTimer.add(1);
+    }
+    _collectionTimer.add(scalars.get(0)!);
+  });
+}
+
+@NAPI()
+List<int> collectionTimerResult() => List.of(_collectionTimer);
+
+@NAPI()
+class ResourceCollections {
+  final JsArray<ResourceItem?> _array;
+  final JsMap<ResourceItem, ResourceItem?> _map;
+  Iterator<(ResourceItem, ResourceItem?)>? _iterator;
+  (ResourceItem, ResourceItem?)? _entry;
+  ResourceCollections(this._array, this._map);
+  JsArray<ResourceItem?> array() => _array;
+  JsMap<ResourceItem, ResourceItem?> map() => _map;
+  ResourceItem? read(int index) => _array.get(index);
+  void write(int index, ResourceItem? value) => _array.set(index, value);
+  bool has(ResourceItem key) => _map.has(key);
+  ResourceItem? get(ResourceItem key) => _map.get(key);
+  void put(ResourceItem key, ResourceItem? value) => _map.set(key, value);
+  void start() => _iterator = _map.entries.iterator;
+  bool next() {
+    if (!_iterator!.moveNext()) {
+      _entry = null;
+      return false;
+    }
+    _entry = _iterator!.current;
+    return true;
+  }
+
+  ResourceItem? key() => _entry?.$1;
+  ResourceItem? value() => _entry?.$2;
+  Future<int> hold(int token, bool afterAwait) async {
+    if (afterAwait) await _collectionGate(token + 1000);
+    final first = _array.get(0)!;
+    await _collectionGate(token);
+    final last = _array.get(0)!;
+    if (!identical(first, last)) throw StateError('resource identity changed');
+    return last.value;
+  }
+
+  Future<T> result<T>(int token, T value) async {
+    _array.get(0);
+    await _collectionGate(token);
+    return value;
+  }
+
+  Stream<int> watch(int token) {
+    late StreamController<int> source;
+    source = StreamController<int>(
+      sync: true,
+      onListen: () async {
+        try {
+          await _collectionGate(token);
+          final value = _array.get(0)!;
+          _collectionEvents.add('read:$token');
+          source.add(value.value);
+        } catch (error, stack) {
+          source.addError(error, stack);
+        }
+      },
+      onCancel: () async {
+        _collectionEvents.add('cancel:$token');
+        await _collectionGate(-token);
+        _collectionEvents.add('cancelled:$token');
+      },
+    );
+    return source.stream;
+  }
 }
 
 @NAPI(classPolicy: ClassPolicy.resource, cleanup: 'release')
