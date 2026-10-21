@@ -19,6 +19,10 @@ runtime. Declaration identity is a library URI and source name; diagnostics reta
 original source locations. Dart type semantics are explicit: `SafeIntType` cannot
 be inferred from a JavaScript-platform analyzer view that erases int/double.
 
+Constant default analysis reads stored fields and inherited state through
+Analyzer 14.5.0's internal constant representation. This coupling stays inside
+`front_end`; only plain storage metadata enters the shared IR.
+
 The IR describes types and parameter presence. Analysis rejects unsupported
 categories and duplicate/invalid names. Lowering chooses the export representation
 and conversions. Emitters consume that plan for Dart entrypoints, JS host imports,
