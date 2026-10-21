@@ -66,6 +66,184 @@ void main() {
       AnnotationFrontend(packagesPath: packages).read(input.uri);
   Future<ModulePlan> plan() async => lower(validate(await read()));
 
+  test('explicit value constructors override inferred entry points', () async {
+    await input.writeAsString('''
+import 'package:napi/napi.dart';
+@NAPI(classPolicy: ClassPolicy.value) class Selected {
+  Selected(this.value);
+  @NAPI() Selected.parse(int source, {int offset = 7}) : value = source + offset;
+  Selected.other(this.value);
+  final int value;
+}
+@NAPI(classPolicy: ClassPolicy.value) abstract class FactoryValue {
+  @NAPI() factory FactoryValue.parse(int source) = _FactoryValue;
+  factory FactoryValue.other(int source) = _FactoryValue;
+  int get value;
+}
+class _FactoryValue implements FactoryValue {
+  _FactoryValue(this.value);
+  final int value;
+}
+@NAPI(classPolicy: ClassPolicy.value) class Excluded {
+  @NAPI(exclude: true) Excluded(this.value);
+  @NAPI() Excluded.selected(this.value);
+  Excluded.other(this.value);
+  final int value;
+}
+@NAPI() Selected selected(Selected value) => value;
+@NAPI() FactoryValue factoryValue(FactoryValue value) => value;
+''');
+    final annotated = await read();
+    final external = await ExternalFrontend(
+      const ExternalLibrary([
+        ExternalClass(
+          'Selected',
+          config: NAPI(classPolicy: ClassPolicy.value),
+          members: [ExternalMember.constructor('parse')],
+        ),
+        ExternalClass(
+          'FactoryValue',
+          config: NAPI(classPolicy: ClassPolicy.value),
+          members: [ExternalMember.constructor('parse')],
+        ),
+        ExternalClass(
+          'Excluded',
+          config: NAPI(classPolicy: ClassPolicy.value),
+          members: [
+            ExternalMember.constructor('new', config: NAPI(exclude: true)),
+            ExternalMember.constructor('selected'),
+          ],
+        ),
+        ExternalFunction('selected'),
+        ExternalFunction('factoryValue'),
+      ]),
+      packagesPath: packages,
+    ).read(input.uri);
+    for (final module in [annotated, external]) {
+      for (final schemas in [
+        validate(module).valueSchemas,
+        validateNative(module).valueSchemas,
+      ]) {
+        final selected = schemas.singleWhere(
+          (s) => s.binding.exportName == 'Selected',
+        );
+        expect(selected.constructor!.declaration.name, 'parse');
+        expect(selected.inputFields.map((f) => f.name), ['source', 'offset']);
+        expect(selected.inputFields.last.parameter.hasDefault, isTrue);
+        expect(
+          schemas
+              .singleWhere((s) => s.binding.exportName == 'FactoryValue')
+              .constructor!
+              .isFactory,
+          isTrue,
+        );
+        expect(
+          schemas
+              .singleWhere((s) => s.binding.exportName == 'Excluded')
+              .constructor!
+              .declaration
+              .name,
+          'selected',
+        );
+      }
+      expect(
+        emitDeclarations(lower(validate(module))),
+        emitNativeDeclarations(validateNative(module)),
+      );
+    }
+    expect(
+      emitDeclarations(lower(validate(annotated))),
+      emitDeclarations(lower(validate(external))),
+    );
+  });
+
+  test('value constructor selections stay local to concrete aliases', () async {
+    await input.writeAsString('''
+class Box<T> {
+  Box(this.value);
+  Box.named(T source) : value = source;
+  final T value;
+}
+typedef Integer = Box<int>;
+typedef Text = Box<String>;
+Integer integer(Integer value) => value;
+Text text(Text value) => value;
+''');
+    final module = await ExternalFrontend(
+      const ExternalLibrary([
+        ExternalClass(
+          'Integer',
+          config: NAPI(classPolicy: ClassPolicy.value),
+          members: [ExternalMember.constructor('named')],
+        ),
+        ExternalClass('Text', config: NAPI(classPolicy: ClassPolicy.value)),
+        ExternalFunction('integer'),
+        ExternalFunction('text'),
+      ]),
+      packagesPath: packages,
+    ).read(input.uri);
+    for (final schemas in [
+      validate(module).valueSchemas,
+      validateNative(module).valueSchemas,
+    ]) {
+      final integer = schemas.singleWhere(
+        (s) => s.binding.exportName == 'Integer',
+      );
+      final text = schemas.singleWhere((s) => s.binding.exportName == 'Text');
+      expect(integer.constructor!.declaration.name, 'named');
+      expect(integer.inputFields.single.name, 'source');
+      expect(integer.inputFields.single.parameter.type, isA<SafeIntType>());
+      expect(text.constructor!.declaration.name, 'new');
+      expect(text.inputFields.single.name, 'value');
+      expect(
+        (text.inputFields.single.parameter.type as DeclaredType)
+            .declaration
+            .name,
+        'String',
+      );
+    }
+  });
+
+  test(
+    'conflicting explicit value constructors name both candidates',
+    () async {
+      await input.writeAsString('''
+import 'package:napi/napi.dart';
+@NAPI(classPolicy: ClassPolicy.value) class Value {
+  @NAPI() Value(this.value);
+  @NAPI() Value.named(this.value);
+  final int value;
+}
+''');
+      final diagnostic = throwsA(
+        isA<BindingDiagnostic>()
+            .having((error) => error.code, 'code', 'NAPI_AMBIGUOUS')
+            .having(
+              (error) => error.message,
+              'message',
+              allOf(contains('Value'), contains('named')),
+            ),
+      );
+      await expectLater(read(), diagnostic);
+      await expectLater(
+        ExternalFrontend(
+          const ExternalLibrary([
+            ExternalClass(
+              'Value',
+              config: NAPI(classPolicy: ClassPolicy.value),
+              members: [
+                ExternalMember.constructor('new'),
+                ExternalMember.constructor('named'),
+              ],
+            ),
+          ]),
+          packagesPath: packages,
+        ).read(input.uri),
+        diagnostic,
+      );
+    },
+  );
+
   test(
     'output projections ignore unused constructor input types and defaults',
     () async {

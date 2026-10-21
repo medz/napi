@@ -10,6 +10,10 @@ enum ClassPolicy { reference, value, resource }
 /// member from selection. They cannot be combined. Class runtime generation is
 /// separate from declaration discovery.
 ///
+/// On a [ClassPolicy.value] class, annotating one public constructor or factory
+/// selects it for input conversion before automatic constructor selection.
+/// Multiple explicitly selected callable constructors are ambiguous.
+///
 /// A top-level const such as `const readInt = read<int>` selects an explicit
 /// specialization of a top-level function or static method. Its Dart type and
 /// defaults become the exported callable signature.

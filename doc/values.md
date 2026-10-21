@@ -28,12 +28,18 @@ const result: Point = move({x: 3}); // {x: 4, y: 0}
 
 `Point` is a TypeScript output type. No JavaScript `Point` constructor is
 exported. Each accepted input calls the selected real Dart constructor or
-factory; normal Dart invariants and domain errors apply. Constructor selection
-uses the public unnamed constructor, or the sole public named constructor or
-factory when no unnamed constructor is available. Private, excluded, external
-and non-factory abstract constructors are not callable inputs. If no unambiguous
-constructor is available, the class is output-only. Direct input uses then receive
-a source diagnostic, including when nested inside an ordinary copied container.
+factory; normal Dart invariants and domain errors apply. Annotate one public
+constructor or factory with `@NAPI()` to select the input entry point. That
+selection takes priority over an unnamed constructor. Multiple explicitly
+selected callable constructors produce an ambiguity diagnostic listing them.
+External libraries use the same rule through `ExternalMember.constructor`.
+
+Without an explicit selection, the public unnamed constructor is used, or the
+sole public named constructor or factory when no unnamed constructor is
+available. Private, excluded, external and non-factory abstract constructors are
+not callable inputs. If automatic selection finds no unambiguous constructor,
+the class is output-only. Direct input uses then receive a source diagnostic,
+including when nested inside an ordinary copied container.
 
 [Concrete aliases](concrete-generics.md#structural-value-aliases) can fix real Dart
 type arguments before selecting the value policy. Each specialization keeps its
@@ -57,6 +63,8 @@ readable member when both directions should use that member's public name:
 )
 class Label {
   final String value;
+  Label(this.value);
+  @NAPI()
   Label.parse(String source) : value = source.trim();
 }
 ```

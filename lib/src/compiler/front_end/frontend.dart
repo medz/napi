@@ -385,19 +385,31 @@ final class _Reader {
   }) {
     _checkClassOptions(owner, config);
     if (config.classPolicy != ClassPolicy.value) return null;
+    NAPI? selection(a.ConstructorElement member) => memberConfigs == null
+        ? _config(_memberDeclaration(member))
+        : memberConfigs[_memberDeclaration(member)];
     final constructors = owner.constructors
         .where(
           (member) =>
               !member.isPrivate &&
               !member.isExternal &&
               (!owner.isAbstract || member.isFactory) &&
-              (memberConfigs == null
-                          ? _config(_memberDeclaration(member))
-                          : memberConfigs[_memberDeclaration(member)])
-                      ?.exclude !=
-                  true,
+              selection(member)?.exclude != true,
         )
         .toList();
+    final explicit = constructors
+        .where((member) => selection(member) != null)
+        .toList();
+    if (explicit.length > 1) {
+      _reject(
+        explicit.first,
+        'NAPI_AMBIGUOUS',
+        'Multiple explicitly selected value input constructors: '
+            '${explicit.map((member) => '${owner.name}.${member.name}').join(', ')}. '
+            'Select one constructor or factory.',
+      );
+    }
+    if (explicit.isNotEmpty) return _id(explicit.single);
     final unnamed = constructors
         .where((member) => member.name == 'new')
         .firstOrNull;

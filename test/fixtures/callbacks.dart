@@ -584,6 +584,24 @@ class CallbackNormalized {
 }
 
 @NAPI(classPolicy: ClassPolicy.value)
+class CallbackSelectedValue {
+  final int value;
+  final int offset;
+  CallbackSelectedValue(this.value) : offset = -100;
+
+  @NAPI()
+  CallbackSelectedValue.parse(int source, {this.offset = 7})
+    : value = source + offset {
+    if (source < 0) {
+      throw ArgumentError('selected value source must be nonnegative');
+    }
+  }
+}
+
+@NAPI()
+CallbackSelectedValue selectValue(CallbackSelectedValue value) => value;
+
+@NAPI(classPolicy: ClassPolicy.value)
 class CallbackProjection {
   final int value;
   CallbackProjection._(this.value);

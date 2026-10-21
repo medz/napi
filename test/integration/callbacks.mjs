@@ -147,6 +147,11 @@ function payloadValues(api) {
     assert.deepEqual(value, {value: 12}); return {source: '13'};
   }, '12'), {value: 13});
   assert.throws(() => api.callNormalized(value => value, '12'), TypeError);
+  assert.deepEqual(api.selectValue({source: 1}), {value: 8, offset: 7});
+  assert.deepEqual(api.selectValue({source: 1, offset: undefined}), {value: 8, offset: 7});
+  assert.deepEqual(api.selectValue({source: 1, offset: 2}), {value: 3, offset: 2});
+  assert.throws(() => api.selectValue({source: -1}), /selected value source must be nonnegative/);
+  assert.throws(() => api.selectValue({value: 1}), TypeError);
   assert.equal(api.callProjection(value => value.value), 42);
   assert.equal(api.readProjectionCallback(() => []), -1);
   assert.equal(api.readProjectionCallback(() => [null]), -1);
@@ -1081,7 +1086,7 @@ async function scenario(name) {
         'callbackHandleOrder', 'callbackPressure', 'clearBinaryCallback', 'clearCallbackHandle',
         'invokeBinaryRecord', 'plainAsyncCallback', 'plainCallback', 'readCallbackHandle', 'sameHandleSignature',
         'sameOpaqueHandleSignature', 'sameWideHandleSignature',
-        'callContainers', 'callAsyncContainers', 'callKeyMap', 'callNormalized',
+        'callContainers', 'callAsyncContainers', 'callKeyMap', 'callNormalized', 'selectValue',
         'callProjection', 'readProjectionCallback', 'callReference', 'callNewResource',
         'callAsyncNewResource', 'callPayload', 'callAsyncPayload', 'rejectCallbackPayload', 'callbackCleanups',
         'startResourceCallback',

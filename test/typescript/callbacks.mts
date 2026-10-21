@@ -138,6 +138,13 @@ const containers: {
 const asyncContainers: Promise<typeof containers> = api.callAsyncContainers<CallbackPayload>(async value => value, containersInput);
 const keyMap: Map<api.CallbackValue, number> = api.callKeyMap(() => new Map([[{value: 1}, 2]]));
 const normalized: api.CallbackNormalized = api.callNormalized(value => ({source: String(value.value)}), '1');
+const selected: api.CallbackSelectedValue = api.selectValue({source: 1});
+const selectedExternal: externalHandles.CallbackSelectedValue = externalHandles.selectValue({source: 1, offset: 2});
+const selectedDirect: api.CallbackSelectedValue = direct.selectValue({source: 1});
+// @ts-expect-error Explicit constructor input uses source, not the unnamed fallback's value.
+api.selectValue({value: 1});
+// @ts-expect-error Explicit constructor parameters retain their declared types.
+api.selectValue({source: '1'});
 const projection: number = api.callProjection(value => value.value);
 const emptyProjection: number = api.readProjectionCallback(() => [null]);
 const callbackReference: api.CallbackBox | null = api.callReference(value => value, box);
@@ -174,7 +181,7 @@ api.callAsyncNewResource(value => value, 1);
 api.callAsyncPayload<CallbackPayload>(value => value, undefined);
 // @ts-expect-error A required opaque value that admits undefined is still required.
 api.callPayload<CallbackPayload>(value => value);
-void [containers, asyncContainers, keyMap, normalized, projection, emptyProjection,
+void [containers, asyncContainers, keyMap, normalized, selected, selectedExternal, selectedDirect, projection, emptyProjection,
   callbackReference, callbackResource, asyncCallbackResource, startedResource, rawPayload,
   asyncRawPayload, rememberedPayload, savedPayload, invokedPayload, externalPayload, externalNormalized];
 
