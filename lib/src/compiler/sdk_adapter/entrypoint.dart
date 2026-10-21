@@ -170,6 +170,11 @@ external WasmExternRef _callbackStructureError(WasmExternRef path, WasmExternRef
 ''' +
     callbackErrorEntrypointPrelude;
 
+const callbackPresenceEntrypointPrelude = r'''
+final class _NapiCallbackAbsent { const _NapiCallbackAbsent(); }
+const _napiCallbackAbsent = _NapiCallbackAbsent();
+''';
+
 /// Exact host failures also carry AbortSignal reasons, including raw undefined.
 const callbackErrorEntrypointPrelude = r'''
 @pragma('wasm:import', 'napi.throwCallbackError')

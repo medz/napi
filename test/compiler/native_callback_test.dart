@@ -70,6 +70,50 @@ class Resource {
     timeout: const Timeout(Duration(minutes: 2)),
   );
 
+  test('optional and named callback adapters compile as native AOT', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'napi-optional-callback-',
+    );
+    addTearDown(() => directory.delete(recursive: true));
+    final source = await File('${directory.path}/business.dart')
+        .writeAsString('''
+import 'dart:typed_data';
+import 'package:napi/napi.dart';
+@NAPI() int positional(int Function(int, [int?, String?]) callback) => callback(1) + callback(1, null) + callback(1, 2, 'a');
+@NAPI() int nonnull(int Function([int]) callback) => callback() + callback(1);
+@NAPI() void options(void Function({int? count, List<int>? values}) callback) { callback(); callback(count: null); callback(values: [1]); }
+@NAPI() int named(int Function({required int callback, String? adapter, int? operation, String? env, int? state, int? result, int? c0}) callback) => callback(callback: 1, env: null);
+@NAPI() int requiredNamed(int Function({required int env}) callback) => callback(env: 1);
+@NAPI() T opaque<T>(T Function([T]) callback, T value) => callback(value);
+@NAPI() Future<T> later<T>(Future<T> Function({T value, Uint8List? bytes}) callback, T value) => callback(value: value);
+@NAPI() int nullable(int Function({int? value})? callback) => callback?.call() ?? 0;
+@NAPI() Ref? references(Ref? Function({Ref? value}) callback, Ref value) => callback(value: value);
+@NAPI() class Ref { Ref(); }
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+class Resource extends Ref { Resource(); void close() {} }
+''');
+    final plan = validateNative(
+      await AnnotationFrontend(
+        packagesPath: packages,
+        native: true,
+      ).read(source.uri),
+    );
+    final entry = await File('${directory.path}/entry.dart')
+        .writeAsString(emitNativeDart(plan));
+    final compiled = await Process.run(Platform.resolvedExecutable, [
+      'compile',
+      'aot-snapshot',
+      '--packages=$packages',
+      entry.path,
+      '--output=${directory.path}/module.aot',
+    ]);
+    expect(
+      compiled.exitCode,
+      0,
+      reason: '${compiled.stdout}${compiled.stderr}',
+    );
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
   for (final (name, source, binary, shared) in [
     (
       'binary',

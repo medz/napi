@@ -1806,17 +1806,54 @@ bool _referenceSubtype(
     return child.declaration == parent.declaration;
   }
   if (child is FunctionTypeBinding && parent is FunctionTypeBinding) {
-    return child.typeParameters.isEmpty &&
-        parent.typeParameters.isEmpty &&
-        child.parameters.length == parent.parameters.length &&
-        child.parameters.indexed.every((entry) {
-          final other = parent.parameters[entry.$1];
-          return entry.$2.kind == ParameterKind.requiredPositional &&
-              other.kind == ParameterKind.requiredPositional &&
-              _referenceSubtype(other.type, entry.$2.type, classes);
-        }) &&
-        (parent.result is VoidType ||
-            _referenceSubtype(child.result, parent.result, classes));
+    if (child.typeParameters.isNotEmpty || parent.typeParameters.isNotEmpty) {
+      return false;
+    }
+    bool positional(ParameterBinding p) =>
+        p.kind == ParameterKind.requiredPositional ||
+        p.kind == ParameterKind.optionalPositional;
+    final actual = child.parameters.where(positional).toList();
+    final expected = parent.parameters.where(positional).toList();
+    if (actual.length < expected.length ||
+        actual.where((p) => p.kind == ParameterKind.requiredPositional).length >
+            expected
+                .where((p) => p.kind == ParameterKind.requiredPositional)
+                .length) {
+      return false;
+    }
+    for (final (index, parameter) in expected.indexed) {
+      if (!_referenceSubtype(parameter.type, actual[index].type, classes)) {
+        return false;
+      }
+    }
+    final actualNamed = {
+      for (final p in child.parameters.where((p) => !positional(p))) p.name: p,
+    };
+    final expectedNamed = {
+      for (final p in parent.parameters.where((p) => !positional(p))) p.name: p,
+    };
+    // Extra positional slots must not shift the JavaScript options object.
+    if (expectedNamed.isNotEmpty && actual.length != expected.length) {
+      return false;
+    }
+    for (final entry in expectedNamed.entries) {
+      final parameter = actualNamed[entry.key];
+      if (parameter == null ||
+          parameter.kind == ParameterKind.requiredNamed &&
+              entry.value.kind != ParameterKind.requiredNamed ||
+          !_referenceSubtype(entry.value.type, parameter.type, classes)) {
+        return false;
+      }
+    }
+    if (actualNamed.values.any(
+      (p) =>
+          p.kind == ParameterKind.requiredNamed &&
+          !expectedNamed.containsKey(p.name),
+    )) {
+      return false;
+    }
+    return parent.result is VoidType ||
+        _referenceSubtype(child.result, parent.result, classes);
   }
   if (child is DeclaredType && parent is DeclaredType) {
     final childId = classes.indexWhere(
@@ -2350,10 +2387,8 @@ void _validateCallback(
   }
 
   for (final parameter in type.parameters) {
-    if (parameter.kind != ParameterKind.requiredPositional) {
-      reject(
-        'Callback signatures require positional parameters without defaults.',
-      );
+    if (parameter.hasDefault) {
+      reject('Callback function types cannot declare parameter defaults.');
     }
     validatePayload(parameter.type, ValueDirection.output);
   }

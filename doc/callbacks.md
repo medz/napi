@@ -75,8 +75,9 @@ same conversion rules as ordinary handle arguments.
 A live Dart function reference retains its JS callback. Fields, collections,
 closures, timers and microtasks can keep it after the exported call returns.
 Within one module, the same JS function and conversion signature reuse the same
-Dart adapter. Parameter names and the export used to pass it do not change that
-identity; different scalar policies or synchronous/async results do.
+Dart adapter. Positional parameter names and the export used to pass it do not
+change that identity. Parameter kinds, named parameter names, scalar policies
+and synchronous/async results are part of the conversion signature.
 
 Business code decides registration behavior. In the example, duplicate entries
 are allowed and each `unregister` removes one entry. Removing one root does not
@@ -143,14 +144,34 @@ another active native isolate remains [unsupported](native.md).
 Callbacks are direct inputs to synchronous, Future-returning and Stream-returning
 functions, constructors, methods, setters and resource cleanup. Nullable/default-null outer
 parameters preserve normal presence rules. External selections use the same
-mapping. Callback parameters currently require positional parameters without
-defaults. Payloads use the ordinary scalar, binary snapshot, `SharedBytes`,
+mapping. Callbacks support required and optional positional parameters and named
+parameters. Payloads use the ordinary scalar, binary snapshot, `SharedBytes`,
 container, value-class, selected-reference, resource and opaque mappings, with
 synchronous or Future results; void is also supported.
 
-Optional/named parameters inside a callback, generic callback signatures,
-callback outputs, nested callbacks, nullable outer Future results, FutureOr,
-and opaque Map keys receive diagnostics. [Stream exports](streams.md) retain input
+An omitted optional positional parameter is omitted from the JavaScript call.
+Named parameters become one trailing options object containing only the provided
+properties, with a null prototype and own data properties. The object is omitted
+when all named parameters are optional and none
+are provided; required named parameters always require an options object.
+
+```dart
+@NAPI()
+int notify(int Function({int count}) callback) => callback();
+```
+
+```js
+notify(({count = 7} = {}) => count); // 7
+```
+
+JavaScript owns callback defaults. Explicit null stays null. An opaque payload
+containing undefined keeps its argument slot or named property, while normal
+JavaScript default expressions still apply to that undefined value. Omitted
+parameters skip payload conversion and resource admission.
+
+Generic callback signatures, callback outputs, nested callbacks, nullable outer
+Future results, FutureOr and opaque Map keys receive diagnostics.
+[Stream exports](streams.md) retain input
 callbacks through subscription completion. [Explicit cancellation](cancellation.md)
 never revokes a retained callback or cancels a JavaScript Promise returned by it.
 A generic payload that happens to be a JS function stays an opaque

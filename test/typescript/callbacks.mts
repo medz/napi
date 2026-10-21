@@ -178,6 +178,45 @@ void [containers, asyncContainers, keyMap, normalized, projection, emptyProjecti
   callbackReference, callbackResource, asyncCallbackResource, startedResource, rawPayload,
   asyncRawPayload, rememberedPayload, savedPayload, invokedPayload, externalPayload, externalNormalized];
 
+const optionalPositionals: number[] = api.callOptionalPositionals((value = 7) => value);
+const nullablePositionals: Array<number | null> = api.callNullablePositionals((value = 7) => value);
+type OptionalPayload = {fallback: boolean} | undefined;
+const defaultPayload: OptionalPayload = {fallback: true};
+const opaquePositionals: Array<OptionalPayload | null> = api.callOpaquePositionals<OptionalPayload>(
+  (value = defaultPayload) => value, undefined);
+const optionalNames: number[] = api.callOptionalNames(options =>
+  (options?.callback ?? 0) + (options?.operation ?? 0) + (options?.arguments ?? 0) +
+  (options?.value ?? 0) + (options?.env ?? 0) + (options?.adapter ?? 0) + (options?.state ?? 0));
+const mixedNames: number[] = api.callMixedNames((value, options) =>
+  value + options.operation + options.constructor + (options.callback ?? 0));
+const requiredNames: number = api.callRequiredNames(options => options.constructor);
+const optionalModels: number[] = api.callOptionalModels(options =>
+  (options?.resource?.id ?? 0) + (options?.value?.step ?? 0), 907);
+const asyncOptionalPositionals: Promise<number[]> = api.callAsyncOptionalPositionals(async (value = 7) => value);
+const asyncOptionalNames: Promise<Array<OptionalPayload | null>> = api.callAsyncOptionalNames<OptionalPayload>(
+  async ({value = defaultPayload} = {}) => value, undefined);
+const optionalDirect: number[] = direct.callOptionalPositionals((value = 7) => value);
+const optionalExternal: number = externalHandles.callRequiredNames(options => options.constructor);
+const policy = () => 0;
+const parameterPolicies: boolean = api.callbackParameterPolicies(policy, policy, policy, policy, policy);
+// @ts-expect-error An omitted argument does not make a non-null result optional.
+api.callOptionalPositionals(value => value);
+// @ts-expect-error Optional scalar arguments retain their declared type.
+api.callOptionalPositionals((value?: string) => value?.length ?? 7);
+// @ts-expect-error Required named parameters retain their scalar types.
+api.callRequiredNames((options: {constructor: string}) => options.constructor.length);
+// @ts-expect-error Synchronous callback results do not accept Promises.
+api.callOptionalPositionals(async (value = 7) => value);
+// @ts-expect-error Future callbacks still require a Promise.
+api.callAsyncOptionalPositionals((value = 7) => value);
+// @ts-expect-error Nullable scalar results exclude undefined.
+api.callNullablePositionals(() => undefined);
+// @ts-expect-error Opaque Future results still require an outer Promise.
+api.callAsyncOptionalNames<OptionalPayload>(() => defaultPayload, undefined);
+void [optionalPositionals, nullablePositionals, opaquePositionals, optionalNames, mixedNames,
+  requiredNames, optionalModels, asyncOptionalPositionals, asyncOptionalNames,
+  optionalDirect, optionalExternal, parameterPolicies];
+
 // @ts-expect-error Future callback results require a Promise, not a plain scalar.
 api.callAsync(n => n + 1, 3);
 // @ts-expect-error Promise payloads use the declared strict input type.
