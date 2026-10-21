@@ -11,7 +11,7 @@ Map<Uri, String> defaultImportPrefixes(
   final imports = <Uri, String>{};
   final defaults = [
     for (final parameter in parameters) ?parameter.defaultValue,
-    for (final conversion in conversionGraph(conversions))
+    for (final conversion in conversionDependencies(conversions))
       if (conversion is ValueClassConversion)
         for (final field in conversion.fields) ?field.parameter?.defaultValue,
   ];

@@ -25,7 +25,7 @@ String emitValueDeclarations(
         valueSchemas: schemas,
       ) as ValueClassConversion,
   ];
-  final nodes = conversionGraph([...conversions, ...defaults])
+  final nodes = conversionDependencies([...conversions, ...defaults])
       .whereType<ValueClassConversion>()
       .toList();
   final representatives =
@@ -57,17 +57,20 @@ String emitValueDeclarations(
 }
 
 String _body(ValueClassConversion node) {
+  if (node.direction == ValueDirection.input && node.constructor == null) {
+    return 'never';
+  }
   if (node.fields.isEmpty) return '{ [key: string]: never }';
   String property(ValueClassField field) =>
       '${jsonEncode(field.name)}${field.optional ? '?' : ''}: ${field.conversion.typescriptType}${field.optional ? ' | undefined' : ''}';
-  if (node.fields.every((field) => field.binding.documentation == null)) {
+  if (node.fields.every((field) => field.documentation == null)) {
     return '{ ${node.fields.map(property).join('; ')} }';
   }
   return [
     '{',
     for (final field in node.fields) ...[
-      if (field.binding.documentation != null)
-        emitDocumentation(field.binding.documentation, indent: '  '),
+      if (field.documentation != null)
+        emitDocumentation(field.documentation, indent: '  '),
       '  ${property(field)};',
     ],
     '}',

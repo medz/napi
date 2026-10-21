@@ -105,7 +105,7 @@ Future<void> main() async {
         ExternalFunction('fakeOutput'),
         ExternalFunction('fakeCopy'),
         ExternalClass('SharedBox'),
-        ExternalClass('SharedPacket', config: NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')),
+        ExternalClass('SharedPacket', config: NAPI(classPolicy: ClassPolicy.value)),
         ExternalClass('SharedOwner', config: NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')),
       ]) : null,
       ${native ? 'target: BuildTarget.native,\n      nativeRuntime: Directory(${jsonEncode(nativeRuntime.absolute.path)}),' : ''}

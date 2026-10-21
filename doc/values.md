@@ -1,12 +1,12 @@
 # Structural value classes
 
 A value binding describes data copied across the Dart/JavaScript boundary.
-Declare its fields and explicitly select the Dart constructor used for inputs:
+Declare its fields and constructor in Dart:
 
 ```dart
 import 'package:napi/napi.dart';
 
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 class Point {
   final int x;
   final int y;
@@ -28,9 +28,12 @@ const result: Point = move({x: 3}); // {x: 4, y: 0}
 
 `Point` is a TypeScript output type. No JavaScript `Point` constructor is
 exported. Each accepted input calls the selected real Dart constructor or
-factory; normal Dart invariants and domain errors apply. Omitting
-`valueConstructor` makes a class output-only, including when nested inside a
-container. Such a type receives a source diagnostic if used as an input.
+factory; normal Dart invariants and domain errors apply. Constructor selection
+uses the public unnamed constructor, or the sole public named constructor or
+factory when no unnamed constructor is available. Private, excluded, external
+and non-factory abstract constructors are not callable inputs. If no unambiguous
+constructor is available, the class is output-only. Direct input uses then receive
+a source diagnostic, including when nested inside an ordinary copied container.
 
 [Concrete aliases](concrete-generics.md#structural-value-aliases) can fix real Dart
 type arguments before selecting the value policy. Each specialization keeps its
@@ -39,19 +42,17 @@ types. Ordinary open generic value classes remain unsupported.
 
 ## Mapping
 
-`valueConstructor` uses the original public Dart constructor name: `new` for
-unnamed construction, or the named generative/factory constructor's name.
-Private or excluded constructors cannot be selected. An abstract class may
-select a factory that returns a private implementation.
+Each constructor parameter supplies an input property and its Dart type. A
+same-name readable member supplies its public rename, if any; a parameter need
+not have a matching output field or getter. An abstract class may use its public
+factory to return a private implementation.
 
-Every constructor parameter maps to the selected own public field/getter with
-exactly the same original Dart name. For different names, configure only the
-exceptions:
+`valueFields` optionally maps a constructor parameter to a differently named
+readable member when both directions should use that member's public name:
 
 ```dart
 @NAPI(
   classPolicy: ClassPolicy.value,
-  valueConstructor: 'parse',
   valueFields: {'source': 'value'},
 )
 class Label {
@@ -64,8 +65,8 @@ The mapping direction is constructor parameter to field/getter. Member renaming
 with `@NAPI(name: 'publicName')` determines the JavaScript property key and does
 not change the Dart-name mapping. Input parameter types and output getter types
 are checked separately, allowing a constructor to normalize accepted data.
-Every parameter must resolve, including optional parameters. Unknown mappings,
-excluded/static members and duplicate input property keys are diagnosed.
+Unknown mappings, excluded/static members and duplicate input property keys are
+diagnosed.
 
 Output contains selected own readable fields/getters in declaration order.
 Input accepts only constructor-mapped fields; additional derived output getters
@@ -108,7 +109,7 @@ The structural work, depth and cycle limits also apply to value classes.
 
 ## Output and composition
 
-Each object's selected fields/getters are read once per occurrence, in
+For ordinary value outputs, selected fields/getters are read once per occurrence, in
 declaration order, before converting that object's children. Repeated values
 produce independent copies and repeat getter evaluation for each occurrence.
 The complete Dart tree is snapshotted before host-side integer range, reference
@@ -116,6 +117,10 @@ brand and converted Map-key collision checks. A later getter exception therefore
 precedes those host-side failures. Getter exceptions stop conversion. An active-path cycle fails; repeated sibling
 objects are valid. Recursive type declarations are supported independently of
 whether a particular runtime value is cyclic.
+
+Explicit [JS collection handles](collections.md) convert each getter result before
+reading the next getter, retaining its reference and resource leaves for that
+operation.
 
 Value fields compose with nullable scalars, Lists, records, Maps, Dictionaries,
 other values, selected reference classes, binary values and JS collection handles.

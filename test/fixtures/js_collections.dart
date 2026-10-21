@@ -4,6 +4,8 @@ import 'dart:typed_data';
 
 import 'package:napi/napi.dart';
 
+export 'js_value_collections.dart';
+
 JsArray<int>? _array;
 JsMap<String, int?>? _map;
 WeakReference<JsArray<int>>? _weakArray;
@@ -368,7 +370,7 @@ Stream<NestedHandles> nestedEvents(NestedHandles value) => Stream.value(value);
 @NAPI()
 List<JsArray<T>> nestedPayloads<T>(List<JsArray<T>> value) => value;
 
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 class NestedValue {
   final JsArray<int> array;
   final JsMap<String, int?> map;
@@ -384,7 +386,7 @@ NestedValue nestedValue(NestedValue value, List<int> later) {
   return value;
 }
 
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 class NestedCapture {
   final JsArray<int> trigger;
   NestedCapture(this.trigger) {

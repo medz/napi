@@ -42,7 +42,7 @@ WeakReference<Bytes>? weak;
 }
 @NAPI() Stream<Bytes> events(Bytes value) async* { yield value; yield value; }
 @NAPI() int caught() { try { return saved![0]; } catch (error) { return -1; } }
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 class Payload { Payload(this.bytes); final Bytes bytes; }
 @NAPI() Payload payload(Payload value) => value;
 @NAPI() class Holder { Holder(this.bytes); Bytes bytes; }

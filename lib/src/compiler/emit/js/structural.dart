@@ -215,6 +215,12 @@ StructuralBoundary emitStructuralBoundary(
           '    }\n    return result;\n  } finally { state.active.delete(value); }',
         );
       case ValueClassConversion():
+        if (!output && node.constructor == null) {
+          code.writeln(
+            "  throw new TypeError(path + ': value class has no unambiguous public input constructor');",
+          );
+          break;
+        }
         final fields = node.fields.map((f) => f.name).toList();
         if (output) {
           code.writeln(

@@ -310,7 +310,6 @@ final class _Reader {
     if (element is! a.ClassElement && element is! a.TypeAliasElement) {
       if (config.classPolicy != null ||
           config.cleanup != null ||
-          config.valueConstructor != null ||
           config.valueFields != null) {
         _reject(
           element,
@@ -320,19 +319,11 @@ final class _Reader {
       }
       return;
     }
-    if ((config.valueConstructor != null || config.valueFields != null) &&
-        config.classPolicy != ClassPolicy.value) {
+    if (config.valueFields != null && config.classPolicy != ClassPolicy.value) {
       _reject(
         element,
         'NAPI_SELECTION',
         'Value construction options require the value class policy.',
-      );
-    }
-    if (config.valueFields != null && config.valueConstructor == null) {
-      _reject(
-        element,
-        'NAPI_SELECTION',
-        'valueFields requires valueConstructor.',
       );
     }
     if (config.classPolicy == ClassPolicy.resource) {
@@ -387,29 +378,32 @@ final class _Reader {
     return _id(member);
   }
 
-  DeclarationId? _valueConstructor(a.ClassElement owner, NAPI config) {
+  DeclarationId? _valueConstructor(
+    a.ClassElement owner,
+    NAPI config, {
+    Map<a.Element, NAPI>? memberConfigs,
+  }) {
     _checkClassOptions(owner, config);
-    final name = config.valueConstructor;
-    if (name == null) return null;
-    final matches = owner.constructors
-        .where((member) => member.name == name)
+    if (config.classPolicy != ClassPolicy.value) return null;
+    final constructors = owner.constructors
+        .where(
+          (member) =>
+              !member.isPrivate &&
+              !member.isExternal &&
+              (!owner.isAbstract || member.isFactory) &&
+              (memberConfigs == null
+                          ? _config(_memberDeclaration(member))
+                          : memberConfigs[_memberDeclaration(member)])
+                      ?.exclude !=
+                  true,
+        )
         .toList();
-    if (matches.length != 1) {
-      _reject(
-        owner,
-        'NAPI_SELECTION',
-        'Select one declared value constructor ${owner.name}.$name.',
-      );
-    }
-    final constructor = matches.single;
-    if (constructor.isPrivate) {
-      _reject(
-        constructor,
-        'NAPI_VISIBILITY',
-        'A value constructor must be public.',
-      );
-    }
-    return _id(constructor);
+    final unnamed = constructors
+        .where((member) => member.name == 'new')
+        .firstOrNull;
+    final constructor =
+        unnamed ?? (constructors.length == 1 ? constructors.single : null);
+    return constructor == null ? null : _id(constructor);
   }
 
   Map<String, DeclarationId> _valueFields(a.ClassElement owner, NAPI config) =>
@@ -660,15 +654,10 @@ final class _Reader {
         ? ClassPolicy.values[policyIndex]
         : null;
     final cleanup = value.getField('cleanup')?.toStringValue();
-    final valueConstructor = value
-        .getField('valueConstructor')
-        ?.toStringValue();
     final fieldsValue = value.getField('valueFields');
     final fieldsMap = fieldsValue?.toMapValue();
     final valueFields = fieldsMap == null ? null : <String, String>{};
-    if ((valueConstructor == null &&
-            value.getField('valueConstructor')?.isNull != true) ||
-        (fieldsMap == null && fieldsValue?.isNull != true)) {
+    if (fieldsMap == null && fieldsValue?.isNull != true) {
       _reject(
         element,
         'NAPI_ANNOTATION',
@@ -719,7 +708,6 @@ final class _Reader {
       bigint: bigint,
       classPolicy: classPolicy,
       cleanup: cleanup,
-      valueConstructor: valueConstructor,
       valueFields: valueFields,
     );
   }
@@ -908,7 +896,11 @@ final class _Reader {
       source: _source(selected),
       classPolicy: config.classPolicy ?? ClassPolicy.reference,
       cleanup: _cleanup(element, config),
-      valueConstructor: _valueConstructor(element, config),
+      valueConstructor: _valueConstructor(
+        element,
+        config,
+        memberConfigs: memberConfigs,
+      ),
       valueFields: _valueFields(element, config),
       exportSurface: entry,
       callPath: path,
@@ -1659,7 +1651,6 @@ final class _AnnotationVisitor extends RecursiveAstVisitor<void> {
               const {
                 'classPolicy',
                 'cleanup',
-                'valueConstructor',
                 'valueFields',
               }.contains(argument.name.lexeme),
         ) ??

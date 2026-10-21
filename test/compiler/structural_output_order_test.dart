@@ -91,7 +91,7 @@ final _collisionFresh = RefChild();
 @NAPI() List<List<int>> budgetAfterUnsafe() => [[unsafe], List.filled(10000, 1)];
 @NAPI() List<List<int>> echoLists(List<List<int>> value) => value;
 @NAPI() (int, List<int>) healthy() => (1, [2]);
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 class Cycle {
   Cycle({this.next});
   Cycle? next;

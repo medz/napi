@@ -49,7 +49,7 @@ int setConversion(void Function()? callback) {
   return 1;
 }
 
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 class GuardValue {
   final int value;
   GuardValue(this.value) {

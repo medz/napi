@@ -47,7 +47,7 @@ or callable type arguments without adding configuration to the original source.
 same annotation and external configuration:
 
 ```dart
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 class Point { Point(this.x); final int x; }
 
 @NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
@@ -63,10 +63,11 @@ signature and remain selected for export.
 
 Both targets generate [reference classes](classes.md), including
 [Future-returning calls](futures.md), and
-[structural value classes](values.md). Value inputs require an explicit
-`valueConstructor` (`new` or the original named constructor); parameters match
-own readable members by Dart name, with `valueFields` for different names.
-Without a selected constructor, a value class is output-only. Runtime generation
+[structural value classes](values.md). Value inputs use the public unnamed
+constructor, or the sole public named constructor/factory. Parameters determine
+input properties; matching readable members supply their public renames, with
+optional `valueFields` overrides for different names. Without an unambiguous
+callable constructor, a value class is output-only. Runtime generation
 validates these mappings before compilation. Ordinary reference classes do not
 gain disposal. Both targets generate [resource bindings](resources.md): cleanup
 uses the selected method's export name and supported parameters, returns

@@ -19,7 +19,7 @@ int valueHashes() => _hashes;
 @NAPI()
 String valueTrace() => _trace.join(',');
 
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 class ValuePoint {
   final int x;
   final int y;
@@ -45,11 +45,7 @@ List<ValuePoint> repeatedValuePoint(ValuePoint value) => [value, value];
 @NAPI()
 List<(ValuePoint, int)> valueRows(List<(ValuePoint, int)> value) => value;
 
-@NAPI(
-  classPolicy: ClassPolicy.value,
-  valueConstructor: 'checked',
-  valueFields: {'source': 'value'},
-)
+@NAPI(classPolicy: ClassPolicy.value, valueFields: {'source': 'value'})
 class ValueNormalized {
   @NAPI(name: 'total')
   final int value;
@@ -67,7 +63,7 @@ class ValueNormalized {
 @NAPI()
 ValueNormalized normalizeValue(ValueNormalized value) => value;
 
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 class ValueNode {
   final int value;
   ValueNode? next;
@@ -87,14 +83,14 @@ ValueNode cyclicValueNode() {
   return value;
 }
 
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 class ValueBranch {
   final int label;
   final ValueLink? link;
   ValueBranch(this.label, {this.link});
 }
 
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 class ValueLink {
   final String text;
   final ValueBranch? branch;
@@ -104,7 +100,7 @@ class ValueLink {
 @NAPI()
 ValueBranch echoValueBranch(ValueBranch value) => value;
 
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 abstract class ValueLeft {
   factory ValueLeft(int left) = _ValuePair.left;
   int get left;
@@ -195,7 +191,7 @@ ValueGetterFailure failingValueGetter() {
   return ValueGetterFailure();
 }
 
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 class ValueKey {
   final int id;
   ValueKey(this.id) {
@@ -216,7 +212,7 @@ class ValueKey {
 @NAPI()
 Map<ValueKey, int> valueKeyMap(Map<ValueKey, int> value) => value;
 
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 class ValueEnvelope {
   final List<ValuePoint?> points;
   final Map<String, ValueNode?> nodes;

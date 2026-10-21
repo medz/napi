@@ -311,8 +311,9 @@ final class ValueFieldSchema {
 
 final class ValueInputFieldSchema {
   final ParameterBinding parameter;
-  final ValueFieldSchema field;
-  const ValueInputFieldSchema(this.parameter, this.field);
+  final String name;
+  final ValueFieldSchema? field;
+  const ValueInputFieldSchema(this.parameter, this.name, {this.field});
 }
 
 final class ValueClassSchema {
@@ -411,7 +412,7 @@ List<ValueClassSchema> validateValueClasses(BindingModule module) {
           id.owner != binding.declaration ||
           id.library != binding.declaration.library ||
           id.kind != DeclarationKind.constructor) {
-        reject('valueConstructor must select one own constructor.');
+        reject('A value input requires one resolved own constructor.');
       }
       constructor = matches.single;
       if (constructor.kind != MemberKind.constructor ||
@@ -434,12 +435,6 @@ List<ValueClassSchema> validateValueClasses(BindingModule module) {
           constructor.source,
         );
       }
-      validateCallParameters(
-        constructor.parameters,
-        constructor.source,
-        referenceClasses: module.classes,
-        allowResourceDefaults: false,
-      );
       final parameters = constructor.parameters.map((p) => p.name).toSet();
       if (parameters.length != constructor.parameters.length) {
         reject(
@@ -470,23 +465,21 @@ List<ValueClassSchema> validateValueClasses(BindingModule module) {
                   : f.binding.declaration == override,
             )
             .toList();
-        if (matches.length != 1) {
+        if (matches.length > 1) {
           reject(
-            'No unique selected field/getter for constructor parameter ${parameter.name}; configure valueFields.',
+            'No unique selected field/getter for constructor parameter ${parameter.name}.',
             parameter.source,
           );
         }
-        final field = matches.single;
-        if (!names.add(field.name)) {
-          reject(
-            'Duplicate value input property ${field.name}.',
-            parameter.source,
-          );
+        final field = matches.firstOrNull;
+        final name = field?.name ?? parameter.name;
+        if (!names.add(name)) {
+          reject('Duplicate value input property $name.', parameter.source);
         }
-        inputs.add(ValueInputFieldSchema(parameter, field));
+        inputs.add(ValueInputFieldSchema(parameter, name, field: field));
       }
     } else if (binding.valueFields.isNotEmpty) {
-      reject('valueFields requires valueConstructor.');
+      reject('valueFields requires an unambiguous public constructor.');
     }
     result.add(ValueClassSchema(binding, constructor, fields, inputs));
   }
@@ -2219,7 +2212,7 @@ void _validateJsCollection(
   if (!_supportedJsCollectionElements(collection, classes, opaqueParameters)) {
     throw BindingDiagnostic(
       'NAPI_JS_COLLECTION',
-      'JsArray/JsMap support scalars, selected references, binary values, SharedBytes, opaque elements, nested JS collection handles and copied containers. Copied Map keys cannot contain opaque values or JS collection handles.',
+      'JsArray/JsMap support scalars, selected references, binary values, SharedBytes, opaque elements, nested JS collection handles, value classes and copied containers. Copied Map keys cannot contain opaque values or JS collection handles.',
       source,
     );
   }
@@ -2228,13 +2221,18 @@ void _validateJsCollection(
 bool _supportedJsCollectionElements(
   DeclaredType collection,
   List<ClassBinding> classes,
-  Set<DeclarationId> opaqueParameters,
-) =>
+  Set<DeclarationId> opaqueParameters, {
+  Set<(ClassBinding, bool)>? visited,
+}) =>
     collection.typeArguments.length ==
         (collection.declaration == jsMapDeclaration ? 2 : 1) &&
     collection.typeArguments.every(
-      (element) =>
-          _supportedJsCollectionElement(element, classes, opaqueParameters),
+      (element) => _supportedJsCollectionElement(
+        element,
+        classes,
+        opaqueParameters,
+        visited: visited ?? {},
+      ),
     );
 
 bool _supportedJsCollectionElement(
@@ -2242,6 +2240,7 @@ bool _supportedJsCollectionElement(
   List<ClassBinding> classes,
   Set<DeclarationId> opaqueParameters, {
   bool mapKey = false,
+  required Set<(ClassBinding, bool)> visited,
 }) {
   if (type.nullability == TypeNullability.legacy) return false;
   if (isOpaqueType(type, opaqueParameters)) return !mapKey;
@@ -2254,6 +2253,7 @@ bool _supportedJsCollectionElement(
           type as DeclaredType,
           classes,
           opaqueParameters,
+          visited: visited,
         );
   }
   if (_isBackendScalar(type) || isBinaryType(type) || isSharedBytesType(type)) {
@@ -2265,7 +2265,16 @@ bool _supportedJsCollectionElement(
         classes,
         opaqueParameters,
         mapKey: mapKey || key,
+        visited: visited,
       );
+  if (_valueClassBinding(type, classes) case final binding?) {
+    if (!visited.add((binding, mapKey))) return true;
+    _validateValueConstructorInputs(binding, classes);
+    return [
+      ..._valueChildren(binding, ValueDirection.input),
+      ..._valueChildren(binding, ValueDirection.output),
+    ].every(child);
+  }
   if (type is RecordTypeBinding) {
     return type.positional.every(child) && type.named.values.every(child);
   }
@@ -2478,6 +2487,7 @@ void validateCallParameters(
   List<ParameterBinding> parameters,
   SourceLocation source, {
   bool scalarOnly = false,
+  bool validateTypes = true,
   bool allowResourceDefaults = true,
   List<ClassBinding> referenceClasses = const [],
   Set<DeclarationId> opaqueParameters = const {},
@@ -2533,7 +2543,7 @@ void validateCallParameters(
         }
         named = true;
     }
-    if (!scalarOnly) {
+    if (validateTypes && !scalarOnly) {
       validateValueType(
         parameter.type,
         parameter.source ?? source,
@@ -2543,7 +2553,8 @@ void validateCallParameters(
         allowCallback: true,
         allowAbortSignal: true,
       );
-    } else if (!opaque &&
+    } else if (validateTypes &&
+        !opaque &&
         !_isBackendScalar(parameter.type) &&
         !isReferenceType(
           parameter.type,
@@ -2696,6 +2707,24 @@ ClassBinding? _valueClassBinding(
 bool isValueClassType(BindingType type, List<ClassBinding> classes) =>
     _valueClassBinding(type, classes) != null;
 
+void _validateValueConstructorInputs(
+  ClassBinding binding,
+  List<ClassBinding> classes,
+) {
+  final constructor = binding.members
+      .where((member) => member.declaration == binding.valueConstructor)
+      .firstOrNull;
+  if (constructor == null) return;
+  // The direction traversal checks recursive field types with one visited set.
+  validateCallParameters(
+    constructor.parameters,
+    constructor.source,
+    referenceClasses: classes,
+    allowResourceDefaults: false,
+    validateTypes: false,
+  );
+}
+
 Iterable<BindingType> _valueChildren(
   ClassBinding binding,
   ValueDirection direction,
@@ -2772,11 +2801,14 @@ void _checkValueDirection(
     if (direction == ValueDirection.input && binding.valueConstructor == null) {
       throw BindingDiagnostic(
         'NAPI_VALUE_INPUT',
-        '${binding.exportName} is output-only; configure valueConstructor for input.',
+        '${binding.exportName} has no unambiguous public input constructor.',
         source,
       );
     }
     if (!visited.add((binding, mapKey))) return;
+    if (direction == ValueDirection.input) {
+      _validateValueConstructorInputs(binding, classes);
+    }
     for (final child in _valueChildren(binding, direction)) {
       _checkValueDirection(
         child,

@@ -167,8 +167,8 @@ import 'package:napi/napi.dart';
     ),
     ('async void', '@NAPI() void bad() async {}', 'NAPI_TYPE'),
     (
-      'value constructor missing a mapped field',
-      "@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new') class Bad { Bad(int absent); }",
+      'configured value method',
+      "@NAPI(classPolicy: ClassPolicy.value) class Bad { @NAPI() int method() => 1; }",
       'NAPI_VALUE',
     ),
     (

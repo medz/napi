@@ -19,11 +19,11 @@ final class DartStructuralEmitter {
 
   String read(ValueConversion conversion, {bool bigintText = false}) =>
       _emit(conversion, false, bigintText);
-  String write(ValueConversion conversion, {bool retainResources = false}) =>
-      _emit(conversion, true, false, retainResources);
+  String write(ValueConversion conversion, {bool collectionElement = false}) =>
+      _emit(conversion, true, false, collectionElement);
   String get source => _code.toString();
 
-  String _collectionElement(ValueConversion conversion) {
+  String _collectionElement(ValueConversion conversion, ValueConversion input) {
     final type = conversion.dartType;
     final nullable = conversion.nullable ? 'value == null ? null : ' : '';
     switch (conversion) {
@@ -35,9 +35,10 @@ final class DartStructuralEmitter {
           ListConversion() ||
           MapConversion() ||
           DictionaryConversion() ||
-          RecordConversion():
-        final reader = read(conversion, bigintText: true);
-        final writer = write(conversion, retainResources: true);
+          RecordConversion() ||
+          ValueClassConversion():
+        final reader = read(input, bigintText: true);
+        final writer = write(conversion, collectionElement: true);
         final path = jsonEncode(conversion.context).replaceAll(r'$', r'\$');
         final failure =
             'throw _CallbackThrown(_jcTypeError(externRefForJSAny((error.path + ": " + error.message).toJS), WasmI32.fromInt(error.range ? 1 : 0)));';
@@ -61,7 +62,7 @@ final class DartStructuralEmitter {
             '${conversion.nullable ? 'if (value == null) return null; ' : ''}'
             'final object = value; ${guard}return WasmAnyRef.fromObject(object).externalize().toJS; })';
       case JsCollectionConversion():
-        final reader = read(conversion);
+        final reader = read(input);
         final signature = jsonEncode(conversion.signatureKey)
             .replaceAll(r'$', r'\$');
         final path = jsonEncode(conversion.context).replaceAll(r'$', r'\$');
@@ -76,13 +77,13 @@ final class DartStructuralEmitter {
     ValueConversion conversion,
     bool output,
     bool bigintText, [
-    bool retainResources = false,
+    bool collectionElement = false,
   ]) {
-    retainResources =
-        retainResources &&
+    final retainResources =
+        collectionElement &&
         resources &&
         conversionGraph([conversion]).any((c) => c is ReferenceConversion);
-    final key = (conversion, output, bigintText, retainResources);
+    final key = (conversion, output, bigintText, collectionElement);
     if (_memo[key] case final name?) return name;
     final name = '_${output ? 'write' : 'read'}Structure${_next++}';
     _memo[key] = name;
@@ -105,12 +106,13 @@ final class DartStructuralEmitter {
     };
     final functions = [
       for (final child in children)
-        _emit(child, output, bigintText, retainResources),
+        _emit(child, output, bigintText, collectionElement),
     ];
     final collectionElements = conversion is JsCollectionConversion && !output
         ? [
-            for (final child in [?conversion.key, conversion.value])
-              _collectionElement(child),
+            if (conversion.key case final key?)
+              _collectionElement(key, conversion.inputKey!),
+            _collectionElement(conversion.value, conversion.inputValue),
           ]
         : const <String>[];
     final type = conversion.dartType;
@@ -308,17 +310,28 @@ final class DartStructuralEmitter {
           _code.writeln('  state.enter(value, path, depth);\n  try {');
           for (final (index, field) in conversion.fields.indexed) {
             final member =
-                field.binding.callPath ?? field.binding.declaration.name;
-            _code.writeln('    final f$index = value.$member;');
+                field.binding!.callPath ?? field.binding!.declaration.name;
+            final path = field.name.replaceAll(r'$', r'\$');
+            _code.writeln(
+              collectionElement
+                  ? "    final f$index = ${functions[index]}(value.$member, state, '\$path.$path', depth + 1);"
+                  : '    final f$index = value.$member;',
+            );
           }
           _code.writeln('    return <JSAny?>[');
           for (final (index, field) in conversion.fields.indexed) {
             final path = field.name.replaceAll(r'$', r'\$');
             _code.writeln(
-              "      ${functions[index]}(f$index, state, '\$path.$path', depth + 1),",
+              collectionElement
+                  ? '      f$index,'
+                  : "      ${functions[index]}(f$index, state, '\$path.$path', depth + 1),",
             );
           }
           _code.writeln('    ].toJS;\n  } finally { state.leave(value); }');
+        } else if (conversion.constructor == null) {
+          _code.writeln(
+            "  _structureError(path, 'value class has no unambiguous public input constructor', false);",
+          );
         } else {
           _code.writeln('  final fields = (value as JSArray<JSAny?>).toDart;');
           final arguments = <String>[];

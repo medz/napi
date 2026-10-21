@@ -213,3 +213,15 @@ const copiedResourceUse: Promise<number> = copiedResources.hold(1);
 // @ts-expect-error Nested opaque payloads retain their logical type.
 new api.CopiedPayloads<Payload>([{reference: ref, payload: 'wrong', handle: []}]);
 void [copiedPayload, copiedHandle, copiedReference, pureCopied, copiedResourceUse];
+
+const valueOwner = new api.ValueCollectionOwner([{value: 1}], new Map([[{value: 1}, {value: 2}]]), [null, {value: 3}]);
+const valueItem: api.CollectionValue | null = valueOwner.read(0);
+const valueOutputs: api.CollectionValue[] | null = valueOwner.readList([[{value: 1}]]);
+const valueParsedInput: number = valueOwner.parsed([{source: '1'}]);
+valueOwner.parsed([{value: 1, doubled: 2}]);
+valueOwner.nodeChildren([{value: 1, children: []}]);
+// @ts-expect-error Constructor input and getter output remain strictly typed.
+valueOwner.parsed([{source: 1}]);
+// @ts-expect-error Copied value fields retain their scalar policy.
+valueOwner.readList([[{value: 'wrong'}]]);
+void [valueItem, valueOutputs, valueParsedInput];

@@ -124,7 +124,7 @@ HierarchyView echoHierarchyView(HierarchyView value) => value;
 @NAPI()
 List<HierarchyBase> hierarchyList(List<HierarchyBase> values) => values;
 
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 class HierarchyEnvelope {
   final HierarchyBase base;
   final HierarchyView view;

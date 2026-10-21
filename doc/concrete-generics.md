@@ -182,10 +182,10 @@ class Box<T> {
   Box(this.value, {this.next});
 }
 
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 typedef IntBox = Box<int>;
 
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 typedef TextBox = Box<String>;
 ```
 
@@ -193,7 +193,7 @@ Both aliases have independent input/output schemas. Input materialization calls
 `IntBox(...)` or `TextBox(...)` with the actual Dart type arguments. Named and
 factory constructors, `valueFields`, member renames and exclusions follow the
 [existing value contract](values.md). `ExternalClass('IntBox', config:
-NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new'))` selects the same
+NAPI(classPolicy: ClassPolicy.value))` selects the same
 mapping without changing the business source.
 
 The public names are TypeScript data types; no JavaScript constructor or nominal
@@ -206,10 +206,12 @@ restrict structural projections.
 Nullable uses, nested containers and finite recursive schemas retain each
 specialization. Every referenced value instance must be selected: `Box<Box<int>>`
 requires a selected `Box<int>` schema. An unselected expanding instance such as
-`Node<List<int>>` is diagnosed, not instantiated automatically. Omitting the
-constructor makes that specialization output-only, even if another alias of the
-same original class permits inputs. Defaults, bigint policy, copy semantics and
-whole-root validation before construction remain unchanged.
+`Node<List<int>>` is diagnosed, not instantiated automatically. Each
+specialization resolves its input constructor from the selected Dart declaration:
+the public unnamed constructor takes precedence, otherwise a sole public named
+constructor or factory is used. A specialization without an unambiguous callable
+constructor is output-only. Defaults, bigint policy, copy semantics and whole-root
+validation before construction remain unchanged.
 
 ## Supported shapes and limits
 

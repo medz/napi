@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:napi/build.dart';
 import 'package:napi/src/compiler/front_end/frontend.dart';
 import 'package:napi/src/compiler/lowering/plan.dart';
 import 'package:napi/src/compiler/native/declarations.dart';
@@ -298,6 +299,110 @@ class Resource extends Box {
       );
     }
   }, timeout: const Timeout(Duration(minutes: 2)));
+
+  test(
+    'lazy value elements compile paired schemas and recursive handles as AOT',
+    () async {
+      const source = '''
+import 'package:napi/napi.dart';
+@NAPI() class Box { Box(this.id); final int id; }
+@NAPI(classPolicy: ClassPolicy.value)
+class Point { Point(this.x); final int x; }
+@NAPI(classPolicy: ClassPolicy.value)
+class Node {
+  Node(this.point, {this.children, this.owner});
+  final Point point;
+  final JsArray<Node>? children;
+  final Box? owner;
+}
+@NAPI(classPolicy: ClassPolicy.value)
+class Parsed { Parsed.parse(String source): value = int.parse(source); final int value; }
+@NAPI(classPolicy: ClassPolicy.value)
+class Output { Output._(this.x); final int x; }
+@NAPI() JsArray<Node> nodes(JsArray<Node> source) {
+  source.set(1, source.get(0)!);
+  return source;
+}
+@NAPI() JsMap<Parsed, Node> map(JsMap<Parsed, Node> source) {
+  final (key, value) = source.entries.first;
+  source.set(key, value);
+  return source;
+}
+@NAPI() JsArray<Output?> output(JsArray<Output?> source) {
+  source.set(0, Output._(1));
+  source.get(1);
+  return source;
+}
+@NAPI() JsArray<(Node, List<T>)> payload<T>(JsArray<(Node, List<T>)> source) {
+  source.set(1, source.get(0)!);
+  return source;
+}
+@NAPI(classPolicy: ClassPolicy.value)
+class Mutation {
+  final _items = <int>[1];
+  List<int> get items => _items;
+  int get last { _items.add(2); return _items.length; }
+}
+@NAPI() void writeMutation(JsArray<Mutation> values) => values.set(0, Mutation());
+@NAPI() Mutation mutation() => Mutation();
+''';
+      for (final resources in [false, true]) {
+        final plan = await read(
+          source +
+              (resources
+                  ? '''
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+class Resource extends Box { Resource(super.id); void close() {} }
+'''
+                  : ''),
+        );
+        final entry = File('${directory.path}/entry.dart');
+        await entry.writeAsString(emitNativeDart(plan));
+        final compilation = await Process.run(Platform.resolvedExecutable, [
+          'compile',
+          'aot-snapshot',
+          '--packages=$_packages',
+          entry.path,
+          '--output=${directory.path}/module.aot',
+        ]);
+        expect(
+          compilation.exitCode,
+          0,
+          reason: '${compilation.stdout}${compilation.stderr}',
+        );
+        final nativeRuntime = Platform.environment['NAPI_TEST_NATIVE_RUNTIME'];
+        if (nativeRuntime != null) {
+          final canonical = await directory.resolveSymbolicLinks();
+          final module = await buildLibrary(
+            library: File('$canonical/business.dart').uri,
+            output: Directory('$canonical/native-$resources'),
+            packagesPath: _packages,
+            target: BuildTarget.native,
+            nativeRuntime: Directory(nativeRuntime),
+          );
+          final script = await File('${module.directory.path}/test.mjs')
+              .writeAsString('''
+import assert from 'node:assert/strict';
+import * as api from './module.mjs';
+const values = [];
+api.writeMutation(values);
+assert.deepEqual(values, [{items: [1], last: 2}]);
+assert.deepEqual(api.mutation(), {items: [1, 2], last: 2});
+''');
+          final executed = await Process.run(
+            Platform.environment['NODE'] ?? 'node',
+            [script.path],
+          );
+          expect(
+            executed.exitCode,
+            0,
+            reason: '${executed.stdout}${executed.stderr}',
+          );
+        }
+      }
+    },
+    timeout: const Timeout(Duration(minutes: 2)),
+  );
 
   test('native declarations preserve nested public reference types', () async {
     final types = emitNativeDeclarations(await read());

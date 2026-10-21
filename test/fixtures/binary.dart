@@ -83,7 +83,7 @@ Dictionary<Uint8List> dictionary(Dictionary<Uint8List> value) => value;
 (Uint8List, {ByteBuffer data}) record((Uint8List, {ByteBuffer data}) value) =>
     value;
 
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 class Packet {
   final Uint8List bytes;
   final ByteBuffer data;

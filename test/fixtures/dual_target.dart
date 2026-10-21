@@ -167,13 +167,13 @@ class DefaultToken {
   const DefaultToken([this.value = 7]);
 }
 
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 class DefaultValue {
   final int value;
   const DefaultValue({this.value = 9});
 }
 
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 class ReferenceFieldValue {
   final DefaultToken token;
   const ReferenceFieldValue({this.token = _token});
@@ -454,7 +454,7 @@ bool namedContainerDefaults([
     identical(record.first, _namedAlias) &&
     identical(record.second, NamedHolder.origin);
 
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 class NamedValue {
   final NamedPoint point;
   const NamedValue({this.point = _namedAlias});

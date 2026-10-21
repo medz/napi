@@ -141,7 +141,7 @@ class DartPromise {
 Future<DartPromise> futureNamedPromise(DartPromise value) =>
     Future.value(value);
 
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 class FuturePoint {
   final int x;
   final int y;

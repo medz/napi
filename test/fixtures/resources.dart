@@ -131,7 +131,7 @@ class OrdinaryCounter {
   int use() => ++value;
 }
 
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 class ResourceEnvelope {
   final ResourceView owner;
   final List<ResourceView?>? peers;

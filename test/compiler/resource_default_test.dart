@@ -234,7 +234,7 @@ const _items = <Resource?>[_default, null, Child(), _default];
   for (final (name, declaration) in [
     (
       'value constructor field',
-      '''@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+      '''@NAPI(classPolicy: ClassPolicy.value)
 class Value {
   final Resource resource;
   const Value({this.resource = _default});
@@ -243,7 +243,7 @@ class Value {
     ),
     (
       'value object',
-      '''@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+      '''@NAPI(classPolicy: ClassPolicy.value)
 class Value {
   final Resource resource;
   const Value(this.resource);

@@ -149,29 +149,19 @@ Map<String, Object?> _contract(
       ],
     'reference views': _views(classes),
     for (final schema in values)
-      'value ${schema.binding.exportName}': [
-        schema.constructor != null,
-        for (final field in schema.inputFields)
-          [field.field.name, _parameter(field.parameter)],
-        _Values().encodeAll([
-          for (final direction in [
-            ValueDirection.output,
-            if (schema.constructor != null) ValueDirection.input,
-          ])
-            conversionFor(
-              schema.binding.instantiatedType ??
-                  DeclaredType(
-                    schema.binding.declaration,
-                    ValueSemantics.reference,
-                  ),
-              schema.binding.exportName,
-              bigint: false,
-              classes: bindings.classes,
-              valueSchemas: values,
-              direction: direction,
-            ),
-        ]),
-      ],
+      'value ${schema.binding.exportName}': _Values().encode(
+        conversionFor(
+          schema.binding.instantiatedType ??
+              DeclaredType(
+                schema.binding.declaration,
+                ValueSemantics.reference,
+              ),
+          schema.binding.exportName,
+          bigint: false,
+          classes: bindings.classes,
+          valueSchemas: values,
+        ),
+      ),
   };
 }
 
@@ -244,6 +234,8 @@ final class _Values {
           value.isMap,
           encode(value.key),
           encode(value.value),
+          encode(value.inputKey),
+          encode(value.inputValue),
         ],
         AbortSignalConversion() => ['abortSignal'],
         OpaqueConversion() => ['opaque', value.parameter.name],
@@ -267,6 +259,8 @@ final class _Values {
           'value',
           value.classBinding.exportName,
           value.direction.name,
+          if (value.direction == ValueDirection.input)
+            value.constructor != null,
           for (final field in value.fields)
             [
               field.name,

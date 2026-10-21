@@ -62,7 +62,7 @@ typedef Generic<T> = ({T value});
   int increment() => ++value;
 }
 /// A documented value class.
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new') class Packet {
+@NAPI(classPolicy: ClassPolicy.value) class Packet {
   /// Packet values.
   final List<int> values;
   const Packet(this.values);

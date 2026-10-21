@@ -24,7 +24,7 @@ Bytes? saved;
 @NAPI() Map<String, Bytes> mapping(Map<String, Bytes> value) => value;
 @NAPI() Future<Bytes> later(Bytes value) async => value;
 @NAPI() Stream<ByteBuffer> events(ByteBuffer value) => Stream.value(value);
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 class Payload {
   Payload(this.bytes);
   final Bytes bytes;

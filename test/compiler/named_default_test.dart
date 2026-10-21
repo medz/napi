@@ -215,7 +215,7 @@ const origin = $constructor();
     ),
     (
       'value input field default',
-      '''@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+      '''@NAPI(classPolicy: ClassPolicy.value)
 class Envelope {
   final Value value;
   const Envelope({this.value = origin});
@@ -239,7 +239,7 @@ class Composite implements Base, ResourceChild {
   const Composite();
   void close() {}
 }
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 class Value {
   final Base handle;
   const Value(this.handle);
@@ -266,7 +266,7 @@ $declaration
   test('a nested value field cannot hide an actual resource subtype', () async {
     final input = source('entry.dart', '''
 import 'package:napi/napi.dart';
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 class Base {
   final int value;
   const Base(this.value);
@@ -276,7 +276,7 @@ class ResourceChild extends Base {
   const ResourceChild() : super(7);
   void close() {}
 }
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 class Envelope {
   final Base item;
   const Envelope(this.item);
@@ -309,7 +309,7 @@ class Resource {
   void close() {}
 }
 const resource = Resource._();
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 class Value {
   final Resource item;
   const Value({this.item = resource});
