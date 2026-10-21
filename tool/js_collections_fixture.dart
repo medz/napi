@@ -100,6 +100,12 @@ dependencies:
     'collectionComplete',
     'collectionTimers',
     'collectionTimerResult',
+    'nestedBinary',
+    'nestedBuffer',
+    'binaryCallback',
+    'copiedBinaryKey',
+    'nullableBinaryKey',
+    'binarySharedPolicy',
   ];
   const bigints = [
     'bigBooleans',
@@ -140,6 +146,8 @@ Future<void> main() async {
           ExternalClass('ResourceItem', config: NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')),
           ExternalClass('OtherResource', config: NAPI(classPolicy: ClassPolicy.resource, cleanup: 'release')),
           ExternalClass('ResourceCollections'),
+          ExternalClass('BinaryCollections'),
+          ExternalClass('SharedByteCollections'),
           ExternalClass('Owner', config: NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')),
         ] else ...const [
           ExternalFunction('read'),

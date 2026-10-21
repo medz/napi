@@ -11,6 +11,16 @@ String jsCollectionPolicies(Iterable<JsCollectionConversion> conversions) {
       'integer': c.kind == ScalarKind.integer,
     },
     OpaqueConversion() => {'opaque': true},
+    BinaryConversion() => {
+      'opaque': false,
+      'binary': c.kind.index,
+      'nullable': c.nullable,
+    },
+    SharedBytesConversion() => {
+      'opaque': false,
+      'sharedBytes': true,
+      'nullable': c.nullable,
+    },
     ReferenceConversion() => {
       'opaque': false,
       'reference': c.classId,
@@ -78,6 +88,8 @@ function $jcIndex(index) {
 // BigInt text is private Wasm transport only, never the public JS value.
 function $jcInput(value, policy, path, text) {
   if (policy.opaque) return value;
+  if ($jcOwn(policy, 'binary')) return text ? $napiAdoptBinary(value, policy.binary, policy.nullable, path) : value;
+  if ($jcOwn(policy, 'sharedBytes')) return text ? $napiReadSharedBytes(value, policy.nullable, path) : value;
   if ($jcOwn(policy, 'reference')) {
     if (!text || value === null && policy.nullable) return value;
     return writeReference(value, policy.reference, path);
@@ -87,6 +99,14 @@ function $jcInput(value, policy, path, text) {
 }
 function $jcOutput(value, policy, path, text) {
   if (policy.opaque) return value;
+  if ($jcOwn(policy, 'binary')) {
+    if (value === null && !policy.nullable) throw new $jcTypeError(path + ': expected binary storage');
+    return text ? $napiCopyBinary(value, policy.binary, policy.nullable, path, true) : value;
+  }
+  if ($jcOwn(policy, 'sharedBytes')) {
+    if (value === null && !policy.nullable) throw new $jcTypeError(path + ': expected Uint8Array');
+    return text ? $napiReadSharedBytes(value, policy.nullable, path) : value;
+  }
   if ($jcOwn(policy, 'reference')) {
     if (value === null && !policy.nullable) throw new $jcTypeError(path + ': expected a Dart class reference');
     return text ? readReference(value, policy.reference, policy.nullable, path) : value;
@@ -160,7 +180,7 @@ export function jsCollectionCache(source, signature, adapter) {
   }
   entries[signature] = new $jcWeakRef(adapter);
 }
-export function jsCollectionTypeError(message) {
-  return {__proto__: null, threw: true, value: new $jcTypeError(message ?? 'Expected a JS collection handle with this module and element policy')};
+export function jsCollectionTypeError(message, range) {
+  return {__proto__: null, threw: true, value: range ? new $jcRangeError(message) : new $jcTypeError(message ?? 'Expected a JS collection handle with this module and element policy')};
 }
 ''';

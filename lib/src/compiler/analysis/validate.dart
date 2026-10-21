@@ -2219,7 +2219,7 @@ void _validateJsCollection(
   if (!_supportedJsCollectionElements(collection, classes, opaqueParameters)) {
     throw BindingDiagnostic(
       'NAPI_JS_COLLECTION',
-      'JsArray/JsMap support scalars, selected references, direct opaque elements and nested JS collection handles.',
+      'JsArray/JsMap support scalars, selected references, binary values, SharedBytes, direct opaque elements and nested JS collection handles.',
       source,
     );
   }
@@ -2235,6 +2235,8 @@ bool _supportedJsCollectionElements(
     collection.typeArguments.every(
       (element) =>
           _isBackendScalar(element) ||
+          isBinaryType(element) ||
+          isSharedBytesType(element) ||
           isOpaqueType(element, opaqueParameters) ||
           isReferenceType(
             element,
@@ -2318,6 +2320,7 @@ void _validateCallback(
 }
 
 bool _containsTypedData(BindingType type) => switch (type) {
+  DeclaredType() when isJsCollectionType(type) => false,
   DeclaredType() =>
     type.declaration.library == Uri.parse('dart:typed_data') ||
         type.typeArguments.any(_containsTypedData),

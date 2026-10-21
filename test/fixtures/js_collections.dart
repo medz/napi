@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:napi/napi.dart';
 
@@ -743,3 +744,113 @@ typedef TextItem = ConcreteItem<String>;
 @NAPI()
 TextItem? concreteReference(JsMap<IntItem, TextItem> value, IntItem key) =>
     value.get(key);
+
+@NAPI()
+class BinaryCollections {
+  final JsArray<Uint8List?> _array;
+  final JsMap<String, ByteBuffer?> _map;
+  Uint8List? _bytes;
+  ByteBuffer? _buffer;
+  BinaryCollections(this._array, this._map);
+  JsArray<Uint8List?> array() => _array;
+  JsMap<String, ByteBuffer?> map() => _map;
+  Uint8List? read(int index) => _array.get(index);
+  void save(int index) => _bytes = _array.get(index);
+  Uint8List? saved() => _bytes;
+  void change(int value) => _bytes![0] = value;
+  void write(int index, Uint8List? value) => _array.set(index, value);
+  void writeSaved(int index) => _array.set(index, _bytes);
+  void writeWindow(int index) {
+    final backing = Uint8List.fromList([90, 1, 2, 91]);
+    _bytes = Uint8List.sublistView(backing, 1, 3);
+    _array.set(index, _bytes);
+    backing[1] = 99;
+  }
+
+  ByteBuffer? get(String key) => _map.get(key);
+  void saveBuffer(String key) => _buffer = _map.get(key);
+  ByteBuffer? savedBuffer() => _buffer;
+  void changeBuffer(int value) => _buffer!.asUint8List()[0] = value;
+  void put(String key, ByteBuffer? value) => _map.set(key, value);
+  void putSaved(String key) => _map.set(key, _buffer);
+  void putWindow(String key) {
+    final backing = Uint8List.fromList([90, 1, 2, 91]);
+    _buffer = Uint8List.sublistView(backing, 1, 3).buffer;
+    _map.set(key, _buffer);
+    backing[0] = 99;
+  }
+
+  Future<Uint8List?> captured(int index) async {
+    final value = _array.get(index);
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+    return value;
+  }
+}
+
+@NAPI()
+Uint8List? nestedBinary(JsArray<JsArray<Uint8List>> value) =>
+    value.get(0)!.get(0);
+
+@NAPI()
+ByteBuffer? nestedBuffer(JsArray<JsMap<String, ByteBuffer?>> value) =>
+    value.get(0)!.get('key');
+
+@NAPI()
+Future<Uint8List?> binaryCallback(
+  Future<JsArray<Uint8List?>> Function(JsArray<Uint8List?>) callback,
+  JsArray<Uint8List?> value,
+) async => (await callback(value)).get(0);
+
+@NAPI()
+bool copiedBinaryKey(JsMap<Uint8List, ByteBuffer> value) {
+  final (key, buffer) = value.entries.first;
+  if (value.has(key) || value.get(key) != null || value.delete(key)) {
+    return false;
+  }
+  key[0] = 7;
+  buffer.asUint8List()[0] = 8;
+  value.set(key, buffer);
+  key[0] = 9;
+  buffer.asUint8List()[0] = 10;
+  return true;
+}
+
+@NAPI()
+bool nullableBinaryKey(JsMap<Uint8List?, bool> value) {
+  value.set(null, true);
+  return value.has(null) && value.get(null) == true;
+}
+
+@NAPI()
+class SharedByteCollections {
+  final JsArray<SharedBytes?> _array;
+  final JsMap<SharedBytes, SharedBytes> _map;
+  SharedBytes? _saved;
+  (SharedBytes, SharedBytes)? _entry;
+  SharedByteCollections(this._array, this._map);
+  JsArray<SharedBytes?> array() => _array;
+  JsMap<SharedBytes, SharedBytes> map() => _map;
+  SharedBytes? read(int index) => _array.get(index);
+  void save(int index) => _saved = _array.get(index);
+  SharedBytes? saved() => _saved;
+  int readSaved(int index) => _saved![index];
+  void changeSaved(int index, int value) => _saved![index] = value;
+  void writeSaved(int index) => _array.set(index, _saved);
+  void clear(int index) => _array.set(index, null);
+  void captureEntry() => _entry = _map.entries.first;
+  SharedBytes? key() => _entry?.$1;
+  SharedBytes? value() => _entry?.$2;
+  bool hasEntry() => _map.has(_entry!.$1);
+  bool sameEntryValue() => identical(_map.get(_entry!.$1), _entry!.$2);
+  void writeEntry() => _map.set(_entry!.$1, _entry!.$2);
+  void allocate(int index) {
+    _saved = SharedBytes.allocate(2);
+    _array.set(index, _saved);
+  }
+}
+
+@NAPI()
+bool binarySharedPolicy(
+  JsArray<Uint8List?> copied,
+  JsArray<SharedBytes?> shared,
+) => identical(copied, shared);

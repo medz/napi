@@ -102,6 +102,8 @@ final class JsCollectionConversion extends ValueConversion {
     ScalarConversion() => [value.kind.name, value.bigint, value.nullable],
     OpaqueConversion() => ['opaque', value.nullable],
     ReferenceConversion() => ['reference', value.classId, value.nullable],
+    BinaryConversion() => ['binary', value.kind.name, value.nullable],
+    SharedBytesConversion() => ['sharedBytes', value.nullable],
     JsCollectionConversion() => [
       'collection',
       value.nullable,
@@ -489,6 +491,22 @@ Iterable<ValueConversion> conversionGraph(
       AbortSignalConversion() ||
       OpaqueConversion() => <ValueConversion>[],
     });
+  }
+}
+
+/// Runtime dependencies also include lazy collection element policies.
+Iterable<ValueConversion> conversionDependencies(
+  Iterable<ValueConversion> roots,
+) sync* {
+  final pending = conversionGraph(roots).toList();
+  final seen = <ValueConversion>{};
+  while (pending.isNotEmpty) {
+    final node = pending.removeLast();
+    if (!seen.add(node)) continue;
+    yield node;
+    if (node is JsCollectionConversion) {
+      pending.addAll(conversionGraph([?node.key, node.value]));
+    }
   }
 }
 

@@ -41,8 +41,8 @@ JsArray<T> transform<T>(
 ```
 
 The callback receives the original JS array. It may return that array or another
-array; Dart receives a handle with the declared element policy. Scalar and opaque
-elements use the same rules as ordinary handle arguments.
+array; Dart receives a handle with the declared element policy. Elements use the
+same conversion rules as ordinary handle arguments.
 
 ## Ownership and identity
 

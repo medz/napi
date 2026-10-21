@@ -7,6 +7,7 @@ import '../lowering/plan.dart'
         SharedBytesConversion,
         JsCollectionConversion,
         ValueConversion,
+        conversionDependencies,
         conversionFor,
         conversionGraph;
 
@@ -77,12 +78,13 @@ final class NativeModulePlan {
   final List<int> referenceClassOrder;
   bool get hasBinary => calls.any(
     (call) =>
-        conversionGraph([...call.inputs, if (call.output != null) call.output!])
+        conversionDependencies([...call.inputs, ?call.output])
             .any((value) => value is BinaryConversion),
   );
+
   bool get hasSharedBytesTypes => calls.any(
     (call) =>
-        conversionGraph([...call.inputs, if (call.output != null) call.output!])
+        conversionDependencies([...call.inputs, ?call.output])
             .any((value) => value is SharedBytesConversion),
   );
   bool get hasStreams => calls.any((call) => call.returnsStream);

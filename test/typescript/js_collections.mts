@@ -145,3 +145,37 @@ resourceCollections.has(ref);
 // @ts-expect-error Nullable resource elements permit null, not undefined.
 resourceCollections.write(0, undefined);
 void [resourceArray, resourceMap, resourceRead, resourceUse, resourceResult, resourceStream];
+
+const binary = new api.BinaryCollections([new Uint8Array([1]), null], new Map([['key', new ArrayBuffer(1)]]));
+const binaryArray: Array<Uint8Array<ArrayBuffer> | null> = binary.array();
+const binaryMap: Map<string, ArrayBuffer | null> = binary.map();
+const binaryRead: Uint8Array<ArrayBuffer> | null = binary.read(0);
+const binaryBuffer: ArrayBuffer | null = binary.get('key');
+binary.write(0, new Uint8Array([2])); binary.put('key', null);
+const nestedBytes: Uint8Array<ArrayBuffer> | null = api.nestedBinary([[new Uint8Array([3])]]);
+const nestedBuffer: ArrayBuffer | null = api.nestedBuffer([new Map([['key', new ArrayBuffer(1)]])]);
+const callbackBytes: Promise<Uint8Array<ArrayBuffer> | null> = api.binaryCallback(async value => value, binaryArray);
+const copiedBinaryKey: boolean = api.copiedBinaryKey(new Map([[new Uint8Array([1]), new ArrayBuffer(1)]]));
+const nullableBinaryKey: boolean = api.nullableBinaryKey(new Map<Uint8Array<ArrayBuffer> | null, boolean>([[null, false]]));
+// @ts-expect-error Uint8List elements use Uint8Array, not another element type.
+new api.BinaryCollections([new Uint16Array(1)], new Map());
+// @ts-expect-error ByteBuffer values use ArrayBuffer, not a view.
+binary.put('key', new Uint8Array(1));
+// @ts-expect-error Nullable binary elements accept null, not undefined.
+binary.write(0, undefined);
+// @ts-expect-error Uint8List keys use Uint8Array, not ArrayBuffer.
+api.copiedBinaryKey(new Map([[new ArrayBuffer(1), new ArrayBuffer(1)]]));
+void [binaryArray, binaryMap, binaryRead, binaryBuffer, nestedBytes, nestedBuffer, callbackBytes, copiedBinaryKey, nullableBinaryKey];
+
+const sharedBytes = new Uint8Array([1, 2]);
+const sharedByteCollections = new api.SharedByteCollections([sharedBytes, null], new Map([[sharedBytes, sharedBytes]]));
+const sharedByteArray: Array<Uint8Array<ArrayBuffer> | null> = sharedByteCollections.array();
+const sharedByteMap: Map<Uint8Array<ArrayBuffer>, Uint8Array<ArrayBuffer>> = sharedByteCollections.map();
+const sharedByteValue: Uint8Array<ArrayBuffer> | null = sharedByteCollections.read(0);
+const sharedByteKey: Uint8Array<ArrayBuffer> | null = sharedByteCollections.key();
+const distinctPolicies: boolean = api.binarySharedPolicy(sharedByteArray, sharedByteArray);
+// @ts-expect-error Shared view keys require Uint8Array, not ArrayBuffer.
+new api.SharedByteCollections([], new Map([[new ArrayBuffer(1), sharedBytes]]));
+// @ts-expect-error Nullable shared elements permit null, not undefined.
+new api.SharedByteCollections([undefined], new Map());
+void [sharedByteArray, sharedByteMap, sharedByteValue, sharedByteKey, distinctPolicies];

@@ -117,6 +117,10 @@ void main() {
       '@NAPI(bigint: true) JsArray<int> run(JsArray<int> value) => value;',
       '@NAPI() JsArray<BigInt> run(JsArray<BigInt> value) => value;',
     ),
+    'binary collection sharing despite equal TS declarations': (
+      "import 'dart:typed_data'; @NAPI() JsArray<Uint8List> run(JsArray<Uint8List> value) => value;",
+      '@NAPI() JsArray<SharedBytes> run(JsArray<SharedBytes> value) => value;',
+    ),
     'opaque collection leaf nullability': (
       '@NAPI() JsArray<T> run<T>(JsArray<T> value) => value;',
       '@NAPI() JsArray<T?> run<T>(JsArray<T?> value) => value;',

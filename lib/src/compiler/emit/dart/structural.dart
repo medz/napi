@@ -30,6 +30,18 @@ final class DartStructuralEmitter {
         return '_JsElement<$type>(true, null, null)';
       case ScalarConversion():
         return '_JsElement<$type>(false, (value) => $nullable${_readScalar(conversion, bigintText: true)}, (value) => $nullable${_writeScalar(conversion)})';
+      case BinaryConversion():
+        final reader = read(conversion);
+        final writer = write(conversion);
+        final path = jsonEncode(conversion.context).replaceAll(r'$', r'\$');
+        return '_JsElement<$type>(false, (value) => $reader(value, $path), (value) { '
+            'try { return $writer(value, _StructureState(), $path, 0); } '
+            'on _StructureViolation catch (error) { '
+            "throw _CallbackThrown(_jcTypeError(externRefForJSAny((error.path + ': ' + error.message).toJS), WasmI32.fromInt(error.range ? 1 : 0))); } })";
+      case SharedBytesConversion():
+        return '_JsElement<$type>(false, (value) => $nullable'
+            '_sharedBytes(externRefForJSAny(value!)!), (value) => $nullable'
+            '_writeSharedBytes(value${conversion.nullable ? '!' : ''}))';
       case ReferenceConversion():
         final path = jsonEncode(conversion.context).replaceAll(r'$', r'\$');
         final guard = resources ? '_jcRetainResource(object, $path); ' : '';

@@ -36,7 +36,7 @@ String emitBoundary(ModulePlan plan) {
     for (final (index, conversion) in conversions.indexed)
       if (conversion is BinaryConversion) index: conversion,
   };
-  final hasBinary = conversionGraph(conversions)
+  final hasBinary = conversionDependencies(conversions)
       .any((c) => c is BinaryConversion);
   final policies = [
     for (final c in conversions)
