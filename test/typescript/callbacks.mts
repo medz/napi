@@ -15,6 +15,42 @@ const record: {$1: number[]; label: string} = api.callRecord(
   row => { row.$1.push(3); return {$1: row.$1, label: row.label} as const; },
   {$1: [1], label: 'row'} as const);
 const nested: Array<Array<number | null>> | null = api.callNested(value => value, [[1, null]]);
+const bytes = new Uint8Array([1, 2]);
+const binary: Uint8Array<ArrayBuffer> = api.callBytes(value => value, bytes);
+const buffer: ArrayBuffer = api.callBuffer(value => value, bytes.buffer);
+const shared: Uint8Array<ArrayBuffer> | null = api.callShared(value => value, bytes);
+api.callShared(() => null, null);
+const binaryRow = {bytes: [bytes, null], buffer: bytes.buffer, shared: bytes};
+const binaryRecord: {bytes: Array<Uint8Array<ArrayBuffer> | null>; buffer: ArrayBuffer | null; shared: Uint8Array<ArrayBuffer> | null} =
+  api.callBinaryRecord(value => value, binaryRow);
+const retainedBinary = api.invokeBinaryRecord({bytes: [null], buffer: null, shared: null});
+api.clearBinaryCallback();
+const binaryAsync: Promise<Uint8Array<ArrayBuffer> | null> = api.callAsyncBytes(async value => value, bytes);
+const sharedAsync: Promise<Uint8Array<ArrayBuffer> | null> = api.callAsyncShared(async value => value, null);
+const binaryAsyncRecord: Promise<typeof binaryRecord> = api.callAsyncBinaryRecord(async value => value, binaryRow);
+const binaryDirect: Uint8Array<ArrayBuffer> = direct.callBytes(value => value, bytes);
+const binaryExternal: Uint8Array<ArrayBuffer> = externalHandles.callBytes(value => value, bytes);
+const sharedExternal: Promise<Uint8Array<ArrayBuffer> | null> = externalHandles.callAsyncShared(async value => value, bytes);
+const binaryIdentity = <T,>(value: T): T => value;
+api.binaryCallbackPolicies(binaryIdentity, binaryIdentity, binaryIdentity, binaryIdentity);
+// @ts-expect-error Uint8List callback results use Uint8Array, not ArrayBuffer.
+api.callBytes(value => value.buffer, bytes);
+// @ts-expect-error ByteBuffer callback results use ArrayBuffer, not a typed array.
+api.callBuffer(() => bytes, bytes.buffer);
+// @ts-expect-error Shared-backed views cannot be callback snapshots.
+api.callBytes(() => new Uint8Array(new SharedArrayBuffer(1)), bytes);
+// @ts-expect-error SharedBytes retains its Uint8Array kind.
+api.callShared(() => bytes.buffer, null);
+// @ts-expect-error Nullable callback payloads still exclude undefined.
+api.callShared(() => undefined, null);
+// @ts-expect-error Future callbacks require a Promise around binary results.
+api.callAsyncBytes(value => value, bytes);
+// @ts-expect-error Promise fulfillment retains the binary storage policy.
+api.callAsyncShared(async () => new Uint8Array(new SharedArrayBuffer(1)), null);
+// @ts-expect-error Nested nullable binary leaves still exclude undefined.
+api.callBinaryRecord(value => ({...value, buffer: undefined}), binaryRow);
+void [binary, buffer, shared, binaryRecord, retainedBinary, binaryAsync, sharedAsync,
+  binaryAsyncRecord, binaryDirect, binaryExternal, sharedExternal];
 const ordered: number = api.callbackArgumentOrder((value, list) => value + list.length);
 api.callNested(() => null, null);
 api.callVoid(n => { void n; });

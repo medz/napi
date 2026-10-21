@@ -233,6 +233,12 @@ Object? _callbackValueSignature(ValueConversion? conversion) =>
         bigint,
         nullable,
       ],
+      BinaryConversion(:final kind, :final nullable) => [
+        'binary',
+        kind.name,
+        nullable,
+      ],
+      SharedBytesConversion(:final nullable) => ['sharedBytes', nullable],
       JsCollectionConversion() => [
         'jsCollection',
         conversion.nullable,

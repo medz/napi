@@ -292,35 +292,40 @@ class Packet {
     });
   }
 
-  for (final signature in [
-    'void Function(data.Uint8List)',
-    'void Function(List<data.ByteBuffer>)',
-    'data.Uint8List Function()',
-    'Future<data.ByteBuffer> Function()',
-    '({data.Uint8List value}) Function()',
+  for (final (signature, kind) in [
+    ('void Function(data.Uint8List)', BinaryKind.uint8List),
+    ('void Function(List<data.ByteBuffer>)', BinaryKind.byteBuffer),
+    ('data.Uint8List Function()', BinaryKind.uint8List),
+    ('Future<data.ByteBuffer> Function()', BinaryKind.byteBuffer),
+    ('({data.Uint8List value}) Function()', BinaryKind.uint8List),
   ]) {
-    test('binary callback signature remains rejected: $signature', () async {
-      final module = await read(
-        '@NAPI() int accept($signature callback) => 1;',
-      );
-      for (final check in [
-        () => validate(module),
-        () => validateNative(module),
-      ]) {
-        expect(
-          check,
-          throwsA(
-            isA<BindingDiagnostic>()
-                .having((error) => error.code, 'code', 'NAPI_CALLBACK')
-                .having(
-                  (error) => error.message,
-                  'message',
-                  contains('Binary values'),
-                ),
-          ),
+    test(
+      'binary callback signature lowers on both backends: $signature',
+      () async {
+        final module = await read(
+          '@NAPI() int accept($signature callback) => 1;',
         );
-      }
-    });
+        for (final root in [
+          lower(validate(module)).functions.single.inputs.single,
+          validateNative(module).functions.single.inputs.single,
+        ]) {
+          final callback = root as CallbackConversion;
+          expect(
+            conversionGraph([callback])
+                .whereType<BinaryConversion>()
+                .map((value) => value.kind),
+            [kind],
+          );
+          expect(
+            conversionDependencies([callback])
+                .whereType<BinaryConversion>()
+                .map((value) => value.kind),
+            [kind],
+          );
+          expect(callback.returnsFuture, signature.startsWith('Future<'));
+        }
+      },
+    );
   }
 
   test('binary TypeScript preserves ArrayBuffer storage and name hygiene in all modes', () async {

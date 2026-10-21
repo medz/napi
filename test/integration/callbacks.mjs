@@ -107,6 +107,91 @@ function structures(api) {
     return value;
   }, nested), [[1, null, 3], []]);
   assert.deepEqual(nested, [[1, null], []]);
+  binaryValues(api);
+}
+
+function binaryValues(api) {
+  const input = new Uint8Array([90, 1, 2, 91]).subarray(1, 3);
+  let argument;
+  const result = api.callBytes(value => {
+    argument = value;
+    assert.notEqual(value, input);
+    assert.notEqual(value.buffer, input.buffer);
+    assert.equal(value.byteOffset, 0);
+    assert.equal(value.buffer.byteLength, 2);
+    value[0] = 5;
+    return value;
+  }, input);
+  assert.deepEqual([...input], [1, 2]);
+  assert.deepEqual([...argument], [5, 2], 'Dart input/result mutations cannot change a callback snapshot');
+  assert.deepEqual([...result], [6, 2]);
+  assert.notEqual(result.buffer, argument.buffer);
+  argument[1] = 8; assert.equal(result[1], 2);
+
+  const raw = new Uint8Array([3, 4]).buffer;
+  let bufferArgument;
+  const bufferResult = api.callBuffer(value => {
+    bufferArgument = value;
+    assert.notEqual(value, raw);
+    new Uint8Array(value)[0] = 7;
+    return value;
+  }, raw);
+  assert.deepEqual([...new Uint8Array(raw)], [3, 4]);
+  assert.deepEqual([...new Uint8Array(bufferArgument)], [7, 4]);
+  assert.deepEqual([...new Uint8Array(bufferResult)], [8, 4]);
+  assert.notEqual(bufferResult, bufferArgument);
+
+  const shared = new Uint8Array([9, 10, 11]).subarray(1, 2);
+  assert.equal(api.callShared(value => {
+    assert.equal(value, shared); value[0] = 20; return value;
+  }, shared), shared);
+  assert.equal(shared[0], 21, 'SharedBytes mutations remain live in Dart and JS');
+  assert.equal(api.callShared(value => { assert.equal(value, null); return null; }, null), null);
+  const row = {bytes: [input, null, input], buffer: raw, shared};
+  let returned;
+  const copied = api.callBinaryRecord(value => {
+    assert.notEqual(value, row);
+    assert.notEqual(value.bytes, row.bytes);
+    assert.notEqual(value.bytes[0].buffer, value.bytes[2].buffer);
+    assert.equal(value.bytes[1], null);
+    assert.equal(value.shared, shared);
+    value.bytes[0][0] = 30; value.shared[0] = 31;
+    returned = value;
+    return value;
+  }, row);
+  assert.deepEqual([...input], [1, 2]); assert.equal(shared[0], 31);
+  assert.notEqual(copied.bytes[0].buffer, returned.bytes[0].buffer);
+  assert.notEqual(copied.buffer, returned.buffer);
+  assert.equal(copied.shared, shared);
+  returned.bytes[0][0] = 40; assert.equal(copied.bytes[0][0], 30);
+  const empty = {bytes: [null], buffer: null, shared: null};
+  assert.deepEqual(api.callBinaryRecord(value => value, empty), empty);
+  api.clearBinaryCallback();
+
+  const identity = value => value;
+  assert.equal(api.binaryCallbackPolicies(identity, identity, identity, identity), true);
+  const foreign = runInNewContext('new Uint8Array([7, 8])');
+  assert.deepEqual([...api.callBytes(() => foreign, input)], [8, 8]);
+  assert.equal(api.callShared(() => foreign, null), foreign);
+  assert.equal(api.callShared(identity, Buffer.from([1]))[0], 2);
+  for (const value of [undefined, null, [], new Uint16Array(1), new DataView(new ArrayBuffer(1)),
+    new Uint8Array(new SharedArrayBuffer(1))]) {
+    assert.throws(() => api.callBytes(() => value, input), TypeError);
+  }
+  for (const value of [undefined, {}, new Uint8Array(1), new SharedArrayBuffer(1)]) {
+    assert.throws(() => api.callBuffer(() => value, raw), TypeError);
+  }
+  assert.throws(() => api.callShared(() => undefined, null), TypeError);
+  assert.throws(() => api.callShared(() => new Uint8Array(new SharedArrayBuffer(1)), null), TypeError);
+  const detached = new Uint8Array([1]);
+  structuredClone(detached.buffer, {transfer: [detached.buffer]});
+  assert.throws(() => api.callBytes(() => detached, input), TypeError);
+  assert.throws(() => api.callBuffer(() => detached.buffer, raw), TypeError);
+  assert.throws(() => api.callShared(() => detached, null), TypeError);
+  const live = new Uint8Array([1]);
+  assert.throws(() => api.callShared(value => {
+    structuredClone(value.buffer, {transfer: [value.buffer]}); return null;
+  }, live), TypeError);
 }
 
 async function voidResult(api) {
@@ -297,6 +382,15 @@ function savedCallback(api) {
   return new WeakRef(callback);
 }
 
+function savedBinaryCallback(api) {
+  const callback = value => {
+    if (value.shared !== null) value.shared[0]++;
+    return value;
+  };
+  api.callBinaryRecord(callback, {bytes: [new Uint8Array([1])], buffer: null, shared: null});
+  return new WeakRef(callback);
+}
+
 async function resources(api) {
   for (const [id, fails] of [[1, false], [2, true]]) {
     const resource = new api.CallbackResource(id);
@@ -384,6 +478,76 @@ async function asyncValues(api) {
     new Promise(resolve => setImmediate(() => resolve(n + 1))), i));
   assert.deepEqual(await Promise.all(calls), Array.from({length: 80}, (_, i) => i + 1));
   assert.equal(await api.callAsync(async n => await api.callAsync(async x => x + 2, n), 3), 5);
+  await asyncBinaryValues(api);
+}
+
+async function asyncBinaryValues(api) {
+  const input = new Uint8Array([1, 2]);
+  let argument, fulfill;
+  const pending = api.callAsyncBytes(value => {
+    argument = value;
+    return new Promise(resolve => { fulfill = resolve; });
+  }, input);
+  input[0] = 3;
+  await turn(); global.gc();
+  assert.deepEqual([...argument], [1, 2]);
+  const returned = new Uint8Array([7, 8]); fulfill(returned);
+  const result = await pending;
+  assert.deepEqual([...result], [8, 8]);
+  assert.deepEqual([...argument], [1, 2]);
+  assert.deepEqual([...returned], [7, 8]);
+  assert.notEqual(result.buffer, returned.buffer);
+  returned[1] = 9; assert.equal(result[1], 8);
+  assert.equal(await api.callAsyncBytes(async value => { assert.equal(value, null); return null; }, null), null);
+  await assert.rejects(api.callAsyncBytes(async () => new Uint16Array(1), null), TypeError);
+  const detachedBytes = new Uint8Array([1]);
+  const detachedSnapshot = api.callAsyncBytes(() => Promise.resolve(detachedBytes), null);
+  structuredClone(detachedBytes.buffer, {transfer: [detachedBytes.buffer]});
+  await assert.rejects(detachedSnapshot, TypeError);
+
+  const shared = new Uint8Array([2]), sharedResult = new Uint8Array([5]);
+  let complete;
+  const sharedWork = api.callAsyncShared(value => {
+    assert.equal(value, shared);
+    return new Promise(resolve => { complete = resolve; });
+  }, shared);
+  shared[0] = 3;
+  for (let i = 0; i < 3; i++) { await turn(); global.gc(); }
+  complete(sharedResult);
+  assert.equal(await sharedWork, sharedResult);
+  assert.equal(shared[0], 4); assert.equal(sharedResult[0], 6);
+  assert.equal(await api.callAsyncShared(async value => { assert.equal(value, null); return null; }, null), null);
+  await assert.rejects(api.callAsyncShared(async () => new Uint8Array(new SharedArrayBuffer(1)), null), TypeError);
+  const detachedShared = new Uint8Array([1]);
+  const detachedResult = api.callAsyncShared(() => Promise.resolve(detachedShared), null);
+  structuredClone(detachedShared.buffer, {transfer: [detachedShared.buffer]});
+  await assert.rejects(detachedResult, TypeError);
+  const retained = new Uint8Array([1]);
+  let release;
+  const detachedInput = api.callAsyncShared(() => new Promise(resolve => { release = resolve; }), retained);
+  structuredClone(retained.buffer, {transfer: [retained.buffer]}); release(null);
+  await assert.rejects(detachedInput, TypeError);
+  const resizable = new ArrayBuffer(4, {maxByteLength: 8});
+  const fixed = new Uint8Array(resizable, 2, 2);
+  const resizedInput = api.callAsyncShared(() => new Promise(resolve => { release = resolve; }), fixed);
+  resizable.resize(1); release(null);
+  await assert.rejects(resizedInput, TypeError);
+
+  const row = {bytes: [new Uint8Array([1]), null], buffer: new Uint8Array([2]).buffer, shared: new Uint8Array([3])};
+  let callbackRow;
+  const copied = await api.callAsyncBinaryRecord(async value => {
+    callbackRow = value;
+    await turn();
+    value.bytes[0][0] = 4; value.shared[0] = 5;
+    return value;
+  }, row);
+  assert.equal(row.bytes[0][0], 1);
+  assert.equal(copied.bytes[0][0], 4);
+  assert.notEqual(copied.bytes[0].buffer, callbackRow.bytes[0].buffer);
+  assert.notEqual(copied.buffer, callbackRow.buffer);
+  assert.equal(copied.shared, row.shared); assert.equal(row.shared[0], 5);
+  const empty = {bytes: [null], buffer: null, shared: null};
+  assert.deepEqual(await api.callAsyncBinaryRecord(async value => value, empty), empty);
 }
 
 async function asyncValidation(api) {
@@ -706,6 +870,14 @@ async function scenario(name) {
       api.clearSavedCallback();
       await collect(api, () => weak.deref() === undefined, 'cleared callback function');
       assert.equal(api.callTwice(n => n, 1), 3);
+      const binary = savedBinaryCallback(api);
+      await turn(); global.gc(); api.callbackPressure(1); await turn();
+      assert(binary.deref());
+      const shared = new Uint8Array([2]);
+      const row = api.invokeBinaryRecord({bytes: [new Uint8Array([1])], buffer: null, shared});
+      assert.equal(row.shared, shared); assert.equal(shared[0], 3);
+      api.clearBinaryCallback();
+      await collect(api, () => binary.deref() === undefined, 'cleared binary callback');
       break;
     }
     case 'scheduled': {
@@ -748,9 +920,11 @@ async function scenario(name) {
     case 'external': {
       const external = await import('@napi/callback-external');
       assert.deepEqual(Object.keys(external), [
-        'callAsyncHandle', 'callHandle', 'callHandles', 'callNullableHandle', 'callPayloadHandles',
-        'callWideHandle', 'callbackHandleOrder', 'callbackPressure', 'clearCallbackHandle',
-        'plainAsyncCallback', 'plainCallback', 'readCallbackHandle', 'sameHandleSignature',
+        'binaryCallbackPolicies', 'callAsyncBinaryRecord', 'callAsyncBytes', 'callAsyncHandle',
+        'callAsyncShared', 'callBinaryRecord', 'callBuffer', 'callBytes', 'callHandle', 'callHandles',
+        'callNullableHandle', 'callPayloadHandles', 'callShared', 'callWideHandle',
+        'callbackHandleOrder', 'callbackPressure', 'clearBinaryCallback', 'clearCallbackHandle',
+        'invokeBinaryRecord', 'plainAsyncCallback', 'plainCallback', 'readCallbackHandle', 'sameHandleSignature',
         'sameOpaqueHandleSignature', 'sameWideHandleSignature',
       ]);
       assert.equal(external.plainCallback(n => n + 1, 3), 4);
@@ -762,6 +936,7 @@ async function scenario(name) {
       await exactRejection(external.plainAsyncCallback(() => Promise.reject(error), 1), error);
       await assert.rejects(external.plainAsyncCallback(n => n, 1), TypeError);
       handleValues(external); await asyncHandles(external);
+      binaryValues(external); await asyncBinaryValues(external);
       break;
     }
     case 'workers-with-main':
@@ -785,6 +960,7 @@ if (!isMainThread) {
   exact(() => api.rethrowSaved(), error);
   api.callbackPressure(1);
   assert.equal(await api.callAsync(async n => n + 2, 5), 7);
+  binaryValues(api); await asyncBinaryValues(api);
   api.registerAsyncCallback(() => new Promise(() => {}));
   api.invokeAsyncRegistered(0, 1);
   if (workerData.queued) {

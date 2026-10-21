@@ -2332,9 +2332,6 @@ void _validateCallback(
   if (type.nullability == TypeNullability.legacy) {
     reject('Legacy callback nullability is not supported.');
   }
-  if (_containsTypedData(type)) {
-    reject('Binary values are not supported in callback signatures.');
-  }
   for (final parameter in type.parameters) {
     if (parameter.kind != ParameterKind.requiredPositional) {
       reject(
@@ -2349,7 +2346,7 @@ void _validateCallback(
     );
     if (!_isCallbackValue(parameter.type, classes, opaqueParameters)) {
       reject(
-        'Callback arguments support scalars, JS collection handles, Lists and records; references, bare opaque payloads and nested callbacks are not supported.',
+        'Callback arguments support scalars, binary values, SharedBytes, JS collection handles, Lists and records; references, bare opaque payloads and nested callbacks are not supported.',
       );
     }
   }
@@ -2369,31 +2366,19 @@ void _validateCallback(
   validateOpaqueReferenceNames(payload, source, classes, opaqueParameters);
   if (!_isCallbackValue(payload, classes, opaqueParameters)) {
     reject(
-      'Callback results support scalars, JS collection handles, Lists, records or void, synchronously or inside Future; FutureOr, references, bare opaque payloads and nested callbacks are not supported.',
+      'Callback results support scalars, binary values, SharedBytes, JS collection handles, Lists, records or void, synchronously or inside Future; FutureOr, references, bare opaque payloads and nested callbacks are not supported.',
     );
   }
 }
-
-bool _containsTypedData(BindingType type) => switch (type) {
-  DeclaredType() when isJsCollectionType(type) => false,
-  DeclaredType() =>
-    type.declaration.library == Uri.parse('dart:typed_data') ||
-        type.typeArguments.any(_containsTypedData),
-  RecordTypeBinding() =>
-    type.positional.any(_containsTypedData) ||
-        type.named.values.any(_containsTypedData),
-  FunctionTypeBinding() =>
-    _containsTypedData(type.result) ||
-        type.parameters.any((parameter) => _containsTypedData(parameter.type)),
-  _ => false,
-};
 
 bool _isCallbackValue(
   BindingType type,
   List<ClassBinding> classes,
   Set<DeclarationId> opaqueParameters,
 ) {
-  if (_isBackendScalar(type)) return true;
+  if (_isBackendScalar(type) || isBinaryType(type) || isSharedBytesType(type)) {
+    return true;
+  }
   if (type.nullability == TypeNullability.legacy) return false;
   if (isJsCollectionType(type)) {
     return _supportedJsCollectionElements(

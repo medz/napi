@@ -28,6 +28,14 @@ Both targets validate functions before business code, convert Dart arguments to
 JavaScript, invoke with an undefined receiver, and convert results back to Dart.
 Scalars, Lists and records follow the ordinary precision, UTF-16, nullability
 and structural validation rules. `@NAPI(bigint: true)` applies inside callbacks.
+[Binary snapshots](binary.md) and `SharedBytes` work directly or inside nullable
+Lists and records, including fulfilled Future results. `Uint8List` becomes a
+`Uint8Array` and `ByteBuffer` becomes an `ArrayBuffer`; each crossing makes an
+independent copy of the declared bytes. `SharedBytes` retains the original
+`Uint8Array`, its view window and live contents. Shared backing memory is not
+supported. Detached or out-of-bounds views fail conversion; retained shared
+views also check their current window when Dart accesses them.
+
 [JS collection handles](collections.md) also work as callback arguments and
 results, directly or inside Lists and records. Their original Array/Map identity
 and live contents are preserved:
@@ -61,8 +69,10 @@ still require explicit business clear/unregister, as described in
 [generic payload ownership](opaque.md#ownership).
 
 An accepted async invocation retains its adapter, original JS function and
-completion state until settlement. Scalar/List/record arguments are already
-snapshotted by value; their original Dart objects need no additional lifetime.
+completion state until settlement. Scalar/List/record arguments and binary
+snapshots are already copied by value; their original Dart objects need no
+additional lifetime. `SharedBytes` leaves retain their original JS views through
+settlement and observe later mutation, resize or detachment.
 Handle leaves retain their original JS containers instead of copying contents.
 Saving a callback result handle in Dart keeps that container usable after the
 callback completes.
@@ -109,8 +119,8 @@ Callbacks are direct inputs to synchronous, Future-returning and Stream-returnin
 functions, constructors, methods, setters and resource cleanup. Nullable/default-null outer
 parameters preserve normal presence rules. External selections use the same
 mapping. Callback parameters currently require positional parameters without
-defaults, with scalar/List/record/JS-handle payloads and synchronous or Future
-results; void is also supported.
+defaults, with scalar, binary snapshot, `SharedBytes`, List, record and JS-handle
+payloads and synchronous or Future results; void is also supported.
 
 Optional/named parameters inside a callback, generic callback signatures,
 callback outputs, nested callbacks, nullable outer Future results, FutureOr,
@@ -126,7 +136,8 @@ and [supported toolchains](../README.md#verify).
 
 ## Performance
 
-Each callback invocation crosses the Dart/JavaScript boundary. Lists and records
-are copied and validated on each call; JS handles retain their live containers.
+Each callback invocation crosses the Dart/JavaScript boundary. Lists, records
+and binary snapshots are copied and validated on each call. `SharedBytes` and JS
+handles retain their live views and containers.
 For repeated work, passing a batch can reduce invocation overhead. Reusing a
 callback preserves its adapter identity but does not remove per-call conversion.
