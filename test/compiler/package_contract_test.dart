@@ -166,6 +166,24 @@ void main() {
       '@NAPI(classPolicy: ClassPolicy.value) class Value { final int n; Value({this.n = 2}); } '
           '@NAPI() int run(Value value) => value.n;',
     ),
+    'lazy value constructor default': (
+      '@NAPI(classPolicy: ClassPolicy.value) class Value { final int n; Value({this.n = 1}); } '
+          '@NAPI() JsArray<Value> run() => throw UnimplementedError();',
+      '@NAPI(classPolicy: ClassPolicy.value) class Value { final int n; Value({this.n = 2}); } '
+          '@NAPI() JsArray<Value> run() => throw UnimplementedError();',
+    ),
+    'lazy value constructor scalar policy': (
+      '@NAPI(classPolicy: ClassPolicy.value) class Value { Value(int source); final int n = 1; } '
+          '@NAPI() JsArray<Value> run() => throw UnimplementedError();',
+      '@NAPI(classPolicy: ClassPolicy.value) class Value { Value(double source); final int n = 1; } '
+          '@NAPI() JsArray<Value> run() => throw UnimplementedError();',
+    ),
+    'lazy value input availability': (
+      '@NAPI(classPolicy: ClassPolicy.value) class Value { Value._(); final int n = 1; } '
+          '@NAPI() JsArray<Value> run() => throw UnimplementedError();',
+      '@NAPI(classPolicy: ClassPolicy.value) class Value { Value(); final int n = 1; } '
+          '@NAPI() JsArray<Value> run() => throw UnimplementedError();',
+    ),
     'exported value scalar policy without a call': (
       '@NAPI(classPolicy: ClassPolicy.value) class Value { final int n = 1; }',
       '@NAPI(classPolicy: ClassPolicy.value) class Value { final double n = 1; }',
@@ -202,6 +220,33 @@ void main() {
         '@NAPI() Node run(Node node) => node;';
     expect(await compare(source, source), contains('export type Node'));
   });
+
+  test(
+    'unused value input constructors do not affect output contracts',
+    () async {
+      for (final call in ['', '@NAPI() Value run() => Value(null);']) {
+        final declarations = await compare(
+          '@NAPI(classPolicy: ClassPolicy.value) class Value { '
+              'Value(Object? source); final int n = 1; } $call',
+          '@NAPI(classPolicy: ClassPolicy.value) class Value { '
+              'Value(DateTime? source); final int n = 1; } $call',
+        );
+        expect(declarations, contains('export type Value'));
+        expect(declarations, isNot(contains('source')));
+      }
+      expect(
+        await compare(
+          '@NAPI(classPolicy: ClassPolicy.value) class Value { '
+              'Value._(); final int n = 1; } '
+              '@NAPI() Value run() => Value._();',
+          '@NAPI(classPolicy: ClassPolicy.value) class Value { '
+              'Value(Object source); final int n = 1; } '
+              '@NAPI() Value run() => Value(1);',
+        ),
+        contains('export type Value'),
+      );
+    },
+  );
 
   test('JavaScript handles share canonical declarations in both backends', () async {
     const source =

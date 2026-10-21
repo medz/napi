@@ -72,7 +72,7 @@ String nativeJsCollectionRead(
             c is RecordConversion ||
             c is ValueClassConversion) {
           final read = structures.read(input, forceNormalize: true);
-          final write = structures.write(c, retainResources: true);
+          final write = structures.write(c, collectionElement: true);
           final tracksOpaque = conversionGraph([input])
               .any((leaf) => leaf is OpaqueConversion);
           final hasReferences = conversionGraph([c])
@@ -158,13 +158,12 @@ ${transfersOwned ? '  state.owned?.clear();\n' : ''}  return $materialize(normal
     return name;
   }
 
-  String write(ValueConversion conversion, {bool retainResources = false}) {
-    retainResources = retainResources && hasResources;
-    final key = (conversion, retainResources);
+  String write(ValueConversion conversion, {bool collectionElement = false}) {
+    final key = (conversion, collectionElement);
     if (_writes[key] case final previous?) return previous;
     final snapshot = _snapshotOutput(
       conversion,
-      retainResources: retainResources,
+      collectionElement: collectionElement,
     );
     final hostWrite = _writeSnapshot(conversion);
     final name = '_writeNativeOutput${_next++}';
@@ -335,20 +334,20 @@ ${transfersOwned ? '  state.owned?.clear();\n' : ''}  return $materialize(normal
   // plain Dart lists and typed leaves; no business getter runs in the host pass.
   String _snapshotOutput(
     ValueConversion conversion, {
-    bool retainResources = false,
+    bool collectionElement = false,
   }) {
-    retainResources =
-        retainResources &&
+    final retainResources =
+        collectionElement &&
         hasResources &&
         conversionGraph([conversion])
             .any((value) => value is ReferenceConversion);
-    final key = (conversion, retainResources);
+    final key = (conversion, collectionElement);
     if (_outputSnapshots[key] case final previous?) return previous;
     final name = '_snapshotNativeOutput${_next++}';
     _outputSnapshots[key] = name;
     final functions = [
       for (final child in _children(conversion))
-        _snapshotOutput(child, retainResources: retainResources),
+        _snapshotOutput(child, collectionElement: collectionElement),
     ];
     _code.writeln(
       'Object? $name(${conversion.dartType} value, _NativeWriteState state, String path, int depth) {',
@@ -492,7 +491,7 @@ ${transfersOwned ? '  state.owned?.clear();\n' : ''}  return $materialize(normal
       case ValueClassConversion():
         _code.writeln('''  state.enter(value, path, depth);
   try {''');
-        if (retainResources) {
+        if (collectionElement) {
           _code.writeln(
             '    final result = List<Object?>.filled(${conversion.fields.length}, null);',
           );

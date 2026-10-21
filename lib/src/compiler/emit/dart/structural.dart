@@ -19,8 +19,8 @@ final class DartStructuralEmitter {
 
   String read(ValueConversion conversion, {bool bigintText = false}) =>
       _emit(conversion, false, bigintText);
-  String write(ValueConversion conversion, {bool retainResources = false}) =>
-      _emit(conversion, true, false, retainResources);
+  String write(ValueConversion conversion, {bool collectionElement = false}) =>
+      _emit(conversion, true, false, collectionElement);
   String get source => _code.toString();
 
   String _collectionElement(ValueConversion conversion, ValueConversion input) {
@@ -38,7 +38,7 @@ final class DartStructuralEmitter {
           RecordConversion() ||
           ValueClassConversion():
         final reader = read(input, bigintText: true);
-        final writer = write(conversion, retainResources: true);
+        final writer = write(conversion, collectionElement: true);
         final path = jsonEncode(conversion.context).replaceAll(r'$', r'\$');
         final failure =
             'throw _CallbackThrown(_jcTypeError(externRefForJSAny((error.path + ": " + error.message).toJS), WasmI32.fromInt(error.range ? 1 : 0)));';
@@ -77,13 +77,13 @@ final class DartStructuralEmitter {
     ValueConversion conversion,
     bool output,
     bool bigintText, [
-    bool retainResources = false,
+    bool collectionElement = false,
   ]) {
-    retainResources =
-        retainResources &&
+    final retainResources =
+        collectionElement &&
         resources &&
         conversionGraph([conversion]).any((c) => c is ReferenceConversion);
-    final key = (conversion, output, bigintText, retainResources);
+    final key = (conversion, output, bigintText, collectionElement);
     if (_memo[key] case final name?) return name;
     final name = '_${output ? 'write' : 'read'}Structure${_next++}';
     _memo[key] = name;
@@ -106,7 +106,7 @@ final class DartStructuralEmitter {
     };
     final functions = [
       for (final child in children)
-        _emit(child, output, bigintText, retainResources),
+        _emit(child, output, bigintText, collectionElement),
     ];
     final collectionElements = conversion is JsCollectionConversion && !output
         ? [
@@ -313,7 +313,7 @@ final class DartStructuralEmitter {
                 field.binding!.callPath ?? field.binding!.declaration.name;
             final path = field.name.replaceAll(r'$', r'\$');
             _code.writeln(
-              retainResources
+              collectionElement
                   ? "    final f$index = ${functions[index]}(value.$member, state, '\$path.$path', depth + 1);"
                   : '    final f$index = value.$member;',
             );
@@ -322,7 +322,7 @@ final class DartStructuralEmitter {
           for (final (index, field) in conversion.fields.indexed) {
             final path = field.name.replaceAll(r'$', r'\$');
             _code.writeln(
-              retainResources
+              collectionElement
                   ? '      f$index,'
                   : "      ${functions[index]}(f$index, state, '\$path.$path', depth + 1),",
             );

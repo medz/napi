@@ -67,6 +67,108 @@ void main() {
   Future<ModulePlan> plan() async => lower(validate(await read()));
 
   test(
+    'output projections ignore unused constructor input types and defaults',
+    () async {
+      const source = '''
+import 'package:napi/napi.dart';
+@NAPI() class Ref { const Ref._(); }
+@NAPI(classPolicy: ClassPolicy.value)
+class Projection { Projection(Object source); final int value = 1; }
+@NAPI(classPolicy: ClassPolicy.value)
+class Timestamp { Timestamp(DateTime source); final int value = 2; }
+@NAPI(classPolicy: ClassPolicy.value)
+class WithDefault { WithDefault([Ref source = const Ref._()]); final int value = 3; }
+class Generic<T> { Generic(T source); final int value = 4; }
+@NAPI(classPolicy: ClassPolicy.value) typedef GenericObject = Generic<Object>;
+@NAPI() Projection project() => Projection(Object());
+@NAPI() Timestamp timestamp() => Timestamp(DateTime.utc(2000));
+@NAPI() WithDefault withDefault() => WithDefault();
+@NAPI() GenericObject generic() => GenericObject(Object());
+''';
+      await input.writeAsString(source);
+      final external = ExternalFrontend(
+        const ExternalLibrary([
+          ExternalClass('Ref'),
+          ExternalClass(
+            'Projection',
+            config: NAPI(classPolicy: ClassPolicy.value),
+          ),
+          ExternalClass(
+            'Timestamp',
+            config: NAPI(classPolicy: ClassPolicy.value),
+          ),
+          ExternalClass(
+            'WithDefault',
+            config: NAPI(classPolicy: ClassPolicy.value),
+          ),
+          ExternalClass(
+            'GenericObject',
+            config: NAPI(classPolicy: ClassPolicy.value),
+          ),
+          ExternalFunction('project'),
+          ExternalFunction('timestamp'),
+          ExternalFunction('withDefault'),
+          ExternalFunction('generic'),
+        ]),
+        packagesPath: packages,
+      );
+      for (final module in [await read(), await external.read(input.uri)]) {
+        final wasm = lower(validate(module));
+        final native = validateNative(module);
+        expect(wasm.valueSchemas.every((s) => s.constructor != null), isTrue);
+        expect(native.valueSchemas.every((s) => s.constructor != null), isTrue);
+        final declarations = emitDeclarations(wasm);
+        expect(emitNativeDeclarations(native), declarations);
+        expect(declarations, contains('export type GenericObject ='));
+      }
+    },
+  );
+
+  test('actual value inputs validate constructor types and defaults', () async {
+    for (final (parameter, constructor, code) in [
+      ('Object source', '', 'NAPI_TYPE'),
+      ('DateTime source', '', 'NAPI_TYPE'),
+      (
+        '[Ref source = const Ref._()]',
+        '@NAPI() class Ref { const Ref._(); }',
+        'NAPI_DEFAULT',
+      ),
+    ]) {
+      for (final container in [
+        'Projection',
+        'List<Projection>',
+        'JsArray<Projection>',
+      ]) {
+        await input.writeAsString('''
+import 'package:napi/napi.dart';
+$constructor
+@NAPI(classPolicy: ClassPolicy.value)
+class Projection { Projection($parameter); final int value = 1; }
+@NAPI() int consume($container value) => 1;
+''');
+        final module = await read();
+        final diagnostic = predicate<BindingDiagnostic>(
+          (error) =>
+              error.code ==
+              (container.startsWith('JsArray') && code == 'NAPI_TYPE'
+                  ? 'NAPI_JS_COLLECTION'
+                  : code),
+        );
+        expect(
+          () => validate(module),
+          throwsA(diagnostic),
+          reason: '$container constructor parameter $parameter',
+        );
+        expect(
+          () => validateNative(module),
+          throwsA(diagnostic),
+          reason: '$container constructor parameter $parameter',
+        );
+      }
+    }
+  });
+
+  test(
     'constructors and independent input properties follow Dart declarations',
     () async {
       await input.writeAsString('''

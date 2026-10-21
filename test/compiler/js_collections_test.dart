@@ -115,6 +115,15 @@ class Box<T> { Box(this.value); final T value; }
 @NAPI(classPolicy: ClassPolicy.value) typedef IntBox = Box<int>;
 @NAPI(classPolicy: ClassPolicy.value) class Seed { const Seed(this.n); final int n; }
 @NAPI(classPolicy: ClassPolicy.value) class Defaulted { Defaulted({this.seed = const Seed(3)}); final Seed seed; }
+@NAPI(classPolicy: ClassPolicy.value)
+class Ordered {
+  final _values = [1];
+  Ordered._();
+  List<int> get values => _values;
+  int get tail { _values[0] = 2; return 2; }
+}
+@NAPI() JsArray<Ordered> order(JsArray<Ordered> source) { source.set(0, Ordered._()); return source; }
+@NAPI() Ordered ordinary() => Ordered._();
 @NAPI() JsArray<IntBox> boxes(JsArray<IntBox> source) { source.set(1, source.get(0)!); return source; }
 @NAPI() JsArray<Defaulted> defaults(JsArray<Defaulted> source) { source.set(1, source.get(0)!); return source; }
 @NAPI() JsArray<Node> nodes(JsArray<Node> source) { source.set(1, source.get(0)!); return source; }
@@ -145,6 +154,8 @@ assert.equal(api.readOnly([]), -1); assert.equal(api.readOnly([null]), -1);
 const boxes = [{value: 5}]; assert.equal(api.boxes(boxes), boxes); assert.deepEqual(boxes[1], {value: 5});
 assert.notEqual(boxes[1], boxes[0]); assert.throws(() => api.boxes([{value: 'bad'}]), TypeError);
 const defaults = [{}]; assert.equal(api.defaults(defaults), defaults); assert.deepEqual(defaults[1], {seed: {n: 3}});
+const ordered = []; assert.equal(api.order(ordered), ordered); assert.deepEqual(ordered[0], {values: [1], tail: 2});
+assert.deepEqual(api.ordinary(), {values: [2], tail: 2});
 const opaque = [undefined, null, Symbol('value')], pair = [{\$1: {id: 2}, \$2: opaque}];
 assert.equal(api.pair(pair), pair); assert.notEqual(pair[1], pair[0]);
 assert.equal(pair[1].\$1.id, 2); assert.equal(pair[1].\$2, opaque);

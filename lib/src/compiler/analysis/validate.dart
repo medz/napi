@@ -435,12 +435,6 @@ List<ValueClassSchema> validateValueClasses(BindingModule module) {
           constructor.source,
         );
       }
-      validateCallParameters(
-        constructor.parameters,
-        constructor.source,
-        referenceClasses: module.classes,
-        allowResourceDefaults: false,
-      );
       final parameters = constructor.parameters.map((p) => p.name).toSet();
       if (parameters.length != constructor.parameters.length) {
         reject(
@@ -2275,6 +2269,7 @@ bool _supportedJsCollectionElement(
       );
   if (_valueClassBinding(type, classes) case final binding?) {
     if (!visited.add((binding, mapKey))) return true;
+    _validateValueConstructorInputs(binding, classes);
     return [
       ..._valueChildren(binding, ValueDirection.input),
       ..._valueChildren(binding, ValueDirection.output),
@@ -2492,6 +2487,7 @@ void validateCallParameters(
   List<ParameterBinding> parameters,
   SourceLocation source, {
   bool scalarOnly = false,
+  bool validateTypes = true,
   bool allowResourceDefaults = true,
   List<ClassBinding> referenceClasses = const [],
   Set<DeclarationId> opaqueParameters = const {},
@@ -2547,7 +2543,7 @@ void validateCallParameters(
         }
         named = true;
     }
-    if (!scalarOnly) {
+    if (validateTypes && !scalarOnly) {
       validateValueType(
         parameter.type,
         parameter.source ?? source,
@@ -2557,7 +2553,8 @@ void validateCallParameters(
         allowCallback: true,
         allowAbortSignal: true,
       );
-    } else if (!opaque &&
+    } else if (validateTypes &&
+        !opaque &&
         !_isBackendScalar(parameter.type) &&
         !isReferenceType(
           parameter.type,
@@ -2710,6 +2707,24 @@ ClassBinding? _valueClassBinding(
 bool isValueClassType(BindingType type, List<ClassBinding> classes) =>
     _valueClassBinding(type, classes) != null;
 
+void _validateValueConstructorInputs(
+  ClassBinding binding,
+  List<ClassBinding> classes,
+) {
+  final constructor = binding.members
+      .where((member) => member.declaration == binding.valueConstructor)
+      .firstOrNull;
+  if (constructor == null) return;
+  // The direction traversal checks recursive field types with one visited set.
+  validateCallParameters(
+    constructor.parameters,
+    constructor.source,
+    referenceClasses: classes,
+    allowResourceDefaults: false,
+    validateTypes: false,
+  );
+}
+
 Iterable<BindingType> _valueChildren(
   ClassBinding binding,
   ValueDirection direction,
@@ -2791,6 +2806,9 @@ void _checkValueDirection(
       );
     }
     if (!visited.add((binding, mapKey))) return;
+    if (direction == ValueDirection.input) {
+      _validateValueConstructorInputs(binding, classes);
+    }
     for (final child in _valueChildren(binding, direction)) {
       _checkValueDirection(
         child,

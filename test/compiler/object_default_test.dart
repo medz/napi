@@ -354,6 +354,7 @@ class Point {
   void close() {}
 }
 $declaration
+@NAPI() Holder echo(Holder value) => value;
 ''');
       for (final native in [false, true]) {
         final module = await read(input, native: native);

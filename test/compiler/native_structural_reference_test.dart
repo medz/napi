@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:napi/build.dart';
 import 'package:napi/src/compiler/front_end/frontend.dart';
 import 'package:napi/src/compiler/lowering/plan.dart';
 import 'package:napi/src/compiler/native/declarations.dart';
@@ -336,6 +337,14 @@ class Output { Output._(this.x); final int x; }
   source.set(1, source.get(0)!);
   return source;
 }
+@NAPI(classPolicy: ClassPolicy.value)
+class Mutation {
+  final _items = <int>[1];
+  List<int> get items => _items;
+  int get last { _items.add(2); return _items.length; }
+}
+@NAPI() void writeMutation(JsArray<Mutation> values) => values.set(0, Mutation());
+@NAPI() Mutation mutation() => Mutation();
 ''';
       for (final resources in [false, true]) {
         final plan = await read(
@@ -361,6 +370,35 @@ class Resource extends Box { Resource(super.id); void close() {} }
           0,
           reason: '${compilation.stdout}${compilation.stderr}',
         );
+        final nativeRuntime = Platform.environment['NAPI_TEST_NATIVE_RUNTIME'];
+        if (nativeRuntime != null) {
+          final canonical = await directory.resolveSymbolicLinks();
+          final module = await buildLibrary(
+            library: File('$canonical/business.dart').uri,
+            output: Directory('$canonical/native-$resources'),
+            packagesPath: _packages,
+            target: BuildTarget.native,
+            nativeRuntime: Directory(nativeRuntime),
+          );
+          final script = await File('${module.directory.path}/test.mjs')
+              .writeAsString('''
+import assert from 'node:assert/strict';
+import * as api from './module.mjs';
+const values = [];
+api.writeMutation(values);
+assert.deepEqual(values, [{items: [1], last: 2}]);
+assert.deepEqual(api.mutation(), {items: [1, 2], last: 2});
+''');
+          final executed = await Process.run(
+            Platform.environment['NODE'] ?? 'node',
+            [script.path],
+          );
+          expect(
+            executed.exitCode,
+            0,
+            reason: '${executed.stdout}${executed.stderr}',
+          );
+        }
       }
     },
     timeout: const Timeout(Duration(minutes: 2)),
