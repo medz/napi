@@ -182,19 +182,22 @@ final class OpaqueConversion extends ValueConversion {
   String get typescriptType => '${parameter.name}${nullable ? ' | null' : ''}';
 }
 
-/// A function input retained while its Dart adapter is reachable. Arguments
-/// leave Dart; its synchronous or Future payload result enters Dart.
+/// A typed function converted as a JavaScript callback or a Dart function facade.
 final class CallbackConversion extends ValueConversion {
+  final ValueDirection direction;
   final List<ParameterBinding> parameters;
   final List<ValueConversion> inputs;
   final ValueConversion? output;
   final bool returnsFuture;
+  final bool returnsStream;
   CallbackConversion._(
     FunctionTypeBinding super.type,
     super.context, {
+    required this.direction,
     required Iterable<ValueConversion> inputs,
     required this.output,
   }) : returnsFuture = isFutureType(type.result),
+       returnsStream = isStreamType(type.result),
        parameters = type.parameters,
        inputs = List.unmodifiable(inputs);
 
@@ -258,7 +261,11 @@ final class CallbackConversion extends ValueConversion {
   @override
   String get dartType {
     final payload = output?.dartType ?? 'void';
-    final result = returnsFuture ? 'Future<$payload>' : payload;
+    final result = returnsFuture
+        ? 'Future<$payload>'
+        : returnsStream
+        ? 'Stream<$payload>'
+        : payload;
     return '$result Function(${_dartParameters()})${nullable ? '?' : ''}';
   }
 
@@ -267,7 +274,11 @@ final class CallbackConversion extends ValueConversion {
   @override
   String get typescriptType {
     final payload = output?.typescriptType ?? 'void';
-    final result = returnsFuture ? 'globalThis.Promise<$payload>' : payload;
+    final result = returnsFuture
+        ? 'globalThis.Promise<$payload>'
+        : returnsStream
+        ? 'globalThis.AsyncIterableIterator<$payload, undefined, undefined>'
+        : payload;
     final positional = <String>[];
     final named = <String>[];
     var requiredOptions = false;
@@ -292,12 +303,17 @@ final class CallbackConversion extends ValueConversion {
 
   /// The same JavaScript function has one adapter per conversion contract.
   /// Positional names and nullable admission do not change an accepted adapter.
-  String get signatureKey {
+  String get signatureKey => _signature(false);
+  String get wireSignatureKey => _signature(true);
+
+  String _signature(bool wire) {
     if (!hasParameterShape) {
       return jsonEncode([
-        returnsFuture,
-        inputs.map(_callbackValueSignature).toList(),
-        _callbackValueSignature(output),
+        returnsStream ? 'stream' : returnsFuture,
+        inputs
+            .map((value) => _callbackValueSignature(value, wire: wire))
+            .toList(),
+        _callbackValueSignature(output, wire: wire),
       ]);
     }
     final ordered = parameters.indexed.toList()
@@ -308,79 +324,88 @@ final class CallbackConversion extends ValueConversion {
         return aNamed ? a.$2.name.compareTo(b.$2.name) : a.$1.compareTo(b.$1);
       });
     return jsonEncode([
-      returnsFuture,
+      returnsStream ? 'stream' : returnsFuture,
       [
         'parameters',
         for (final (index, parameter) in ordered)
           [
             parameter.kind.name,
             if (isNamedParameter(index)) parameter.name,
-            _callbackValueSignature(inputs[index]),
+            _callbackValueSignature(inputs[index], wire: wire),
           ],
       ],
-      _callbackValueSignature(output),
+      _callbackValueSignature(output, wire: wire),
     ]);
   }
 }
 
-Object? _callbackValueSignature(ValueConversion? conversion) =>
-    switch (conversion) {
-      null => null,
-      ScalarConversion(:final kind, :final bigint, :final nullable) => [
-        'scalar',
-        kind.name,
-        bigint,
-        nullable,
-      ],
-      BinaryConversion(:final kind, :final nullable) => [
-        'binary',
-        kind.name,
-        nullable,
-      ],
-      SharedBytesConversion(:final nullable) => ['sharedBytes', nullable],
-      OpaqueConversion(:final nullable) => ['opaque', nullable],
-      ReferenceConversion(:final classId, :final nullable) => [
-        'reference',
-        classId,
-        nullable,
-      ],
-      ValueClassConversion() => [
-        'value',
-        conversion.schemaId,
-        conversion.direction.name,
-        conversion.bigint,
-        conversion.nullable,
-      ],
-      JsCollectionConversion() => [
-        'jsCollection',
-        conversion.nullable,
-        conversion.signatureKey,
-      ],
-      ListConversion(:final element, :final nullable) => [
-        'list',
-        nullable,
-        _callbackValueSignature(element),
-      ],
-      MapConversion(:final key, :final value, :final nullable) => [
-        'map',
-        nullable,
-        _callbackValueSignature(key),
-        _callbackValueSignature(value),
-      ],
-      DictionaryConversion(:final value, :final nullable) => [
-        'dictionary',
-        nullable,
-        _callbackValueSignature(value),
-      ],
-      RecordConversion(:final positional, :final named, :final nullable) => [
-        'record',
-        nullable,
-        positional.map(_callbackValueSignature).toList(),
-        for (final name in named.keys.toList()..sort())
-          [name, _callbackValueSignature(named[name])],
-      ],
-      _ => throw StateError('Unsupported callback conversion signature'),
-    };
+Object? _callbackValueSignature(
+  ValueConversion? conversion, {
+  bool wire = false,
+}) => switch (conversion) {
+  null => null,
+  ScalarConversion(:final kind, :final bigint, :final nullable) => [
+    'scalar',
+    kind.name,
+    bigint,
+    nullable,
+  ],
+  BinaryConversion(:final kind, :final nullable) => [
+    'binary',
+    kind.name,
+    nullable,
+  ],
+  SharedBytesConversion(:final nullable) => ['sharedBytes', nullable],
+  OpaqueConversion(:final nullable) => ['opaque', nullable],
+  ReferenceConversion(:final classId, :final nullable) => [
+    'reference',
+    classId,
+    nullable,
+  ],
+  ValueClassConversion() => [
+    'value',
+    conversion.schemaId,
+    if (wire) conversion.direction.name,
+    conversion.bigint,
+    conversion.nullable,
+  ],
+  CallbackConversion() => [
+    'function',
+    wire ? conversion.wireSignatureKey : conversion.signatureKey,
+    conversion.nullable,
+  ],
+  JsCollectionConversion() => [
+    'jsCollection',
+    conversion.nullable,
+    conversion.signatureKey,
+  ],
+  ListConversion(:final element, :final nullable) => [
+    'list',
+    nullable,
+    _callbackValueSignature(element, wire: wire),
+  ],
+  MapConversion(:final key, :final value, :final nullable) => [
+    'map',
+    nullable,
+    _callbackValueSignature(key, wire: wire),
+    _callbackValueSignature(value, wire: wire),
+  ],
+  DictionaryConversion(:final value, :final nullable) => [
+    'dictionary',
+    nullable,
+    _callbackValueSignature(value, wire: wire),
+  ],
+  RecordConversion(:final positional, :final named, :final nullable) => [
+    'record',
+    nullable,
+    positional
+        .map((value) => _callbackValueSignature(value, wire: wire))
+        .toList(),
+    for (final name in named.keys.toList()..sort())
+      [name, _callbackValueSignature(named[name], wire: wire)],
+  ],
+  _ => throw StateError('Unsupported callback conversion signature'),
+};
 
 String dartOpaqueTypeArguments(List<TypeParameterBinding> parameters) =>
     parameters.isEmpty
@@ -624,8 +649,9 @@ final class ValueClassConversion extends ValueConversion {
 }
 
 Iterable<ValueConversion> conversionGraph(
-  Iterable<ValueConversion> roots,
-) sync* {
+  Iterable<ValueConversion> roots, {
+  bool includeFunctions = true,
+}) sync* {
   final pending = <ValueConversion>[...roots];
   final seen = <ValueConversion>{};
   while (pending.isNotEmpty) {
@@ -640,7 +666,8 @@ Iterable<ValueConversion> conversionGraph(
       ValueClassConversion() => [
         for (final field in node.fields) field.conversion,
       ],
-      CallbackConversion() => [...node.inputs, ?node.output],
+      CallbackConversion() =>
+        includeFunctions ? [...node.inputs, ?node.output] : <ValueConversion>[],
       ScalarConversion() ||
       BinaryConversion() ||
       SharedBytesConversion() ||
@@ -654,9 +681,13 @@ Iterable<ValueConversion> conversionGraph(
 
 /// Runtime dependencies also include lazy collection element policies.
 Iterable<ValueConversion> conversionDependencies(
-  Iterable<ValueConversion> roots,
-) sync* {
-  final pending = conversionGraph(roots).toList();
+  Iterable<ValueConversion> roots, {
+  bool includeFunctions = true,
+}) sync* {
+  final pending = conversionGraph(
+    roots,
+    includeFunctions: includeFunctions,
+  ).toList();
   final seen = <ValueConversion>{};
   while (pending.isNotEmpty) {
     final node = pending.removeLast();
@@ -669,7 +700,7 @@ Iterable<ValueConversion> conversionDependencies(
           node.value,
           ?node.inputKey,
           node.inputValue,
-        ]),
+        ], includeFunctions: includeFunctions),
       );
     }
   }
@@ -880,17 +911,20 @@ final class _ConversionBuilder {
       return CallbackConversion._(
         type,
         context,
+        direction: direction,
         inputs: [
           for (final (i, parameter) in type.parameters.indexed)
             callbackValue(
               parameter.type,
               'callback argument ${i + 1}',
-              ValueDirection.output,
+              direction == ValueDirection.input
+                  ? ValueDirection.output
+                  : ValueDirection.input,
             ),
         ],
         output: payload == null
             ? null
-            : callbackValue(payload, 'callback result', ValueDirection.input),
+            : callbackValue(payload, 'callback result', direction),
       );
     }
     ValueConversion child(BindingType value) =>
@@ -1026,7 +1060,8 @@ final class FunctionPlan implements CallPlan {
           returnsStream ||
           _hasScopedResourceAccess ||
           inputs.any((c) => c is OpaqueConversion) ||
-          inputs.any((c) => c is CallbackConversion) ||
+          conversionDependencies([...inputs, ?output])
+              .any((c) => c is CallbackConversion) ||
           inputs.any((c) => c is AbortSignalConversion) ||
           output is OpaqueConversion ||
           parameters.any((p) => p.kind != ParameterKind.requiredPositional) ||
@@ -1183,11 +1218,60 @@ final class ClassPlan {
       members = List.unmodifiable(members);
 }
 
+/// One private call entry for every exported function value contract.
+final class FunctionValueCallPlan implements CallPlan {
+  final CallbackConversion conversion;
+  final int contractId;
+  final String context = 'function';
+  @override
+  final List<ParameterBinding> parameters;
+  @override
+  final List<int> inputContexts;
+  @override
+  final int? outputContext;
+  @override
+  List<ValueConversion> get inputs => conversion.inputs;
+  @override
+  ValueConversion? get output => conversion.output;
+  @override
+  bool get returnsFuture => conversion.returnsFuture;
+  @override
+  bool get returnsStream => conversion.returnsStream;
+  @override
+  String get coreExportName => 'napi:function:$contractId';
+
+  FunctionValueCallPlan._(this.conversion, this.contractId, int firstContext)
+    : parameters = [
+        for (final (index, parameter) in conversion.parameters.indexed)
+          ParameterBinding(
+            parameter.name,
+            parameter.type,
+            kind: parameter.kind,
+            presence: conversion.inputs[index] is OpaqueConversion
+                ? conversion.isOptionalParameter(index)
+                      ? ParameterPresence.opaqueOptional
+                      : ParameterPresence.opaqueRequired
+                : conversion.isOptionalParameter(index)
+                ? ParameterPresence.optional
+                : ParameterPresence.required,
+            source: parameter.source,
+          ),
+      ],
+      inputContexts = [
+        for (var index = 0; index < conversion.inputs.length; index++)
+          firstContext + index,
+      ],
+      outputContext = conversion.output == null
+          ? null
+          : firstContext + conversion.inputs.length;
+}
+
 final class ModulePlan {
   /// Import the selected entry surface, not the origin of a re-exported member.
   final Uri source;
   final List<FunctionPlan> functions;
   final List<ClassPlan> classes;
+  final List<FunctionValueCallPlan> functionValues;
   final List<CallPlan> calls;
   final List<ValueConversion> conversions;
   final List<ClassBinding> allClasses;
@@ -1218,6 +1302,7 @@ final class ModulePlan {
     this.source,
     Iterable<FunctionPlan> functions,
     Iterable<ClassPlan> classes,
+    Iterable<FunctionValueCallPlan> functionValues,
     Iterable<CallPlan> calls,
     Iterable<ValueConversion> conversions,
     Iterable<ClassBinding> allClasses,
@@ -1225,6 +1310,7 @@ final class ModulePlan {
     this.referenceClassOrder,
   ) : functions = List.unmodifiable(functions),
       classes = List.unmodifiable(classes),
+      functionValues = List.unmodifiable(functionValues),
       calls = List.unmodifiable(calls),
       conversions = List.unmodifiable(conversions),
       allClasses = List.unmodifiable(allClasses),
@@ -1237,6 +1323,7 @@ final class ModulePlan {
 ModulePlan lower(ValidatedModule module) {
   final functions = <FunctionPlan>[];
   final classes = <ClassPlan>[];
+  final functionValues = <FunctionValueCallPlan>[];
   final calls = <CallPlan>[];
   final conversions = <ValueConversion>[];
   void add(CallPlan call) {
@@ -1280,10 +1367,30 @@ ModulePlan lower(ValidatedModule module) {
     ];
     classes.add(ClassPlan._(shape, constructor, members));
   }
+  final contracts = <String>{};
+  final functionConversions = conversionDependencies(conversions)
+      .whereType<CallbackConversion>()
+      .toList();
+  for (final conversion in functionConversions) {
+    if (conversion.direction == ValueDirection.output &&
+        contracts.add(conversion.signatureKey)) {
+      final call = FunctionValueCallPlan._(
+        conversion,
+        functionValues.length,
+        conversions.length,
+      );
+      functionValues.add(call);
+      add(call);
+    }
+  }
+  for (final conversion in functionConversions) {
+    if (!conversions.contains(conversion)) conversions.add(conversion);
+  }
   final plan = ModulePlan._(
     module.bindings.importUri,
     functions,
     classes,
+    functionValues,
     calls,
     conversions,
     module.bindings.classes,

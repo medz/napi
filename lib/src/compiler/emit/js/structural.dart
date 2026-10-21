@@ -12,9 +12,17 @@ abstract interface class StructuralLeafAdapter {
 final class BoundaryLeafAdapter implements StructuralLeafAdapter {
   final bool resources;
   final bool bigintText;
-  const BoundaryLeafAdapter({this.resources = false, this.bigintText = false});
+  final Map<String, int> functionContracts;
+  const BoundaryLeafAdapter({
+    this.resources = false,
+    this.bigintText = false,
+    this.functionContracts = const {},
+  });
   @override
   String read(ValueConversion leaf, String value, String path) {
+    if (leaf is CallbackConversion) {
+      return 'checkCallback($value, ${leaf.nullable}, $path)';
+    }
     if (leaf is OpaqueConversion) return 'boxOpaque($value)';
     if (leaf is JsCollectionConversion) {
       return '\$jcAdmit($value, ${leaf.isMap}, ${leaf.nullable}, $path)';
@@ -36,6 +44,12 @@ final class BoundaryLeafAdapter implements StructuralLeafAdapter {
 
   @override
   String write(ValueConversion leaf, String value, String path) {
+    if (leaf is CallbackConversion) {
+      final contract =
+          functionContracts[leaf.signatureKey] ??
+          (throw StateError('Missing function contract'));
+      return 'writeFunction($value, $contract, $path, state.pending ??= new Set())';
+    }
     if (leaf is OpaqueConversion) return 'unboxOpaque($value)';
     if (leaf is JsCollectionConversion) {
       return '\$jcAdmit($value, ${leaf.isMap}, ${leaf.nullable}, $path)';
@@ -108,7 +122,9 @@ StructuralBoundary emitStructuralBoundary(
     }
     switch (node) {
       case CallbackConversion():
-        throw StateError('Nested callback conversion is not supported.');
+        code.writeln(
+          '  return ${output ? leafAdapter.write(node, 'value', 'path') : leafAdapter.read(node, 'value', 'path')};',
+        );
       case JsCollectionConversion():
         if (output) {
           code.writeln(

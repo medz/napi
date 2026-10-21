@@ -1,8 +1,7 @@
 import 'dart:io';
 
 import '../compiler/ir/model.dart';
-import '../compiler/lowering/plan.dart'
-    show AbortSignalConversion, CallbackConversion;
+import '../compiler/lowering/plan.dart' show AbortSignalConversion;
 import '../compiler/native/plan.dart';
 import '../compiler/native/entrypoint.dart';
 import '../compiler/native/declarations.dart';
@@ -53,18 +52,17 @@ Future<BuiltModule> buildNativeModule({
       emitNativeLoader(
         exports,
         classes: plan.classes,
+        functionValues: plan.functionValues,
         hasBinary: plan.hasBinary,
         jsCollections: plan.jsCollections,
-        hasFutures:
-            plan.hasStreams || plan.calls.any((call) => call.returnsFuture),
+        hasFutures: plan.hasFutures,
         streamClassName: plan.hasStreams ? plan.streamClassName : null,
-        hasCallbacks: plan.calls.any(
-          (call) => call.inputs.any((input) => input is CallbackConversion),
+        hasCallbacks: plan.callbacks.any(
+          (input) => input.direction == ValueDirection.input,
         ),
-        hasAsyncCallbacks: plan.calls.any(
-          (call) => call.inputs.any(
-            (input) => input is CallbackConversion && input.returnsFuture,
-          ),
+        hasAsyncCallbacks: plan.callbacks.any(
+          (input) =>
+              input.direction == ValueDirection.input && input.returnsFuture,
         ),
         hasSignals: plan.calls.any(
           (call) => call.inputs.any((input) => input is AbortSignalConversion),

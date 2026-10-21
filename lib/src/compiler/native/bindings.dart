@@ -493,6 +493,12 @@ final class _ReferenceLease {
   const _ReferenceLease(this.id, this.classId);
 }
 
+final class _NativeFunctionOwner {
+  final Function value;
+  final String signature;
+  const _NativeFunctionOwner(this.value, this.signature);
+}
+
 // This record owns Dart values, never borrowed Node handles or callback info.
 // C acknowledges after calling the JS resolver, which can reenter Dart.
 final class _PendingFuture {
@@ -664,6 +670,12 @@ final class _NativeCallbackCacheEntry {
   final int generation;
   _NativeCallbackCacheEntry(Function value, this.generation)
     : adapter = WeakReference(value);
+}
+
+final class _NativeCallbackSource {
+  final NativeCallback callback;
+  final String wireSignature;
+  const _NativeCallbackSource(this.callback, this.wireSignature);
 }
 
 // The adapter owns its host control by ordinary Dart reachability. No pointer
@@ -1218,8 +1230,13 @@ final class NapiApi {
     String path,
     T Function(NativeCallback) create, {
     bool prechecked = false,
+    String? wireSignature,
   }) {
     if (!prechecked) checkCallback(env, value, path);
+    final original = _owners[_unwrap(env, value)];
+    if (original is _NativeFunctionOwner && original.signature == signature) {
+      return original.value as T;
+    }
     final identity = _hostIdentity(env, value);
     // Signatures are bounded by this module's declarations. Separate integer
     // keys avoid allocating a tuple on every cache hit.
@@ -1229,6 +1246,10 @@ final class NapiApi {
     final function = NativeCallback._(this, env, ownHostValue(env, value));
     try {
       final adapter = create(function);
+      (_callbackSources[adapter] ??= {})[signature] = _NativeCallbackSource(
+        function,
+        wireSignature ?? signature,
+      );
       final entry = _NativeCallbackCacheEntry(adapter, ++_nextCallbackAdapter);
       entries[identity] = entry;
       _callbackFinalizer.attach(adapter, (
@@ -1332,6 +1353,12 @@ final class NapiApi {
   // weak keys and primitive records cannot keep either heap alive by themselves.
   final _owners = <int, Object>{};
   final _references = Expando<_ReferenceLease>('native reference lease');
+  final _functionReferences = Expando<Map<String, int>>(
+    'native function lease',
+  );
+  final _callbackSources = Expando<Map<String, _NativeCallbackSource>>(
+    'native callback source',
+  );
   // These caches contain selected type IDs only, never business objects.
   late final _referenceShapes = <String, int>{};
   late final _shapeMemberships = <int, Set<int>>{};
@@ -1929,11 +1956,74 @@ final class NapiApi {
     List<(Object, int)>? pending,
   ]) => _intern(env, object, classId, path, null, pending);
 
+  Function functionOwner(NapiCall call, String signature) {
+    final owner = _owners[_unwrap(call.env, call.self)];
+    if (owner is! _NativeFunctionOwner || owner.signature != signature) {
+      throw NapiTypeError('function value: invalid native function');
+    }
+    return owner.value;
+  }
+
+  int functionResult(
+    Pointer<Void> env,
+    Function value,
+    String signature,
+    String wireSignature,
+    String dispatcher,
+    List<(Object, int)> pending,
+  ) {
+    final source = _callbackSources[value]?[signature];
+    if (source != null && source.wireSignature == wireSignature) {
+      return hostValue(env, source.callback._function).address;
+    }
+    final entries = _functionReferences[value] ??= {};
+    final previous = entries[signature];
+    if (previous != null) {
+      final existing = _result((out) => _referenceValue(env, previous, out));
+      if (existing != 0) return existing;
+    }
+    final id = _nextOwner++;
+    if (id <= 0) throw StateError('Native owner id exhausted');
+    final owner = _NativeFunctionOwner(value, signature);
+    _owners[id] = owner;
+    NativeHostValue? control;
+    try {
+      final owned = _invokeCallback<NativeHostValue>(
+        env,
+        _getCallbackHelper(env, 0),
+        2,
+        (env, args) {
+          args[0] = Pointer.fromAddress(stringResult(env, dispatcher));
+          args[1] = Pointer.fromAddress(
+            integerResult(env, 5, 'function factory'),
+          );
+        },
+        ownHostValue,
+      );
+      control = owned;
+      final function = hostValue(env, owned);
+      _check(_wrap(env, function, id));
+      entries[signature] = id;
+      pending.add((owner, id));
+      return function.address;
+    } catch (_) {
+      _owners.remove(id);
+      rethrow;
+    } finally {
+      control?.release();
+    }
+  }
+
   // A failed structural result has not exposed its newly created wrappers.
   // Keep their owners until the ordinary finalizers run, but undo only claims
   // first created by this result and still attached to the same lease.
   void rollbackReferences(List<(Object, int)> pending) {
     for (final (object, id) in pending.reversed) {
+      if (object is _NativeFunctionOwner) {
+        final entries = _functionReferences[object.value];
+        if (entries?[object.signature] == id) entries!.remove(object.signature);
+        continue;
+      }
       if (_references[object]?.id == id) _references[object] = null;
     }
   }

@@ -4,13 +4,22 @@ import '../ir/model.dart';
 import '../lowering/plan.dart'
     show
         BinaryConversion,
+        CallbackConversion,
+        OpaqueConversion,
         SharedBytesConversion,
         JsCollectionConversion,
         ValueConversion,
         conversionDependencies,
         conversionFor;
 
-enum NativeCallKind { function, constructor, method, getter, setter }
+enum NativeCallKind {
+  function,
+  functionValue,
+  constructor,
+  method,
+  getter,
+  setter,
+}
 
 /// Native call metadata, without a Wasm export kind or externref ABI.
 final class NativeCallPlan {
@@ -28,6 +37,7 @@ final class NativeCallPlan {
   final bool isCleanup;
   final bool isStatic;
   final int? classId;
+  final CallbackConversion? functionValue;
   NativeCallPlan._({
     required this.callback,
     required this.context,
@@ -43,6 +53,7 @@ final class NativeCallPlan {
     this.isCleanup = false,
     this.isStatic = false,
     this.classId,
+    this.functionValue,
   });
 
   bool get isConstructor => kind == NativeCallKind.constructor;
@@ -53,6 +64,9 @@ final class NativeCallPlan {
       ? 0
       : parameters.length;
   String get exportName =>
+      (functionValue != null
+          ? '\$napiFunction${callback.substring(7)}'
+          : null) ??
       function?.exportName ??
       member?.exportName ??
       member?.declaration.name ??
@@ -75,6 +89,41 @@ final class NativeModulePlan {
   final List<NativeClassPlan> classes;
   final List<ValueClassSchema> valueSchemas;
   final List<int> referenceClassOrder;
+  late final List<CallbackConversion> callbacks = conversionDependencies(
+    _declaredCalls.expand((call) => [...call.inputs, ?call.output]),
+  ).whereType<CallbackConversion>().toList();
+  late final List<NativeCallPlan> functionValues = [
+    for (final conversion in {
+      for (final callback in callbacks)
+        if (callback.direction == ValueDirection.output)
+          callback.signatureKey: callback,
+    }.values)
+      NativeCallPlan._(
+        callback:
+            '_native${_declaredCalls.length + callbacks.indexOf(conversion)}',
+        context: 'function value',
+        kind: NativeCallKind.functionValue,
+        functionValue: conversion,
+        parameters: List.unmodifiable([
+          for (final (i, parameter) in conversion.parameters.indexed)
+            ParameterBinding(
+              parameter.name,
+              parameter.type,
+              kind: parameter.kind,
+              presence: conversion.inputs[i] is OpaqueConversion
+                  ? conversion.isOptionalParameter(i)
+                        ? ParameterPresence.opaqueOptional
+                        : ParameterPresence.opaqueRequired
+                  : parameter.presence,
+            ),
+        ]),
+        inputs: conversion.inputs,
+        output: conversion.output,
+        returnsFuture: conversion.returnsFuture,
+        returnsStream: conversion.returnsStream,
+      ),
+  ];
+  bool get hasFutures => hasStreams || calls.any((call) => call.returnsFuture);
   bool get hasBinary => calls.any(
     (call) =>
         conversionDependencies([...call.inputs, ?call.output])
@@ -101,12 +150,18 @@ final class NativeModulePlan {
     this.valueSchemas,
     this.referenceClassOrder,
   );
+  List<NativeCallPlan> get _declaredCalls => [
+    ...functions,
+    for (final binding in classes) binding.constructor,
+    for (final binding in classes) ...binding.members,
+  ];
   Iterable<NativeCallPlan> get calls sync* {
     yield* functions;
     for (final binding in classes) {
       yield binding.constructor;
       yield* binding.members;
     }
+    yield* functionValues;
   }
 }
 

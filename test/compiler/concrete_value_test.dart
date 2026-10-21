@@ -122,6 +122,31 @@ void main() {
   }
 
   test(
+    'concrete value fields accept typed functions in both directions',
+    () async {
+      await input.writeAsString('''
+import 'package:napi/napi.dart';
+class Box<T> { final T value; Box(this.value); }
+@NAPI(classPolicy: ClassPolicy.value) typedef Selected = Box<int Function(int)>;
+@NAPI() Selected echo(Selected value) => value;
+''');
+      final module = await read();
+      final wasm = lower(validate(module));
+      final native = validateNative(module);
+      expect(emitDeclarations(wasm), emitNativeDeclarations(native));
+      final argument =
+          wasm.functions.single.inputs.single as ValueClassConversion;
+      final output = wasm.functions.single.output as ValueClassConversion;
+      final callback = argument.fields.single.conversion as CallbackConversion;
+      final facade = output.fields.single.conversion as CallbackConversion;
+      expect(callback.direction, ValueDirection.input);
+      expect(facade.direction, ValueDirection.output);
+      expect(callback.signatureKey, facade.signatureKey);
+      expect(wasm.functionValues, hasLength(1));
+    },
+  );
+
+  test(
     'each specialization automatically resolves the origin constructor',
     () async {
       await input.writeAsString(_source);
@@ -328,11 +353,6 @@ typedef RankedValue = Box<Ranked>;
       'dynamic argument',
       'class Box<T> {} @NAPI(classPolicy: ClassPolicy.value) typedef Selected = Box<dynamic>;',
       'NAPI_GENERIC',
-    ),
-    (
-      'callback field',
-      'class Box<T> { T value; Box(this.value); } @NAPI(classPolicy: ClassPolicy.value) typedef Selected = Box<void Function()>;',
-      'NAPI_CALLBACK',
     ),
   ]) {
     test('concrete value rejects $name', () async {

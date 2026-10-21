@@ -22,8 +22,8 @@ for await (const value of count(3)) {
 
 Methods, getters, static methods and ordinary generic payloads use the same
 mapping. `Stream<void>` yields `undefined`. Streams are not inputs; nullable
-outer streams, nested streams, `Future<Stream<T>>`, `Stream<Future<T>>`, callback
-stream signatures and `sync* Iterable<T>` are rejected at build time. Opaque
+outer streams, nested streams, `Future<Stream<T>>`, `Stream<Future<T>>`, JavaScript
+input callbacks returning streams and `sync* Iterable<T>` are rejected at build time. Opaque
 generic payloads can contain a JavaScript Promise without changing the Dart
 signature to `Stream<Future<T>>`.
 

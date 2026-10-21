@@ -39,19 +39,22 @@ String emitNativeDart(NativeModulePlan plan) {
   final hasStreams = plan.hasStreams;
   final hasBinary = plan.hasBinary;
   final hasSharedBytesTypes = plan.hasSharedBytesTypes;
-  final hasFutures = hasStreams || plan.calls.any((call) => call.returnsFuture);
-  final hasCallbacks = plan.calls.any(
-    (call) => call.inputs.any((value) => value is CallbackConversion),
-  );
-  final hasAsyncCallbacks = plan.calls.any(
-    (call) => call.inputs.any(
-      (value) => value is CallbackConversion && value.returnsFuture,
-    ),
-  );
-  final shapedCallbacks = plan.calls.any(
-    (call) => call.inputs.any(
-      (value) => value is CallbackConversion && value.hasParameterShape,
-    ),
+  final hasFutures = plan.hasFutures;
+  final callbacks = {
+    for (final (i, callback) in plan.callbacks.indexed)
+      if (callback.direction == ValueDirection.input)
+        callback: '_readNativeCallback$i',
+  };
+  String callbackReader(CallbackConversion callback) => callbacks[callback]!;
+  String functionExport(CallbackConversion callback) => plan.functionValues
+      .firstWhere(
+        (call) => call.functionValue!.signatureKey == callback.signatureKey,
+      )
+      .exportName;
+  final hasCallbacks = callbacks.isNotEmpty;
+  final hasAsyncCallbacks = callbacks.keys.any((value) => value.returnsFuture);
+  final shapedCallbacks = callbacks.keys.any(
+    (value) => value.hasParameterShape,
   );
   final hasSignals = plan.calls.any(
     (call) => call.inputs.any((value) => value is AbortSignalConversion),
@@ -75,13 +78,10 @@ String emitNativeDart(NativeModulePlan plan) {
       hasResources && plan.jsCollections.any(containsJsCollectionReference);
   final scopedCallbacks =
       hasResources &&
-      plan.calls.any(
-        (call) =>
-            conversionGraph(call.inputs).whereType<CallbackConversion>().any(
-              (callback) =>
-                  conversionDependencies([...callback.inputs, ?callback.output])
-                      .any((value) => value is ReferenceConversion),
-            ),
+      plan.callbacks.any(
+        (callback) =>
+            conversionDependencies([...callback.inputs, ?callback.output])
+                .any((value) => value is ReferenceConversion),
       );
   final hasCompositeViews = hasCompositeReferenceViews([
     for (final binding in plan.classes) binding.shape,
@@ -121,6 +121,8 @@ String emitNativeDart(NativeModulePlan plan) {
   final structures = NativeStructuralEmitter(
     hasResources: hasResources,
     defaultDeclarationSource: declarationSource,
+    callbackReader: callbackReader,
+    functionExport: functionExport,
   );
   final code = StringBuffer();
   for (final entry in defaultImports.entries) {
@@ -143,6 +145,7 @@ String emitNativeDart(NativeModulePlan plan) {
       hasFutures ||
       hasOpaque ||
       hasCallbacks ||
+      plan.functionValues.isNotEmpty ||
       hasSignals ||
       hasBinary ||
       hasSharedBytesTypes ||
@@ -161,9 +164,9 @@ List<Object?> napiBindings(int apiTableAddress, int tableCount) {
   installSharedBytesAllocator(_api.allocateSharedBytes);
   return [
 ''');
-  for (final function in plan.functions) {
+  for (final function in [...plan.functions, ...plan.functionValues]) {
     code.writeln(
-      "    ['function', ${_quote(function.function!.exportName)}, ${function.callback}, ${function.javascriptArity}${function.returnsFuture ? ', true' : ''}],",
+      "    ['function', ${_quote(function.exportName)}, ${function.callback}, ${function.javascriptArity}${function.returnsFuture ? ', true' : ''}],",
     );
   }
   for (final binding in plan.classes) {
@@ -267,6 +270,7 @@ ${tests.declarations}  int? canonical;''');
     }
   }
   for (final call in plan.calls) {
+    final functionValue = call.functionValue;
     final hasReceiver =
         call.owner != null && !call.isConstructor && !call.isStatic;
     final scopedOperation =
@@ -279,7 +283,9 @@ ${tests.declarations}  int? canonical;''');
             conversionGraph(call.inputs)
                 .any((value) => value is ReferenceConversion));
     final parameters = call.parameters;
-    final tracksInputOwners = hasNestedOpaque(call.inputs);
+    final tracksInputOwners = functionValue != null
+        ? conversionGraph(call.inputs).any((value) => value is OpaqueConversion)
+        : hasNestedOpaque(call.inputs);
     final hasOpaqueInputs = call.inputs.any(
       (value) => value is OpaqueConversion,
     );
@@ -353,20 +359,26 @@ ${tests.declarations}  int? canonical;''');
         code.writeln('    operation.retain(_resourceControl(object));');
       }
     }
+    if (functionValue != null) {
+      code.writeln(
+        '    final object = _api.functionOwner(call, ${_quote(functionValue.signatureKey)}) as ${functionValue.dartType.replaceFirst(RegExp(r'\?$'), '')};',
+      );
+    }
     if (named.isNotEmpty) {
       code.writeln(
         '    final options = _api.options(call, $positionalCount, ${jsonEncode(named.map((p) => p.name).toList())}, ${_quote('${call.context} options')});',
       );
     }
     final preflight =
+        functionValue != null ||
         !rawStructuralArguments &&
-        (retainsResources ||
-            hasOpaqueInputs ||
-            hasCallbackInputs ||
-            hasSignalInputs ||
-            call.returnsFuture ||
-            call.returnsStream ||
-            call.inputs.any(containsValueClass));
+            (retainsResources ||
+                hasOpaqueInputs ||
+                hasCallbackInputs ||
+                hasSignalInputs ||
+                call.returnsFuture ||
+                call.returnsStream ||
+                call.inputs.any(containsValueClass));
     if (preflight) {
       var option = 0;
       for (final (index, parameter) in parameters.indexed) {
@@ -396,22 +408,41 @@ ${tests.declarations}  int? canonical;''');
           code.writeln('    final raw$index = $value;');
         }
       }
+      if (functionValue != null) {
+        for (final (i, parameter) in parameters.indexed) {
+          if (_named(parameter) || !_optional(parameter)) continue;
+          final later = [
+            for (var j = i + 1; j < positionalCount; j++) '!default$j',
+          ];
+          if (later.isNotEmpty) {
+            code.writeln(
+              '    if (default$i && (${later.join(' || ')})) throw NapiTypeError(${_quote('function value: an omitted optional positional argument cannot precede a supplied argument')});',
+            );
+          }
+        }
+      }
       // Callable Wasm globals finish presence, then unwrap all direct refs,
       // before their core performs any per-parameter value construction.
       for (final (index, parameter) in parameters.indexed) {
         final conversion = call.inputs[index];
         if (conversion is! ReferenceConversion) continue;
-        code.writeln('    final ${conversion.dartType} reference$index;');
+        code.writeln(
+          '    ${functionValue != null && _optional(parameter) ? 'late ' : ''}final ${conversion.dartType} reference$index;',
+        );
         if (_optional(parameter)) {
-          code.writeln(
-            '    if (default$index) {\n      reference$index = ${renderDartDefault(parameter, conversion, declarationSource: declarationSource)};',
-          );
-          if (retainsResources) {
+          if (functionValue != null) {
+            code.writeln('    if (!default$index) {');
+          } else {
+            code.writeln(
+              '    if (default$index) {\n      reference$index = ${renderDartDefault(parameter, conversion, declarationSource: declarationSource)};',
+            );
+          }
+          if (retainsResources && functionValue == null) {
             code.writeln(
               '      ${conversion.nullable ? 'if (reference$index != null) ' : ''}operation.retain(_resourceControl(reference$index));',
             );
           }
-          code.writeln('    } else {');
+          if (functionValue == null) code.writeln('    } else {');
         }
         _readReference(
           code,
@@ -479,11 +510,15 @@ ${tests.declarations}  int? canonical;''');
           : _requiredValue(parameter, index, option, path);
       if (preflight && conversion is ReferenceConversion) {
         code.writeln(
-          '    final ${conversion.dartType} a$index = reference$index;',
+          functionValue != null && _optional(parameter)
+              ? '    late final ${conversion.dartType} a$index;\n    if (!default$index) a$index = reference$index;'
+              : '    final ${conversion.dartType} a$index = reference$index;',
         );
         continue;
       }
-      code.writeln('    final ${conversion.dartType} a$index;');
+      code.writeln(
+        '    ${functionValue != null && _optional(parameter) ? 'late ' : ''}final ${conversion.dartType} a$index;',
+      );
       if (_optional(parameter)) {
         final defaulted = preflight
             ? 'default$index'
@@ -495,7 +530,9 @@ ${tests.declarations}  int? canonical;''');
             ? '_api.defaultOption(call.env, options, $option)'
             : '_api.omittedOrUndefined(call, $index)';
         code.writeln(
-          '    if ($defaulted) {\n      a$index = ${renderDartDefault(parameter, conversion, declarationSource: declarationSource)};\n    } else {',
+          functionValue != null
+              ? '    if (!$defaulted) {'
+              : '    if ($defaulted) {\n      a$index = ${renderDartDefault(parameter, conversion, declarationSource: declarationSource)};\n    } else {',
         );
       }
       if (!preflight) code.writeln('    final raw$index = $raw;');
@@ -505,7 +542,9 @@ ${tests.declarations}  int? canonical;''');
         code.writeln('    a$index = _api.ownHostValue(call.env, raw$index);');
         if (tracksInputOwners) code.writeln('    pendingInputs.add(a$index);');
       } else if (conversion is CallbackConversion) {
-        _readCallback(code, conversion, index, structures, hasResources);
+        code.writeln(
+          '    a$index = ${callbackReader(conversion)}(call.env, raw$index, $path);',
+        );
       } else if (conversion is AbortSignalConversion) {
         code.writeln(
           '    a$index = ${conversion.nullable ? '_api.isNull(call.env, raw$index) ? null : ' : ''}_api.abortSignal(call.env, raw$index, $path);',
@@ -562,6 +601,18 @@ ${tests.declarations}  int? canonical;''');
         call.member?.callPath ??
         call.member?.declaration.name;
     final invocation = switch (call.kind) {
+      NativeCallKind.functionValue =>
+        parameters.any(_optional)
+            ? 'Function.apply(object, [${[for (final (i, p) in parameters.indexed)
+                if (!_named(p)) '${_optional(p) ? 'if (!default$i) ' : ''}a$i'].join(', ')}], {${[for (final (i, p) in parameters.indexed)
+                if (_named(p)) '${_optional(p) ? 'if (!default$i) ' : ''}#${p.name}: a$i'].join(', ')}})${call.returnsFuture
+                  ? ' as Future<${call.output?.dartType ?? 'void'}>'
+                  : call.returnsStream
+                  ? ' as Stream<${call.output?.dartType ?? 'void'}>'
+                  : call.output == null
+                  ? ''
+                  : ' as ${call.output!.dartType}'}'
+            : 'object($arguments)',
       NativeCallKind.function =>
         'target.$path${dartOpaqueTypeArguments(call.function!.typeParameters)}($arguments)',
       NativeCallKind.constructor => '$receiver($arguments)',
@@ -581,7 +632,7 @@ ${tests.declarations}  int? canonical;''');
     if (!first) return promise;''');
       }
       code.writeln(
-        '    _api.retainFuture(token, [${[if (call.owner != null && !call.isStatic) 'object', for (var i = 0; i < parameters.length; i++) 'a$i'].join(', ')}]${retainsResources && call.output != null && call.output is! ScalarConversion ? ', observeEnv: envAddress${scopedOperation ? ', observeEmpty: true' : ''}' : ''});',
+        '    _api.retainFuture(token, [${[if (call.owner != null && !call.isStatic || functionValue != null) 'object', for (var i = 0; i < parameters.length; i++) '${functionValue != null && _optional(parameters[i]) ? 'if (!default$i) ' : ''}a$i'].join(', ')}]${retainsResources && call.output != null && call.output is! ScalarConversion ? ', observeEnv: envAddress${scopedOperation ? ', observeEmpty: true' : ''}' : ''});',
       );
       code.writeln('    final env = Pointer<Void>.fromAddress(envAddress);');
       if (!call.isCleanup) _checkSignals(code, call);
@@ -608,7 +659,7 @@ ${tests.declarations}  int? canonical;''');
         );
         _writeResult(code, call.output, structures, 'streamEnv');
         code.writeln(
-          '    }), releaseSnapshot: (value) => value.release(), roots: [${[if (hasReceiver) 'object', for (var i = 0; i < parameters.length; i++) 'a$i'].join(', ')}]${retainsResources ? ', operation: operation' : ''}${hasSignalInputs ? ', signals: [${[for (final (i, input) in call.inputs.indexed)
+          '    }), releaseSnapshot: (value) => value.release(), roots: [${[if (hasReceiver || functionValue != null) 'object', for (var i = 0; i < parameters.length; i++) '${functionValue != null && _optional(parameters[i]) ? 'if (!default$i) ' : ''}a$i'].join(', ')}]${retainsResources ? ', operation: operation' : ''}${hasSignalInputs ? ', signals: [${[for (final (i, input) in call.inputs.indexed)
                   if (input is AbortSignalConversion) '${input.nullable ? 'if (a$i != null) ' : ''}a$i'].join(', ')}]' : ''});',
         );
         if (retainsResources) {
@@ -676,6 +727,15 @@ ${tests.declarations}  int? canonical;''');
 """);
     }
   }
+  for (final entry in callbacks.entries) {
+    _emitCallbackAdapter(
+      code,
+      entry.key,
+      entry.value,
+      structures,
+      hasResources,
+    );
+  }
   final structuralSource = structures.source;
   if (hasStructures || structuralSource.isNotEmpty) {
     var prelude = nativeStructuralPrelude;
@@ -711,23 +771,27 @@ void _checkSignals(StringBuffer code, NativeCallPlan call) {
   }
 }
 
-void _readCallback(
+void _emitCallbackAdapter(
   StringBuffer code,
   CallbackConversion conversion,
-  int index,
+  String name,
   NativeStructuralEmitter structures,
   bool hasResources,
 ) {
-  final inputReferences = conversionGraph(conversion.inputs)
-      .any((value) => value is ReferenceConversion);
+  final inputOwners = conversionGraph(
+    conversion.inputs,
+  ).any((value) => value is ReferenceConversion || value is CallbackConversion);
   final resourceValues =
       hasResources &&
-      conversionDependencies([...conversion.inputs, ?conversion.output])
-          .any((value) => value is ReferenceConversion);
+      conversionDependencies([
+        ...conversion.inputs,
+        ?conversion.output,
+      ], includeFunctions: false).any((value) => value is ReferenceConversion);
+  code.writeln(
+    '${conversion.dartType} $name(Pointer<Void> env, Pointer<Void> value, String path) {',
+  );
   if (conversion.nullable) {
-    code.writeln(
-      '    if (_api.isNull(call.env, raw$index)) { a$index = null; } else {',
-    );
+    code.writeln('  if (_api.isNull(env, value)) return null;');
   }
   final parameters = [
     for (final (i, input) in conversion.inputs.indexed) '${input.dartType} c$i',
@@ -738,7 +802,7 @@ void _readCallback(
   final shaped = conversion.hasParameterShape;
   if (shaped) {
     code.writeln(
-      '    a$index = _api.callback<$type>(call.env, raw$index, ${_quote(conversion.signatureKey)}, ${_quote(conversion.context)}, (callback) {',
+      '    return _api.callback<$type>(env, value, ${_quote(conversion.signatureKey)}, path, (callback) {',
     );
     if (conversion.returnsFuture) {
       code.writeln('      late final $type adapter;');
@@ -784,7 +848,7 @@ void _readCallback(
     }
   } else {
     code.writeln(
-      '    a$index = _api.callback<$type>(call.env, raw$index, ${_quote(conversion.signatureKey)}, ${_quote(conversion.context)}, (callback) ${conversion.returnsFuture ? '{\n      late final $type adapter;\n      adapter =' : '=>'} ($parameters) {',
+      '    return _api.callback<$type>(env, value, ${_quote(conversion.signatureKey)}, path, (callback) ${conversion.returnsFuture ? '{\n      late final $type adapter;\n      adapter =' : '=>'} ($parameters) {',
     );
   }
   if (resourceValues) {
@@ -796,9 +860,9 @@ void _readCallback(
   code.writeln(
     "      return callback.${conversion.returnsFuture ? 'invokeFuture' : 'invoke'}<${conversion.output?.dartType ?? 'void'}>(${conversion.returnsFuture ? 'adapter, ' : ''}${shaped ? 'argc' : conversion.inputs.length}, (env, argv) {",
   );
-  if (inputReferences) {
+  if (inputOwners) {
     code.writeln(
-      '        final state = _NativeWriteState(${hasResources ? 'operation: operation, retainResources: true' : ''});\n'
+      '        final state = _NativeWriteState(${hasResources ? 'operation: ${resourceValues ? 'operation' : 'null'}, retainResources: true' : ''});\n'
       '        try {',
     );
   }
@@ -846,7 +910,7 @@ void _readCallback(
           '_api.${nativeScalarWriter(input)}(env, $argument$context)';
     } else {
       value =
-          '${structures.writeSnapshot(input)}(env, snapshot$i, ${inputReferences ? 'state' : '_NativeWriteState()'}, ${_quote(input.context)})';
+          '${structures.writeSnapshot(input)}(env, snapshot$i, ${inputOwners ? 'state' : '_NativeWriteState()'}, ${_quote(input.context)})';
     }
     if (named) {
       code.writeln('        option$i = $value;');
@@ -863,7 +927,7 @@ void _readCallback(
     }
     code.writeln('        }');
   }
-  if (inputReferences) {
+  if (inputOwners) {
     code.writeln('''        } catch (_) {
           _api.rollbackReferences(state.pending);
           rethrow;
@@ -916,8 +980,9 @@ void _readCallback(
   } else if (conversion.returnsFuture) {
     code.writeln('      };\n      return adapter;');
   }
-  code.writeln('    }, prechecked: true);');
-  if (conversion.nullable) code.writeln('    }');
+  code.writeln(
+    '    }, wireSignature: ${_quote(conversion.wireSignatureKey)});\n}',
+  );
 }
 
 void _writeResult(
@@ -965,6 +1030,7 @@ void _writeResult(
       '    return _api.${nativeScalarWriter(output)}($env, value$context);',
     );
   } else if (output is ListConversion ||
+      output is CallbackConversion ||
       output is RecordConversion ||
       output is MapConversion ||
       output is DictionaryConversion ||

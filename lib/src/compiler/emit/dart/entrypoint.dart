@@ -132,6 +132,11 @@ ${tests.declarations}  return externRefForJSAny(<JSAny?>[
   final structural = DartStructuralEmitter(
     defaultDeclarationSource: declarationSource,
     resources: resources,
+    callbackReaders: {
+      for (final entry in callbacks.entries)
+        if (entry.value.direction == ValueDirection.input)
+          entry.value.signatureKey: entry.key,
+    },
   );
   final hasStructural =
       callbacks.isNotEmpty ||
@@ -148,6 +153,7 @@ ${tests.declarations}  return externRefForJSAny(<JSAny?>[
       );
   if (hasStructural) result.writeln(dartStructuralPrelude);
   for (final entry in callbacks.entries) {
+    if (entry.value.direction != ValueDirection.input) continue;
     _emitCallbackAdapter(
       result,
       structural,
@@ -193,6 +199,8 @@ ${emitDartDefaultResourceRetains(call.inputs[i], value, indent: '    ')}  } catc
     final errorContext = jsonEncode(
       call is FunctionPlan
           ? call.binding.exportName
+          : call is FunctionValueCallPlan
+          ? 'function value ${call.contractId}'
           : (call as MemberCallPlan).context,
     ).replaceAll(r'$', r'\$');
     if (plan.needsResourceOperation(call)) {
@@ -209,6 +217,7 @@ ${emitDartDefaultResourceRetains(call.inputs[i], value, indent: '    ')}  } catc
     final constructor =
         call is MemberCallPlan && call.kind == MemberCallKind.constructor;
     final instance = call is MemberCallPlan && !constructor && !call.isStatic;
+    final functionValue = call is FunctionValueCallPlan;
     final returnsVoid =
         call.returnsFuture ||
         (!call.returnsStream && output == null && !constructor);
@@ -227,7 +236,7 @@ ${emitDartDefaultResourceRetains(call.inputs[i], value, indent: '    ')}  } catc
     result.writeln(
       '$resultType _export$index(${[
         if (call.returnsFuture) 'WasmExternRef capability',
-        if (instance) 'WasmExternRef reference',
+        if (instance || functionValue) 'WasmExternRef reference',
         for (var i = 0; i < parameters.length; i++) ...[if (_optional(parameters[i])) 'WasmI32 d$i', 'WasmExternRef? p$i'],
       ].join(', ')}) {',
     );
@@ -235,11 +244,13 @@ ${emitDartDefaultResourceRetains(call.inputs[i], value, indent: '    ')}  } catc
     // Raw externrefs are validated before Dart can erase undefined into null.
     for (var i = 0; i < parameters.length; i++) {
       final conversion = call.inputs[i];
-      result.writeln('  final ${conversion.dartType} a$i;');
+      result.writeln(
+        '  final ${functionValue && _optional(parameters[i]) ? 'Object?' : conversion.dartType} a$i;',
+      );
       if (_optional(parameters[i])) {
         result.writeln('  if (d$i.toIntSigned() != 0) {');
         result.writeln(
-          '    a$i = ${renderDartDefault(parameters[i], conversion, declarationSource: declarationSource)};',
+          '    a$i = ${functionValue ? 'null' : renderDartDefault(parameters[i], conversion, declarationSource: declarationSource)};',
         );
         result.writeln('  } else {');
       }
@@ -304,11 +315,15 @@ ${emitDartDefaultResourceRetains(call.inputs[i], value, indent: '    ')}  } catc
       result.writeln(
         '    final object = reference.internalize().toObject() as ${dartReferenceClassType(owner)};',
       );
+    } else if (functionValue) {
+      result.writeln(
+        '    final object = reference.internalize().toObject() as ${call.conversion.dartType.replaceFirst(RegExp(r'\?$'), '')};',
+      );
     }
     final invocation = _invocation(call);
     if (call.returnsFuture) {
       result.writeln(
-        '    _retainPromise(capability, WasmAnyRef.fromObject(<Object?>[${[if (instance) 'object', for (var i = 0; i < parameters.length; i++) 'a$i'].join(', ')}]).externalize());',
+        '    _retainPromise(capability, WasmAnyRef.fromObject(<Object?>[${[if (instance || functionValue) 'object', for (var i = 0; i < parameters.length; i++) 'a$i'].join(', ')}]).externalize());',
       );
       result.writeln('    value = $invocation;');
     } else if (call.returnsStream) {
@@ -394,7 +409,7 @@ String _streamStateExpression(
     'WasmAnyRef.fromObject(NapiStream<${call.output?.dartType ?? 'void'}, _StreamSnapshot>('
     'value, snapshot: _snapshotStream$index, '
     'releaseSnapshot: (snapshot) => snapshot.release(), '
-    'roots: <Object?>[${[if (instance) 'object', for (var i = 0; i < call.parameters.length; i++) 'a$i'].join(', ')}]'
+    'roots: <Object?>[${[if (instance || call is FunctionValueCallPlan) 'object', for (var i = 0; i < call.parameters.length; i++) 'a$i'].join(', ')}]'
     '${call.inputs.any((c) => c is AbortSignalConversion) ? ', signals: <napi.AbortSignal>[${[for (final (i, c) in call.inputs.indexed)
             if (c is AbortSignalConversion) '${c.nullable ? 'if (a$i != null) ' : ''}a$i'].join(', ')}]' : ''}'
     '${resource ? ', operation: operation' : ''})).externalize()';
@@ -450,8 +465,10 @@ void _emitCallbackAdapter(
 }) {
   final resourceValues =
       resources &&
-      conversionDependencies([...callback.inputs, ?callback.output])
-          .any((value) => value is ReferenceConversion);
+      conversionDependencies([
+        ...callback.inputs,
+        ?callback.output,
+      ], includeFunctions: false).any((value) => value is ReferenceConversion);
   String quote(String value) => jsonEncode(value).replaceAll(r'$', r'\$');
   const structureFailure =
       '_CallbackThrown(_callbackStructureError(externRefForJSAny(error.path.toJS)!, externRefForJSAny(error.message.toJS)!, WasmI32.fromInt(error.range ? 1 : 0)))';
@@ -490,6 +507,8 @@ void _emitCallbackAdapter(
   result.writeln(
     '''${callback.dartType} _callback$context(WasmExternRef callback) {
   final signature = externRefForJSAny(${quote(callback.signatureKey)}.toJS)!;
+  final original = _unwrapFunction(callback, signature);
+  if (!original.isNull) return original!.internalize().toObject() as $adapterType;
   final cached = _findCallbackAdapter(callback, signature);
   if (!cached.isNull) return cached!.internalize().toObject() as $adapterType;
   late final $adapterType adapter;
@@ -620,6 +639,7 @@ void _emitResourceCall(
   final member = call is MemberCallPlan ? call : null;
   final constructor = member?.kind == MemberCallKind.constructor;
   final instance = member != null && !member.isStatic;
+  final functionValue = call is FunctionValueCallPlan;
   final cleanup = member?.isCleanup ?? false;
   final output = call.output;
   final returnsVoid =
@@ -643,7 +663,7 @@ void _emitResourceCall(
     '$returnType _export$index(${[
       'WasmExternRef capability',
       'WasmExternRef prepared',
-      if (instance) 'WasmExternRef reference',
+      if (instance || functionValue) 'WasmExternRef reference',
       for (final (i, parameter) in call.parameters.indexed) ...[if (_optional(parameter)) 'WasmI32 d$i', 'WasmExternRef? p$i'],
     ].join(', ')}) {',
   );
@@ -656,13 +676,19 @@ void _emitResourceCall(
       '  final object = reference.internalize().toObject() as ${dartReferenceClassType(member.owner)};',
     );
     if (cleanup) result.writeln('  final control = _resourceControl(object);');
+  } else if (functionValue) {
+    result.writeln(
+      '  final object = reference.internalize().toObject() as ${call.conversion.dartType.replaceFirst(RegExp(r'\?$'), '')};',
+    );
   }
   for (final (i, parameter) in call.parameters.indexed) {
     final conversion = call.inputs[i];
-    result.writeln('  final ${conversion.dartType} a$i;');
+    result.writeln(
+      '  final ${functionValue && _optional(parameter) ? 'Object?' : conversion.dartType} a$i;',
+    );
     if (_optional(parameter)) {
       result.writeln(
-        '  if (d$i.toIntSigned() != 0) {\n    a$i = ${renderDartDefault(parameter, conversion, declarationSource: structural.defaultDeclarationSource)};\n  } else {',
+        '  if (d$i.toIntSigned() != 0) {\n    a$i = ${functionValue ? 'null' : renderDartDefault(parameter, conversion, declarationSource: structural.defaultDeclarationSource)};\n  } else {',
       );
     }
     if (conversion is CallbackConversion) {
@@ -721,7 +747,7 @@ void _emitResourceCall(
       '  _activateResourceOperation(capability, WasmI32.fromInt(${scopedCollections ? '1' : 'operation.isEmpty ? 0 : 1'}));',
     );
     result.writeln(
-      '  _retainPromise(capability, WasmAnyRef.fromObject(<Object?>[${[if (instance) 'object', for (var i = 0; i < call.parameters.length; i++) 'a$i'].join(', ')}]).externalize());',
+      '  _retainPromise(capability, WasmAnyRef.fromObject(<Object?>[${[if (instance || functionValue) 'object', for (var i = 0; i < call.parameters.length; i++) 'a$i'].join(', ')}]).externalize());',
     );
     result.writeln('  final Future<${output?.dartType ?? 'void'}> value;');
   } else if (call.returnsStream) {
@@ -814,6 +840,24 @@ void _emitResourceOutput(
 }
 
 String _invocation(CallPlan call) {
+  if (call is FunctionValueCallPlan && call.parameters.any(_optional)) {
+    final positional = [
+      for (final (index, parameter) in call.parameters.indexed)
+        if (!_named(parameter))
+          '${_optional(parameter) ? 'if (d$index.toIntSigned() == 0) ' : ''}a$index',
+    ];
+    final named = [
+      for (final (index, parameter) in call.parameters.indexed)
+        if (_named(parameter))
+          '${_optional(parameter) ? 'if (d$index.toIntSigned() == 0) ' : ''}#${parameter.name}: a$index',
+    ];
+    final type = call.returnsFuture
+        ? 'Future<${call.output?.dartType ?? 'void'}>'
+        : call.returnsStream
+        ? 'Stream<${call.output?.dartType ?? 'void'}>'
+        : call.output?.dartType;
+    return 'Function.apply(object, <Object?>[${positional.join(', ')}]${named.isEmpty ? '' : ', <Symbol, Object?>{${named.join(', ')}}'})${type == null ? '' : ' as $type'}';
+  }
   final arguments = [
     for (final (index, parameter) in call.parameters.indexed)
       '${_named(parameter) ? '${parameter.name}: ' : ''}a$index',
@@ -821,6 +865,7 @@ String _invocation(CallPlan call) {
   if (call is FunctionPlan) {
     return 'target.${call.binding.callPath}${dartOpaqueTypeArguments(call.binding.typeParameters)}($arguments)';
   }
+  if (call is FunctionValueCallPlan) return 'object($arguments)';
   final member = call as MemberCallPlan;
   final receiver = member.kind == MemberCallKind.constructor
       ? dartReferenceClassType(member.owner)

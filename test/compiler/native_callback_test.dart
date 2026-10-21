@@ -114,6 +114,60 @@ class Resource extends Ref { Resource(); void close() {} }
     );
   }, timeout: const Timeout(Duration(minutes: 2)));
 
+  test('function outputs and nested functions compile as native AOT', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'napi-function-values-',
+    );
+    addTearDown(() => directory.delete(recursive: true));
+    for (final sourceText in [
+      '''
+import 'package:napi/napi.dart';
+@NAPI() int Function(int) adder(int delta) => (value) => value + delta;
+''',
+      '''
+import 'package:napi/napi.dart';
+typedef Unary = int Function(int);
+@NAPI() Unary adder(int delta) => (value) => value + delta;
+@NAPI() Unary? nullable(bool present) => present ? (value) => value : null;
+@NAPI() Unary echo(Unary value) => value;
+@NAPI() List<Unary?> functions(List<Unary?> values) => values;
+@NAPI() (Map<String, Unary>, {Dictionary<Unary> values}) containers((Map<String, Unary>, {Dictionary<Unary> values}) value) => value;
+@NAPI() Unary transform(Unary Function(Unary) callback) => callback((value) => value + 1);
+@NAPI() int Function([int, int]) positional() => ([int first = 7, int second = 9]) => first + second;
+@NAPI() int Function({int value, int extra}) named() => ({int value = 7, int extra = 9}) => value + extra;
+@NAPI() Future<Unary> later() async => (int value) => value + 1;
+@NAPI() Future<int> Function(int) asynchronous() => (value) async => value + 1;
+@NAPI() T Function() capture<T>(T value) => () => value;
+@NAPI() Resource Function(Resource) resourceFunction() => (value) => value;
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+class Resource { Resource(); void close() {} }
+''',
+    ]) {
+      final source = await File('${directory.path}/business.dart')
+          .writeAsString(sourceText);
+      final plan = validateNative(
+        await AnnotationFrontend(
+          packagesPath: packages,
+          native: true,
+        ).read(source.uri),
+      );
+      final entry = await File('${directory.path}/entry.dart')
+          .writeAsString(emitNativeDart(plan));
+      final compiled = await Process.run(Platform.resolvedExecutable, [
+        'compile',
+        'aot-snapshot',
+        '--packages=$packages',
+        entry.path,
+        '--output=${directory.path}/module.aot',
+      ]);
+      expect(
+        compiled.exitCode,
+        0,
+        reason: '${compiled.stdout}${compiled.stderr}',
+      );
+    }
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
   for (final (name, source, binary, shared) in [
     (
       'binary',
