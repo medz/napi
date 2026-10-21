@@ -108,6 +108,136 @@ function structures(api) {
   }, nested), [[1, null, 3], []]);
   assert.deepEqual(nested, [[1, null], []]);
   binaryValues(api);
+  payloadValues(api);
+}
+
+function payloadValues(api) {
+  const box = new api.CallbackBox(() => 11);
+  const payload = {raw: true};
+  const labels = Object.assign(Object.create(null), {one: payload, absent: undefined, nil: null});
+  const input = {values: new Map([['first', [{value: 1}, null]]]), payloads: labels, references: [box, null], resource: null};
+  let returned;
+  const result = api.callContainers(value => {
+    assert.notEqual(value, input); assert.notEqual(value.values, input.values);
+    assert.notEqual(value.values.get('first'), input.values.get('first'));
+    assert.deepEqual(value.values.get('first'), [{value: 1, step: 7}, null]);
+    assert.equal(Object.getPrototypeOf(value.payloads), null);
+    assert.notEqual(value.payloads, labels);
+    assert.equal(value.payloads.one, payload);
+    assert.equal(Object.hasOwn(value.payloads, 'absent'), true);
+    assert.equal(value.payloads.absent, undefined); assert.equal(value.payloads.nil, null);
+    assert.equal(value.references[0], box); assert.equal(value.references[1], null);
+    returned = {...value, values: new Map([['next', [{value: 3}, null]]])};
+    return returned;
+  }, input);
+  assert.deepEqual(input.values.get('first'), [{value: 1}, null]);
+  assert.deepEqual(result.values.get('next'), [{value: 3, step: 7}, null]);
+  assert.notEqual(result.values, returned.values); assert.notEqual(result.payloads, returned.payloads);
+  assert.equal(result.payloads.one, payload); assert.equal(result.references[0], box);
+  assert.deepEqual([...api.callKeyMap(value => {
+    assert.deepEqual([...value], [[{value: 1, step: 7}, 2]]);
+    return new Map([[{value: 2}, 3]]);
+  })], [[{value: 2, step: 7}, 3]]);
+  assert.throws(() => api.callKeyMap(() => new Map([[{value: 1}, 2], [{value: 1, step: 8}, 3]])), TypeError);
+  let reads = 0;
+  const accessor = Object.defineProperty({}, 'bad', {enumerable: true, get() {reads++; return payload;}});
+  assert.throws(() => api.callContainers(value => ({...value, payloads: accessor}), input), TypeError);
+  assert.equal(reads, 0);
+  assert.deepEqual(api.callNormalized(value => {
+    assert.deepEqual(value, {value: 12}); return {source: '13'};
+  }, '12'), {value: 13});
+  assert.throws(() => api.callNormalized(value => value, '12'), TypeError);
+  assert.equal(api.callProjection(value => value.value), 42);
+  assert.equal(api.readProjectionCallback(() => []), -1);
+  assert.equal(api.readProjectionCallback(() => [null]), -1);
+  assert.throws(() => api.readProjectionCallback(() => [{value: 1}]), TypeError);
+  assert.equal(api.callReference(value => {assert.equal(value, box); return value;}, box), box);
+  assert.equal(api.callReference(value => {assert.equal(value, null); return null;}, null), null);
+  assert.throws(() => api.callReference(() => ({value: 11}), null), TypeError);
+
+  let traps = 0;
+  const hostile = new Proxy({}, {
+    get() {traps++; throw Error('opaque property');},
+    getPrototypeOf() {traps++; throw Error('opaque prototype');},
+  });
+  const revoked = Proxy.revocable({}, {}); revoked.revoke();
+  for (const value of [undefined, null, 1.5, 1n << 100n, Symbol('payload'), hostile,
+    revoked.proxy, () => 1, Promise.resolve(1), {then() {throw Error('opaque then');}}]) {
+    assert.equal(api.callPayload(argument => {assert.equal(argument, value); return argument;}, value), value);
+  }
+  assert.equal(traps, 0);
+}
+
+async function payloadResources(api) {
+  let closing, resource;
+  assert.equal(api.callNewResource(value => {
+    resource = value; assert(value instanceof api.CallbackResource);
+    assert.equal(value.id, 901); closing = value.close();
+    assert.equal(api.callbackCleanups(901), 0);
+    return value;
+  }, 901), 901);
+  await closing; assert.equal(api.callbackCleanups(901), 1);
+  assert.throws(() => resource.apply(value => value));
+  let complete;
+  const work = api.callAsyncNewResource(value => {
+    resource = value; closing = value.close();
+    return new Promise(resolve => {complete = () => resolve(value);});
+  }, 902);
+  for (let i = 0; i < 3; i++) {await turn(); global.gc();}
+  assert.equal(api.callbackCleanups(902), 0);
+  complete(); assert.equal(await work, 902);
+  await closing; assert.equal(api.callbackCleanups(902), 1);
+  const reason = {callbackResource: true};
+  exact(() => api.callNewResource(value => {
+    closing = value.close(); assert.equal(api.callbackCleanups(903), 0); throw reason;
+  }, 903), reason);
+  await closing; assert.equal(api.callbackCleanups(903), 1);
+  api.startResourceCallback(value => {
+    closing = value.close();
+    return new Promise(resolve => {complete = resolve;});
+  }, 904);
+  for (let i = 0; i < 3; i++) {await turn(); global.gc();}
+  assert.equal(api.callbackCleanups(904), 0, 'an unawaited accepted callback keeps its resource operation');
+  complete(); await closing; assert.equal(api.callbackCleanups(904), 1);
+  const nested = new api.CallbackResource(905);
+  const row = {values: new Map(), payloads: {}, references: [null], resource: nested};
+  const copied = api.callContainers(value => {
+    assert.equal(value.resource, nested); closing = nested.close();
+    assert.equal(api.callbackCleanups(905), 0); return value;
+  }, row);
+  assert.equal(copied.resource, nested); await closing;
+  assert.equal(api.callbackCleanups(905), 1);
+  const asyncNested = new api.CallbackResource(906);
+  const asynchronous = api.callAsyncContainers(async value => {
+    assert.equal(value.resource, asyncNested); closing = asyncNested.close();
+    await turn(); assert.equal(api.callbackCleanups(906), 0); return value;
+  }, {...row, resource: asyncNested});
+  assert.equal((await asynchronous).resource, asyncNested); await closing;
+  assert.equal(api.callbackCleanups(906), 1);
+}
+
+function failedCallbackPayload(api) {
+  let payload = {failedCallback: true};
+  const weak = new WeakRef(payload);
+  assert.throws(() => api.rejectCallbackPayload(() => ({$1: payload, $2: {value: -1}})), /callback value constructor rejected/);
+  payload = null;
+  return weak;
+}
+
+async function retainedPayloads(api) {
+  const failed = failedCallbackPayload(api);
+  for (let i = 0; i < 60 && failed.deref() !== undefined; i++) {await turn(); global.gc();}
+  assert.equal(failed.deref(), undefined, 'failed callback result releases opaque roots without Dart pressure');
+  const box = new api.CallbackPayloadBox();
+  let payload = {retainedCallback: true}; const weak = new WeakRef(payload);
+  assert.equal(box.remember(value => value, payload), payload); payload = null;
+  await turn(); global.gc(); await turn();
+  assert(weak.deref()); assert.equal(box.saved(), weak.deref());
+  assert.equal(box.invoke(weak.deref()), weak.deref());
+  assert.throws(() => api.rejectCallbackPayload(() => ({$1: box.saved(), $2: {value: -1}})), /callback value constructor rejected/);
+  await turn(); global.gc(); await turn();
+  assert(weak.deref()); assert.equal(box.saved(), weak.deref(), 'failed conversion preserves a previously retained payload');
+  box.clear(); await collect(api, () => weak.deref() === undefined, 'cleared callback payload');
 }
 
 function binaryValues(api) {
@@ -479,6 +609,24 @@ async function asyncValues(api) {
   assert.deepEqual(await Promise.all(calls), Array.from({length: 80}, (_, i) => i + 1));
   assert.equal(await api.callAsync(async n => await api.callAsync(async x => x + 2, n), 3), 5);
   await asyncBinaryValues(api);
+  await asyncPayloadValues(api);
+}
+
+async function asyncPayloadValues(api) {
+  const box = new api.CallbackBox(() => 17), payload = {asyncPayload: true};
+  const row = {values: new Map([['one', [{value: 2}, null]]]), payloads: {one: payload, absent: undefined}, references: [box, null], resource: null};
+  const result = await api.callAsyncContainers(async value => {
+    await turn(); global.gc();
+    assert.equal(value.references[0], box); assert.equal(value.payloads.one, payload);
+    return {...value, values: new Map([['two', [{value: 4}, null]]])};
+  }, row);
+  assert.deepEqual(result.values.get('two'), [{value: 4, step: 7}, null]);
+  assert.equal(result.payloads.one, payload); assert.equal(result.references[0], box);
+  assert.notEqual(result.values, row.values);
+  for (const value of [payload, undefined, null, Symbol('async payload')]) {
+    assert.equal(await api.callAsyncPayload(async argument => {assert.equal(argument, value); return argument;}, value), value);
+  }
+  await assert.rejects(api.callAsyncContainers(async value => ({...value, values: new Map([['bad', [{value: -1}]]])}), row), /callback value constructor rejected/);
 }
 
 async function asyncBinaryValues(api) {
@@ -792,6 +940,11 @@ async function asyncHandles(api) {
 
 async function foreignOwner(api) {
   const other = await import('@napi/callback-external');
+  const foreign = new other.CallbackBox(() => 1);
+  assert.throws(() => api.callReference(value => value, foreign), TypeError);
+  assert.throws(() => api.callReference(() => foreign, null), TypeError);
+  const local = new api.CallbackBox(() => 2);
+  assert.throws(() => other.callReference(() => local, null), TypeError);
   let complete;
   const pending = api.callAsync(n => new Promise(resolve => { complete = () => resolve(n + 1); }), 41);
   await until(() => complete !== undefined, 'first owner invokes its callback');
@@ -878,6 +1031,7 @@ async function scenario(name) {
       assert.equal(row.shared, shared); assert.equal(shared[0], 3);
       api.clearBinaryCallback();
       await collect(api, () => binary.deref() === undefined, 'cleared binary callback');
+      await retainedPayloads(api);
       break;
     }
     case 'scheduled': {
@@ -901,7 +1055,7 @@ async function scenario(name) {
       api.clearSavedCallback();
       break;
     }
-    case 'resources': await resources(api); break;
+    case 'resources': await resources(api); await payloadResources(api); break;
     case 'identity': await identity(api); break;
     case 'async-values': await asyncValues(api); break;
     case 'async-validation': await asyncValidation(api); break;
@@ -920,13 +1074,18 @@ async function scenario(name) {
     case 'external': {
       const external = await import('@napi/callback-external');
       assert.deepEqual(Object.keys(external), [
+        'CallbackBox', 'CallbackPayloadBox', 'CallbackResource',
         'binaryCallbackPolicies', 'callAsyncBinaryRecord', 'callAsyncBytes', 'callAsyncHandle',
         'callAsyncShared', 'callBinaryRecord', 'callBuffer', 'callBytes', 'callHandle', 'callHandles',
         'callNullableHandle', 'callPayloadHandles', 'callShared', 'callWideHandle',
         'callbackHandleOrder', 'callbackPressure', 'clearBinaryCallback', 'clearCallbackHandle',
         'invokeBinaryRecord', 'plainAsyncCallback', 'plainCallback', 'readCallbackHandle', 'sameHandleSignature',
         'sameOpaqueHandleSignature', 'sameWideHandleSignature',
-      ]);
+        'callContainers', 'callAsyncContainers', 'callKeyMap', 'callNormalized',
+        'callProjection', 'readProjectionCallback', 'callReference', 'callNewResource',
+        'callAsyncNewResource', 'callPayload', 'callAsyncPayload', 'rejectCallbackPayload', 'callbackCleanups',
+        'startResourceCallback',
+      ].sort());
       assert.equal(external.plainCallback(n => n + 1, 3), 4);
       assert.throws(() => external.plainCallback(), TypeError);
       assert.throws(() => external.plainCallback(n => 'bad', 1), TypeError);
@@ -937,6 +1096,8 @@ async function scenario(name) {
       await assert.rejects(external.plainAsyncCallback(n => n, 1), TypeError);
       handleValues(external); await asyncHandles(external);
       binaryValues(external); await asyncBinaryValues(external);
+      payloadValues(external); await asyncPayloadValues(external);
+      await payloadResources(external); await retainedPayloads(external);
       break;
     }
     case 'workers-with-main':
@@ -961,6 +1122,7 @@ if (!isMainThread) {
   api.callbackPressure(1);
   assert.equal(await api.callAsync(async n => n + 2, 5), 7);
   binaryValues(api); await asyncBinaryValues(api);
+  payloadValues(api); await asyncPayloadValues(api); await payloadResources(api);
   api.registerAsyncCallback(() => new Promise(() => {}));
   api.invokeAsyncRegistered(0, 1);
   if (workerData.queued) {

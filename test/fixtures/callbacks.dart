@@ -560,3 +560,126 @@ int callbackHandleOrder(
   fake ? _FakeCallbackArray() : _callbackArray!,
   throwing ? _ThrowingList() : [1],
 );
+
+@NAPI(classPolicy: ClassPolicy.value)
+class CallbackValue {
+  final int value;
+  final int step;
+  CallbackValue(this.value, {this.step = 7}) {
+    if (value < 0) throw StateError('callback value constructor rejected');
+  }
+
+  @NAPI(exclude: true)
+  @override
+  int get hashCode => value;
+  @override
+  bool operator ==(Object other) =>
+      other is CallbackValue && other.value == value;
+}
+
+@NAPI(classPolicy: ClassPolicy.value)
+class CallbackNormalized {
+  final int value;
+  CallbackNormalized.parse(String source) : value = int.parse(source);
+}
+
+@NAPI(classPolicy: ClassPolicy.value)
+class CallbackProjection {
+  final int value;
+  CallbackProjection._(this.value);
+}
+
+typedef CallbackContainers<T> = ({
+  Map<String, List<CallbackValue?>> values,
+  Dictionary<T?> payloads,
+  List<CallbackBox?> references,
+  CallbackResource? resource,
+});
+
+@NAPI()
+CallbackContainers<T> callContainers<T>(
+  CallbackContainers<T> Function(CallbackContainers<T>) callback,
+  CallbackContainers<T> value,
+) => callback(value);
+
+@NAPI()
+Future<CallbackContainers<T>> callAsyncContainers<T>(
+  Future<CallbackContainers<T>> Function(CallbackContainers<T>) callback,
+  CallbackContainers<T> value,
+) => callback(value);
+
+@NAPI()
+Map<CallbackValue, int> callKeyMap(
+  Map<CallbackValue, int> Function(Map<CallbackValue, int>) callback,
+) => callback({CallbackValue(1): 2});
+
+@NAPI()
+CallbackNormalized callNormalized(
+  CallbackNormalized Function(CallbackNormalized) callback,
+  String value,
+) => callback(CallbackNormalized.parse(value));
+
+@NAPI()
+int callProjection(int Function(CallbackProjection) callback) =>
+    callback(CallbackProjection._(42));
+
+@NAPI()
+int readProjectionCallback(JsArray<CallbackProjection?> Function() callback) =>
+    callback().get(0)?.value ?? -1;
+
+@NAPI()
+CallbackBox? callReference(
+  CallbackBox? Function(CallbackBox?) callback,
+  CallbackBox? value,
+) => callback(value);
+
+@NAPI()
+int callNewResource(
+  CallbackResource Function(CallbackResource) callback,
+  int id,
+) => callback(CallbackResource(id)).id;
+
+@NAPI()
+Future<int> callAsyncNewResource(
+  Future<CallbackResource> Function(CallbackResource) callback,
+  int id,
+) async => (await callback(CallbackResource(id))).id;
+
+@NAPI()
+void startResourceCallback(
+  Future<void> Function(CallbackResource) callback,
+  int id,
+) {
+  callback(CallbackResource(id));
+}
+
+@NAPI()
+T callPayload<T>(T Function(T) callback, T value) => callback(value);
+
+@NAPI()
+Future<T> callAsyncPayload<T>(Future<T> Function(T) callback, T value) =>
+    callback(value);
+
+@NAPI()
+class CallbackPayloadBox<T> {
+  T? _saved;
+  T Function(T)? _callback;
+  CallbackPayloadBox();
+  T remember(T Function(T) callback, T value) {
+    _callback = callback;
+    final result = callback(value);
+    _saved = result;
+    return result;
+  }
+
+  T saved() => _saved as T;
+  T invoke(T value) => _callback!(value);
+  void clear() {
+    _saved = null;
+    _callback = null;
+  }
+}
+
+@NAPI()
+void rejectCallbackPayload<T>((T, CallbackValue) Function() callback) =>
+    callback();

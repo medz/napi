@@ -160,7 +160,7 @@ external WasmExternRef? _findCallbackAdapter(WasmExternRef callback, WasmExternR
 @pragma('wasm:import', 'napi.cacheCallbackAdapter')
 external void _cacheCallbackAdapter(WasmExternRef callback, WasmExternRef signature, WasmExternRef adapter);
 @pragma('wasm:import', 'napi.invokeCallback')
-external WasmExternRef _invokeCallback(WasmExternRef callback, WasmExternRef arguments, WasmI32 context);
+external WasmExternRef _invokeCallback(WasmExternRef callback, WasmExternRef arguments, WasmI32 context, WasmExternRef? retain);
 @pragma('wasm:import', 'napi.callbackThrew')
 external WasmI32 _callbackThrew(WasmExternRef envelope);
 @pragma('wasm:import', 'napi.callbackValue')
@@ -232,7 +232,31 @@ napi.AbortSignal _abortSignal(WasmExternRef companion) {
 
 const asyncCallbackEntrypointPrelude = r'''
 @pragma('wasm:import', 'napi.startCallback')
-external WasmExternRef? _startCallback(WasmExternRef callback, WasmExternRef arguments, WasmI32 context, WasmExternRef deliver, WasmExternRef roots);
+external WasmExternRef? _startCallback(WasmExternRef callback, WasmExternRef arguments, WasmI32 context, WasmExternRef deliver, WasmExternRef roots, WasmExternRef? retain);
+''';
+
+/// Callback conversion retains through its invoking operation, including host
+/// Promise settlement. Detached work can still exchange ordinary references.
+const callbackResourceEntrypointPrelude = r'''
+WasmExternRef _callbackResourceRetainer(ResourceOperation? operation) =>
+    externRefForJSAny(((JSAny? reference) {
+  if (reference == null) return;
+  try {
+    final control = _resourceControl(externRefForJSAny(reference)!.internalize().toObject());
+    if (control == null) return;
+    if (operation == null) {
+      throw _CallbackThrown(_callbackStructureError(
+          externRefForJSAny('callback resource'.toJS)!,
+          externRefForJSAny('resource access requires an active bound call'.toJS)!,
+          WasmI32.fromInt(0)));
+    }
+    operation.retain(control);
+  } on _CallbackThrown catch (error) {
+    _throwCallbackError(error.envelope);
+  } catch (error) {
+    _normalizeResourceError(error);
+  }
+}).toJS)!;
 ''';
 
 /// Preserve exact host errors from callbacks, cancellation and shared bytes.

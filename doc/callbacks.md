@@ -28,6 +28,24 @@ Both targets validate functions before business code, convert Dart arguments to
 JavaScript, invoke with an undefined receiver, and convert results back to Dart.
 Scalars, Lists and records follow the ordinary precision, UTF-16, nullability
 and structural validation rules. `@NAPI(bigint: true)` applies inside callbacks.
+Ordinary Dart `Map` and `Dictionary` containers are copied. Map keys use the
+declared conversion and Dart equality; keys that become equal after conversion
+are rejected. Dictionaries keep own string-keyed data properties and produce
+objects with a null prototype.
+
+[Value classes](values.md) use their output fields for callback arguments and
+their constructor parameters for callback results. The two shapes may differ;
+defaults and normal Dart constructor errors apply to results. An output-only
+value class may be a callback argument. A lazy JS collection handle can still
+contain that type, but reading a non-null element requires an input constructor.
+[Selected references](classes.md) keep their original JS wrapper and class
+identity. Lookalikes and wrappers from another module are rejected.
+
+An enclosing Dart type parameter passes an [opaque payload](opaque.md) through
+unchanged, including `undefined`, functions and objects with hostile properties.
+No additional annotation is needed. It can also appear inside supported Lists,
+records, Map values and Dictionaries; opaque Map keys remain unsupported.
+
 [Binary snapshots](binary.md) and `SharedBytes` work directly or inside nullable
 Lists and records, including fulfilled Future results. `Uint8List` becomes a
 `Uint8Array` and `ByteBuffer` becomes an `ArrayBuffer`; each crossing makes an
@@ -78,11 +96,18 @@ Saving a callback result handle in Dart keeps that container usable after the
 callback completes.
 Success, rejection and startup failure release private invocation roots.
 
-Resource closing rejects new resource operations and waits for accepted ones,
-including an awaited callback result. Calling close or unregister from inside a
-callback preserves already accepted work. Resource cleanup may itself accept a
-callback. Teardown releases private state without invoking JS or business cleanup.
+Resource closing rejects new resource operations and waits for accepted ones.
+An asynchronous callback with resource payloads keeps its operation alive until
+its Promise settles, even if the enclosing synchronous export has returned.
+Scalar-only callbacks do not extend unrelated resource operations. Calling close
+or unregister from inside a callback preserves already accepted work. Resource
+cleanup may itself accept a callback. Teardown releases private state without
+invoking JS or business cleanup.
 Workers and separately loaded modules have independent caches and owners.
+Retaining a callback does not extend a completed resource operation. A later
+exported call opens its own operation; a detached Timer cannot start resource
+access through a saved callback. Ordinary references and opaque payloads retain
+their usual lifetime when a callback runs after the original export returns.
 
 ## Promise results and errors
 
@@ -119,13 +144,13 @@ Callbacks are direct inputs to synchronous, Future-returning and Stream-returnin
 functions, constructors, methods, setters and resource cleanup. Nullable/default-null outer
 parameters preserve normal presence rules. External selections use the same
 mapping. Callback parameters currently require positional parameters without
-defaults, with scalar, binary snapshot, `SharedBytes`, List, record and JS-handle
-payloads and synchronous or Future results; void is also supported.
+defaults. Payloads use the ordinary scalar, binary snapshot, `SharedBytes`,
+container, value-class, selected-reference, resource and opaque mappings, with
+synchronous or Future results; void is also supported.
 
 Optional/named parameters inside a callback, generic callback signatures,
 callback outputs, nested callbacks, nullable outer Future results, FutureOr,
-and callback payloads containing bound instances, bare opaque values, Dart `Map`
-containers or value classes receive diagnostics. [Stream exports](streams.md) retain input
+and opaque Map keys receive diagnostics. [Stream exports](streams.md) retain input
 callbacks through subscription completion. [Explicit cancellation](cancellation.md)
 never revokes a retained callback or cancels a JavaScript Promise returned by it.
 A generic payload that happens to be a JS function stays an opaque

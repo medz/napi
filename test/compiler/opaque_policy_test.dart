@@ -613,8 +613,8 @@ const stream: AsyncIterableIterator<{ then: Then }, undefined, undefined> = stre
       '$router @NAPI() List<Router<T?>> echo<T>(List<Router<T?>> values) => values;',
       'NAPI_TYPE',
     ),
-    'nested opaque callback': (
-      '@NAPI() void echo<T>(void Function(List<T>) value) {}',
+    'nested opaque callback function': (
+      '@NAPI() void echo<T>(void Function(void Function(T)) value) {}',
       'NAPI_CALLBACK',
     ),
     'dynamic is not opaque': (

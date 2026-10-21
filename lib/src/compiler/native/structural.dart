@@ -587,6 +587,16 @@ final class NativeStructuralEmitter {
           '  return _api.${nativeScalarWriter(conversion)}(env, value as $type$context);',
         );
       case ReferenceConversion():
+        if (hasResources) {
+          _code.writeln('''  if (state.retainResources) {
+    final control = _resourceControl(value!);
+    if (control != null) {
+      final operation = state.operation;
+      if (operation == null) throw NapiTypeError('\$path: resource access requires an active bound call');
+      operation.retain(control);
+    }
+  }''');
+        }
         _code.writeln(
           '  return _api.referenceResult(env, value!, ${conversion.classId}, path, state.pending);',
         );

@@ -124,6 +124,60 @@ api.callHandles(value => ({arrays: [undefined], map: value.map}), {arrays: [], m
 void [handle, handles, nullableHandle, asyncHandle, wideHandle, payloadHandles,
   externalHandle, externalAsyncHandle, orderedHandle];
 
+type CallbackPayload = {raw: boolean} | undefined;
+const containersInput = {
+  values: new Map([['one', [{value: 1}, null]]]),
+  payloads: {one: {raw: true}, absent: undefined, nil: null},
+  references: [box, null], resource: null,
+};
+const containers: {
+  values: Map<string, Array<api.CallbackValue | null>>;
+  payloads: Record<string, CallbackPayload | null>;
+  references: Array<api.CallbackBox | null>; resource: api.CallbackResource | null;
+} = api.callContainers<CallbackPayload>(value => ({...value, values: new Map([['two', [{value: 2}]]])}), containersInput);
+const asyncContainers: Promise<typeof containers> = api.callAsyncContainers<CallbackPayload>(async value => value, containersInput);
+const keyMap: Map<api.CallbackValue, number> = api.callKeyMap(() => new Map([[{value: 1}, 2]]));
+const normalized: api.CallbackNormalized = api.callNormalized(value => ({source: String(value.value)}), '1');
+const projection: number = api.callProjection(value => value.value);
+const emptyProjection: number = api.readProjectionCallback(() => [null]);
+const callbackReference: api.CallbackBox | null = api.callReference(value => value, box);
+api.callReference(() => null, null);
+const callbackResource: number = api.callNewResource(value => value, 1);
+const asyncCallbackResource: Promise<number> = api.callAsyncNewResource(async value => value, 1);
+const startedResource: void = api.startResourceCallback(async value => {void value;}, 1);
+const rawPayload: CallbackPayload = api.callPayload<CallbackPayload>(value => value, undefined);
+const asyncRawPayload: Promise<CallbackPayload> = api.callAsyncPayload<CallbackPayload>(async value => value, undefined);
+api.callPayload<() => number>(value => value, () => 1);
+const payloadBox = new api.CallbackPayloadBox<CallbackPayload>();
+const rememberedPayload: CallbackPayload = payloadBox.remember(value => value, {raw: true});
+const savedPayload: CallbackPayload = payloadBox.saved();
+const invokedPayload: CallbackPayload = payloadBox.invoke(undefined);
+payloadBox.clear();
+api.rejectCallbackPayload<CallbackPayload>(() => ({$1: undefined, $2: {value: 1}}));
+const externalPayload: CallbackPayload = externalHandles.callPayload<CallbackPayload>(value => value, undefined);
+const externalNormalized: externalHandles.CallbackNormalized = externalHandles.callNormalized(value => ({source: String(value.value)}), '1');
+// @ts-expect-error Value callback results use constructor input properties.
+api.callNormalized(value => value, '1');
+// @ts-expect-error Value fields retain strict Dart constructor types.
+api.callContainers<CallbackPayload>(value => ({...value, values: new Map([['bad', [{value: 'bad'}]]])}), containersInput);
+// @ts-expect-error Dictionary payloads retain the enclosing opaque parameter.
+api.callContainers<CallbackPayload>(value => ({...value, payloads: {one: 1}}), containersInput);
+// @ts-expect-error Selected reference results cannot be plain lookalikes.
+api.callReference(() => ({value: 1}), null);
+// @ts-expect-error Different selected classes retain distinct reference brands.
+api.callReference(() => resource, box);
+// @ts-expect-error Resource callback results remain the declared resource class.
+api.callNewResource(() => box, 1);
+// @ts-expect-error Callback resource Futures require an outer Promise.
+api.callAsyncNewResource(value => value, 1);
+// @ts-expect-error Opaque callback result Futures still require a Promise.
+api.callAsyncPayload<CallbackPayload>(value => value, undefined);
+// @ts-expect-error A required opaque value that admits undefined is still required.
+api.callPayload<CallbackPayload>(value => value);
+void [containers, asyncContainers, keyMap, normalized, projection, emptyProjection,
+  callbackReference, callbackResource, asyncCallbackResource, startedResource, rawPayload,
+  asyncRawPayload, rememberedPayload, savedPayload, invokedPayload, externalPayload, externalNormalized];
+
 // @ts-expect-error Future callback results require a Promise, not a plain scalar.
 api.callAsync(n => n + 1, 3);
 // @ts-expect-error Promise payloads use the declared strict input type.

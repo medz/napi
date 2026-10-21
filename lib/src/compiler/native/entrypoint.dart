@@ -68,6 +68,16 @@ String emitNativeDart(NativeModulePlan plan) {
   final hasResources = policies.isNotEmpty;
   final scopedCollections =
       hasResources && plan.jsCollections.any(containsJsCollectionReference);
+  final scopedCallbacks =
+      hasResources &&
+      plan.calls.any(
+        (call) =>
+            conversionGraph(call.inputs).whereType<CallbackConversion>().any(
+              (callback) =>
+                  conversionDependencies([...callback.inputs, ?callback.output])
+                      .any((value) => value is ReferenceConversion),
+            ),
+      );
   final hasCompositeViews = hasCompositeReferenceViews([
     for (final binding in plan.classes) binding.shape,
   ]);
@@ -254,7 +264,8 @@ ${tests.declarations}  int? canonical;''');
     final hasReceiver =
         call.owner != null && !call.isConstructor && !call.isStatic;
     final scopedOperation =
-        scopedCollections && !(call.isConstructor && call.member == null);
+        (scopedCollections || scopedCallbacks) &&
+        !(call.isConstructor && call.member == null);
     final retainsResources =
         hasResources &&
         (scopedOperation ||
@@ -661,17 +672,26 @@ ${tests.declarations}  int? canonical;''');
   }
   final structuralSource = structures.source;
   if (hasStructures || structuralSource.isNotEmpty) {
-    code.writeln(
-      hasResources || needsOpaqueReadState
-          ? nativeStructuralPrelude.replaceFirst(
-              'final class _NativeReadState {',
-              'final class _NativeReadState {\n'
-                  '  _NativeReadState(${hasResources ? 'this.operation' : ''}${needsOpaqueReadState ? '${hasResources ? ', ' : ''}{this.owned}' : ''});\n'
-                  '${hasResources ? '  final ResourceOperation? operation;\n' : ''}'
-                  '${needsOpaqueReadState ? '  final List<NativeHostValue>? owned;\n' : ''}',
-            )
-          : nativeStructuralPrelude,
-    );
+    var prelude = nativeStructuralPrelude;
+    if (hasResources || needsOpaqueReadState) {
+      prelude = prelude.replaceFirst(
+        'final class _NativeReadState {',
+        'final class _NativeReadState {\n'
+            '  _NativeReadState(${hasResources ? 'this.operation' : ''}${needsOpaqueReadState ? '${hasResources ? ', ' : ''}{this.owned}' : ''});\n'
+            '${hasResources ? '  final ResourceOperation? operation;\n' : ''}'
+            '${needsOpaqueReadState ? '  final List<NativeHostValue>? owned;\n' : ''}',
+      );
+    }
+    if (hasResources) {
+      prelude = prelude.replaceFirst(
+        'final class _NativeWriteState {',
+        'final class _NativeWriteState {\n'
+            '  _NativeWriteState({this.operation, this.retainResources = false});\n'
+            '  final ResourceOperation? operation;\n'
+            '  final bool retainResources;\n',
+      );
+    }
+    code.writeln(prelude);
     code.write(structuralSource);
   }
   return code.toString();
@@ -692,6 +712,12 @@ void _readCallback(
   NativeStructuralEmitter structures,
   bool hasResources,
 ) {
+  final inputReferences = conversionGraph(conversion.inputs)
+      .any((value) => value is ReferenceConversion);
+  final resourceValues =
+      hasResources &&
+      conversionDependencies([...conversion.inputs, ?conversion.output])
+          .any((value) => value is ReferenceConversion);
   if (conversion.nullable) {
     code.writeln(
       '    if (_api.isNull(call.env, raw$index)) { a$index = null; } else {',
@@ -706,9 +732,21 @@ void _readCallback(
   code.writeln(
     '    a$index = _api.callback<$type>(call.env, raw$index, ${_quote(conversion.signatureKey)}, ${_quote(conversion.context)}, (callback) ${conversion.returnsFuture ? '{\n      late final $type adapter;\n      adapter =' : '=>'} ($parameters) {',
   );
+  if (resourceValues) {
+    code.writeln(
+      '''      final active = ResourceOperation.current;
+      final operation = active != null && !active.isReleased ? active${conversion.returnsFuture ? '.fork()' : ''} : null;''',
+    );
+  }
   code.writeln(
     "      return callback.${conversion.returnsFuture ? 'invokeFuture' : 'invoke'}<${conversion.output?.dartType ?? 'void'}>(${conversion.returnsFuture ? 'adapter, ' : ''}${conversion.inputs.length}, (env, argv) {",
   );
+  if (inputReferences) {
+    code.writeln(
+      '        final state = _NativeWriteState(${hasResources ? 'operation: operation, retainResources: true' : ''});\n'
+      '        try {',
+    );
+  }
   for (final (i, input) in conversion.inputs.indexed) {
     if (input is ScalarConversion) continue;
     code.writeln(
@@ -726,23 +764,54 @@ void _readCallback(
           '_api.${nativeScalarWriter(input)}(env, c$i$context)';
     } else {
       value =
-          '${structures.writeSnapshot(input)}(env, snapshot$i, _NativeWriteState(), ${_quote(input.context)})';
+          '${structures.writeSnapshot(input)}(env, snapshot$i, ${inputReferences ? 'state' : '_NativeWriteState()'}, ${_quote(input.context)})';
     }
     code.writeln('        argv[$i] = Pointer<Void>.fromAddress($value);');
   }
+  if (inputReferences) {
+    code.writeln('''        } catch (_) {
+          _api.rollbackReferences(state.pending);
+          rethrow;
+        }''');
+  }
   code.writeln('      }, (env, result) {');
   final output = conversion.output;
+  if (resourceValues && output != null) {
+    code.writeln('        final convert = () {');
+  }
   if (output is ScalarConversion) {
     code.writeln(
       '        return ${output.nullable ? '_api.isNull(env, result) ? null : ' : ''}'
       '_api.${nativeScalarReader(output)}(env, result, ${_quote(output.context)});',
     );
   } else if (output != null) {
+    final tracksOpaque = conversionGraph([output])
+        .any((value) => value is OpaqueConversion);
+    if (tracksOpaque) {
+      code.writeln('        final owned = <NativeHostValue>[];\n        try {');
+    }
     code.writeln(
-      '        return ${structures.read(output)}(env, result, _NativeReadState(${hasResources ? 'null' : ''}), ${_quote(output.context)}, 0);',
+      '        final value = ${structures.read(output)}(env, result, _NativeReadState(${hasResources
+          ? resourceValues
+                ? 'operation'
+                : 'null'
+          : ''}${tracksOpaque ? '${hasResources ? ', ' : ''}owned: owned' : ''}), ${_quote(output.context)}, 0);',
     );
+    if (tracksOpaque) code.writeln('        owned.clear();');
+    code.writeln('        return value;');
+    if (tracksOpaque) {
+      code.writeln('''        } finally {
+          for (final value in owned) { value.release(); }
+        }''');
+    }
   }
-  code.writeln('      });');
+  if (resourceValues && output != null) {
+    code.writeln('''        };
+        return operation == null ? convert() : operation.run(convert);''');
+  }
+  code.writeln(
+    '      }${resourceValues && conversion.returnsFuture ? ', lease: operation' : ''});',
+  );
   if (conversion.returnsFuture) code.writeln('      };\n      return adapter;');
   code.writeln('    }, prechecked: true);');
   if (conversion.nullable) code.writeln('    }');
