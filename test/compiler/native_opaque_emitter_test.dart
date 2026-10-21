@@ -111,6 +111,67 @@ class Incompatible<V> implements First<V>, ScalarCleanup {
   Future<void> close(Object? value) async {}
 }
 @NAPI() First<V> incompatible<V>() => Incompatible<V>();
+
+@NAPI(classPolicy: ClassPolicy.value)
+class Value<T> {
+  Value(this.value, {this.optional, this.items = const []});
+  final T value;
+  final T? optional;
+  final List<T> items;
+}
+@NAPI(classPolicy: ClassPolicy.value)
+class Pair<A, B> {
+  Pair(this.first, this.second);
+  final A first;
+  final B second;
+}
+@NAPI(classPolicy: ClassPolicy.value)
+class Node<T> {
+  Node(this.value, {this.next});
+  final T value;
+  final Node<T>? next;
+}
+@NAPI(classPolicy: ClassPolicy.value)
+abstract class Projection<T> {
+  T get value;
+}
+class _Projection<T> implements Projection<T> {
+  _Projection(this.value);
+  final T value;
+}
+@NAPI(classPolicy: ClassPolicy.value, valueFields: {'source': 'value'})
+class Parsed<T> {
+  Parsed(T source) : value = 23;
+  final int value;
+}
+@NAPI(classPolicy: ClassPolicy.value)
+class ValueArray<T> {
+  ValueArray(this.values);
+  final JsArray<Value<T>> values;
+}
+@NAPI(classPolicy: ClassPolicy.value)
+class Defaults<T> {
+  Defaults({this.items = const [], this.values = const {}, this.nullable = const <Null>[null]});
+  final List<T> items;
+  final Map<String, T> values;
+  final List<T?> nullable;
+}
+@NAPI() Value<T> echoValue<T>(Value<T> value) => value;
+@NAPI() bool valueOptionalIsNull<T>(Value<T> value) => value.optional == null;
+@NAPI() Pair<B, A> reversedValue<A, B>(Pair<B, A> value) => value;
+@NAPI() Pair<T, T> repeatedValue<T>(Pair<T, T> value) => value;
+@NAPI() Node<T> echoNode<T>(Node<T> value) => value;
+@NAPI() Projection<T> projectValue<T>(T value) => _Projection(value);
+@NAPI() Parsed<T> parseValue<T>(Parsed<T> value) => value;
+@NAPI() Value<T> callbackValue<T>(Value<T> value, Value<T> Function(Value<T>) callback) => callback(value);
+@NAPI() Value<T> Function(Value<T>) valueClosure<T>(T seed) => (value) => value;
+@NAPI() JsArray<Value<T>> echoValueArray<T>(JsArray<Value<T>> values) => values;
+@NAPI() Value<T> readValueArray<T>(JsArray<Value<T>> values, int index) => values.get(index)!;
+@NAPI() void writeValueArray<T>(JsArray<Value<T>> values, int index, Value<T> value) { values.set(index, value); }
+@NAPI() ValueArray<T> echoNestedValueArray<T>(ValueArray<T> value) => value;
+@NAPI() Value<T> readNestedValueArray<T>(ValueArray<T> value, int index) => value.values.get(index)!;
+@NAPI() Defaults<T> defaultValue<T>(Defaults<T> value) => value;
+@NAPI() int defaultCount<T>([List<T> values = const <Never>[]]) => values.length;
 ''';
 
 const _resourceChecks = r'''
@@ -175,6 +236,7 @@ assert.equal(weak.deref(), undefined);
 await resource.close();
 assert.equal(api.closed(30), 1);
 
+{
 const payload = {};
 const composite = api.both(40);
 assert.equal(api.secondView(composite), composite);
@@ -193,6 +255,67 @@ assert.equal(api.closed(41), 1);
 assert.equal(api.reason(41), first);
 assert.equal(api.secondReason(41), second);
 assert.throws(() => api.incompatible(), /incompatible cleanup policies/);
+}
+for (const payload of [undefined, null, {}, Symbol('value'), () => 7]) {
+  const input = {value: payload, items: [payload]};
+  const output = api.echoValue(input);
+  assert.notEqual(output, input);
+  assert.equal(output.value, payload);
+  assert.equal(output.optional, null);
+  assert.equal(output.items[0], payload);
+  assert.equal(api.echoValue({value: payload}).items.length, 0);
+  assert.equal(api.valueOptionalIsNull(input), true);
+  for (const optional of [undefined, null, payload]) {
+    const explicit = {value: payload, optional, items: [optional]};
+    assert.equal(api.valueOptionalIsNull(explicit), false);
+    const converted = api.echoValue(explicit);
+    assert.equal(converted.optional, optional);
+    assert.equal(converted.items[0], optional);
+  }
+  assert.equal(api.projectValue(payload).value, payload);
+  const parsed = api.parseValue({value: payload});
+  assert.equal(parsed.value, 23);
+  assert.deepEqual(Object.keys(parsed), ['value']);
+  assert.equal(api.echoNode({value: payload, next: {value: payload}}).next.value, payload);
+  assert.equal(api.reversedValue({first: payload, second: payload}).first, payload);
+  assert.equal(api.repeatedValue({first: payload, second: payload}).second, payload);
+  const callbackResult = api.callbackValue(input, value => {
+    assert.equal(value.value, payload);
+    return {value: payload, optional: undefined, items: [payload]};
+  });
+  assert.equal(callbackResult.value, payload);
+  assert.equal(callbackResult.optional, undefined);
+  assert.equal(callbackResult.items[0], payload);
+  assert.equal(api.valueClosure(payload)(input).value, payload);
+
+  const storage = [input];
+  const values = api.echoValueArray(storage);
+  assert.equal(values, storage);
+  assert.equal(api.readValueArray(values, 0).value, payload);
+  api.writeValueArray(values, 1, {value: payload, optional: undefined, items: [payload]});
+  assert.equal(storage[1].value, payload);
+  assert.equal(api.readValueArray(values, 1).optional, undefined);
+  const nested = api.echoNestedValueArray({values: storage});
+  assert.equal(nested.values, storage);
+  assert.equal(api.readNestedValueArray(nested, 0).value, payload);
+  api.writeValueArray(nested.values, 0, {value: payload, items: []});
+  assert.equal(storage[0].value, payload);
+}
+const first = {};
+const second = {};
+const reordered = api.reversedValue({first, second});
+assert.equal(reordered.first, first);
+assert.equal(reordered.second, second);
+const recursive = {value: first};
+recursive.next = recursive;
+assert.throws(() => api.echoNode(recursive), TypeError);
+assert.throws(() => api.echoValue({}), TypeError);
+const defaults = api.defaultValue({});
+assert.deepEqual(defaults.items, []);
+assert.equal(defaults.values.size, 0);
+assert.deepEqual(defaults.nullable, [null]);
+assert.equal(api.defaultCount(), 0);
+assert.equal(api.defaultCount(undefined), 0);
 ''';
 
 void main() {
@@ -309,7 +432,7 @@ import 'package:napi/napi.dart';
   final runtime = Platform.environment['NAPI_TEST_NATIVE_RUNTIME'];
   for (final target in BuildTarget.values) {
     test(
-      'generic resources preserve payloads and operation leases (${target.name})',
+      'generic values and resources preserve payloads (${target.name})',
       () async {
         final root = Directory(await directory.resolveSymbolicLinks());
         final source = await File('${root.path}/business.dart')

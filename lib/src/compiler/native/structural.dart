@@ -822,7 +822,7 @@ final class NativeStructuralEmitter {
                   )
                 : '';
             _code.writeln(
-              '''    final default$index = raw$index == nullptr || _api.isUndefined(env, raw$index);
+              '''    final default$index = raw$index == nullptr${field.opaqueOptional ? '' : ' || _api.isUndefined(env, raw$index)'};
     result.add(default$index);
     if (default$index) {
       state.visit($path);
@@ -946,7 +946,7 @@ $retains      result.add(null);
             ? ''
             : '.${constructor.declaration.name}';
         _code.writeln(
-          '  return target.${conversion.classBinding.callPath}$suffix($arguments);',
+          '  return ${conversion.dartConstructorType}$suffix($arguments);',
         );
       case ScalarConversion() ||
           ReferenceConversion() ||

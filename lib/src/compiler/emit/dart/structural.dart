@@ -363,7 +363,7 @@ final class DartStructuralEmitter {
               ? ''
               : '.${constructor.declaration.name}';
           _code.writeln(
-            '  return target.${conversion.classBinding.callPath}$suffix(${arguments.join(', ')});',
+            '  return ${conversion.dartConstructorType}$suffix(${arguments.join(', ')});',
           );
         }
       case RecordConversion():

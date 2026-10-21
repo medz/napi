@@ -11,6 +11,23 @@ Object? _pinned;
 Completer<int>? _pending;
 List<int> _allocation = [];
 
+@NAPI(classPolicy: ClassPolicy.value)
+class GenericValue<T> {
+  GenericValue(this.value, {this.optional, this.items = const []});
+  final T value;
+  final T? optional;
+  final List<T> items;
+}
+
+@NAPI()
+GenericValue<T> opaqueValueEcho<T>(GenericValue<T> value) => value;
+
+@NAPI()
+GenericValue<T> opaqueValueCallback<T>(
+  GenericValue<T> value,
+  GenericValue<T> Function(GenericValue<T>) callback,
+) => callback(value);
+
 @NAPI()
 int opaqueCalls() => _calls;
 

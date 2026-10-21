@@ -156,8 +156,11 @@ value without inspecting it.
 
 Structural defaults containing opaque leaves, opaque
 Map keys and JS collection handles as Map keys are not supported.
-Open generic value classes are still unsupported. Failed input conversion
-does not invoke the exported business method, reference constructor or setter.
+Open generic value classes can store opaque parameters in their converted fields;
+their JS containers are copied while payload identity is preserved. Optional opaque
+constructor fields select their Dart default only when absent, including inside
+nested value classes. Failed input conversion does not invoke the exported business
+method, reference constructor or setter.
 Explicit [value-class constructors](values.md) execute
 during input materialization after raw validation; domain failures may retain
 earlier constructor side effects. Failed output conversion does not undo business mutations;

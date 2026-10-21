@@ -35,6 +35,9 @@ Future<void> main() async {
       metadata: {'name': external ? '@napi/opaque-external' : '@napi/opaque-fixture', 'version': '0.0.0'},
       packagesPath: File('.dart_tool/package_config.json').absolute.path,
       external: external ? const ExternalLibrary([
+        ExternalClass('GenericValue', config: NAPI(classPolicy: ClassPolicy.value)),
+        ExternalFunction('opaqueValueEcho'),
+        ExternalFunction('opaqueValueCallback'),
         ExternalFunction('plainEcho'),
         ExternalFunction('plainFuture'),
         ExternalFunction('named'),
