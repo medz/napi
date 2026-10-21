@@ -2219,7 +2219,7 @@ void _validateJsCollection(
   if (!_supportedJsCollectionElements(collection, classes, opaqueParameters)) {
     throw BindingDiagnostic(
       'NAPI_JS_COLLECTION',
-      'JsArray/JsMap support scalars, selected references, binary values, SharedBytes, direct opaque elements, nested JS collection handles and copied scalar/binary containers.',
+      'JsArray/JsMap support scalars, selected references, binary values, SharedBytes, opaque elements, nested JS collection handles and copied containers. Copied Map keys cannot contain opaque values or JS collection handles.',
       source,
     );
   }
@@ -2234,29 +2234,40 @@ bool _supportedJsCollectionElements(
         (collection.declaration == jsMapDeclaration ? 2 : 1) &&
     collection.typeArguments.every(
       (element) =>
-          _supportedJsCopiedElement(element) ||
-          isOpaqueType(element, opaqueParameters) ||
-          isReferenceType(
-            element,
-            classes,
-            opaqueParameters: opaqueParameters,
-          ) ||
-          (isJsCollectionType(element) &&
-              _supportedJsCollectionElements(
-                element as DeclaredType,
-                classes,
-                opaqueParameters,
-              )),
+          _supportedJsCollectionElement(element, classes, opaqueParameters),
     );
 
-bool _supportedJsCopiedElement(BindingType type) {
+bool _supportedJsCollectionElement(
+  BindingType type,
+  List<ClassBinding> classes,
+  Set<DeclarationId> opaqueParameters, {
+  bool mapKey = false,
+}) {
   if (type.nullability == TypeNullability.legacy) return false;
+  if (isOpaqueType(type, opaqueParameters)) return !mapKey;
+  if (isReferenceType(type, classes, opaqueParameters: opaqueParameters)) {
+    return true;
+  }
+  if (isJsCollectionType(type)) {
+    return !mapKey &&
+        _supportedJsCollectionElements(
+          type as DeclaredType,
+          classes,
+          opaqueParameters,
+        );
+  }
   if (_isBackendScalar(type) || isBinaryType(type) || isSharedBytesType(type)) {
     return true;
   }
+  bool child(BindingType value, {bool key = false}) =>
+      _supportedJsCollectionElement(
+        value,
+        classes,
+        opaqueParameters,
+        mapKey: mapKey || key,
+      );
   if (type is RecordTypeBinding) {
-    return type.positional.every(_supportedJsCopiedElement) &&
-        type.named.values.every(_supportedJsCopiedElement);
+    return type.positional.every(child) && type.named.values.every(child);
   }
   if (type is! DeclaredType || type.semantics != ValueSemantics.structural) {
     return false;
@@ -2281,7 +2292,9 @@ bool _supportedJsCopiedElement(BindingType type) {
       : 0;
   return arity != 0 &&
       type.typeArguments.length == arity &&
-      type.typeArguments.every(_supportedJsCopiedElement);
+      type.typeArguments.indexed.every(
+        (entry) => child(entry.$2, key: arity == 2 && entry.$1 == 0),
+      );
 }
 
 bool _containsCallback(BindingType type) => switch (type) {

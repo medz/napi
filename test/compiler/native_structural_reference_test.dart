@@ -49,9 +49,9 @@ void main() {
     addTearDown(() => directory.delete(recursive: true));
   });
 
-  Future<NativeModulePlan> read() async {
+  Future<NativeModulePlan> read([String source = _source]) async {
     final file = File('${directory.path}/business.dart');
-    await file.writeAsString(_source);
+    await file.writeAsString(source);
     return validateNative(
       await AnnotationFrontend(
         packagesPath: _packages,
@@ -235,6 +235,69 @@ void main() {
     },
     timeout: const Timeout(Duration(minutes: 2)),
   );
+
+  test('pure copied reference and opaque handles compile with and without resources', () async {
+    const source = '''
+import 'dart:typed_data';
+import 'package:napi/napi.dart';
+typedef Copy<T> = ({
+  T payload,
+  List<Box?> items,
+  Map<Box, Dictionary<List<Box?>>> groups,
+  JsArray<Dictionary<T>> nested,
+  Uint8List bytes,
+});
+@NAPI()
+class Box {
+  Box(this.id);
+  final int id;
+}
+@NAPI()
+class Payloads<T> {
+  Payloads(this.source);
+  final JsArray<Copy<T>> source;
+  JsArray<Copy<T>> roundtrip() {
+    final next = source.get(0);
+    if (next != null) source.set(0, next);
+    return source;
+  }
+  JsMap<({Box ref, List<int> ids}), Dictionary<JsArray<List<Box>>>> maps(
+    JsMap<({Box ref, List<int> ids}), Dictionary<JsArray<List<Box>>>> value,
+  ) => value;
+  Future<JsArray<Copy<T>>> observe(
+    Future<JsArray<Copy<T>>> Function() read,
+  ) => read();
+}
+''';
+    for (final resources in [false, true]) {
+      final plan = await read(
+        source +
+            (resources
+                ? '''
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+class Resource extends Box {
+  Resource(super.id);
+  void close() {}
+}
+'''
+                : ''),
+      );
+      final entry = File('${directory.path}/entry.dart');
+      await entry.writeAsString(emitNativeDart(plan));
+      final compilation = await Process.run(Platform.resolvedExecutable, [
+        'compile',
+        'aot-snapshot',
+        '--packages=$_packages',
+        entry.path,
+        '--output=${directory.path}/module.aot',
+      ]);
+      expect(
+        compilation.exitCode,
+        0,
+        reason: '${compilation.stdout}${compilation.stderr}',
+      );
+    }
+  }, timeout: const Timeout(Duration(minutes: 2)));
 
   test('native declarations preserve nested public reference types', () async {
     final types = emitNativeDeclarations(await read());

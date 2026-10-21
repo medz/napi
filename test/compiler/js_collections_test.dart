@@ -116,7 +116,15 @@ class Packet { Packet(this.items); final JsArray<int> items; }
   test(
     'resource collections scope later calls without changing unrelated modules',
     () async {
-      for (final element in ['Resource', 'Resource?', 'JsArray<Resource>']) {
+      for (final element in [
+        'Resource',
+        'Resource?',
+        'JsArray<Resource>',
+        'List<Resource>',
+        'Dictionary<({Resource value})>',
+        'Map<Resource, List<Resource?>>',
+        'List<JsArray<List<Resource>>>',
+      ]) {
         final module = await read('''
 @NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
 class Resource { Resource(); void close() {} }
@@ -237,6 +245,145 @@ import 'dart:typed_data';
     expect(emitDeclarations(wasm), emitNativeDeclarations(native));
     expect(emitDeclarations(wasm), contains('globalThis.Array<Array<number>>'));
   });
+
+  test(
+    'copied element leaves preserve reference, opaque and handle policies',
+    () async {
+      final module = await read('''
+@NAPI() class Ref<T> { Ref(this.value); final T value; }
+@NAPI() class Other { Other(); }
+@NAPI() JsArray<List<T>> opaque<T>(JsArray<List<T>> value) => value;
+@NAPI() JsArray<List<U>> renamed<U>(JsArray<List<U>> value) => value;
+@NAPI() JsArray<List<T?>> nullable<T>(JsArray<List<T?>> value) => value;
+@NAPI() JsArray<List<Ref<T>>> references<T>(JsArray<List<Ref<T>>> value) => value;
+@NAPI() JsArray<List<Ref<T>?>> nullableReferences<T>(JsArray<List<Ref<T>?>> value) => value;
+@NAPI() JsArray<List<Other>> other(JsArray<List<Other>> value) => value;
+@NAPI() JsArray<Map<Ref<T>, Dictionary<({T payload, JsArray<T?> nested})>>> mixed<T>(JsArray<Map<Ref<T>, Dictionary<({T payload, JsArray<T?> nested})>>> value) => value;
+@NAPI() JsMap<List<T>, List<JsMap<String, T>>> keys<T>(JsMap<List<T>, List<JsMap<String, T>>> value) => value;
+@NAPI() Future<JsArray<List<T>>> callback<T>(Future<JsArray<List<T>>> Function(JsArray<List<T>>) f, JsArray<List<T>> value) => f(value);
+''');
+      final wasm = lower(validate(module));
+      final native = validateNative(module);
+      for (final conversions in [
+        wasm.functions.take(8).map((f) => f.inputs.single),
+        native.functions.take(8).map((f) => f.inputs.single),
+      ]) {
+        final values = conversions.cast<JsCollectionConversion>().toList();
+        expect(values[0].signatureKey, values[1].signatureKey);
+        expect(values[0].signatureKey, isNot(values[2].signatureKey));
+        expect(values[3].signatureKey, isNot(values[4].signatureKey));
+        expect(values[3].signatureKey, isNot(values[5].signatureKey));
+        expect(
+          (values[0].value as ListConversion).element,
+          isA<OpaqueConversion>(),
+        );
+        expect(
+          (values[3].value as ListConversion).element,
+          isA<ReferenceConversion>(),
+        );
+        expect(containsJsCollectionReference(values[6]), isTrue);
+        expect(containsJsCollectionReference(values[7]), isFalse);
+      }
+      final handleInputs = wasm.functions.take(8).map((f) => f.inputs.single);
+      final dependencies = conversionDependencies(handleInputs).toList();
+      expect(dependencies.whereType<OpaqueConversion>(), isNotEmpty);
+      expect(dependencies.whereType<ReferenceConversion>(), isNotEmpty);
+      expect(
+        dependencies.whereType<JsCollectionConversion>(),
+        hasLength(greaterThan(8)),
+      );
+      expect(
+        conversionGraph(handleInputs).whereType<OpaqueConversion>(),
+        isEmpty,
+      );
+      expect(
+        conversionGraph(handleInputs).whereType<ReferenceConversion>(),
+        isEmpty,
+      );
+      expect(emitDeclarations(wasm), emitNativeDeclarations(native));
+      expect(emitDeclarations(wasm), contains('globalThis.Array<Array<T>>'));
+      expect(emitDeclarations(wasm), isNot(contains('ReadonlyArray')));
+    },
+  );
+
+  test(
+    'pure copied reference and opaque leaves build without eager admission',
+    () async {
+      final input = await File('${directory.path}/copied_leaves.dart')
+          .writeAsString('''
+import 'package:napi/napi.dart';
+@NAPI() class Item { Item(this.id); final int id; }
+@NAPI() JsArray<List<T>> opaque<T>(JsArray<List<T>> source) {
+  source.set(1, source.get(0)!);
+  return source;
+}
+@NAPI() JsArray<List<T?>> nullable<T>(JsArray<List<T?>> source) {
+  source.set(1, source.get(0)!);
+  return source;
+}
+@NAPI() JsArray<({T value})> record<T>(JsArray<({T value})> source) {
+  source.set(1, source.get(0)!);
+  return source;
+}
+@NAPI() JsArray<List<Item?>> references(JsArray<List<Item?>> source) {
+  source.set(1, source.get(0)!);
+  return source;
+}
+@NAPI() JsArray<List<JsMap<String, JsArray<int>>>> handles(JsArray<List<JsMap<String, JsArray<int>>>> source) {
+  final value = source.get(0)!;
+  value.single.get('items')!.set(0, 9);
+  source.set(1, value);
+  return source;
+}
+@NAPI() JsArray<Map<Item, Dictionary<T>>> maps<T>(JsArray<Map<Item, Dictionary<T>>> source) {
+  source.set(1, source.get(0)!);
+  return source;
+}
+@NAPI() JsArray<List<T>> unread<T>(JsArray<List<T>> source) => source;
+''');
+      await buildLibrary(
+        library: input.uri,
+        output: Directory('${directory.path}/copied_leaves'),
+        packagesPath: packages,
+      );
+      await File('${directory.path}/copied_leaves.mjs').writeAsString('''
+import assert from 'node:assert/strict';
+import * as api from './copied_leaves/module.wasm';
+const object = {};
+for (const value of [null, undefined, object, Symbol('opaque'), 1n]) {
+  const source = [[value]];
+  assert.equal(api.opaque(source), source);
+  assert.notEqual(source[1], source[0]); assert.equal(source[1][0], value);
+  const record = [{value}];
+  assert.equal(api.record(record), record);
+  assert.notEqual(record[1], record[0]); assert.equal(record[1].value, value);
+}
+const nullable = [[null, undefined, object]];
+assert.equal(api.nullable(nullable), nullable);
+assert.deepEqual(nullable[1], nullable[0]); assert.notEqual(nullable[1], nullable[0]);
+const item = new api.Item(3), references = [[item, null]];
+assert.equal(api.references(references), references);
+assert.notEqual(references[1], references[0]); assert.equal(references[1][0], item);
+assert.equal(references[1][1], null);
+assert.throws(() => api.references([[{}]]), TypeError);
+const inner = [1], map = new Map([['items', inner]]), handles = [[map]];
+assert.equal(api.handles(handles), handles); assert.equal(inner[0], 9);
+assert.notEqual(handles[1], handles[0]); assert.equal(handles[1][0], map);
+assert.equal(handles[1][0].get('items'), inner);
+const dictionary = {payload: object}, maps = [new Map([[item, dictionary]])];
+assert.equal(api.maps(maps), maps); assert.notEqual(maps[1], maps[0]);
+assert.equal([...maps[1].keys()][0], item);
+assert.notEqual(maps[1].get(item), dictionary);
+assert.equal(maps[1].get(item).payload, object);
+const invalid = [{}]; assert.equal(api.unread(invalid), invalid);
+''');
+      final result = await Process.run('node', [
+        'copied_leaves.mjs',
+      ], workingDirectory: directory.path);
+      expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
+    },
+    timeout: const Timeout(Duration(minutes: 2)),
+  );
 
   test(
     'pure copied handle elements build and preserve snapshot behavior',
@@ -551,6 +698,8 @@ assert.deepEqual([...allocated[0]], [9, 0]);
   for (final signature in [
     'JsArray<Box<T>> value',
     'JsArray<Box<T>> Function() callback',
+    'JsArray<List<Dictionary<Box<T>>>> value',
+    'JsArray<List<Dictionary<Box<T>>>> Function() callback',
   ]) {
     test(
       'reference handle names cannot shadow opaque parameters: $signature',
@@ -662,14 +811,14 @@ for (const value of [null, undefined, object]) {
     '@NAPI() JsMap<Object, int> bad(JsMap<Object, int> value) => value;',
     '@NAPI() Map<JsArray<int>, int> bad(Map<JsArray<int>, int> value) => value;',
     '@NAPI() Map<(JsMap<String,int>,), int> bad(Map<(JsMap<String,int>,), int> value) => value;',
-    '@NAPI() JsArray<List<T>> bad<T>(JsArray<List<T>> value) => value;',
-    '@NAPI() class Ref { Ref(); } @NAPI() JsArray<List<Ref>> bad(JsArray<List<Ref>> value) => value;',
-    '@NAPI(classPolicy: ClassPolicy.resource, cleanup: "close") class Resource { Resource(); void close() {} } @NAPI() JsArray<Map<String, Resource>> bad(JsArray<Map<String, Resource>> value) => value;',
-    '@NAPI() class Ref { Ref(); } @NAPI() JsArray<Dictionary<Ref?>> bad(JsArray<Dictionary<Ref?>> value) => value;',
-    '@NAPI() class Ref { Ref(); } @NAPI() JsArray<(Ref, int)> bad(JsArray<(Ref, int)> value) => value;',
-    '@NAPI() JsArray<({T payload})> bad<T>(JsArray<({T payload})> value) => value;',
-    '@NAPI() JsArray<List<JsArray<int>>> bad(JsArray<List<JsArray<int>>> value) => value;',
-    '@NAPI() JsArray<Dictionary<JsMap<String, int>>> bad(JsArray<Dictionary<JsMap<String, int>>> value) => value;',
+    '@NAPI() JsArray<Map<T, int>> bad<T>(JsArray<Map<T, int>> value) => value;',
+    '@NAPI() JsArray<Map<(List<T>,), int>> bad<T>(JsArray<Map<(List<T>,), int>> value) => value;',
+    '@NAPI() JsArray<Map<JsArray<int>, int>> bad(JsArray<Map<JsArray<int>, int>> value) => value;',
+    '@NAPI() JsArray<Map<({JsMap<String, int> key}), int>> bad(JsArray<Map<({JsMap<String, int> key}), int>> value) => value;',
+    '@NAPI() void bad<T>(JsArray<Map<T, int>> Function() callback) {}',
+    '@NAPI() void bad(JsArray<Map<JsArray<int>, int>> Function() callback) {}',
+    '@NAPI() void bad<T>(List<T> Function() callback) {}',
+    '@NAPI() class Ref { Ref(); } @NAPI() void bad(List<Ref> Function() callback) {}',
     '@NAPI() JsArray<Set<int>> bad(JsArray<Set<int>> value) => value;',
     "import 'dart:typed_data'; @NAPI() JsArray<List<Uint16List>> bad(JsArray<List<Uint16List>> value) => value;",
     '@NAPI(classPolicy: ClassPolicy.value, valueConstructor: "new") class Value { Value(this.n); final int n; } @NAPI() JsArray<List<Value>> bad(JsArray<List<Value>> value) => value;',

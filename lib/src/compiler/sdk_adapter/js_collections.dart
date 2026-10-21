@@ -1,7 +1,7 @@
 /// Retained externref handles, with weak identity and no JS facade.
 const jsCollectionsEntrypointPrelude = r'''
 @pragma('wasm:import', 'napi.jsCollectionCall')
-external WasmExternRef _jcCall(WasmExternRef source, WasmExternRef signature, WasmI32 op, WasmExternRef? a, WasmExternRef? b);
+external WasmExternRef _jcCall(WasmExternRef source, WasmExternRef signature, WasmI32 op, WasmExternRef? a, WasmExternRef? b, WasmExternRef? retain);
 @pragma('wasm:import', 'napi.jsCollectionThrew')
 external WasmI32 _jcThrew(WasmExternRef envelope);
 @pragma('wasm:import', 'napi.jsCollectionValue')
@@ -39,7 +39,7 @@ abstract class _JsCollection {
   final String signature;
   _JsCollection(WasmExternRef source, this.signature) : source = source;
   WasmExternRef? invoke(int op, WasmExternRef? a, WasmExternRef? b) {
-    final envelope = _jcCall(source!, externRefForJSAny(signature.toJS)!, WasmI32.fromInt(op), a, b);
+    final envelope = _jcCall(source!, externRefForJSAny(signature.toJS)!, WasmI32.fromInt(op), a, b, _jcRetainer);
     if (_jcThrew(envelope).toIntSigned() != 0) throw _CallbackThrown(envelope);
     return _jcValue(envelope);
   }
@@ -107,6 +107,17 @@ final class _JsMap<K,V> extends _JsCollection implements napi.JsMap<K,V> {
 
 /// Resource checks are independent of the operation active during a lazy read.
 const jsCollectionsResourceEntrypointPrelude = r'''
+WasmExternRef _jcCreateRetainer() => externRefForJSAny(((JSAny? reference) {
+  if (reference == null) return;
+  try {
+    _jcRetainResource(externRefForJSAny(reference)!.internalize().toObject(), 'JS collection element');
+  } on _CallbackThrown catch (error) {
+    _throwCallbackError(error.envelope);
+  } catch (error) {
+    _normalizeResourceError(error);
+  }
+}).toJS)!;
+
 void _jcRetainResource(Object? value, String path) {
   try {
     final control = _resourceControl(value);

@@ -151,11 +151,8 @@ final class JsCollectionConversion extends ValueConversion {
 /// Lazy references may expose a resource through an ordinary selected view.
 bool containsJsCollectionReference(ValueConversion conversion) =>
     conversion is JsCollectionConversion &&
-    [?conversion.key, conversion.value].any(
-      (element) =>
-          element is ReferenceConversion ||
-          containsJsCollectionReference(element),
-    );
+    conversionDependencies([conversion])
+        .any((element) => element is ReferenceConversion);
 
 /// An explicit cancellation input. Each backend retains the host signal while
 /// its Dart adapter is reachable; accepting it does not cancel ordinary work.
@@ -489,7 +486,7 @@ final class ValueClassConversion extends ValueConversion {
 Iterable<ValueConversion> conversionGraph(
   Iterable<ValueConversion> roots,
 ) sync* {
-  final pending = roots.toList();
+  final pending = <ValueConversion>[...roots];
   final seen = <ValueConversion>{};
   while (pending.isNotEmpty) {
     final node = pending.removeLast();

@@ -2,6 +2,7 @@ import * as api from '@napi/js-collections-fixture';
 import * as direct from '@napi/js-collections-fixture/BACKEND';
 import * as external from '@napi/js-collections-external';
 import * as nestedOnly from '@napi/js-collections-nested';
+import * as copiedOnly from '@napi/js-collections-copied';
 const array: number[] = api.remember([1]);
 const same: number[] = direct.remember(external.remember(array));
 const map: Map<string, number | null> = api.rememberMap(new Map([['a', 1], ['b', null]]));
@@ -200,3 +201,15 @@ new api.StructuralCollections([{values: []}], new Map());
 // @ts-expect-error Copy keys retain their declared List element type.
 api.structuralKeys(new Map([[['wrong'], {value: 1}]]));
 void [structuralArray, structuralMap, structuralRead, structuralCopiedKeys, structuralRecordKey, structuralContainerKeys, structuralCollision, structuralWide, structuralArbitrary, structuralResourceEntry, structuralCallbackValue];
+
+const copiedPayloadSource = [{reference: ref, payload: undefined as Payload, handle: [undefined] as Payload[]}];
+const copiedPayloads = new api.CopiedPayloads<Payload>(copiedPayloadSource);
+const copiedPayload: Payload | null = copiedPayloads.payload();
+const copiedHandle: Payload[] | null = copiedPayloads.handle();
+const copiedReference: api.RefItem | null = copiedPayloads.reference();
+const pureCopied: Payload[][] = copiedOnly.pureCopiedPayload<Payload>([[undefined]]);
+const copiedResources = new api.CopiedResources([{resource: resourceItem, values: [1]}]);
+const copiedResourceUse: Promise<number> = copiedResources.hold(1);
+// @ts-expect-error Nested opaque payloads retain their logical type.
+new api.CopiedPayloads<Payload>([{reference: ref, payload: 'wrong', handle: []}]);
+void [copiedPayload, copiedHandle, copiedReference, pureCopied, copiedResourceUse];

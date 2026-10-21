@@ -94,6 +94,9 @@ String emitNativeDart(NativeModulePlan plan) {
   final hasOpaqueStructuralInputs = plan.calls.any(
     (call) => hasNestedOpaque(call.inputs),
   );
+  final needsOpaqueReadState =
+      hasOpaqueStructuralInputs ||
+      hasNestedOpaque(conversionDependencies(plan.jsCollections));
   final defaultImports = defaultImportPrefixes(
     plan.calls.expand((call) => call.parameters),
     plan.calls.expand((call) => [...call.inputs, ?call.output]),
@@ -659,13 +662,13 @@ ${tests.declarations}  int? canonical;''');
   final structuralSource = structures.source;
   if (hasStructures || structuralSource.isNotEmpty) {
     code.writeln(
-      hasResources || hasOpaqueStructuralInputs
+      hasResources || needsOpaqueReadState
           ? nativeStructuralPrelude.replaceFirst(
               'final class _NativeReadState {',
               'final class _NativeReadState {\n'
-                  '  _NativeReadState(${hasResources ? 'this.operation' : ''}${hasOpaqueStructuralInputs ? '${hasResources ? ', ' : ''}{this.owned}' : ''});\n'
+                  '  _NativeReadState(${hasResources ? 'this.operation' : ''}${needsOpaqueReadState ? '${hasResources ? ', ' : ''}{this.owned}' : ''});\n'
                   '${hasResources ? '  final ResourceOperation? operation;\n' : ''}'
-                  '${hasOpaqueStructuralInputs ? '  final List<NativeHostValue>? owned;\n' : ''}',
+                  '${needsOpaqueReadState ? '  final List<NativeHostValue>? owned;\n' : ''}',
             )
           : nativeStructuralPrelude,
     );

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:typed_data';
 
 import 'package:napi/napi.dart';
@@ -973,3 +974,177 @@ List<int>? structuralCallback(
   JsArray<List<int>> Function(JsArray<List<int>>) callback,
   JsArray<List<int>> value,
 ) => callback(value).get(0);
+
+typedef CopiedPayload<T> = ({RefItem reference, T payload, JsArray<T> handle});
+
+@NAPI()
+class CopiedPayloads<T> {
+  final JsArray<CopiedPayload<T>> _source;
+  CopiedPayload<T>? _saved;
+  CopiedPayloads(this._source);
+  JsArray<CopiedPayload<T>> source() => _source;
+  bool load(int index) {
+    _saved = _source.get(index);
+    return _saved != null;
+  }
+
+  CopiedPayload<T>? saved() => _saved;
+  RefItem? reference() => _saved?.reference;
+  T? payload() => _saved?.payload;
+  JsArray<T>? handle() => _saved?.handle;
+  T? readInner(int index) => _saved!.handle.get(index);
+  void write(int index) => _source.set(index, _saved!);
+  void clear() => _saved = null;
+}
+
+@NAPI()
+JsArray<List<T>> pureCopiedPayload<T>(JsArray<List<T>> value) {
+  value.set(1, value.get(0)!);
+  return value;
+}
+
+typedef CopiedResource = ({ResourceItem resource, List<int> values});
+typedef CopiedResourceOutput = (
+  ResourceItem, {
+  List<int> list,
+  Map<String, int> map,
+  Dictionary<int> dict,
+});
+
+class _ClosingList extends ListBase<int> {
+  final void Function() close;
+  _ClosingList(this.close);
+  @override
+  int get length => 1;
+  @override
+  set length(int value) => throw UnsupportedError('fixed');
+  @override
+  int operator [](int index) {
+    close();
+    return 1;
+  }
+
+  @override
+  void operator []=(int index, int value) => throw UnsupportedError('fixed');
+}
+
+class _ClosingMap extends MapBase<String, int> {
+  final void Function() close;
+  _ClosingMap(this.close);
+  @override
+  int get length => 1;
+  @override
+  Iterable<String> get keys {
+    close();
+    return ['key'];
+  }
+
+  @override
+  int? operator [](Object? key) => 1;
+  @override
+  void operator []=(String key, int value) => throw UnsupportedError('fixed');
+  @override
+  void clear() => throw UnsupportedError('fixed');
+  @override
+  int? remove(Object? key) => throw UnsupportedError('fixed');
+}
+
+class _ResourceEntries<K> extends MapBase<K, ResourceItem?> {
+  final K firstKey;
+  final K lastKey;
+  final ResourceItem resource;
+  final void Function() close;
+  _ResourceEntries(this.firstKey, this.lastKey, this.resource, this.close);
+  @override
+  int get length => 2;
+  @override
+  Iterable<K> get keys sync* {
+    yield firstKey;
+    close();
+    yield lastKey;
+  }
+
+  @override
+  ResourceItem? operator [](Object? key) =>
+      identical(key, firstKey) ? resource : null;
+  @override
+  void operator []=(K key, ResourceItem? value) =>
+      throw UnsupportedError('fixed');
+  @override
+  void clear() => throw UnsupportedError('fixed');
+  @override
+  ResourceItem? remove(Object? key) => throw UnsupportedError('fixed');
+}
+
+@NAPI()
+class CopiedResources {
+  final JsArray<CopiedResource> _source;
+  CopiedResource? _saved;
+  CopiedResources(this._source);
+  void load() => _saved = _source.get(0);
+  void write() => _source.set(0, _saved!);
+  void output(
+    JsArray<CopiedResourceOutput> target,
+    int kind,
+    void Function() close,
+  ) => target.set(0, (
+    _saved!.resource,
+    list: kind == 0 ? _ClosingList(close) : [],
+    map: kind == 1 ? _ClosingMap(close) : {},
+    dict: Dictionary(kind == 2 ? _ClosingMap(close) : {}),
+  ));
+  void outputEntries(
+    JsArray<Map<ResourceItem?, ResourceItem?>> maps,
+    JsArray<Dictionary<ResourceItem?>> dictionaries,
+    bool dictionary,
+    void Function() close,
+  ) {
+    final resource = _saved!.resource;
+    if (dictionary) {
+      dictionaries.set(
+        0,
+        Dictionary(_ResourceEntries('first', 'last', resource, close)),
+      );
+    } else {
+      maps.set(0, _ResourceEntries(resource, null, resource, close));
+    }
+  }
+
+  Future<int> hold(int token) async {
+    final value = _source.get(0)!;
+    await _collectionGate(token);
+    return value.resource.value;
+  }
+
+  Stream<int> watch(int token) {
+    late StreamController<int> controller;
+    controller = StreamController<int>(
+      onListen: () async {
+        try {
+          await _collectionGate(token);
+          controller.add(_source.get(0)!.resource.value);
+        } catch (error, stack) {
+          controller.addError(error, stack);
+        }
+      },
+      onCancel: () => _collectionGate(-token),
+    );
+    return controller.stream;
+  }
+
+  void timer(bool write) {
+    _collectionTimer = [];
+    Timer(const Duration(milliseconds: 1), () {
+      try {
+        if (write) {
+          _source.set(0, _saved!);
+        } else {
+          _source.get(0);
+        }
+        _collectionTimer.add(0);
+      } catch (_) {
+        _collectionTimer.add(1);
+      }
+    });
+  }
+}

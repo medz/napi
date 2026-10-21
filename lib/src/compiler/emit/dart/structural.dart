@@ -15,11 +15,12 @@ final class DartStructuralEmitter {
   });
   final _code = StringBuffer();
   var _next = 0;
-  final _memo = <(ValueConversion, bool, bool), String>{};
+  final _memo = <(ValueConversion, bool, bool, bool), String>{};
 
   String read(ValueConversion conversion, {bool bigintText = false}) =>
       _emit(conversion, false, bigintText);
-  String write(ValueConversion conversion) => _emit(conversion, true, false);
+  String write(ValueConversion conversion, {bool retainResources = false}) =>
+      _emit(conversion, true, false, retainResources);
   String get source => _code.toString();
 
   String _collectionElement(ValueConversion conversion) {
@@ -36,7 +37,7 @@ final class DartStructuralEmitter {
           DictionaryConversion() ||
           RecordConversion():
         final reader = read(conversion, bigintText: true);
-        final writer = write(conversion);
+        final writer = write(conversion, retainResources: true);
         final path = jsonEncode(conversion.context).replaceAll(r'$', r'\$');
         final failure =
             'throw _CallbackThrown(_jcTypeError(externRefForJSAny((error.path + ": " + error.message).toJS), WasmI32.fromInt(error.range ? 1 : 0)));';
@@ -71,8 +72,17 @@ final class DartStructuralEmitter {
     }
   }
 
-  String _emit(ValueConversion conversion, bool output, bool bigintText) {
-    final key = (conversion, output, bigintText);
+  String _emit(
+    ValueConversion conversion,
+    bool output,
+    bool bigintText, [
+    bool retainResources = false,
+  ]) {
+    retainResources =
+        retainResources &&
+        resources &&
+        conversionGraph([conversion]).any((c) => c is ReferenceConversion);
+    final key = (conversion, output, bigintText, retainResources);
     if (_memo[key] case final name?) return name;
     final name = '_${output ? 'write' : 'read'}Structure${_next++}';
     _memo[key] = name;
@@ -94,7 +104,8 @@ final class DartStructuralEmitter {
       CallbackConversion() => <ValueConversion>[],
     };
     final functions = [
-      for (final child in children) _emit(child, output, bigintText),
+      for (final child in children)
+        _emit(child, output, bigintText, retainResources),
     ];
     final collectionElements = conversion is JsCollectionConversion && !output
         ? [
@@ -120,6 +131,9 @@ final class DartStructuralEmitter {
       case AbortSignalConversion():
         throw StateError('Nested AbortSignal conversion is not supported.');
       case ReferenceConversion():
+        if (output && retainResources) {
+          _code.writeln('  _jcRetainResource(value, path);');
+        }
         _code.writeln(
           output
               ? '  return WasmAnyRef.fromObject(value).externalize().toJS;'
@@ -184,7 +198,24 @@ final class DartStructuralEmitter {
   ];''');
         }
       case MapConversion(:final key, :final value):
-        if (output) {
+        if (output && retainResources) {
+          _code.writeln('''  state.enter(value, path, depth);
+  try {
+    final length = value.length;
+    if (length < 0 || length > 0xffffffff) _structureError('\$path.length', 'expected a Map length', false);
+    if (length > (10000 - state.work) ~/ 2) _structureError(path, 'structural work limit (10000) exceeded', true);
+    final result = <JSAny?>[];
+    final iterator = value.entries.iterator;
+    for (var i = 0; i < length; i++) {
+      if (!iterator.moveNext()) _structureError(path, 'Map length changed during iteration', false);
+      final entry = iterator.current;
+      result.add(${functions[0]}(entry.key, state, '\$path[\$i].key', depth + 1));
+      result.add(${functions[1]}(entry.value, state, '\$path[\$i].value', depth + 1));
+    }
+    if (iterator.moveNext()) _structureError(path, 'Map length changed during iteration', false);
+    return result.toJS;
+  } finally { state.leave(value); }''');
+        } else if (output) {
           _code.writeln('''  state.enter(value, path, depth);
   try {
     final length = value.length;
@@ -218,7 +249,27 @@ final class DartStructuralEmitter {
   return result;''');
         }
       case DictionaryConversion(:final value):
-        if (output) {
+        if (output && retainResources) {
+          _code.writeln('''  state.enter(value, path, depth);
+  try {
+    final length = value.length;
+    if (length < 0 || length > 0xffffffff) _structureError('\$path.length', 'expected a Dictionary length', false);
+    if (length > 10000 - state.work) _structureError(path, 'structural work limit (10000) exceeded', true);
+    final result = <JSAny?>[];
+    final keys = <String>{};
+    final iterator = value.entries.iterator;
+    for (var i = 0; i < length; i++) {
+      if (!iterator.moveNext()) _structureError(path, 'Dictionary length changed during iteration', false);
+      final entry = iterator.current;
+      final key = entry.key;
+      if (!keys.add(key)) _structureError('\$path[\${jsonEncode(key)}]', 'duplicate Dictionary key', false);
+      result.add(key.toJS);
+      result.add(${functions.single}(entry.value, state, '\$path[\${jsonEncode(key)}]', depth + 1));
+    }
+    if (iterator.moveNext()) _structureError(path, 'Dictionary length changed during iteration', false);
+    return result.toJS;
+  } finally { state.leave(value); }''');
+        } else if (output) {
           _code.writeln('''  state.enter(value, path, depth);
   try {
     final length = value.length;
