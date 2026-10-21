@@ -231,6 +231,45 @@ const _items = <Resource?>[_default, null, Child(), _default];
     },
   );
 
+  for (final (fieldType, defaultValue) in [
+    ('Inner', 'const Inner(_default)'),
+    ('List<Inner>', 'const [Inner(_default)]'),
+    ('Map<String, Inner>', "const {'item': Inner(_default)}"),
+    ('Map<Inner, int>', 'const {Inner(_default): 1}'),
+    ('Dictionary<Inner>', "const Dictionary({'item': Inner(_default)})"),
+    ('(Inner,)', 'const (Inner(_default),)'),
+  ]) {
+    test('value defaults do not hide resource graphs in $fieldType', () async {
+      final declaration =
+          '''
+@NAPI(classPolicy: ClassPolicy.value)
+class Inner {
+  final Resource resource;
+  const Inner(this.resource);
+}
+@NAPI(classPolicy: ClassPolicy.value)
+class Outer {
+  final $fieldType item;
+  const Outer({this.item = $defaultValue});
+}
+@NAPI() Outer echo(Outer value) => value;
+''';
+      for (final native in [false, true]) {
+        final module = await read(declaration, native: native);
+        expect(
+          () => native ? validateNative(module) : validate(module),
+          throwsA(
+            isA<BindingDiagnostic>().having(
+              (error) => error.code,
+              'code',
+              'NAPI_DEFAULT',
+            ),
+          ),
+        );
+      }
+    });
+  }
+
   for (final (name, declaration) in [
     (
       'value constructor field',

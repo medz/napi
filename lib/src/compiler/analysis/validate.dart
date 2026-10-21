@@ -2584,7 +2584,8 @@ void validateParameterDefault(
     }
     final admittedResourceDefault =
         allowResourceDefaults &&
-        (isReferenceType(type, referenceClasses) ||
+        (isReferenceType(type, referenceClasses) &&
+                !isValueClassType(type, referenceClasses) ||
             _resourceContainerDefault(type, referenceClasses));
     if ((admittedResourceDefault ||
             _portableDefaultParameter(type, referenceClasses)) &&
@@ -3001,7 +3002,7 @@ bool _resourceContainerDefault(BindingType type, List<ClassBinding> classes) {
   if (type.nullability == TypeNullability.legacy) return false;
   bool child(BindingType type) =>
       _isBackendScalar(type) ||
-      isReferenceType(type, classes) ||
+      isReferenceType(type, classes) && !isValueClassType(type, classes) ||
       _resourceContainerDefault(type, classes);
   if (type is RecordTypeBinding) {
     return type.positional.every(child) && type.named.values.every(child);
