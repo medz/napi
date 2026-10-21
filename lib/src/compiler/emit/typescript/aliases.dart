@@ -14,12 +14,12 @@ String emitRecordAliases(
   final defaults = [
     for (final schema in values)
       conversionFor(
-        schema.binding.instantiatedType ??
-            DeclaredType(schema.binding.declaration, ValueSemantics.reference),
+        valueClassType(schema.binding),
         schema.binding.exportName,
         bigint: false,
         classes: classes,
         valueSchemas: values,
+        opaqueParameters: opaqueParameterIds(schema.binding.typeParameters),
       ),
   ];
   final records = <DeclarationId, RecordTypeBinding>{};

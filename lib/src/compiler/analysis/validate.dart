@@ -215,18 +215,20 @@ ReferenceMemberShape? referenceMemberInScope(
   return ReferenceMemberShape._(
     member.binding,
     member.kind,
-    member.parameters.map((p) => _projectParameter(p, parameters)),
-    member.result == null ? null : _projectType(member.result!, parameters),
+    member.parameters.map((p) => projectOpaqueParameter(p, parameters)),
+    member.result == null
+        ? null
+        : projectOpaqueType(member.result!, parameters),
     isCleanup: member.isCleanup,
   );
 }
 
-ParameterBinding _projectParameter(
+ParameterBinding projectOpaqueParameter(
   ParameterBinding parameter,
   Map<DeclarationId, DeclarationId> parameters,
 ) => ParameterBinding(
   parameter.name,
-  _projectType(parameter.type, parameters),
+  projectOpaqueType(parameter.type, parameters),
   presence: parameter.presence,
   kind: parameter.kind,
   defaultSource: parameter.defaultSource,
@@ -241,7 +243,7 @@ ParameterBinding _projectParameter(
   isCovariant: parameter.isCovariant,
 );
 
-BindingType _projectType(
+BindingType projectOpaqueType(
   BindingType type,
   Map<DeclarationId, DeclarationId> parameters,
 ) => switch (type) {
@@ -253,22 +255,26 @@ BindingType _projectType(
   DeclaredType() => DeclaredType(
     type.declaration,
     type.semantics,
-    typeArguments: type.typeArguments.map((t) => _projectType(t, parameters)),
+    typeArguments: type.typeArguments.map(
+      (t) => projectOpaqueType(t, parameters),
+    ),
     nullability: type.nullability,
     alias: type.alias,
   ),
   RecordTypeBinding() => RecordTypeBinding(
-    positional: type.positional.map((t) => _projectType(t, parameters)),
+    positional: type.positional.map((t) => projectOpaqueType(t, parameters)),
     named: {
       for (final e in type.named.entries)
-        e.key: _projectType(e.value, parameters),
+        e.key: projectOpaqueType(e.value, parameters),
     },
     nullability: type.nullability,
     alias: type.alias,
   ),
   FunctionTypeBinding() => FunctionTypeBinding(
-    parameters: type.parameters.map((p) => _projectParameter(p, parameters)),
-    result: _projectType(type.result, parameters),
+    parameters: type.parameters.map(
+      (p) => projectOpaqueParameter(p, parameters),
+    ),
+    result: projectOpaqueType(type.result, parameters),
     typeParameters: type.typeParameters,
     nullability: type.nullability,
     alias: type.alias,
@@ -330,6 +336,26 @@ final class ValueClassSchema {
       inputFields = List.unmodifiable(input);
 }
 
+DeclaredType valueClassType(ClassBinding binding) =>
+    binding.instantiatedType ??
+    DeclaredType(
+      binding.declaration,
+      ValueSemantics.reference,
+      typeArguments: binding.typeParameters.map(
+        (parameter) => TypeParameterType(parameter.declaration),
+      ),
+    );
+
+/// Open value instances carry only opaque parameters, just like references.
+Map<DeclarationId, DeclarationId> valueClassParameterProjection(
+  ClassBinding binding,
+  DeclaredType type,
+) => {
+  for (final (index, parameter) in binding.typeParameters.indexed)
+    parameter.declaration:
+        (type.typeArguments[index] as TypeParameterType).declaration,
+};
+
 List<ValueClassSchema> validateValueClasses(BindingModule module) {
   final result = <ValueClassSchema>[];
   for (final binding in module.classes.where(
@@ -346,13 +372,10 @@ List<ValueClassSchema> validateValueClasses(BindingModule module) {
     if (binding.exportSurface != module.source) {
       reject('The value class must be exposed by the entry library.');
     }
-    if (binding.typeParameters.isNotEmpty) {
-      throw BindingDiagnostic(
-        'NAPI_GENERIC',
-        'Generic value classes are not implemented.',
-        binding.source,
-      );
-    }
+    final opaque = validateOpaqueParameters(
+      binding.typeParameters,
+      binding.source,
+    );
     final fields = <ValueFieldSchema>[];
     for (final member in binding.members) {
       if (member.selection == MemberSelection.excluded) continue;
@@ -392,7 +415,12 @@ List<ValueClassSchema> validateValueClasses(BindingModule module) {
         member.source,
       );
       _referencePath(member.callPath ?? member.declaration.name, member.source);
-      validateValueType(type, member.source, referenceClasses: module.classes);
+      validateValueType(
+        type,
+        member.source,
+        referenceClasses: module.classes,
+        opaqueParameters: opaque,
+      );
       fields.add(
         ValueFieldSchema(
           member,
@@ -1723,10 +1751,10 @@ bool referenceMemberAccepts(
   final output = implementation.result;
   final requiredOutput = parameters.isEmpty || contract.result == null
       ? contract.result
-      : _projectType(contract.result!, parameters);
+      : projectOpaqueType(contract.result!, parameters);
   final requiredParameters = parameters.isEmpty
       ? contract.parameters
-      : contract.parameters.map((p) => _projectParameter(p, parameters));
+      : contract.parameters.map((p) => projectOpaqueParameter(p, parameters));
   if (implementation.isCleanup != contract.isCleanup ||
       implementation.returnsFuture != contract.returnsFuture ||
       implementation.returnsStream != contract.returnsStream) {
@@ -2324,11 +2352,18 @@ bool _supportedJsCollectionElement(
         visited: visited,
       );
   if (_valueClassBinding(type, classes) case final binding?) {
+    if (!_valueClassArgumentsSupported(
+      binding,
+      type as DeclaredType,
+      opaqueParameters,
+    )) {
+      return false;
+    }
     if (!visited.add((binding, mapKey))) return true;
     _validateValueConstructorInputs(binding, classes);
     return [
-      ..._valueChildren(binding, ValueDirection.input),
-      ..._valueChildren(binding, ValueDirection.output),
+      ..._valueChildren(binding, ValueDirection.input, type),
+      ..._valueChildren(binding, ValueDirection.output, type),
     ].every(child);
   }
   if (type is RecordTypeBinding) {
@@ -2401,8 +2436,8 @@ void validateOpaqueReferenceNames(
   List<ClassBinding> classes,
   Set<DeclarationId> parameters,
 ) {
-  // Value fields live in module-level private TS aliases, outside the call's
-  // opaque parameter scope. Their concrete arguments do not appear at the use.
+  // Value fields live in module-level private TS aliases. Open values expose
+  // only opaque arguments here; their selected class name cannot be captured.
   if (_valueClassBinding(type, classes) != null) return;
   if (type is DeclaredType) {
     for (final binding in classes) {
@@ -2541,6 +2576,7 @@ void validateCallParameters(
         parameter,
         source,
         referenceClasses: referenceClasses,
+        opaqueParameters: opaqueParameters,
         allowResourceDefaults: allowResourceDefaults,
       );
     }
@@ -2552,6 +2588,7 @@ void validateParameterDefault(
   ParameterBinding parameter,
   SourceLocation source, {
   List<ClassBinding> referenceClasses = const [],
+  Set<DeclarationId> opaqueParameters = const {},
   bool allowResourceDefaults = false,
 }) {
   final constant = parameter.defaultValue;
@@ -2582,14 +2619,20 @@ void validateParameterDefault(
                 !isValueClassType(type, referenceClasses) ||
             _resourceContainerDefault(type, referenceClasses));
     if ((admittedResourceDefault ||
-            _portableDefaultParameter(type, referenceClasses)) &&
+            _portableDefaultParameter(
+              type,
+              referenceClasses,
+              opaqueParameters: opaqueParameters,
+            )) &&
         (admittedResourceDefault ||
             !_defaultGraphHasResource(constant, referenceClasses)) &&
         _structuralDefaultFits(
           constant,
           type,
           referenceClasses,
-          rootTypeIsAssignable: parameter.defaultTypeIsAssignable,
+          rootTypeIsAssignable:
+              parameter.defaultTypeIsAssignable &&
+              !_containsOpaque(type, opaqueParameters),
         )) {
       return;
     }
@@ -2598,8 +2641,8 @@ void validateParameterDefault(
       'Non-null defaults require a compatible const graph of scalars, selected '
           'reference/value objects, Lists, Maps, Dictionaries or records. '
           'Object defaults need accessible const constructors or bindings; resource '
-          'defaults require direct references or built-in containers. Opaque '
-          'defaults remain unsupported. '
+          'defaults require direct references or built-in containers. Non-null '
+          'opaque payload defaults remain unsupported. '
           'Value-object defaults containing class-valued fields are unsupported '
           'when the library exports resources.',
       parameter.source ?? source,
@@ -2669,7 +2712,6 @@ ClassBinding? _valueClassBinding(
           .where(
             (binding) =>
                 binding.classPolicy == ClassPolicy.value &&
-                binding.typeParameters.isEmpty &&
                 referenceClassMatches(binding, type),
           )
           .firstOrNull
@@ -2677,6 +2719,20 @@ ClassBinding? _valueClassBinding(
 
 bool isValueClassType(BindingType type, List<ClassBinding> classes) =>
     _valueClassBinding(type, classes) != null;
+
+bool _valueClassArgumentsSupported(
+  ClassBinding binding,
+  DeclaredType type,
+  Set<DeclarationId> opaqueParameters,
+) =>
+    binding.instantiatedType != null ||
+    binding.typeParameters.isEmpty ||
+    binding.typeParameters.every((parameter) => parameter.opaque) &&
+        type.typeArguments.every(
+          (argument) =>
+              argument.nullability == TypeNullability.nonNullable &&
+              isOpaqueType(argument, opaqueParameters),
+        );
 
 void _validateValueConstructorInputs(
   ClassBinding binding,
@@ -2691,6 +2747,7 @@ void _validateValueConstructorInputs(
     constructor.parameters,
     constructor.source,
     referenceClasses: classes,
+    opaqueParameters: opaqueParameterIds(binding.typeParameters),
     allowResourceDefaults: true,
     validateTypes: false,
   );
@@ -2698,13 +2755,19 @@ void _validateValueConstructorInputs(
 
 Iterable<BindingType> _valueChildren(
   ClassBinding binding,
-  ValueDirection direction,
-) {
+  ValueDirection direction, [
+  DeclaredType? instance,
+]) {
+  final parameters = instance == null
+      ? const <DeclarationId, DeclarationId>{}
+      : valueClassParameterProjection(binding, instance);
+  BindingType project(BindingType type) =>
+      parameters.isEmpty ? type : projectOpaqueType(type, parameters);
   if (direction == ValueDirection.input) {
     final constructor = binding.members
         .where((m) => m.declaration == binding.valueConstructor)
         .firstOrNull;
-    return constructor?.parameters.map((p) => p.type) ?? const [];
+    return constructor?.parameters.map((p) => project(p.type)) ?? const [];
   }
   return binding.members
       .where(
@@ -2714,9 +2777,10 @@ Iterable<BindingType> _valueChildren(
             (m.kind == MemberKind.field || m.kind == MemberKind.getter),
       )
       .map(
-        (m) =>
-            (m.kind == MemberKind.field ? m.type : m.result) ??
-            const DynamicType(),
+        (m) => project(
+          (m.kind == MemberKind.field ? m.type : m.result) ??
+              const DynamicType(),
+        ),
       );
 }
 
@@ -2816,6 +2880,17 @@ void _checkValueDirection(
     );
   }
   if (_valueClassBinding(type, classes) case final binding?) {
+    if (!_valueClassArgumentsSupported(
+      binding,
+      type as DeclaredType,
+      opaqueParameters,
+    )) {
+      throw BindingDiagnostic(
+        'NAPI_TYPE',
+        'Open value classes require direct opaque type parameters; select a concrete alias for a concrete type.',
+        source,
+      );
+    }
     if (direction == ValueDirection.input && binding.valueConstructor == null) {
       throw BindingDiagnostic(
         'NAPI_VALUE_INPUT',
@@ -2827,7 +2902,7 @@ void _checkValueDirection(
     if (direction == ValueDirection.input) {
       _validateValueConstructorInputs(binding, classes);
     }
-    for (final child in _valueChildren(binding, direction)) {
+    for (final child in _valueChildren(binding, direction, type)) {
       _checkValueDirection(
         child,
         source,
@@ -2888,11 +2963,18 @@ bool _isBackendValue(
   bool child(BindingType value) =>
       _isBackendValue(value, classes, direction, visited, opaqueParameters);
   if (_valueClassBinding(type, classes) case final binding?) {
+    if (!_valueClassArgumentsSupported(
+      binding,
+      type as DeclaredType,
+      opaqueParameters,
+    )) {
+      return false;
+    }
     if (direction == ValueDirection.input && binding.valueConstructor == null) {
       return false;
     }
     if (!visited.add((binding, direction))) return true;
-    return _valueChildren(binding, direction).every(child);
+    return _valueChildren(binding, direction, type).every(child);
   }
   if (type is FunctionTypeBinding) {
     final argumentDirection = direction == ValueDirection.input
@@ -2952,8 +3034,10 @@ Map<int, int> resourcePolicies(List<ReferenceClassShape> classes) {
     return ReferenceMemberShape._(
       cleanup.binding,
       cleanup.kind,
-      cleanup.parameters.map((p) => _projectParameter(p, parameters)),
-      cleanup.result == null ? null : _projectType(cleanup.result!, parameters),
+      cleanup.parameters.map((p) => projectOpaqueParameter(p, parameters)),
+      cleanup.result == null
+          ? null
+          : projectOpaqueType(cleanup.result!, parameters),
       isCleanup: true,
     );
   }
@@ -3046,15 +3130,23 @@ bool _resourceContainerDefault(BindingType type, List<ClassBinding> classes) {
 
 bool _portableDefaultParameter(
   BindingType type,
-  List<ClassBinding> classes, [
+  List<ClassBinding> classes, {
   Set<ClassBinding>? seen,
   bool withinValueDefault = false,
-]) {
-  if (_isBackendScalar(type)) return true;
+  Set<DeclarationId> opaqueParameters = const {},
+}) {
+  if (_isBackendScalar(type) || isOpaqueType(type, opaqueParameters)) {
+    return true;
+  }
   if (type.nullability == TypeNullability.legacy) return false;
   final visited = seen ?? <ClassBinding>{};
-  bool child(BindingType type) =>
-      _portableDefaultParameter(type, classes, visited, withinValueDefault);
+  bool child(BindingType type) => _portableDefaultParameter(
+    type,
+    classes,
+    seen: visited,
+    withinValueDefault: withinValueDefault,
+    opaqueParameters: opaqueParameters,
+  );
   if (type is RecordTypeBinding) {
     return type.positional.every(child) && type.named.values.every(child);
   }
@@ -3083,12 +3175,37 @@ bool _portableDefaultParameter(
   if (binding.classPolicy != ClassPolicy.value) {
     return binding.typeParameters.isEmpty && isClosedConcreteType(type);
   }
+  if (!_valueClassArgumentsSupported(binding, type, opaqueParameters)) {
+    return false;
+  }
   if (!visited.add(binding)) return true;
-  bool valueField(BindingType type) =>
-      _portableDefaultParameter(type, classes, visited, true);
-  return _valueChildren(binding, ValueDirection.input).every(valueField) &&
-      _valueChildren(binding, ValueDirection.output).every(valueField);
+  bool valueField(BindingType type) => _portableDefaultParameter(
+    type,
+    classes,
+    seen: visited,
+    withinValueDefault: true,
+    opaqueParameters: opaqueParameters,
+  );
+  return _valueChildren(
+        binding,
+        ValueDirection.input,
+        type,
+      ).every(valueField) &&
+      _valueChildren(binding, ValueDirection.output, type).every(valueField);
 }
+
+bool _containsOpaque(BindingType type, Set<DeclarationId> parameters) =>
+    isOpaqueType(type, parameters) ||
+    switch (type) {
+      DeclaredType() => type.typeArguments.any(
+        (child) => _containsOpaque(child, parameters),
+      ),
+      RecordTypeBinding() => [
+        ...type.positional,
+        ...type.named.values,
+      ].any((child) => _containsOpaque(child, parameters)),
+      _ => false,
+    };
 
 bool _isResourceClass(ClassBinding binding, List<ClassBinding> classes) =>
     binding.classPolicy == ClassPolicy.resource ||

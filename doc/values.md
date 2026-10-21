@@ -44,7 +44,26 @@ including when nested inside an ordinary copied container.
 [Concrete aliases](concrete-generics.md#structural-value-aliases) can fix real Dart
 type arguments before selecting the value policy. Each specialization keeps its
 own constructor, recursive field schemas and direction-specific TypeScript
-types. Ordinary open generic value classes remain unsupported.
+types.
+
+Open generic value classes preserve [opaque JavaScript payloads](opaque.md):
+
+```dart
+@NAPI(classPolicy: ClassPolicy.value)
+class Box<T> {
+  Box(this.value, {this.optional, this.items = const []});
+  final T value;
+  final T? optional;
+  final List<T> items;
+}
+
+@NAPI()
+Box<T> echo<T>(Box<T> value) => value;
+```
+
+The surrounding container is copied; each `T` payload retains its JavaScript
+identity. A use such as `Box<T>` must pass an opaque type parameter directly.
+Use a concrete alias for real Dart specializations such as `Box<List<int>>`.
 
 ## Mapping
 
@@ -87,6 +106,8 @@ Optional fields use the Dart parameter default when absent or explicitly
 fields accept `null`. Input optionality and output required fields have separate
 TypeScript shapes. Numeric policies compose through fields and recursion,
 including an enclosing `@NAPI(bigint: true)` function.
+Opaque `T` and `T?` fields preserve explicit `undefined` and `null` as payloads.
+Only an absent optional opaque property selects its Dart default.
 Defaults may include [const objects](arguments.md),
 directly or inside supported containers; they remain Dart constants.
 Input properties may also default to resources, directly or inside built-in

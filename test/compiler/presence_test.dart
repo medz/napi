@@ -203,13 +203,91 @@ const _items = <Dictionary<int>>[Dictionary<int>(<String, Never>{})];
   );
 
   test(
+    'opaque container defaults retain their evaluated Never element type',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'napi-opaque-default-',
+      );
+      addTearDown(() => root.delete(recursive: true));
+      final file = await File('${root.path}/entry.dart').writeAsString('''
+import 'package:napi/napi.dart';
+@NAPI() bool run<T>([List<T> value = const <Never>[]]) => true;
+''');
+      final module = await AnnotationFrontend(
+        packagesPath: File('.dart_tool/package_config.json').absolute.path,
+      ).read(file.uri);
+      final plan = lower(validate(module));
+      final input = plan.functions.single.inputs.single as ListConversion;
+      expect(input.element, isA<OpaqueConversion>());
+      expect(
+        constantDefaultSource(
+          module.functions.single.parameters.single.defaultValue!,
+        ),
+        'const <Never>[]',
+      );
+      expect(
+        emitDart(plan),
+        contains('const <Never>[] as List<_NapiHostValue>'),
+      );
+    },
+  );
+
+  test('opaque defaults require compatible payloads even with assignability metadata', () {
+    final parameter = DeclarationId(
+      _source,
+      'T',
+      kind: DeclarationKind.typeParameter,
+    );
+    final list = DeclarationId(
+      Uri.parse('dart:core'),
+      'List',
+      kind: DeclarationKind.classType,
+    );
+    expect(
+      () => validateParameterDefault(
+        ParameterBinding(
+          'value',
+          DeclaredType(
+            list,
+            ValueSemantics.structural,
+            typeArguments: [TypeParameterType(parameter)],
+          ),
+          kind: ParameterKind.optionalPositional,
+          defaultValue: ListDefault(
+            DeclaredType(
+              list,
+              ValueSemantics.structural,
+              typeArguments: [
+                DeclaredType(
+                  DeclarationId(
+                    Uri.parse('dart:core'),
+                    'String',
+                    kind: DeclarationKind.classType,
+                  ),
+                  ValueSemantics.scalar,
+                ),
+              ],
+            ),
+            [const ScalarDefault('not a host value')],
+          ),
+          defaultTypeIsAssignable: true,
+        ),
+        SourceLocation(_source, 0, 1),
+        opaqueParameters: {parameter},
+      ),
+      throwsA(
+        isA<BindingDiagnostic>().having((e) => e.code, 'code', 'NAPI_DEFAULT'),
+      ),
+    );
+  });
+
+  test(
     'const graphs cannot bypass unsupported declared default leaves',
     () async {
       final root = await Directory.systemTemp.createTemp('napi-const-default-');
       addTearDown(() => root.delete(recursive: true));
       final file = File('${root.path}/entry.dart');
       for (final declaration in [
-        '@NAPI() bool run<T>([List<T> value = const <Never>[]]) => true;',
         '@NAPI() class Item { const Item._(); } '
             '@NAPI() bool run([List<Item> value = const [Item._()]]) => true;',
       ]) {

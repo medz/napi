@@ -625,7 +625,10 @@ final class ValueClassField {
   });
   String? get documentation =>
       binding?.documentation ?? parameter?.documentation;
-  bool get optional => parameter?.presence == ParameterPresence.optional;
+  bool get optional =>
+      parameter?.presence == ParameterPresence.optional || opaqueOptional;
+  bool get opaqueOptional =>
+      parameter?.presence == ParameterPresence.opaqueOptional;
 }
 
 final class ValueClassConversion extends ValueConversion {
@@ -633,6 +636,7 @@ final class ValueClassConversion extends ValueConversion {
   final int schemaId;
   final ValueDirection direction;
   final bool bigint;
+  final List<BindingType> typeArguments;
   late final List<ValueClassField> fields;
   String typescriptName;
   ValueClassConversion._(
@@ -643,12 +647,14 @@ final class ValueClassConversion extends ValueConversion {
     this.direction,
     this.bigint,
     this.typescriptName,
-  );
+  ) : typeArguments = schema.binding.instantiatedType == null
+          ? type.typeArguments
+          : const [];
   ClassBinding get classBinding => schema.binding;
   MemberBinding? get constructor => schema.constructor;
+  String get dartConstructorType => dartReferenceClassType(classBinding);
   @override
-  String get dartType =>
-      'target.${classBinding.callPath}${nullable ? '?' : ''}';
+  String get dartType => '$dartConstructorType${nullable ? '?' : ''}';
   @override
   String get jsType => 'object';
   @override
@@ -657,7 +663,7 @@ final class ValueClassConversion extends ValueConversion {
       ? nullable
             ? 'null'
             : 'never'
-      : '$typescriptName${nullable ? ' | null' : ''}';
+      : '$typescriptName${typeArguments.isEmpty ? '' : '<${typeArguments.map((argument) => (argument as TypeParameterType).declaration.name).join(', ')}>'}${nullable ? ' | null' : ''}';
 }
 
 Iterable<ValueConversion> conversionGraph(
@@ -847,7 +853,10 @@ final class _ConversionBuilder {
   final ValueDirection direction;
   final Set<DeclarationId> opaqueParameters;
   final _nodes =
-      <(ClassBinding, TypeNullability, ValueDirection), ValueClassConversion>{};
+      <
+        (ClassBinding, TypeNullability, ValueDirection),
+        List<ValueClassConversion>
+      >{};
   _ConversionBuilder(
     this.classes,
     this.values,
@@ -973,12 +982,25 @@ final class _ConversionBuilder {
       if (index < 0) throw StateError('A validated value schema is required.');
       final schema = values[index];
       final key = (schema.binding, declared.nullability, direction);
+      final arguments = schema.binding.instantiatedType == null
+          ? declared.typeArguments
+          : const <BindingType>[];
       if (!lazy &&
           direction == ValueDirection.input &&
           schema.constructor == null) {
         throw StateError('Output-only value used as input.');
       }
-      if (_nodes[key] case final existing?) return existing;
+      final instances = _nodes.putIfAbsent(key, () => []);
+      for (final existing in instances) {
+        if (existing.typeArguments.length == arguments.length &&
+            existing.typeArguments.indexed.every(
+              (entry) =>
+                  (entry.$2 as TypeParameterType).declaration ==
+                  (arguments[entry.$1] as TypeParameterType).declaration,
+            )) {
+          return existing;
+        }
+      }
       final node = ValueClassConversion._(
         declared,
         context,
@@ -988,7 +1010,13 @@ final class _ConversionBuilder {
         bigint,
         '\$value${index}_${direction.name}_${bigint ? 1 : 0}',
       );
-      _nodes[key] = node;
+      instances.add(node);
+      final projection = valueClassParameterProjection(
+        schema.binding,
+        declared,
+      );
+      BindingType project(BindingType type) =>
+          projection.isEmpty ? type : projectOpaqueType(type, projection);
       node.fields = List.unmodifiable(
         direction == ValueDirection.input
             ? [
@@ -996,13 +1024,15 @@ final class _ConversionBuilder {
                   ValueClassField(
                     f.field?.binding,
                     f.name,
-                    child(f.parameter.type),
-                    parameter: f.parameter,
+                    child(project(f.parameter.type)),
+                    parameter: projection.isEmpty
+                        ? f.parameter
+                        : projectOpaqueParameter(f.parameter, projection),
                   ),
               ]
             : [
                 for (final f in schema.outputFields)
-                  ValueClassField(f.binding, f.name, child(f.type)),
+                  ValueClassField(f.binding, f.name, child(project(f.type))),
               ],
       );
       return node;

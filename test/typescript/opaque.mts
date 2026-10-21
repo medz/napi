@@ -49,6 +49,27 @@ const emptyRecord: Record<PropertyKey, never> = api.opaqueRecord(undefined);
 const emptyKey: Record<PropertyKey, never> = api.opaqueKey(null);
 const globalResult: Promise<Map<string, number>> = api.opaqueGlobal(Symbol());
 
+const valueOutput: api.GenericValue<typeof item> = api.opaqueValueEcho({value: item, items: [item] as const});
+const valueOptional: typeof item | null = valueOutput.optional;
+const valueItems: typeof item[] = valueOutput.items;
+const valueCallback: api.GenericValue<typeof item> = api.opaqueValueCallback<typeof item>({value: item}, value => ({value: value.value}));
+const valueDirect: direct.GenericValue<string> = direct.opaqueValueEcho({value: 'direct'});
+const valueExternal: namedExternal.GenericValue<string> = namedExternal.opaqueValueEcho({value: 'external'});
+api.opaqueValueEcho<string | undefined>({value: undefined, optional: undefined});
+api.opaqueValueEcho<string>({value: 'text', optional: null});
+api.opaqueValueEcho<string>({value: 'text', items: undefined});
+// @exact-optional-error
+api.opaqueValueEcho<string>({value: 'text', optional: undefined});
+// @ts-expect-error A required opaque constructor field must be present.
+api.opaqueValueEcho<string>({});
+// @ts-expect-error Generic constructor fields retain their opaque type.
+api.opaqueValueEcho<string>({value: 7});
+// @ts-expect-error A callback must return the corresponding generic input shape.
+api.opaqueValueCallback<string>({value: 'text'}, value => ({value: 7}));
+// @ts-expect-error Value outputs require their Dart getter fields.
+const incompleteValue: api.GenericValue<string> = {value: 'text'};
+void [valueOutput, valueOptional, valueItems, valueCallback, valueDirect, valueExternal, incompleteValue];
+
 const nested = new api.NestedStore<typeof item>();
 const nestedList: (typeof item | null)[][] = nested.lists([[item, null]]);
 const nestedMap: Map<string, (typeof item | null)[]> = nested.map(new Map([['value', [item]]]));

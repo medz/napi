@@ -84,8 +84,11 @@ also support these resource defaults, with leases acquired before later fields o
 callbacks run. When a library exports resources, value-object defaults may contain
 only scalar fields or built-in containers of scalars. Supply objects with reference
 or nested value-class fields explicitly.
-Opaque defaults remain unsupported, including empty containers
-declared with opaque element types. An object that has neither a reconstructible
+Non-null opaque payload defaults remain unsupported. Containers with opaque
+elements can use compatible empty constants, such as `List<T> = const []` or
+`Map<String, T> = const {}`; nullable opaque elements may also default to Dart
+null. The evaluated constant type must remain compatible with the declared
+container. An object that has neither a reconstructible
 public constructor nor a reachable public const binding produces `NAPI_DEFAULT`.
 Unsupported constant kinds outside those objects are also diagnosed.
 Defaults exceeding the

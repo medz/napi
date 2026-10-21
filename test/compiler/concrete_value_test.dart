@@ -345,11 +345,6 @@ typedef RankedValue = Box<Ranked>;
       'NAPI_TYPE',
     ),
     (
-      'open value',
-      '@NAPI(classPolicy: ClassPolicy.value) class Box<T> { T value; Box(this.value); }',
-      'NAPI_GENERIC',
-    ),
-    (
       'dynamic argument',
       'class Box<T> {} @NAPI(classPolicy: ClassPolicy.value) typedef Selected = Box<dynamic>;',
       'NAPI_GENERIC',

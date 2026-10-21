@@ -645,10 +645,6 @@ const stream: AsyncIterableIterator<{ then: Then }, undefined, undefined> = stre
       "@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close') class Resource<T> { Resource(); void close() {} } @NAPI() class Child<U> extends Resource<U> { Child(); }",
       'NAPI_GENERIC',
     ),
-    'generic value': (
-      "@NAPI(classPolicy: ClassPolicy.value) class Value<T> { Value(this.value); final T value; }",
-      'NAPI_GENERIC',
-    ),
     'TypeScript type keyword': (
       "@NAPI() unknown echo<unknown>(unknown value) => value;",
       'NAPI_PARAMETER',

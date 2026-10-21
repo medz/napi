@@ -82,7 +82,8 @@ checking is part of the TypeScript contract. Named constructors introduce their
 own inferred type parameters and return the corresponding generic class.
 
 Optional named payloads use standard TypeScript properties such as
-`value?: T | null`, including when several share an options object. Enable
+`value?: T | null`, including when several share an options object or belong to a
+structural value-class constructor. Enable
 `exactOptionalPropertyTypes` with strict null checking to reject a present
 `undefined` when it is not part of `T`. Without that flag, TypeScript's ordinary
 optional-property rules permit explicit `undefined`; the generated declaration
@@ -180,8 +181,8 @@ without nesting or nullable arguments, and have the same parameter count.
 This applies through unselected intermediate classes and to selected interfaces.
 Own and inherited overrides retain their declaring defaults and argument presence.
 Fixed, repeated, omitted, extra or nullable ancestor arguments still receive build
-diagnostics. Generic value classes and selected inheritance involving generic
-resource classes remain unsupported. Use a closed concrete alias for
+diagnostics. Selected inheritance involving generic resource classes remains
+unsupported. Use a closed concrete alias for
 supported semantic specializations; opaque inheritance does not interpret payloads.
 
 ## Ownership
@@ -202,7 +203,7 @@ contract. Environment teardown releases remaining native references.
 ## Supported shapes and limits
 
 Generated bindings support ordinary generic reference classes, independent generic
-resource classes, top-level generic
+resource classes, structural value classes, top-level generic
 functions and instance/static generic methods, including inherited instance
 methods; direct opaque inputs/results/fields, required and optional named inputs,
 optional positional inputs and matching selected generic class references.
@@ -227,8 +228,13 @@ the original JS values on access. Extracted values remain retained independently
 of their source slots; opaque Map keys keep JS identity. These handles do not copy
 or interpret their payloads. See [collection ownership](collections.md).
 
-Opaque keys in converted Dart Maps, non-bijective open hierarchies and generic
-value classes remain unsupported. Concrete or erased specializations
+Open value classes use their declared type parameters in constructor inputs and
+getter outputs. Nested value classes can rename, permute or repeat those parameters;
+their TypeScript aliases retain each use site's parameter order. Each occurrence
+creates a copied JS object; opaque leaves retain their original JS payloads.
+
+Opaque keys in converted Dart Maps and non-bijective open hierarchies remain
+unsupported. Concrete or erased specializations
 such as `Router<String>` or raw `Router` are not interchangeable with
 `Router<T>` under this carrier policy. They receive build diagnostics.
 

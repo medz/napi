@@ -86,6 +86,23 @@ async function values(api) {
     assert(Object.is(api.identity(value), value));
     assert(Object.is(api.optional(value), value));
     for (const entry of [api, external]) {
+      const input = {value, optional: value, items: [value]};
+      const copied = entry.opaqueValueEcho(input);
+      assert.notEqual(copied, input);
+      assert.notEqual(copied.items, input.items);
+      assert(Object.is(copied.value, value));
+      assert(Object.is(copied.optional, value));
+      assert(Object.is(copied.items[0], value));
+      const callback = entry.opaqueValueCallback(input, argument => {
+        assert.notEqual(argument, input);
+        assert(Object.is(argument.value, value));
+        assert(Object.is(argument.optional, value));
+        assert(Object.is(argument.items[0], value));
+        return argument;
+      });
+      assert(Object.is(callback.value, value));
+      assert(Object.is(callback.optional, value));
+      assert(Object.is(callback.items[0], value));
       assert(Object.is(entry.named(7, {first: value}), value));
       assert(Object.is(entry.named(0, {second: value}), value));
       assert(Object.is(entry.mixedRequired({first: value}), value));
@@ -109,6 +126,17 @@ async function values(api) {
     router.clear();
   }
   assert.equal(traps, 0);
+  for (const entry of [api, external]) {
+    const defaults = entry.opaqueValueEcho({value: undefined});
+    assert.equal(defaults.value, undefined);
+    assert.equal(defaults.optional, null);
+    assert.deepEqual(defaults.items, []);
+    const undefinedDefault = entry.opaqueValueEcho({value: null, optional: undefined, items: undefined});
+    assert.equal(undefinedDefault.optional, undefined);
+    assert.deepEqual(undefinedDefault.items, []);
+    assert.throws(() => entry.opaqueValueEcho({}), TypeError);
+    assert.throws(() => entry.opaqueValueEcho({value: 1, get optional() { assert.fail('accessor invoked'); }}), TypeError);
+  }
   const pair = new api.Pair('left', 42);
   assert.equal(pair.first, 'left');
   assert.equal(pair.second, 42);
@@ -879,6 +907,12 @@ if (!isMainThread) {
   const api = await import(packageName);
   const router = new api.Router();
   const value = {worker: true};
+  for (const entry of [api, await import('@napi/opaque-external')]) {
+    const copied = entry.opaqueValueCallback({value, optional: undefined}, argument => argument);
+    assert.equal(copied.value, value);
+    assert.equal(copied.optional, undefined);
+    assert.deepEqual(copied.items, []);
+  }
   router.set('value', value);
   assert.equal(router.get('value'), value);
   assert.equal(await api.futureIdentity(value), value);

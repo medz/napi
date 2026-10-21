@@ -278,7 +278,7 @@ StructuralBoundary emitStructuralBoundary(
               '''      if (property && !Object.hasOwn(property, 'value')) {
         throw new TypeError(childPath + ': expected an own data property');
       }
-      const defaulted = !property || property.value === undefined;
+      const defaulted = !property${field.opaqueOptional ? '' : ' || property.value === undefined'};
       let child;
       if (defaulted) { visitStructure(state, childPath); ${retainDefault ? 'state.operation.retain(null, ${jsonEncode('${node.schemaId}:$index')}); ' : ''}child = null; }
       else { child = ${converters[index]}(property.value, childPath, state, depth + 1); }

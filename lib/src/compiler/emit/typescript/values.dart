@@ -17,12 +17,12 @@ String emitValueDeclarations(
   final defaults = [
     for (final schema in schemas)
       conversionFor(
-        schema.binding.instantiatedType ??
-            DeclaredType(schema.binding.declaration, ValueSemantics.reference),
+        valueClassType(schema.binding),
         schema.binding.exportName,
         bigint: false,
         classes: classes,
         valueSchemas: schemas,
+        opaqueParameters: opaqueParameterIds(schema.binding.typeParameters),
       ) as ValueClassConversion,
   ];
   final nodes = conversionDependencies([...conversions, ...defaults])
@@ -41,20 +41,44 @@ String emitValueDeclarations(
         name = '\$value${next++}';
       } while (!used.add(name));
       aliases[key] = name;
-      representatives[key] = node;
+      representatives[key] = node.classBinding.typeParameters.isEmpty
+          ? node
+          : conversionFor(
+              valueClassType(node.classBinding),
+              node.classBinding.exportName,
+              bigint: node.bigint,
+              classes: classes,
+              valueSchemas: schemas,
+              direction: node.direction,
+              opaqueParameters: opaqueParameterIds(
+                node.classBinding.typeParameters,
+              ),
+            ) as ValueClassConversion;
     }
+  }
+  for (final node in [
+    ...nodes,
+    ...conversionDependencies(representatives.values)
+        .whereType<ValueClassConversion>(),
+  ]) {
+    final key = (node.classBinding, node.direction, node.bigint);
     node.typescriptName = aliases[key]!;
   }
   return [
     for (final entry in representatives.entries)
-      'type ${aliases[entry.key]} = ${_body(entry.value)};',
+      'type ${aliases[entry.key]}${_parameters(entry.value.classBinding)} = ${_body(entry.value)};',
     for (final node in defaults) ...[
       if (node.classBinding.documentation != null)
         emitDocumentation(node.classBinding.documentation),
-      'export type ${node.classBinding.exportName} = ${node.typescriptName};',
+      'export type ${node.classBinding.exportName}${_parameters(node.classBinding, defaults: true)} = ${node.typescriptName}${_parameters(node.classBinding)};',
     ],
   ].join('\n');
 }
+
+String _parameters(ClassBinding binding, {bool defaults = false}) =>
+    binding.typeParameters.isEmpty
+    ? ''
+    : '<${binding.typeParameters.map((p) => '${p.declaration.name}${defaults ? ' = unknown' : ''}').join(', ')}>';
 
 String _body(ValueClassConversion node) {
   if (node.direction == ValueDirection.input && node.constructor == null) {
@@ -62,7 +86,7 @@ String _body(ValueClassConversion node) {
   }
   if (node.fields.isEmpty) return '{ [key: string]: never }';
   String property(ValueClassField field) =>
-      '${jsonEncode(field.name)}${field.optional ? '?' : ''}: ${field.conversion.typescriptType}${field.optional ? ' | undefined' : ''}';
+      '${jsonEncode(field.name)}${field.optional ? '?' : ''}: ${field.conversion.typescriptType}${field.optional && !field.opaqueOptional ? ' | undefined' : ''}';
   if (node.fields.every((field) => field.documentation == null)) {
     return '{ ${node.fields.map(property).join('; ')} }';
   }
