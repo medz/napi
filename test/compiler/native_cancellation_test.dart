@@ -44,19 +44,33 @@ class Resource {
       expect(generated, contains('Object? acceptCallback('));
       expect(generated, contains('a0?.throwIfAborted();'));
       expect(generated, contains('signals: [a0, if (a1 != null) a1]'));
+      String callBody(String callback) {
+        final start = generated.indexOf('int $callback(');
+        expect(start, greaterThanOrEqualTo(0));
+        final end = generated.indexOf('\n}', start);
+        expect(end, greaterThan(start));
+        return generated.substring(start, end + 2);
+      }
+
       final state = plan.functions.singleWhere(
         (call) => call.exportName == 'state',
       );
-      final start = generated.indexOf('int ${state.callback}(');
+      final stateBody = callBody(state.callback);
+      expect(stateBody, contains('a1 = _readNativeCallback'));
       expect(
-        generated.indexOf('a0.throwIfAborted();', start),
-        greaterThan(generated.indexOf('_api.callback<', start)),
+        stateBody.indexOf('a0.throwIfAborted();'),
+        greaterThan(stateBody.indexOf('a1 = _readNativeCallback')),
+      );
+      expect(
+        stateBody.indexOf('a0.throwIfAborted();'),
+        lessThan(stateBody.indexOf('target.state(')),
       );
       final cleanup = plan.calls.singleWhere((call) => call.isCleanup);
-      final cleanupStart = generated.indexOf('int ${cleanup.callback}(');
+      final cleanupBody = callBody(cleanup.callback);
+      expect(cleanupBody, contains('a0.throwIfAborted();'));
       expect(
-        generated.indexOf('a0.throwIfAborted();', cleanupStart),
-        lessThan(generated.indexOf('_api.bindCleanupFuture(', cleanupStart)),
+        cleanupBody.indexOf('a0.throwIfAborted();'),
+        lessThan(cleanupBody.indexOf('_api.bindCleanupFuture(')),
       );
       final entry = File('${directory.path}/entry.dart');
       await entry.writeAsString(generated);

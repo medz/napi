@@ -2148,7 +2148,6 @@ void validateValueType(
   List<ClassBinding> referenceClasses = const [],
   ValueDirection direction = ValueDirection.output,
   Set<DeclarationId> opaqueParameters = const {},
-  bool allowCallback = false,
   bool allowAbortSignal = false,
 }) {
   if (isJsCollectionType(type)) {
@@ -2169,19 +2168,6 @@ void validateValueType(
     throw BindingDiagnostic(
       'NAPI_CANCELLATION',
       'AbortSignal requires a direct input; signal outputs, containers and callback payloads are not supported.',
-      source,
-    );
-  }
-  if (allowCallback &&
-      direction == ValueDirection.input &&
-      type is FunctionTypeBinding) {
-    _validateCallback(type, source, referenceClasses, opaqueParameters);
-    return;
-  }
-  if (_containsCallback(type)) {
-    throw BindingDiagnostic(
-      'NAPI_CALLBACK',
-      'Callbacks require a direct function-typed input; callback outputs and nested callbacks are not supported.',
       source,
     );
   }
@@ -2206,7 +2192,7 @@ void validateValueType(
     source,
     referenceClasses,
     direction,
-    <(ClassBinding, bool)>{},
+    <(ClassBinding, ValueDirection, bool)>{},
     opaqueParameters,
   );
   if (!_isBackendValue(
@@ -2343,23 +2329,10 @@ bool _supportedJsCollectionElement(
       );
 }
 
-bool _containsCallback(BindingType type) => switch (type) {
-  FunctionTypeBinding() => true,
-  DeclaredType() =>
-    (type.declaration.library == Uri.parse('dart:core') &&
-            type.declaration.name == 'Function') ||
-        type.typeArguments.any(_containsCallback),
-  RecordTypeBinding() =>
-    type.positional.any(_containsCallback) ||
-        type.named.values.any(_containsCallback),
-  _ => false,
-};
-
 void _validateCallback(
   FunctionTypeBinding type,
   SourceLocation source,
-  List<ClassBinding> classes,
-  Set<DeclarationId> opaqueParameters,
+  ValueDirection direction,
 ) {
   Never reject(String message) =>
       throw BindingDiagnostic('NAPI_CALLBACK', message, source);
@@ -2369,43 +2342,22 @@ void _validateCallback(
   if (type.nullability == TypeNullability.legacy) {
     reject('Legacy callback nullability is not supported.');
   }
-  void validatePayload(BindingType payload, ValueDirection direction) {
-    try {
-      validateValueType(
-        payload,
-        source,
-        referenceClasses: classes,
-        direction: direction,
-        opaqueParameters: opaqueParameters,
-      );
-    } on BindingDiagnostic catch (error) {
-      if (error.code != 'NAPI_TYPE' && error.code != 'NAPI_BINARY') rethrow;
-      reject(
-        'Unsupported callback ${direction == ValueDirection.output ? 'argument' : 'result'} type.',
-      );
-    }
-  }
-
-  for (final parameter in type.parameters) {
-    if (parameter.hasDefault) {
-      reject('Callback function types cannot declare parameter defaults.');
-    }
-    validatePayload(parameter.type, ValueDirection.output);
+  if (type.parameters.any((parameter) => parameter.hasDefault)) {
+    reject('Function types cannot declare parameter defaults.');
   }
   final result = type.result;
-  if (isStreamType(result)) {
-    reject('Stream results are not supported in callback signatures.');
+  if (isStreamType(result) && direction == ValueDirection.input) {
+    reject(
+      'Stream results are not supported in JavaScript callback signatures.',
+    );
   }
-  if (isFutureType(result) &&
+  if ((isFutureType(result) || isStreamType(result)) &&
       (result.nullability != TypeNullability.nonNullable ||
           (result as DeclaredType).typeArguments.length != 1)) {
     reject(
-      'A callback Future result must be non-nullable with one payload type.',
+      'A function Future or Stream result must be non-nullable with one payload type.',
     );
   }
-  final payload = resultPayload(result);
-  if (payload == null) return;
-  validatePayload(payload, ValueDirection.input);
 }
 
 /// Export renames may collide even when the original Dart names are distinct.
@@ -2536,7 +2488,6 @@ void validateCallParameters(
         referenceClasses: referenceClasses,
         direction: ValueDirection.input,
         opaqueParameters: opaqueParameters,
-        allowCallback: true,
         allowAbortSignal: true,
       );
     } else if (validateTypes &&
@@ -2740,7 +2691,7 @@ void _checkValueDirection(
   SourceLocation source,
   List<ClassBinding> classes,
   ValueDirection direction,
-  Set<(ClassBinding, bool)> visited,
+  Set<(ClassBinding, ValueDirection, bool)> visited,
   Set<DeclarationId> opaqueParameters, {
   bool mapKey = false,
 }) {
@@ -2783,6 +2734,53 @@ void _checkValueDirection(
       source,
     );
   }
+  if (type is FunctionTypeBinding) {
+    _validateCallback(type, source, direction);
+    void payload(BindingType value, ValueDirection valueDirection) {
+      _checkValueDirection(
+        value,
+        source,
+        classes,
+        valueDirection,
+        visited,
+        opaqueParameters,
+      );
+      if (!_isBackendValue(
+        value,
+        classes,
+        valueDirection,
+        null,
+        opaqueParameters,
+      )) {
+        throw BindingDiagnostic(
+          'NAPI_CALLBACK',
+          'Unsupported function payload type.',
+          source,
+        );
+      }
+    }
+
+    for (final parameter in type.parameters) {
+      payload(
+        parameter.type,
+        direction == ValueDirection.input
+            ? ValueDirection.output
+            : ValueDirection.input,
+      );
+    }
+    final result = resultPayload(type.result);
+    if (result != null) payload(result, direction);
+    return;
+  }
+  if (type is DeclaredType &&
+      type.declaration.library == Uri.parse('dart:core') &&
+      type.declaration.name == 'Function') {
+    throw BindingDiagnostic(
+      'NAPI_CALLBACK',
+      'Functions require a typed signature.',
+      source,
+    );
+  }
   if (_valueClassBinding(type, classes) case final binding?) {
     if (direction == ValueDirection.input && binding.valueConstructor == null) {
       throw BindingDiagnostic(
@@ -2791,7 +2789,7 @@ void _checkValueDirection(
         source,
       );
     }
-    if (!visited.add((binding, mapKey))) return;
+    if (!visited.add((binding, direction, mapKey))) return;
     if (direction == ValueDirection.input) {
       _validateValueConstructorInputs(binding, classes);
     }
@@ -2840,7 +2838,7 @@ bool _isBackendValue(
   BindingType type, [
   List<ClassBinding> classes = const [],
   ValueDirection direction = ValueDirection.output,
-  Set<ClassBinding>? seen,
+  Set<(ClassBinding, ValueDirection)>? seen,
   Set<DeclarationId> opaqueParameters = const {},
 ]) {
   if (isOpaqueType(type, opaqueParameters) ||
@@ -2852,15 +2850,31 @@ bool _isBackendValue(
     return true;
   }
   if (type.nullability == TypeNullability.legacy) return false;
-  final visited = seen ?? <ClassBinding>{};
+  final visited = seen ?? <(ClassBinding, ValueDirection)>{};
   bool child(BindingType value) =>
       _isBackendValue(value, classes, direction, visited, opaqueParameters);
   if (_valueClassBinding(type, classes) case final binding?) {
     if (direction == ValueDirection.input && binding.valueConstructor == null) {
       return false;
     }
-    if (!visited.add(binding)) return true;
+    if (!visited.add((binding, direction))) return true;
     return _valueChildren(binding, direction).every(child);
+  }
+  if (type is FunctionTypeBinding) {
+    final argumentDirection = direction == ValueDirection.input
+        ? ValueDirection.output
+        : ValueDirection.input;
+    final result = resultPayload(type.result);
+    return type.parameters.every(
+          (parameter) => _isBackendValue(
+            parameter.type,
+            classes,
+            argumentDirection,
+            visited,
+            opaqueParameters,
+          ),
+        ) &&
+        (result == null || child(result));
   }
   if (type is RecordTypeBinding) {
     return type.positional.every(child) && type.named.values.every(child);

@@ -14,6 +14,10 @@ import 'streams.dart';
 String emitBoundary(ModulePlan plan) {
   final conversions = plan.conversions;
   final resources = plan.resourcePolicies.isNotEmpty;
+  final functionContracts = {
+    for (final call in plan.functionValues)
+      call.conversion.signatureKey: call.contractId,
+  };
   final nestedOpaque = conversionDependencies(plan.conversions).any(
     (root) =>
         root is! OpaqueConversion &&
@@ -61,13 +65,17 @@ String emitBoundary(ModulePlan plan) {
         index: emitStructuralBoundary(
           conversion,
           prefix: 'structure$index',
-          leafAdapter: BoundaryLeafAdapter(resources: resources),
+          leafAdapter: BoundaryLeafAdapter(
+            resources: resources,
+            functionContracts: functionContracts,
+          ),
           generateRead: !outputs.contains(index),
           generateWrite: outputs.contains(index),
         ),
   };
   return '''// Generated JS imports for the Wasm boundary, not a consumer entry.
 ${plan.classes.isEmpty ? '' : "import {readReference, writeReference} from './references.mjs';"}
+${callbacks.isEmpty ? '' : "import {writeFunction, registerCallbackSource} from './references.mjs';\nexport {unwrapFunction} from './references.mjs';"}
 ${jsCollectionLeaves.isEmpty ? '' : '$jsCollectionsPolicy\nconst \$jcPolicies = ${jsCollectionPolicies(jsCollectionLeaves)};\n$wasmJsCollectionsPolicy\n'}$sharedBytesPolicy
 $wasmSharedBytesPolicy
 ${nestedOpaque ? '$opaqueStructuralPolicy\n' : ''}${signals ? '$cancellationPolicy\n$wasmCancellationPolicy' : ''}
@@ -95,6 +103,7 @@ export function readValue(value, context${resources ? ', operation = null' : ''}
   switch (context) {
 ${jsCollections.entries.map((e) => '    case ${e.key}: return \$jcAdmit(value, ${e.value.isMap}, ${e.value.nullable}, ${jsonEncode(e.value.context)});\n').join()}${[for (final e in sharedBytes.entries) '    case ${e.key}: return \$napiReadSharedBytes(value, ${e.value.nullable}, ${jsonEncode(e.value.context)});'].join('\n')}
 ${[for (final e in binaries.entries) '    case ${e.key}: return \$napiCopyBinary(value, ${e.value.kind.index}, ${e.value.nullable}, ${jsonEncode(e.value.context)}, true);'].join('\n')}
+${[for (final e in callbacks.entries) '    case ${e.key}: return checkCallback(value, ${e.value.nullable}, ${jsonEncode(e.value.context)});'].join('\n')}
 ${[for (final e in structures.entries)
     if (e.value.read != null) '    case ${e.key}: return ${e.value.read}(value, ${jsonEncode(conversions[e.key].context)}, {work: 0, active: new Set()${resources ? ', operation' : ''}}, 0);'].join('\n')}
     default: return checked(value, context);
@@ -104,6 +113,7 @@ export function writeValue(value, context) {
   switch (context) {
 ${jsCollections.entries.map((e) => '    case ${e.key}: return \$jcAdmit(value, ${e.value.isMap}, ${e.value.nullable}, ${jsonEncode(e.value.context)});\n').join()}${[for (final e in sharedBytes.entries) '    case ${e.key}: return \$napiReadSharedBytes(value, ${e.value.nullable}, ${jsonEncode(e.value.context)});'].join('\n')}
 ${[for (final e in binaries.entries) '    case ${e.key}: return \$napiAdoptBinary(value, ${e.value.kind.index}, ${e.value.nullable}, ${jsonEncode(e.value.context)});'].join('\n')}
+${[for (final e in callbacks.entries) '    case ${e.key}: return value === null && ${e.value.nullable} ? null : writeFunction(value, ${functionContracts[e.value.signatureKey]}, ${jsonEncode(e.value.context)});'].join('\n')}
 ${[for (final e in structures.entries)
     if (e.value.write != null) '    case ${e.key}: {\n      const state = {work: 0, active: new Set(), pending: null};\n      try { return ${e.value.write}(value, ${jsonEncode(conversions[e.key].context)}, state, 0); }\n      catch (error) { if (state.pending !== null) { for (const undo of state.pending) undo(); } throw error; }\n    }'].join('\n')}
     default: return checked(value, context);
@@ -121,7 +131,8 @@ ${plan.calls.any((call) => call.returnsFuture) || streams ? '${emitFuturePolicy(
       : structuralPolicy}
 ${conversionDependencies(conversions).any((c) => c is MapConversion) ? mapStructuralPolicy : ''}
 ${conversionDependencies(conversions).any((c) => c is DictionaryConversion) ? dictionaryStructuralPolicy : ''}
-$collectionStructures${structures.values.map((s) => s.source).join('\n')}${callbacks.isEmpty ? '' : '\n${_emitCallbacks(callbacks, resources: resources)}'}
+$collectionStructures${structures.values.map((s) => s.source).join('\n')}${callbacks.isEmpty ? '' : '\n${_emitCallbacks({for (final entry in callbacks.entries)
+          if (entry.value.direction == ValueDirection.input) entry.key: entry.value}, resources: resources, functionContracts: functionContracts)}'}
 ${_emitCallbackErrors(futures: plan.calls.any((call) => call.returnsFuture) || streams)}
 ${plan.classes.isNotEmpty || plan.functions.any((f) => f.representation == ExportRepresentation.callableGlobal) ? argumentPolicy : ''}
 ''';
@@ -130,6 +141,7 @@ ${plan.classes.isNotEmpty || plan.functions.any((f) => f.representation == Expor
 String _emitCallbacks(
   Map<int, CallbackConversion> callbacks, {
   required bool resources,
+  required Map<String, int> functionContracts,
 }) {
   final asynchronous = callbacks.values.any(
     (callback) => callback.returnsFuture,
@@ -155,6 +167,7 @@ export function findCallbackAdapter(callback, signature) {
   return reference === undefined ? null : callbackApply(callbackDeref, reference, []) ?? null;
 }
 export function cacheCallbackAdapter(callback, signature, adapter) {
+  registerCallbackSource(adapter, signature, callbackApply(callbackMapGet, callbackWireSignatures, [signature]), callback);
   let entries = callbackApply(callbackWeakMapGet, callbackAdapters, [callback]);
   if (entries === undefined) {
     entries = new callbackMap();
@@ -168,6 +181,11 @@ export function callbackStructureError(path, message, range) {
   return {threw: true, value: range ? new RangeError(path + ': ' + message) : new TypeError(path + ': ' + message)};
 }
 ''');
+  source.writeln(
+    'const callbackWireSignatures = new callbackMap(${jsonEncode([
+      for (final callback in callbacks.values) [callback.signatureKey, callback.wireSignatureKey],
+    ])});',
+  );
   if (callbacks.values.any((callback) => callback.hasParameterShape)) {
     source.writeln(r'''
 const callbackCreate = Object.create;
@@ -221,7 +239,7 @@ function settleCallback(record, envelope) {
       final boundary = emitStructuralBoundary(
         conversion,
         prefix: 'callback${id}Argument$index',
-        leafAdapter: _CallbackLeafAdapter(resources),
+        leafAdapter: _CallbackLeafAdapter(resources, functionContracts),
         generateRead: false,
       );
       source.writeln(boundary.source);
@@ -237,6 +255,7 @@ function settleCallback(record, envelope) {
         leafAdapter: BoundaryLeafAdapter(
           resources: resources,
           bigintText: true,
+          functionContracts: functionContracts,
         ),
         generateWrite: false,
       );
@@ -353,17 +372,20 @@ $asynchronousCases      default: throw new Error('Unknown async callback convers
 
 final class _CallbackLeafAdapter implements StructuralLeafAdapter {
   final bool resources;
-  const _CallbackLeafAdapter(this.resources);
+  final Map<String, int> functionContracts;
+  const _CallbackLeafAdapter(this.resources, this.functionContracts);
 
   @override
   String read(ValueConversion leaf, String value, String path) =>
-      const BoundaryLeafAdapter().read(leaf, value, path);
+      BoundaryLeafAdapter(functionContracts: functionContracts)
+          .read(leaf, value, path);
 
   @override
   String write(ValueConversion leaf, String value, String path) =>
       resources && leaf is ReferenceConversion
       ? 'writeCallbackReference($value, ${leaf.classId}, $path, state)'
-      : const BoundaryLeafAdapter().write(leaf, value, path);
+      : BoundaryLeafAdapter(functionContracts: functionContracts)
+            .write(leaf, value, path);
 }
 
 String _emitCallbackErrors({required bool futures}) =>

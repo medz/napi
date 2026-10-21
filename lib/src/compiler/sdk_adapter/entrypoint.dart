@@ -157,6 +157,8 @@ const callbackEntrypointPrelude =
     r'''
 @pragma('wasm:import', 'napi.findCallbackAdapter')
 external WasmExternRef? _findCallbackAdapter(WasmExternRef callback, WasmExternRef signature);
+@pragma('wasm:import', 'napi.unwrapFunction')
+external WasmExternRef? _unwrapFunction(WasmExternRef callback, WasmExternRef signature);
 @pragma('wasm:import', 'napi.cacheCallbackAdapter')
 external void _cacheCallbackAdapter(WasmExternRef callback, WasmExternRef signature, WasmExternRef adapter);
 @pragma('wasm:import', 'napi.invokeCallback')

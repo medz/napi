@@ -746,22 +746,172 @@ void [value, big, asynchronous, empty, wide, record, syncInFuture, globalName, l
     }
   });
 
+  test(
+    'function values compose through members, containers and callbacks',
+    () async {
+      final module = await read('''
+typedef Unary = int Function(int);
+@NAPI() Unary output() => (n) => n;
+@NAPI() class Calls {
+  Calls();
+  Unary get callback => (n) => n;
+  Unary field = (n) => n;
+}
+@NAPI() int list(List<int Function()> callbacks) => 1;
+@NAPI() int record((int Function(),) callbacks) => 1;
+@NAPI() int parameter(int Function(void Function()) callback) => 1;
+@NAPI() int result(int Function() Function() callback) => 1;
+@NAPI() int future(Future<int Function()> Function() callback) => 1;
+@NAPI() void opaque<T>(void Function(void Function(T)) callback) {}
+@NAPI() Stream<int> Function(int) stream() => (n) => Stream.value(n);
+@NAPI() int Function([int]) optional() => ([int n = 7]) => n;
+''');
+      final wasm = lower(validate(module));
+      final native = validateNative(module);
+      expect(emitDeclarations(wasm), emitNativeDeclarations(native));
+      final types = emitDeclarations(wasm);
+      expect(types, contains('output(): (arg0: number) => number'));
+      expect(
+        types,
+        contains(
+          'globalThis.AsyncIterableIterator<number, undefined, undefined>',
+        ),
+      );
+      expect(types, contains('optional(): (arg0?: number) => number'));
+      final stream = wasm.functionValues.singleWhere(
+        (call) => call.returnsStream,
+      );
+      expect(stream.conversion.dartType, 'Stream<int> Function(int)');
+      expect(stream.output!.dartType, 'int');
+      final optional = wasm.functionValues.singleWhere(
+        (call) => call.parameters.any(
+          (p) => p.kind == ParameterKind.optionalPositional,
+        ),
+      );
+      expect(optional.parameters.single.hasDefault, isFalse);
+      expect(optional.parameters.single.presence, ParameterPresence.optional);
+      expect(
+        wasm.functionValues.map((call) => call.conversion.signatureKey).toSet(),
+        native.functionValues
+            .map((call) => call.functionValue!.signatureKey)
+            .toSet(),
+      );
+      final inputOnly = lower(
+        validate(
+          await read('''
+@NAPI() int run(int Function(int) callback) => 1;
+'''),
+        ),
+      );
+      expect(inputOnly.functionValues, isEmpty);
+    },
+  );
+
+  test(
+    'function contracts distinguish wire direction from Dart identity',
+    () async {
+      final module = await read('''
+@NAPI(classPolicy: ClassPolicy.value) class Parsed {
+  Parsed(String source) : value = int.parse(source);
+  final int value;
+}
+typedef Parse = Parsed Function(Parsed);
+typedef Unary = int Function(int);
+@NAPI() Parse echo(Parse callback) => callback;
+@NAPI() Unary scalar(Unary callback) => callback;
+''');
+      final wasm = lower(validate(module));
+      final native = validateNative(module);
+      for (final (input, output) in [
+        (wasm.functions[0].inputs.single, wasm.functions[0].output!),
+        (native.functions[0].inputs.single, native.functions[0].output!),
+      ]) {
+        final callback = input as CallbackConversion;
+        final facade = output as CallbackConversion;
+        expect(callback.signatureKey, facade.signatureKey);
+        expect(callback.wireSignatureKey, isNot(facade.wireSignatureKey));
+        expect(
+          (callback.inputs.single as ValueClassConversion).direction,
+          ValueDirection.output,
+        );
+        expect(
+          (callback.output as ValueClassConversion).direction,
+          ValueDirection.input,
+        );
+        expect(
+          (facade.inputs.single as ValueClassConversion).direction,
+          ValueDirection.input,
+        );
+        expect(
+          (facade.output as ValueClassConversion).direction,
+          ValueDirection.output,
+        );
+      }
+      final scalar = wasm.functions[1];
+      expect(
+        (scalar.inputs.single as CallbackConversion).wireSignatureKey,
+        (scalar.output as CallbackConversion).wireSignatureKey,
+      );
+      expect(emitDeclarations(wasm), emitNativeDeclarations(native));
+    },
+  );
+
+  test(
+    'recursive value functions validate both conversion directions',
+    () async {
+      final module = await read('''
+@NAPI(classPolicy: ClassPolicy.value) class Value {
+  Value(this.next);
+  final Value Function(Value) next;
+}
+@NAPI() Value echo(Value value) => value;
+''');
+      expect(
+        emitDeclarations(lower(validate(module))),
+        emitNativeDeclarations(validateNative(module)),
+      );
+      final outputOnly = await read('''
+@NAPI(classPolicy: ClassPolicy.value) class Projection {
+  Projection._();
+  Projection Function(Projection) get next => (value) => value;
+}
+@NAPI() int run(int Function(Projection) callback) => 1;
+''');
+      final diagnostic = throwsA(
+        isA<BindingDiagnostic>().having(
+          (error) => error.code,
+          'code',
+          'NAPI_VALUE_INPUT',
+        ),
+      );
+      expect(() => validate(outputOnly), diagnostic);
+      expect(() => validateNative(outputOnly), diagnostic);
+    },
+  );
+
+  test(
+    'unsupported binary callback payloads preserve binary diagnostics',
+    () async {
+      for (final source in [
+        for (final type in ['Int8List', 'Float64List', 'Uint8ClampedList'])
+          '@NAPI() int run(int Function($type) callback) => 1;',
+        '@NAPI() int run(Future<Int32List> Function() callback) => 1;',
+      ]) {
+        final module = await read("import 'dart:typed_data'; $source");
+        final diagnostic = throwsA(
+          isA<BindingDiagnostic>().having(
+            (error) => error.code,
+            'code',
+            'NAPI_BINARY',
+          ),
+        );
+        expect(() => validate(module), diagnostic);
+        expect(() => validateNative(module), diagnostic);
+      }
+    },
+  );
+
   final rejected = <String, String>{
-    for (final type in ['Int8List', 'Float64List', 'Uint8ClampedList'])
-      'unsupported $type callback argument':
-          "import 'dart:typed_data'; @NAPI() int run(int Function($type) callback) => 1;",
-    'unsupported typed callback result': "import 'dart:typed_data'; @NAPI() int run(Future<Int32List> Function() callback) => 1;",
-    'callback output': '@NAPI() int Function(int) output() => (n) => n;',
-    'callback getter': '@NAPI() class Bad { Bad(); int Function(int) get callback => (n) => n; }',
-    'callback field':
-        '@NAPI() class Bad { Bad(); int Function(int) callback = (n) => n; }',
-    'nested outer List':
-        '@NAPI() int run(List<int Function()> callbacks) => 1;',
-    'nested outer record': '@NAPI() int run((int Function(),) callbacks) => 1;',
-    'nested callback parameter':
-        '@NAPI() int run(int Function(void Function()) callback) => 1;',
-    'nested callback result':
-        '@NAPI() int run(int Function() Function() callback) => 1;',
     'generic callback': '@NAPI() int run(T Function<T>(T) callback) => 1;',
     'untyped Function': '@NAPI() int run(Function callback) => 1;',
     'callback FutureOr result': "import 'dart:async'; @NAPI() int run(FutureOr<int> Function(int) callback) => 1;",
@@ -772,8 +922,12 @@ void [value, big, asynchronous, empty, wide, record, syncInFuture, globalName, l
     'callback Future argument':
         '@NAPI() int run(int Function(Future<int>) callback) => 1;',
     'callback FutureOr argument': "import 'dart:async'; @NAPI() int run(int Function(FutureOr<int>) callback) => 1;",
-    'Future nested callback result':
-        '@NAPI() int run(Future<int Function()> Function() callback) => 1;',
+    'nested generic function':
+        '@NAPI() int run(int Function(T Function<T>(T)) callback) => 1;',
+    'nested untyped Function':
+        '@NAPI() int run(List<Function> callbacks) => 1;',
+    'callback Stream result':
+        '@NAPI() int run(Stream<int> Function() callback) => 1;',
     'Future dynamic callback result':
         '@NAPI() int run(Future<dynamic> Function() callback) => 1;',
     'Future List dynamic callback result':
@@ -811,7 +965,6 @@ void [value, big, asynchronous, empty, wide, record, syncInFuture, globalName, l
         source,
         direction: ValueDirection.input,
         opaqueParameters: {parameter},
-        allowCallback: true,
       ),
       returnsNormally,
     );

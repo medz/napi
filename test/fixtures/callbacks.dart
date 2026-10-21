@@ -422,6 +422,7 @@ class CallbackBox {
   CallbackBox.named(int Function(int) callback, int initial)
     : _value = callback(initial);
   int get value => _value;
+  int Function(int)? get storedCallback => _stored;
   int apply(int Function(int) callback) => callback(_value);
   set callback(int Function(int) callback) {
     _stored = callback;
@@ -810,3 +811,139 @@ bool callbackParameterPolicies(
     !identical(optional, mandatory) &&
     !identical(optional, named) &&
     !identical(named, other);
+
+typedef Unary = int Function(int);
+typedef FunctionContainers = (
+  List<Unary?>, {
+  Map<String, Unary> map,
+  Dictionary<Unary> dictionary,
+});
+
+@NAPI(classPolicy: ClassPolicy.value)
+class CallbackFunctionValue {
+  final Unary callback;
+  CallbackFunctionValue(this.callback);
+}
+
+@NAPI()
+CallbackFunctionValue echoFunctionValue(CallbackFunctionValue value) => value;
+
+@NAPI()
+Unary makeAdder(int delta) =>
+    (value) => value + delta;
+
+@NAPI()
+int Function([int]) makeOptionalAdder(int delta) =>
+    ([int value = 7]) => value + delta;
+
+@NAPI()
+int Function({required int constructor, int value, int? nullable})
+makeNamedAdder(int delta) =>
+    ({required int constructor, int value = 7, int? nullable}) =>
+        constructor + value + (nullable ?? 0) + delta;
+
+@NAPI()
+Unary? nullableAdder(bool present) => present ? makeAdder(1) : null;
+
+@NAPI()
+Future<Unary> futureAdder(int delta) async => makeAdder(delta);
+
+@NAPI()
+Future<int> Function(int) makeAsyncAdder(int delta) =>
+    (value) async => value + delta;
+
+@NAPI()
+Stream<int> Function(int) makeStreamAdder(int delta) => (value) async* {
+  yield value + delta;
+  await Future<void>.delayed(Duration.zero);
+  yield value + delta + 1;
+};
+
+@NAPI()
+FunctionContainers functionContainers(int delta) {
+  final callback = makeAdder(delta);
+  return (
+    [callback, null],
+    map: {'add': callback},
+    dictionary: Dictionary({'add': callback}),
+  );
+}
+
+@NAPI()
+int useFunctionContainers(FunctionContainers values) =>
+    values.$1.first!(1) + values.map['add']!(2) + values.dictionary['add']!(3);
+
+@NAPI()
+Unary transformFunction(Unary Function(Unary) transform, int delta) =>
+    transform(makeAdder(delta));
+
+@NAPI()
+Unary echoFunction(Unary value) => value;
+
+@NAPI()
+Unary Function(Unary) composeFunction(int delta) =>
+    (callback) =>
+        (value) => callback(value) + delta;
+
+@NAPI()
+CallbackNormalized Function(CallbackNormalized) normalizedFunction() =>
+    (value) => value;
+
+@NAPI()
+CallbackNormalized Function(CallbackNormalized) echoNormalizedFunction(
+  CallbackNormalized Function(CallbackNormalized) callback,
+) => callback;
+
+@NAPI()
+int Function([int, int]) positionalDefaults() =>
+    ([int first = 7, int second = 9]) => first * 100 + second;
+
+int _defaultFunction([int value = 7]) => value + 1;
+
+@NAPI()
+int Function([int value]) optionalFunction() => _defaultFunction;
+
+@NAPI()
+Unary requiredFunction() => _defaultFunction;
+
+@NAPI()
+bool isCanonicalFunction(Unary value) => identical(value, _defaultFunction);
+
+@NAPI()
+T Function() capturePayload<T>(T value) =>
+    () => value;
+
+@NAPI()
+(T Function(), int) rejectFunctionResult<T>(T value) =>
+    (() => value, 9007199254740992);
+
+@NAPI()
+CallbackResource Function(CallbackResource) resourceFunction() =>
+    (value) => value;
+
+@NAPI()
+Future<CallbackResource> Function(CallbackResource) asyncResourceFunction() =>
+    (value) async {
+      await Future<void>.delayed(Duration.zero);
+      return value;
+    };
+
+@NAPI()
+Stream<CallbackResource> Function(CallbackResource) resourceStreamFunction() =>
+    (value) async* {
+      try {
+        yield value;
+        await Future<void>.delayed(Duration.zero);
+        yield value;
+      } finally {
+        await Future<void>.delayed(Duration.zero);
+      }
+    };
+
+@NAPI()
+void startFunctionOnlyCallback(
+  CallbackResource resource,
+  Future<void> Function(CallbackResource Function(CallbackResource)) callback,
+) {
+  callback((value) => value);
+}

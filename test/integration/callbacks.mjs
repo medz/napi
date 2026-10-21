@@ -109,6 +109,85 @@ function structures(api) {
   assert.deepEqual(nested, [[1, null], []]);
   binaryValues(api);
   payloadValues(api);
+  functionValues(api);
+}
+
+function functionValues(api) {
+  const add = api.makeAdder(2);
+  assert.equal(typeof add, 'function'); assert.equal(add(3), 5);
+  assert.equal(add.call({receiver: true}, 4), 6);
+  assert.throws(() => new add(3), TypeError);
+  for (const value of [undefined, null, '3']) assert.throws(() => add(value), TypeError);
+  assert.throws(() => add(1.5), RangeError);
+  const optional = api.makeOptionalAdder(2);
+  assert.equal(optional(), 9); assert.equal(optional(undefined), 9); assert.equal(optional(3), 5);
+  assert.throws(() => optional(null), TypeError);
+  const named = api.makeNamedAdder(2);
+  assert.equal(named({constructor: 1}), 10);
+  assert.equal(named({constructor: 1, value: 3, nullable: null}), 6);
+  assert.equal(named({constructor: 1, value: undefined, nullable: 4}), 14);
+  assert.throws(() => named(), TypeError); assert.throws(() => named({}), TypeError);
+  assert.throws(() => named({constructor: 1, value: null}), TypeError);
+  assert.equal(api.nullableAdder(false), null); assert.equal(api.nullableAdder(true)(3), 4);
+  const containers = api.functionContainers(2), shared = containers.$1[0];
+  assert.equal(containers.$1[1], null); assert.equal(shared(3), 5);
+  assert.equal(containers.map.get('add'), shared); assert.equal(containers.dictionary.add, shared);
+  assert.equal(Object.getPrototypeOf(containers.dictionary), null);
+  assert.equal(api.useFunctionContainers(containers), 12);
+  const javascript = value => value * 3;
+  assert.equal(api.echoFunction(javascript), javascript, 'JS-origin functions round-trip without a facade');
+  assert.equal(api.echoFunction(add), add, 'a Dart facade round-trips through its original function');
+  const model = api.echoFunctionValue({callback: add});
+  assert.equal(model.callback, add); assert.equal(model.callback(3), 5);
+  assert.equal(api.echoFunctionValue({callback: javascript}).callback, javascript);
+  assert.throws(() => api.echoFunctionValue({callback: 3}), TypeError);
+  assert.throws(() => model.callback('3'), TypeError);
+  const holder = new api.CallbackBox(() => 2);
+  assert.equal(holder.storedCallback, null);
+  holder.callback = add;
+  assert.equal(holder.storedCallback, add); assert.equal(holder.storedCallback(3), 5);
+  holder.callback = javascript;
+  assert.equal(holder.storedCallback, javascript); assert.equal(holder.storedCallback(3), 9);
+  const compose = api.composeFunction(2), composed = compose(javascript);
+  assert.equal(composed(3), 11);
+  assert.deepEqual(api.normalizedFunction()({source: '12'}), {value: 12});
+  assert.throws(() => api.normalizedFunction()({value: 12}), TypeError);
+  const normalize = value => ({source: String(value.value + 1)});
+  const normalized = api.echoNormalizedFunction(normalize);
+  assert.notEqual(normalized, normalize, 'asymmetric value conversions need a facade on the return trip');
+  assert.deepEqual(normalized({source: '12'}), {value: 13});
+  assert.equal(api.echoNormalizedFunction(normalize), normalized);
+  const defaults = api.positionalDefaults();
+  assert.equal(defaults(), 709); assert.equal(defaults(2), 209);
+  assert.equal(defaults(2, 3), 203); assert.equal(defaults(2, undefined), 209);
+  assert.throws(() => defaults(undefined, 3), TypeError, 'an unknown interior Dart default must not shift later arguments');
+  assert.equal(api.useFunctionContainers({$1: [javascript, null], map: new Map([['add', javascript]]), dictionary: {add: javascript}}), 18);
+  assert.throws(() => api.useFunctionContainers({$1: [javascript], map: new Map([['add', 3]]), dictionary: {add: javascript}}), TypeError);
+  assert.throws(() => api.useFunctionContainers({$1: [null], map: new Map(), dictionary: {}}));
+  assert.equal(api.transformFunction(value => {
+    assert.equal(value(3), 5); return javascript;
+  }, 2), javascript);
+  assert.throws(() => api.transformFunction(() => 3, 2), TypeError);
+  const reason = {higherOrder: true};
+  exact(() => api.transformFunction(() => {throw reason;}, 2), reason);
+  const required = api.requiredFunction(), defaulted = api.optionalFunction();
+  assert.equal(api.requiredFunction(), required); assert.equal(api.optionalFunction(), defaulted);
+  assert.notEqual(required, defaulted, 'one Dart function has separate facades for distinct contracts');
+  assert.equal(defaulted(), 8); assert.equal(required(4), 5);
+  assert.equal(api.isCanonicalFunction(required), true);
+  const payload = {closedOver: true}, capture = api.capturePayload(payload);
+  assert.equal(capture(), payload);
+  assert.equal(api.capturePayload(javascript)(), javascript, 'a function inside opaque T stays an opaque payload');
+}
+
+async function asyncFunctionValues(api) {
+  const add = await api.futureAdder(2); assert.equal(add(3), 5);
+  const asynchronous = api.makeAsyncAdder(2), result = asynchronous(3);
+  assert(result instanceof Promise); assert.equal(await result, 5);
+  await assert.rejects(asynchronous('3'), TypeError);
+  const values = [];
+  for await (const value of api.makeStreamAdder(2)(3)) values.push(value);
+  assert.deepEqual(values, [5, 6]);
 }
 
 function payloadValues(api) {
@@ -231,6 +310,45 @@ async function payloadResources(api) {
     return 907;
   }, 907), [0, 1, 2, 907]);
   await closing; assert.equal(api.callbackCleanups(907), 1);
+  const explicit = new api.CallbackResource(908), identity = api.resourceFunction();
+  assert.equal(identity(explicit), explicit); await explicit.close();
+  assert.throws(() => identity(explicit));
+  const pending = new api.CallbackResource(909), asynchronousFunction = api.asyncResourceFunction();
+  const result = asynchronousFunction(pending); closing = pending.close();
+  assert.equal(api.callbackCleanups(909), 0);
+  assert.equal(await result, pending); await closing;
+  assert.equal(api.callbackCleanups(909), 1);
+  const stream = api.resourceStreamFunction(), completed = new api.CallbackResource(910);
+  let count = 0;
+  for await (const value of stream(completed)) {
+    assert.equal(value, completed);
+    count++; await turn(); global.gc();
+    assert.equal(value.id, 910); assert.equal(api.callbackCleanups(910), 0);
+  }
+  assert.equal(count, 2); await completed.close();
+  assert.equal(api.callbackCleanups(910), 1);
+  const cancelled = new api.CallbackResource(911), iterator = stream(cancelled);
+  const first = await iterator.next();
+  assert.equal(first.done, false); assert.equal(first.value, cancelled);
+  const returning = iterator.return();
+  closing = cancelled.close(); assert.equal(api.callbackCleanups(911), 0);
+  const returned = await returning;
+  assert.equal(returned.done, true); assert.equal(returned.value, undefined);
+  await closing; assert.equal(api.callbackCleanups(911), 1);
+  const done = await iterator.next(); assert.equal(done.done, true); assert.equal(done.value, undefined);
+  const functionOnly = new api.CallbackResource(912);
+  let finishFunctionOnly, settled = false;
+  const callbackPromise = new Promise(resolve => {finishFunctionOnly = () => {settled = true; resolve();};});
+  api.startFunctionOnlyCallback(functionOnly, callback => {
+    assert.equal(typeof callback, 'function'); return callbackPromise;
+  });
+  const functionClosing = functionOnly.close();
+  try {
+    await until(() => api.callbackCleanups(912) === 1, 'a function signature alone must not retain a resource operation');
+    await functionClosing; assert.equal(settled, false);
+  } finally {
+    finishFunctionOnly(); await functionClosing; await turn();
+  }
 }
 
 function failedCallbackPayload(api) {
@@ -255,6 +373,27 @@ async function retainedPayloads(api) {
   await turn(); global.gc(); await turn();
   assert(weak.deref()); assert.equal(box.saved(), weak.deref(), 'failed conversion preserves a previously retained payload');
   box.clear(); await collect(api, () => weak.deref() === undefined, 'cleared callback payload');
+  await retainedFunctions(api);
+}
+
+async function retainedFunctions(api) {
+  const live = (() => {
+    const payload = {functionPayload: true};
+    return {payload: new WeakRef(payload), fn: api.capturePayload(payload)};
+  })();
+  for (let i = 0; i < 3; i++) {
+    await turn(); global.gc(); api.callbackPressure(i); await turn();
+    assert(live.payload.deref()); assert.equal(live.fn(), live.payload.deref());
+  }
+  const facade = new WeakRef(live.fn); live.fn = undefined;
+  await collect(api, () => facade.deref() === undefined && live.payload.deref() === undefined,
+    'discarded Dart function facade and its captured opaque payload');
+  const failed = (() => {
+    const payload = {failedFunctionPayload: true};
+    assert.throws(() => api.rejectFunctionResult(payload), RangeError);
+    return new WeakRef(payload);
+  })();
+  await collect(api, () => failed.deref() === undefined, 'failed function result conversion');
 }
 
 function binaryValues(api) {
@@ -688,6 +827,7 @@ async function asyncValues(api) {
   await asyncBinaryValues(api);
   await asyncPayloadValues(api);
   await asyncOptionalArguments(api);
+  await asyncFunctionValues(api);
 }
 
 async function asyncOptionalArguments(api) {
@@ -1188,6 +1328,15 @@ async function scenario(name) {
         'callOptionalNames', 'callNamesAB', 'callNamesBA', 'callMixedNames', 'callRequiredNames',
         'callAsyncOptionalPositionals', 'callAsyncOptionalNames',
         'callOptionalModels', 'callbackParameterPolicies',
+        'echoFunctionValue',
+        'makeAdder', 'makeOptionalAdder', 'makeNamedAdder', 'nullableAdder',
+        'futureAdder', 'makeAsyncAdder', 'makeStreamAdder', 'functionContainers', 'useFunctionContainers',
+        'transformFunction', 'echoFunction', 'optionalFunction', 'requiredFunction',
+        'composeFunction', 'normalizedFunction',
+        'echoNormalizedFunction', 'positionalDefaults',
+        'isCanonicalFunction', 'capturePayload', 'rejectFunctionResult',
+        'resourceFunction', 'asyncResourceFunction', 'resourceStreamFunction',
+        'startFunctionOnlyCallback',
       ].sort());
       assert.equal(external.plainCallback(n => n + 1, 3), 4);
       assert.throws(() => external.plainCallback(), TypeError);
@@ -1201,6 +1350,7 @@ async function scenario(name) {
       binaryValues(external); await asyncBinaryValues(external);
       payloadValues(external); await asyncPayloadValues(external);
       optionalArguments(external); await asyncOptionalArguments(external);
+      functionValues(external); await asyncFunctionValues(external);
       await payloadResources(external); await retainedPayloads(external);
       break;
     }
@@ -1228,6 +1378,7 @@ if (!isMainThread) {
   binaryValues(api); await asyncBinaryValues(api);
   payloadValues(api); await asyncPayloadValues(api); await payloadResources(api);
   optionalArguments(api); await asyncOptionalArguments(api);
+  functionValues(api); await asyncFunctionValues(api);
   api.registerAsyncCallback(() => new Promise(() => {}));
   api.invokeAsyncRegistered(0, 1);
   if (workerData.queued) {

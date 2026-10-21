@@ -9,9 +9,11 @@ import '../../lowering/plan.dart';
 final class DartStructuralEmitter {
   final String Function(DeclarationId)? defaultDeclarationSource;
   final bool resources;
+  final Map<String, int> callbackReaders;
   DartStructuralEmitter({
     this.defaultDeclarationSource,
     this.resources = false,
+    this.callbackReaders = const {},
   });
   final _code = StringBuffer();
   var _next = 0;
@@ -129,7 +131,11 @@ final class DartStructuralEmitter {
           output ? '  return _boxOpaque(value.value).toJS;' : '  return _NapiHostValue(_unboxOpaque(externRefForJSAny(value!)!));',
         );
       case CallbackConversion():
-        throw StateError('Nested callback conversion is not supported.');
+        _code.writeln(
+          output
+              ? '  return WasmAnyRef.fromObject(value).externalize().toJS;'
+              : '  return _callback${callbackReaders[conversion.signatureKey] ?? (throw StateError('Missing callback reader'))}(externRefForJSAny(value!)!);',
+        );
       case AbortSignalConversion():
         throw StateError('Nested AbortSignal conversion is not supported.');
       case ReferenceConversion():

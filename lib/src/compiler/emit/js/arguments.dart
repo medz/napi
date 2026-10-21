@@ -56,6 +56,9 @@ import * as core from './core.wasm';
 import {useDefault, readOptions${plan.calls.any((call) => call.returnsFuture) || streams ? ', createPromise, rejectPromise' : ''}${streams ? ', retainPromise' : ''}${plan.resourcePolicies.isNotEmpty ? ', createResourceCall, finishResourceCall, retainResourceReference' : ''}${plan.conversions.any((c) => c is CallbackConversion) ? ', checkCallback' : ''}${plan.conversions.any((c) => c is AbortSignalConversion) ? ', prepareAbortSignal' : ''}} from './boundary.mjs';
 ''');
   if (streams) result.writeln(streamFacadePolicy);
+  if (plan.functionValues.isNotEmpty) {
+    result.writeln("import {registerFunction} from './references.mjs';");
+  }
   if (plan.classes.isNotEmpty) {
     result.writeln("import {registerReference} from './references.mjs';");
     result.writeln('''const wrappers = new WeakMap();
@@ -176,6 +179,37 @@ function intern(reference, expectedId, context, pending, receiver, newTarget) {
     );
     result.writeln(
       'Object.defineProperty(call$index, "length", {value: ${_arity(function)}, configurable: true});',
+    );
+  }
+  for (final call in plan.functionValues) {
+    final resource = plan.needsResourceOperation(call);
+    result.writeln(
+      'registerFunction(${call.contractId}, ${jsonEncode(call.conversion.signatureKey)}, ${jsonEncode(call.conversion.wireSignatureKey)}, reference => {\n  const callable = (...args) => {',
+    );
+    if (resource && !call.returnsFuture) _beginResource(result, '    ');
+    if (call.returnsFuture) _beginFuture(result, call.output, '    ');
+    if (resource) _prepareResource(result, 'null', false, '      ');
+    final arguments = _arguments(
+      result,
+      call,
+      'function value',
+      names[call],
+      indent: resource || call.returnsFuture ? '      ' : '    ',
+      retainReferences: resource,
+    );
+    final invocation =
+        'core[${jsonEncode(call.coreExportName)}](${[if (resource || call.returnsFuture) 'capability', if (resource) 'operation', 'reference', if (arguments.isNotEmpty) arguments].join(', ')})';
+    if (call.returnsFuture) {
+      result.writeln('      $invocation;');
+      _endFuture(result, '    ', resource: resource);
+    } else {
+      result.writeln(
+        '${resource ? '      ' : '    '}${call.output == null && !call.returnsStream ? '' : 'return '}${call.returnsStream ? 'adoptStream($invocation${resource ? ', capability' : ''})' : _output(call.output, invocation)};',
+      );
+      if (resource) _endResource(result, '    ');
+    }
+    result.writeln(
+      '  };\n  Object.defineProperty(callable, "length", {value: ${_arity(call)}, configurable: true});\n  return callable;\n});',
     );
   }
   for (final (index, binding) in plan.classes.indexed) {
@@ -390,6 +424,21 @@ String _arguments(
       '${jsonEncode(parameter.presence.name)}, '
       '${jsonEncode(call.inputs[i].context)});',
     );
+  }
+  if (call is FunctionValueCallPlan) {
+    for (final (index, parameter) in parameters.indexed) {
+      if (parameter.kind != ParameterKind.optionalPositional) continue;
+      final later = [
+        for (var next = index + 1; next < parameters.length; next++)
+          if (parameters[next].kind == ParameterKind.optionalPositional)
+            '!d$next',
+      ];
+      if (later.isNotEmpty) {
+        result.writeln(
+          '${indent}if (d$index && (${later.join(' || ')})) throw new TypeError("function value: cannot omit a positional argument before a supplied argument");',
+        );
+      }
+    }
   }
   final defaultContainers = [
     for (final (i, parameter) in parameters.indexed)

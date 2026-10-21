@@ -15,6 +15,7 @@ import 'plan.dart';
 String emitNativeLoader(
   List<String> exports, {
   List<NativeClassPlan> classes = const [],
+  List<NativeCallPlan> functionValues = const [],
   bool hasFutures = false,
   bool hasCallbacks = false,
   bool hasAsyncCallbacks = false,
@@ -77,6 +78,12 @@ function $napiCreatePromise() {
 const $napiCallbackGet = WeakMap.prototype.get;
 const $napiCallbackSet = WeakMap.prototype.set;
 ''');
+  if (functionValues.isNotEmpty) {
+    code.writeln(r'''const $napiFunctionCreate = Object.create;
+const $napiFunctionDefine = Object.defineProperty;
+const $napiFunctionDescriptor = Object.getOwnPropertyDescriptor;
+''');
+  }
   if (!hasAsyncCallbacks) {
     code.writeln(r'const $napiCallbackApply = Reflect.apply;');
   }
@@ -86,6 +93,18 @@ const $napiCallbackSet = WeakMap.prototype.set;
     let next = 0;
     return function identify(callback, kind, nullable, path) {
 ''');
+  if (functionValues.isNotEmpty) {
+    code.writeln(r'''      if (arguments.length === 2 && kind === 5) {
+        const dispatcher = $napiFunctionDispatchers[callback];
+        if (typeof dispatcher !== 'function') throw new TypeError('Unknown Dart function contract');
+        const facade = {invoke(...args) {
+          return $napiCallbackApply(dispatcher, facade, args);
+        }}.invoke;
+        $napiFunctionDefine(facade, 'length', $napiFunctionDescriptor(dispatcher, 'length'));
+        $napiFunctionDefine(facade, 'name', {__proto__: null, value: '', configurable: true});
+        return facade;
+      }''');
+  }
   if (hasBinary) {
     code.writeln(
       r'      if (arguments.length === 4) return $napiBinaryView(callback, kind, nullable, path);',
@@ -155,6 +174,17 @@ const $napiCallbackSet = WeakMap.prototype.set;
   code.writeln(
     "const bindings = require('./bridge.node').load(fileURLToPath(new URL('./module.aot', import.meta.url)), ${factories.join(', ')});",
   );
+  if (functionValues.isNotEmpty) {
+    code.writeln(
+      r'const $napiFunctionDispatchers = $napiFunctionCreate(null);',
+    );
+    for (final call in functionValues) {
+      final name = jsonEncode(call.exportName);
+      code.writeln(
+        '\$napiFunctionDispatchers[$name] = bindings[$name];\ndelete bindings[$name];',
+      );
+    }
+  }
   if (streamClassName != null ||
       classes.any((binding) => binding.members.isNotEmpty)) {
     code.writeln(r'''const $napiApply = Reflect.apply;

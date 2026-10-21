@@ -70,6 +70,55 @@ The callback receives the original JS array. It may return that array or another
 array; Dart receives a handle with the declared element policy. Elements use the
 same conversion rules as ordinary handle arguments.
 
+## Returned functions
+
+Dart closures can be returned directly, through a Future, or inside Lists,
+records, Maps and Dictionaries. Function arguments and results may themselves
+be typed functions:
+
+```dart
+@NAPI()
+int Function([int]) makeAdder(int delta) =>
+    ([int value = 7]) => value + delta;
+```
+
+```js
+const add = makeAdder(2);
+add(); // 9: the original Dart closure supplies its default
+add(3); // 5
+```
+
+A Dart function's JavaScript facade validates inputs and converts the result using
+its declared signature. Optional positional arguments and trailing named options
+follow the ordinary export mapping. Omitting a parameter preserves the original
+Dart closure's default. A nullable function becomes null; a Future-returning
+function returns a Promise. These functions cannot be called with `new`.
+`Stream<T> Function(...)` returns an async iterator supporting `for await`,
+normal completion and `return()` cancellation. It uses the same ownership and
+resource rules as [Stream exports](streams.md).
+
+An explicit undefined for an ordinary optional positional parameter currently
+selects its default only in trailing argument slots. For example,
+`fn(2, undefined)` may use the second default, but `fn(undefined, 3)` throws a
+TypeError instead of shifting arguments. Named defaults and trailing omission
+work normally. Opaque payloads that admit undefined preserve it as a value.
+
+A live JavaScript function keeps its Dart closure and captured values alive.
+An unreachable facade and its captured values can be garbage-collected.
+Captured resources must remain open while the function uses them. Omitted
+resource defaults on returned functions do not yet acquire operation leases.
+Returning the same Dart function with the same conversion signature reuses its
+JavaScript facade; different signatures have separate facades. Passing that facade back restores
+the original Dart function. A JavaScript function passed through Dart with the
+same signature returns as the original JavaScript function.
+When input and output conversions differ, such as a value class with different
+constructor and getter shapes, returning that function creates a facade that
+applies the required conversions.
+
+Resource arguments and results keep the normal resource-operation rules,
+including waiting for an accepted asynchronous invocation before cleanup.
+Capturing a resource in a closure does not create an implicit resource lease.
+
 ## Ownership and identity
 
 A live Dart function reference retains its JS callback. Fields, collections,
@@ -100,7 +149,7 @@ Success, rejection and startup failure release private invocation roots.
 Resource closing rejects new resource operations and waits for accepted ones.
 An asynchronous callback with resource payloads keeps its operation alive until
 its Promise settles, even if the enclosing synchronous export has returned.
-Scalar-only callbacks do not extend unrelated resource operations. Calling close
+Callbacks without resource payloads do not extend unrelated resource operations. Calling close
 or unregister from inside a callback preserves already accepted work. Resource
 cleanup may itself accept a callback. Teardown releases private state without
 invoking JS or business cleanup.
@@ -169,8 +218,9 @@ containing undefined keeps its argument slot or named property, while normal
 JavaScript default expressions still apply to that undefined value. Omitted
 parameters skip payload conversion and resource admission.
 
-Generic callback signatures, callback outputs, nested callbacks, nullable outer
-Future results, FutureOr and opaque Map keys receive diagnostics.
+Generic function signatures, nullable outer Future results, FutureOr and opaque
+Map keys receive diagnostics.
+Typed function elements in `JsArray` and `JsMap` are not yet supported.
 [Stream exports](streams.md) retain input
 callbacks through subscription completion. [Explicit cancellation](cancellation.md)
 never revokes a retained callback or cancels a JavaScript Promise returned by it.

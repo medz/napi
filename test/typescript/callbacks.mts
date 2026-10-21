@@ -228,6 +228,96 @@ void [optionalPositionals, nullablePositionals, opaquePositionals, optionalNames
   requiredNames, optionalModels, asyncOptionalPositionals, asyncOptionalNames,
   optionalDirect, optionalExternal, parameterPolicies];
 
+const adder: (value: number) => number = api.makeAdder(2);
+const sum: number = adder(3);
+const optionalAdder: (value?: number) => number = api.makeOptionalAdder(2);
+optionalAdder(); optionalAdder(undefined);
+const namedAdder: (options: {constructor: number; value?: number; nullable?: number | null}) => number =
+  api.makeNamedAdder(2);
+namedAdder({constructor: 1}); namedAdder({constructor: 1, nullable: null});
+const nullableAdder: ((value: number) => number) | null = api.nullableAdder(false);
+const futureAdder: Promise<(value: number) => number> = api.futureAdder(2);
+const asyncAdder: (value: number) => Promise<number> = api.makeAsyncAdder(2);
+const streamAdder: (value: number) => AsyncIterableIterator<number, undefined, undefined> = api.makeStreamAdder(2);
+for await (const value of streamAdder(3)) {
+  const item: number = value; void item;
+}
+const functionContainers: {
+  $1: Array<((value: number) => number) | null>;
+  map: Map<string, (value: number) => number>;
+  dictionary: Record<string, (value: number) => number>;
+} = api.functionContainers(2);
+const consumedFunctions: number = api.useFunctionContainers(functionContainers);
+const transformed: (value: number) => number = api.transformFunction(value => number => value(number) * 2, 2);
+const echoed: (value: number) => number = api.echoFunction(adder);
+const functionValue: api.CallbackFunctionValue = api.echoFunctionValue({callback: adder});
+const functionFieldResult: number = functionValue.callback(3);
+const storedCallback: ((value: number) => number) | null = box.storedCallback;
+box.callback = functionValue.callback;
+const externalFunctionValue: externalHandles.CallbackFunctionValue = externalHandles.echoFunctionValue({callback: adder});
+const composer: (callback: (value: number) => number) => (value: number) => number = api.composeFunction(2);
+const normalizedFunction: (value: {source: string}) => api.CallbackNormalized = api.normalizedFunction();
+const normalizedOutput: api.CallbackNormalized = normalizedFunction({source: '12'});
+const echoedNormalized: (value: {source: string}) => api.CallbackNormalized =
+  api.echoNormalizedFunction(value => ({source: String(value.value)}));
+const positionalDefaults: (first?: number, second?: number) => number = api.positionalDefaults();
+positionalDefaults(); positionalDefaults(2); positionalDefaults(2, undefined);
+const canonical: boolean = api.isCanonicalFunction(api.requiredFunction());
+api.optionalFunction()();
+const capturedPayload: () => CallbackPayload = api.capturePayload<CallbackPayload>(undefined);
+const capturedFunction: () => (value: number) => number = api.capturePayload(adder);
+const rejectedFunction: {$1: () => CallbackPayload; $2: number} = api.rejectFunctionResult<CallbackPayload>(undefined);
+const resourceFunction: (value: api.CallbackResource) => api.CallbackResource = api.resourceFunction();
+const asyncResourceFunction: (value: api.CallbackResource) => Promise<api.CallbackResource> = api.asyncResourceFunction();
+const resourceStreamFunction: (value: api.CallbackResource) => AsyncIterableIterator<api.CallbackResource, undefined, undefined> =
+  api.resourceStreamFunction();
+api.startFunctionOnlyCallback(resource, async callback => {void callback;});
+const externalStream: AsyncIterableIterator<number, undefined, undefined> = externalHandles.makeStreamAdder(2)(3);
+const directStream: AsyncIterableIterator<number, undefined, undefined> = direct.makeStreamAdder(2)(3);
+const externalAdder: (value: number) => number = externalHandles.makeAdder(2);
+const directAdder: (value: number) => number = direct.makeAdder(2);
+// @ts-expect-error Returned functions preserve required positional parameters.
+adder();
+// @ts-expect-error Returned function inputs retain their strict scalar type.
+adder('3');
+// @ts-expect-error A nullable returned function must be checked before invocation.
+nullableAdder(3);
+// @ts-expect-error Named function parameters require the trailing options object.
+api.makeNamedAdder(2)();
+// @ts-expect-error The required named constructor property stays required.
+api.makeNamedAdder(2)({value: 3});
+// @ts-expect-error Optional non-null parameters exclude null.
+optionalAdder(null);
+// @ts-expect-error Returned functions are callable, not constructors.
+new adder(3);
+// @ts-expect-error A higher-order callback must return a function.
+api.transformFunction(() => 3, 2);
+// @ts-expect-error A function-valued field retains its declared result type.
+api.echoFunctionValue({callback: () => 'bad'});
+// @ts-expect-error Function-valued fields preserve their required input type.
+functionValue.callback('3');
+// @ts-expect-error Function-valued getters retain their callable signature.
+box.storedCallback?.('3');
+// @ts-expect-error Function container leaves retain their callable result type.
+api.useFunctionContainers({$1: [() => 'bad'], map: functionContainers.map, dictionary: functionContainers.dictionary});
+// @ts-expect-error A value function accepts constructor input properties, not getter outputs.
+api.normalizedFunction()({value: 12});
+// @ts-expect-error Input callbacks consume getter outputs and return constructor input properties.
+api.echoNormalizedFunction(value => value);
+// @ts-expect-error A resource function preserves the selected resource brand.
+resourceFunction(box);
+// @ts-expect-error Stream function inputs retain their declared scalar type.
+streamAdder('3');
+// @ts-expect-error Stream functions return an iterator, not a Promise.
+const promisedStream: Promise<number> = streamAdder(3);
+// @ts-expect-error Resource stream functions preserve the selected resource brand.
+resourceStreamFunction(box);
+void [sum, namedAdder, futureAdder, asyncAdder, consumedFunctions, transformed, echoed,
+  functionFieldResult, storedCallback, externalFunctionValue,
+  canonical, composer, normalizedOutput, echoedNormalized, positionalDefaults, capturedPayload,
+  capturedFunction, rejectedFunction, resourceFunction, asyncResourceFunction, resourceStreamFunction,
+  externalAdder, directAdder, externalStream, directStream, promisedStream];
+
 // @ts-expect-error Future callback results require a Promise, not a plain scalar.
 api.callAsync(n => n + 1, 3);
 // @ts-expect-error Promise payloads use the declared strict input type.

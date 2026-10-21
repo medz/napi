@@ -75,8 +75,9 @@ String nativeJsCollectionRead(
           final write = structures.write(c, collectionElement: true);
           final tracksOpaque = conversionGraph([input])
               .any((leaf) => leaf is OpaqueConversion);
-          final hasReferences = conversionGraph([c])
-              .any((leaf) => leaf is ReferenceConversion);
+          final hasOwners = conversionGraph([c]).any(
+            (leaf) => leaf is ReferenceConversion || leaf is CallbackConversion,
+          );
           final state =
               '_NativeReadState('
               '${hasResources ? 'ResourceOperation.current' : ''}'
@@ -94,7 +95,7 @@ String nativeJsCollectionRead(
   }
 }'''
               : '(api, env, value, path) => $read(env, value, $state, path, 0)';
-          final writeHandle = hasReferences
+          final writeHandle = hasOwners
               ? '''(api, env, value, path) {
   final state = _NativeWriteState();
   try {
@@ -118,9 +119,13 @@ String nativeJsCollectionRead(
 final class NativeStructuralEmitter {
   final bool hasResources;
   final String Function(DeclarationId)? defaultDeclarationSource;
+  final String Function(CallbackConversion)? callbackReader;
+  final String Function(CallbackConversion)? functionExport;
   NativeStructuralEmitter({
     this.hasResources = false,
     this.defaultDeclarationSource,
+    this.callbackReader,
+    this.functionExport,
   });
   final _code = StringBuffer();
   var _next = 0;
@@ -206,9 +211,12 @@ final class NativeStructuralEmitter {
     }
     switch (conversion) {
       case AbortSignalConversion():
-      case CallbackConversion():
         throw StateError(
           'Signal and callback structural leaves are unsupported',
+        );
+      case CallbackConversion():
+        _code.writeln(
+          '  return ${callbackReader!(conversion)}(env, value, path);',
         );
       case JsCollectionConversion():
         // The adapter owns its source, including cache hits and constructor
@@ -353,10 +361,11 @@ final class NativeStructuralEmitter {
     if (conversion.nullable) _code.writeln('  if (value == null) return null;');
     switch (conversion) {
       case AbortSignalConversion():
-      case CallbackConversion():
         throw StateError(
           'Signal and callback structural leaves are unsupported',
         );
+      case CallbackConversion():
+        _code.writeln('  return value;');
       case BinaryConversion():
         final bytes = conversion.kind == BinaryKind.uint8List
             ? 'value'
@@ -555,9 +564,12 @@ final class NativeStructuralEmitter {
     }
     switch (conversion) {
       case AbortSignalConversion():
-      case CallbackConversion():
         throw StateError(
           'Signal and callback structural leaves are unsupported',
+        );
+      case CallbackConversion():
+        _code.writeln(
+          '  return _api.functionResult(env, value as Function, ${_quote(conversion.signatureKey)}, ${_quote(conversion.wireSignatureKey)}, ${_quote(functionExport!(conversion))}, state.pending);',
         );
       case JsCollectionConversion():
         _code.writeln(
@@ -660,8 +672,9 @@ final class NativeStructuralEmitter {
     BinaryConversion() ||
     SharedBytesConversion() ||
     JsCollectionConversion() ||
+    CallbackConversion() ||
     OpaqueConversion() => [],
-    AbortSignalConversion() || CallbackConversion() => throw StateError(
+    AbortSignalConversion() => throw StateError(
       'Signal and callback structural leaves are unsupported',
     ),
   };
@@ -676,6 +689,7 @@ final class NativeStructuralEmitter {
         conversion is BinaryConversion ||
         conversion is SharedBytesConversion ||
         conversion is JsCollectionConversion ||
+        conversion is CallbackConversion ||
         conversion is OpaqueConversion) {
       return _normalizers[conversion] = _read(conversion);
     }
@@ -833,6 +847,7 @@ final class NativeStructuralEmitter {
         conversion is BinaryConversion ||
         conversion is SharedBytesConversion ||
         conversion is JsCollectionConversion ||
+        conversion is CallbackConversion ||
         conversion is OpaqueConversion) {
       _code.writeln('  return value as ${conversion.dartType};\n}');
       return name;
