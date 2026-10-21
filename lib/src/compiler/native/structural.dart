@@ -51,6 +51,16 @@ String nativeJsCollectionRead(
               'writeHandle: (api, env, value, path) { '
               '${checkResource(object)}return api.referenceResult(env, $object, ${c.classId}, path); })';
         }
+        if (c is BinaryConversion) {
+          return 'NativeJsElement<${c.dartType}>(\'binary\', nullable: ${c.nullable}, '
+              'readHandle: (api, env, value, path) => api.binary(env, value, ${c.kind.index}, path) as ${c.dartType}, '
+              'writeHandle: (api, env, value, path) => api.binaryResult(env, value${c.nullable ? '!' : ''}, ${c.kind.index}, path))';
+        }
+        if (c is SharedBytesConversion) {
+          return 'NativeJsElement<${c.dartType}>(\'sharedBytes\', nullable: ${c.nullable}, '
+              'readHandle: (api, env, value, path) => api.sharedBytes(env, value, path), '
+              'writeHandle: (api, env, value, path) => api.sharedBytesResult(env, value${c.nullable ? '!' : ''}, path))';
+        }
         return 'const NativeJsElement<${c.dartType}>(${_quote(c is OpaqueConversion ? 'opaque' : (c as ScalarConversion).kind.name)}, nullable: ${c.nullable}, bigint: ${c is ScalarConversion && c.bigint})';
       })
       .join(', ');

@@ -25,7 +25,7 @@ String emitDart(ModulePlan plan) {
   final signals = plan.conversions.any((c) => c is AbortSignalConversion);
   final jsCollections = conversionGraph(plan.conversions)
       .any((c) => c is JsCollectionConversion);
-  final binary = conversionGraph(plan.conversions)
+  final binary = conversionDependencies(plan.conversions)
       .any((c) => c is BinaryConversion);
   final callbacks = {
     for (final (index, conversion) in plan.conversions.indexed)

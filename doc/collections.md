@@ -12,7 +12,7 @@ Both targets use these mappings:
 | `List<T>` | `Array<T>` | Independent container on each conversion |
 | `Map<K, V>` | `Map<K, V>` | Independent container on each conversion |
 | `Dictionary<V>` | String-keyed object | Independent container on each conversion |
-| `JsArray<T>` / `JsMap<K, V>` | Original JS Array or Map | Retains the existing JS container; scalar, selected reference, nested handle and direct opaque elements |
+| `JsArray<T>` / `JsMap<K, V>` | Original JS Array or Map | Retains the existing JS container; scalar, reference, binary, nested handle and direct opaque elements |
 | Exported Dart reference class | Bound class instance | Dart owns its state; methods expose supported operations |
 
 See [structural conversion](structural.md) for strict input validation, element
@@ -46,8 +46,22 @@ Supported scalar elements and keys are `bool`, `String`, `int`, `double`, `BigIn
 and their nullable forms. The existing strict scalar policy applies on every
 access: default ints are safe JS numbers; `@NAPI(bigint: true)` ints use signed
 64-bit JS bigints; BigInt is arbitrary precision. Doubles preserve NaN, infinity
-and negative zero, and strings preserve UTF-16 code units. Direct opaque type
-parameters also work, for example `JsArray<T>`, `JsArray<T?>`,
+and negative zero, and strings preserve UTF-16 code units.
+
+`Uint8List` and `ByteBuffer` elements use [binary snapshots](binary.md): every read
+and write makes an independent copy. Uint8List copies the visible view window;
+ByteBuffer copies its entire backing buffer. Later mutation or detachment of the
+original storage does not affect a saved Dart copy. `SharedBytes` elements use
+the [shared byte view](shared-bytes.md) contract instead, preserving the original
+Uint8Array identity and observing its live bytes. Both policies validate storage
+on access and support nullable elements and nested handles.
+
+Copied binary Map keys become new JavaScript objects on every conversion.
+Passing a copied key back to `has`, `get` or `delete` does not address the original
+key; `set` inserts a new object key. Use `SharedBytes` or an opaque key parameter
+when lookup must retain the original Uint8Array identity.
+
+Direct opaque type parameters also work, for example `JsArray<T>`, `JsArray<T?>`,
 `JsMap<String, T>` and `JsMap<K, V>` on an exported generic declaration. They use
 the same [storage-only carrier contract](opaque.md) as direct opaque arguments:
 reads and writes preserve the raw JS value without inspecting or coercing it.
@@ -146,8 +160,8 @@ while closing, but new operations reject it. See [resource lifecycle](resources.
 Resource access from detached work after its exported call finishes is rejected;
 for example, return a Future that includes a Timer's resource work rather than
 starting that Timer from a void export. Keeping a handle or extracted Dart object
-alive does not give it a permanent resource lease. Copied containers, value
-classes and binary values remain unsupported as typed handle elements.
+alive does not give it a permanent resource lease. Copied containers and value
+classes remain unsupported as typed handle elements.
 
 Handles remain usable when saved by Dart or across await/Timer callbacks in their
 owner. Existing Future/Stream retention and resource operation leases apply;

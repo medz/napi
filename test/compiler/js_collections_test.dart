@@ -161,6 +161,113 @@ class Resource { Resource(); void close() {} }
     expect(emitNativeLoader(['add']), isNot(contains(r'$jc')));
   });
 
+  test(
+    'binary policies load dependencies without making admission eager',
+    () async {
+      final module = await read('''
+import 'dart:typed_data';
+@NAPI() JsArray<Uint8List> bytes(JsArray<Uint8List> value) => value;
+@NAPI(bigint: true) JsArray<Uint8List> same(JsArray<Uint8List> value) => value;
+@NAPI() JsArray<ByteBuffer> buffers(JsArray<ByteBuffer> value) => value;
+@NAPI() JsArray<Uint8List?> nullable(JsArray<Uint8List?> value) => value;
+@NAPI() JsMap<ByteBuffer, JsArray<Uint8List>> map(JsMap<ByteBuffer, JsArray<Uint8List>> value) => value;
+@NAPI() Future<JsArray<Uint8List>> callback(Future<JsArray<Uint8List>> Function(JsArray<Uint8List>) f, JsArray<Uint8List> value) => f(value);
+@NAPI() JsArray<SharedBytes> shared(JsArray<SharedBytes> value) => value;
+''');
+      final wasm = lower(validate(module));
+      final native = validateNative(module);
+      final values = wasm.functions
+          .take(4)
+          .map((f) => f.inputs.single)
+          .cast<JsCollectionConversion>()
+          .toList();
+      expect(values.first.value, isA<BinaryConversion>());
+      expect(values[0].signatureKey, values[1].signatureKey);
+      expect(values[0].signatureKey, isNot(values[2].signatureKey));
+      expect(values[0].signatureKey, isNot(values[3].signatureKey));
+      expect(
+        values[0].signatureKey,
+        isNot(
+          (wasm.functions.last.inputs.single as JsCollectionConversion)
+              .signatureKey,
+        ),
+      );
+      expect(
+        conversionGraph(wasm.conversions).whereType<BinaryConversion>(),
+        isEmpty,
+      );
+      expect(
+        conversionDependencies(wasm.conversions).whereType<BinaryConversion>(),
+        isNotEmpty,
+      );
+      expect(native.hasBinary, isTrue);
+      expect(native.hasSharedBytesTypes, isTrue);
+      expect(emitBoundary(wasm), contains('function allocateBinary'));
+      expect(emitDart(wasm), contains('JSAny _copyBinary'));
+      expect(
+        emitNativeDart(native),
+        contains("import 'dart:typed_data' as typed_data;"),
+      );
+      expect(emitDeclarations(wasm), emitNativeDeclarations(native));
+    },
+  );
+
+  test('pure binary handles copy values and work through callbacks', () async {
+    final input = await File('${directory.path}/binary.dart').writeAsString('''
+import 'dart:typed_data';
+import 'package:napi/napi.dart';
+@NAPI() JsArray<Uint8List> copy(JsArray<Uint8List> source) {
+  source.set(1, source.get(0)!);
+  return source;
+}
+@NAPI() JsMap<ByteBuffer, int> keys(JsMap<ByteBuffer, int> source) {
+  final key = source.entries.first.\$1;
+  if (source.has(key)) throw StateError('a copied key must be independent');
+  source.set(key, 2);
+  return source;
+}
+@NAPI() Future<JsArray<Uint8List>> callback(Future<JsArray<Uint8List>> Function(JsArray<Uint8List>) f, JsArray<Uint8List> source) async => copy(await f(source));
+@NAPI() JsMap<SharedBytes, SharedBytes> views(JsMap<SharedBytes, SharedBytes> source) {
+  final (key, value) = source.entries.first;
+  if (!source.has(key) || !identical(source.get(key), value)) throw StateError('shared key identity changed');
+  key[0] += 1;
+  source.set(key, value);
+  return source;
+}
+@NAPI() JsArray<SharedBytes> allocate(JsArray<SharedBytes> source) {
+  source.set(0, SharedBytes.allocate(2)..[0] = 9);
+  return source;
+}
+''');
+    await buildLibrary(
+      library: input.uri,
+      output: Directory('${directory.path}/binary'),
+      packagesPath: packages,
+    );
+    await File('${directory.path}/binary.mjs').writeAsString('''
+import assert from 'node:assert/strict';
+import * as api from './binary/module.wasm';
+const bytes = new Uint8Array([1, 2]), source = [bytes];
+assert.equal(api.copy(source), source);
+assert.notEqual(source[1], bytes);
+source[1][0] = 3; assert.equal(bytes[0], 1);
+assert.equal(await api.callback(async value => value, source), source);
+assert.throws(() => api.copy([null]), TypeError);
+const key = new Uint8Array([5]).buffer, map = new Map([[key, 1]]);
+assert.equal(api.keys(map), map); assert.equal(map.size, 2); assert.equal(map.get(key), 1);
+const sharedKey = new Uint8Array([6]), sharedValue = new Uint8Array([7]);
+const shared = new Map([[sharedKey, sharedValue]]);
+assert.equal(api.views(shared), shared); assert.equal(shared.size, 1);
+assert.equal(sharedKey[0], 7); assert.equal(shared.get(sharedKey), sharedValue);
+const allocated = []; assert.equal(api.allocate(allocated), allocated);
+assert.deepEqual([...allocated[0]], [9, 0]);
+''');
+    final result = await Process.run('node', [
+      'binary.mjs',
+    ], workingDirectory: directory.path);
+    expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
   test('nested handle signatures retain deep element policies', () async {
     final module = await read('''
 @NAPI() JsArray<JsMap<JsArray<int>, JsArray<T?>>?> nested<T>(JsArray<JsMap<JsArray<int>, JsArray<T?>>?> value) => value;

@@ -13,7 +13,7 @@ external WasmExternRef? _jcFind(WasmExternRef source, WasmExternRef signature);
 @pragma('wasm:import', 'napi.jsCollectionCache')
 external void _jcCache(WasmExternRef source, WasmExternRef signature, WasmExternRef adapter);
 @pragma('wasm:import', 'napi.jsCollectionTypeError')
-external WasmExternRef _jcTypeError(WasmExternRef? message);
+external WasmExternRef _jcTypeError(WasmExternRef? message, WasmI32 range);
 
 JSAny? _jcJS(WasmExternRef? value) => value.isNull ? null : value!.toJS;
 WasmExternRef? _jcRef(JSAny? value) => value == null ? WasmExternRef.nullRef : externRefForJSAny(value);
@@ -30,7 +30,7 @@ JSAny _writeJsCollection(Object value, String signature, {bool defer = false}) {
     // False cannot be a valid Array/Map handle. Nested host validation rejects
     // this private value only after all Dart snapshot getters have completed.
     if (defer) return false.toJS;
-    throw _CallbackThrown(_jcTypeError(WasmExternRef.nullRef));
+    throw _CallbackThrown(_jcTypeError(WasmExternRef.nullRef, WasmI32.fromInt(0)));
   }
   return value.source!.toJS;
 }
@@ -111,11 +111,11 @@ void _jcRetainResource(Object? value, String path) {
     if (control == null) return;
     final operation = ResourceOperation.current;
     if (operation == null) {
-      throw _CallbackThrown(_jcTypeError(externRefForJSAny((path + ': resource access requires an active bound call').toJS)));
+      throw _CallbackThrown(_jcTypeError(externRefForJSAny((path + ': resource access requires an active bound call').toJS), WasmI32.fromInt(0)));
     }
     operation.retain(control);
   } on _ResourcePolicyViolation {
-    throw _CallbackThrown(_jcTypeError(externRefForJSAny((path + ': incompatible resource cleanup policies').toJS)));
+    throw _CallbackThrown(_jcTypeError(externRefForJSAny((path + ': incompatible resource cleanup policies').toJS), WasmI32.fromInt(0)));
   }
 }
 ''';

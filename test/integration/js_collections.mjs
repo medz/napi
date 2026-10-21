@@ -636,7 +636,139 @@ async function resourceCollectionStreams(api) {
   assert(events.indexOf('read:11') < events.indexOf('cancel:11'));
   assert(events.indexOf('cancelled:11') < events.indexOf('close:211'));
 }
-const cases = {direct, scalars, maps, accessors, admission, captures, futures, streams, retained, opaque, opaqueAsync, opaqueRetained, nested, nestedHandles, references, resourceCollections, resourceCollectionStreams};
+async function binaryCollections(api) {
+  function snapshot(value, expected) {
+    assert.deepEqual([...(value instanceof ArrayBuffer ? new Uint8Array(value) : value)], expected);
+    assert.equal(Object.getPrototypeOf(value), value instanceof ArrayBuffer ? ArrayBuffer.prototype : Uint8Array.prototype);
+    if (value instanceof Uint8Array) {assert.equal(value.byteOffset, 0); assert.equal(value.buffer.byteLength, value.byteLength);}
+    assert.equal((value.buffer ?? value).resizable, false);
+  }
+  const storage = new Uint8Array([90, 1, 2, 91]), view = storage.subarray(1, 3);
+  const raw = new Uint8Array([3, 4]).buffer;
+  const array = [view, null], map = new Map([['key', raw], ['null', null]]);
+  const box = new api.BinaryCollections(array, map);
+  assert.equal(box.array(), array); assert.equal(box.map(), map);
+  const first = box.read(0), second = box.read(0);
+  snapshot(first, [1, 2]); snapshot(second, [1, 2]);
+  assert.notEqual(first, view); assert.notEqual(first.buffer, second.buffer);
+  first.fill(8); assert.deepEqual([...view], [1, 2]);
+  box.save(0); view[0] = 7; snapshot(box.saved(), [1, 2]); snapshot(box.read(0), [7, 2]);
+  box.change(5); assert.equal(view[0], 7);
+  box.writeSaved(1); snapshot(array[1], [5, 2]);
+  box.change(6); snapshot(array[1], [5, 2]);
+  box.writeSaved(2); snapshot(array[2], [6, 2]); assert.notEqual(array[1].buffer, array[2].buffer);
+  structuredClone(storage.buffer, {transfer: [storage.buffer]}); snapshot(box.saved(), [6, 2]);
+  const replacement = new Uint8Array([9, 10]); box.write(0, replacement);
+  replacement.fill(0); snapshot(array[0], [9, 10]); assert.notEqual(array[0], replacement);
+  box.writeWindow(0); snapshot(array[0], [1, 2]); snapshot(box.saved(), [99, 2]);
+  const pending = box.captured(0); array[0][0] = 77;
+  structuredClone(array[0].buffer, {transfer: [array[0].buffer]}); snapshot(await pending, [1, 2]);
+  box.write(0, null); assert.equal(array[0], null); assert.equal(box.read(0), null);
+
+  box.saveBuffer('key'); new Uint8Array(raw).fill(8); snapshot(box.savedBuffer(), [3, 4]); snapshot(box.get('key'), [8, 8]);
+  box.changeBuffer(6); box.putSaved('copy'); snapshot(map.get('copy'), [6, 4]);
+  box.changeBuffer(7); snapshot(map.get('copy'), [6, 4]);
+  box.putSaved('other'); assert.notEqual(map.get('copy'), map.get('other'));
+  structuredClone(raw, {transfer: [raw]}); snapshot(box.savedBuffer(), [7, 4]);
+  const inputBuffer = new Uint8Array([8, 9]).buffer;
+  box.put('key', inputBuffer); new Uint8Array(inputBuffer).fill(0); snapshot(map.get('key'), [8, 9]);
+  box.putWindow('window'); snapshot(map.get('window'), [90, 1, 2, 91]); snapshot(box.savedBuffer(), [99, 1, 2, 91]);
+  assert.equal(box.get('null'), null); assert.equal(box.get('absent'), null);
+  box.put('nil', null); assert.equal(map.get('nil'), null);
+
+  const foreign = runInNewContext('({bytes: new Uint8Array([11, 12]), buffer: new Uint8Array([13, 14]).buffer})');
+  snapshot(new api.BinaryCollections([foreign.bytes], new Map()).read(0), [11, 12]);
+  snapshot(new api.BinaryCollections([], new Map([['key', foreign.buffer]])).get('key'), [13, 14]);
+  snapshot(new api.BinaryCollections([Buffer.from([15, 16])], new Map()).read(0), [15, 16]);
+  let reads = 0;
+  const spoofed = new Uint8Array([17]);
+  for (const name of ['buffer', 'byteLength', 'byteOffset', 'length', 'constructor']) {
+    Object.defineProperty(spoofed, name, {get() {reads++; throw 'binary metadata';}});
+  }
+  snapshot(new api.BinaryCollections([spoofed], new Map()).read(0), [17]); assert.equal(reads, 0);
+
+  const rab = new ArrayBuffer(8, {maxByteLength: 16}); new Uint8Array(rab).set([90, 1, 2, 3, 4, 5, 6, 91]);
+  const fixed = new Uint8Array(rab, 1, 3), tracking = new Uint8Array(rab, 2);
+  const resizing = new api.BinaryCollections([fixed, tracking], new Map([['key', rab]]));
+  snapshot(resizing.read(0), [1, 2, 3]); rab.resize(5); snapshot(resizing.read(1), [2, 3, 4]);
+  rab.resize(3); assert.throws(() => resizing.read(0), TypeError);
+  snapshot(resizing.read(1), [2]); snapshot(resizing.get('key'), [90, 1, 2]);
+  let traps = 0;
+  const proxy = new Proxy(new Uint8Array([1]), {get() {traps++; throw 'binary proxy';}});
+  for (const bad of [undefined, {}, new Uint16Array(1), new ArrayBuffer(1), proxy,
+    new Uint8Array(new SharedArrayBuffer(1)), view, fixed]) {
+    const values = [bad], invalid = new api.BinaryCollections(values, new Map());
+    assert.equal(invalid.array(), values); assert.throws(() => invalid.read(0), TypeError);
+  }
+  for (const bad of [undefined, new Uint8Array(1), new SharedArrayBuffer(1), raw, new Proxy(new ArrayBuffer(1), {})]) {
+    const values = new Map([['key', bad]]), invalid = new api.BinaryCollections([], values);
+    assert.equal(invalid.map(), values); assert.throws(() => invalid.get('key'), TypeError);
+  }
+  assert.equal(traps, 0);
+  const reason = Symbol('binary setter'), lazy = [];
+  let received, gets = 0;
+  Object.defineProperty(lazy, '0', {get() {gets++; return new Uint8Array([21]);}, set(value) {received = value; throw reason;}});
+  const lazyBox = new api.BinaryCollections(lazy, new Map());
+  assert.equal(gets, 0); snapshot(lazyBox.read(0), [21]); assert.equal(gets, 1);
+  exact(() => lazyBox.write(0, new Uint8Array([22])), reason); snapshot(received, [22]);
+  snapshot(api.nestedBinary([[new Uint8Array([23])]]), [23]);
+  snapshot(api.nestedBinary([[new Uint8Array(0)]]), []);
+  snapshot(api.nestedBuffer([new Map([['key', new Uint8Array([24]).buffer]])]), [24]);
+  assert.throws(() => api.nestedBinary([[null]]), TypeError);
+  const callbackSource = [new Uint8Array([25])];
+  const output = await api.binaryCallback(async value => {
+    assert.equal(value, callbackSource); await tick(); value[0][0] = 26; return value;
+  }, callbackSource);
+  callbackSource[0][0] = 27; snapshot(output, [26]);
+  await assert.rejects(api.binaryCallback(async () => [new Uint16Array(1)], callbackSource), TypeError);
+
+  const originalKey = new Uint8Array([1, 2]), originalValue = new Uint8Array([3, 4]).buffer;
+  const keys = new Map([[originalKey, originalValue]]);
+  assert(api.copiedBinaryKey(keys)); assert.equal(keys.size, 2);
+  assert.equal(keys.get(originalKey), originalValue);
+  snapshot(originalKey, [1, 2]); snapshot(originalValue, [3, 4]);
+  const [copiedKey, copiedValue] = [...keys][1];
+  assert.notEqual(copiedKey, originalKey); assert.notEqual(copiedValue, originalValue);
+  snapshot(copiedKey, [7, 2]); snapshot(copiedValue, [8, 4]);
+  const nullKeys = new Map([[null, false]]);
+  assert(api.nullableBinaryKey(nullKeys)); assert.equal(nullKeys.get(null), true); assert.equal(nullKeys.size, 1);
+}
+async function sharedByteCollections(api) {
+  let source = new Uint8Array([90, 1, 2, 91]).subarray(1, 3);
+  const original = new WeakRef(source), peer = new Uint8Array([3, 4]);
+  const array = [source, null], map = new Map([[source, peer]]);
+  const box = new api.SharedByteCollections(array, map);
+  assert.equal(box.array(), array); assert.equal(box.map(), map);
+  assert.equal(box.read(0), source); box.save(0); assert.equal(box.saved(), source);
+  source[0] = 5; assert.equal(box.readSaved(0), 5);
+  box.changeSaved(1, 6); assert.equal(source[1], 6);
+  box.writeSaved(1); assert.equal(array[1], source);
+  box.captureEntry(); assert.equal(box.key(), source); assert.equal(box.value(), peer);
+  assert(box.hasEntry()); assert(box.sameEntryValue()); box.writeEntry(); assert.equal(map.size, 1);
+  assert(!api.binarySharedPolicy(array, array));
+  array.length = 0; map.clear(); source = null;
+  for (let i = 0; i < 4; i++) {await tick(); api.pressure(i); global.gc();}
+  assert(original.deref()); assert.equal(box.saved(), original.deref());
+  assert.equal(box.readSaved(0), 5); box.changeSaved(0, 7); assert.equal(original.deref()[0], 7);
+  box.writeSaved(0); assert.equal(array[0], original.deref());
+  box.writeEntry(); assert.equal(map.get(original.deref()), peer);
+  box.clear(0); assert.equal(array[0], null); assert.equal(box.read(0), null);
+  box.allocate(0); assert.deepEqual([...array[0]], [0, 0]);
+  box.changeSaved(0, 8); assert.equal(array[0][0], 8); assert.equal(box.saved(), array[0]);
+
+  const sab = new Uint8Array(new SharedArrayBuffer(2));
+  const invalid = new api.SharedByteCollections([sab], new Map());
+  assert.throws(() => invalid.read(0), TypeError);
+  const detached = new Uint8Array([9]), held = new api.SharedByteCollections([detached], new Map());
+  held.save(0); structuredClone(detached.buffer, {transfer: [detached.buffer]});
+  assert.throws(() => held.readSaved(0), TypeError); assert.throws(() => held.saved(), TypeError);
+  const rab = new ArrayBuffer(4, {maxByteLength: 8}), fixed = new Uint8Array(rab, 1, 2);
+  const resizing = new api.SharedByteCollections([fixed], new Map([[fixed, fixed]]));
+  resizing.save(0); rab.resize(1);
+  assert.throws(() => resizing.readSaved(0), TypeError);
+  assert.throws(() => resizing.captureEntry(), TypeError);
+}
+const cases = {direct, scalars, maps, accessors, admission, captures, futures, streams, retained, opaque, opaqueAsync, opaqueRetained, nested, nestedHandles, references, resourceCollections, resourceCollectionStreams, binaryCollections, sharedByteCollections};
 async function worker(held) {
   const thread = new Worker(new URL(import.meta.url), {workerData: {held}});
   await new Promise((resolve, reject) => {
