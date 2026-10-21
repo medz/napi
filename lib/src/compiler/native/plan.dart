@@ -150,8 +150,8 @@ final class NativeModulePlan {
       );
   bool needsResourceOperation(NativeCallPlan call) =>
       _hasResources &&
-      (hasResourceCollections ||
-          hasResourceCallbacks ||
+      (((hasResourceCollections || hasResourceCallbacks) &&
+              !(call.isConstructor && call.member == null)) ||
           (call.owner != null && !call.isConstructor && !call.isStatic) ||
           conversionGraph(call.inputs)
               .any((value) => value is ReferenceConversion) ||
