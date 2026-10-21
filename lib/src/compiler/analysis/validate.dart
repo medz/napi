@@ -2219,7 +2219,7 @@ void _validateJsCollection(
   if (!_supportedJsCollectionElements(collection, classes, opaqueParameters)) {
     throw BindingDiagnostic(
       'NAPI_JS_COLLECTION',
-      'JsArray/JsMap support scalars, selected references, binary values, SharedBytes, direct opaque elements and nested JS collection handles.',
+      'JsArray/JsMap support scalars, selected references, binary values, SharedBytes, direct opaque elements, nested JS collection handles and copied scalar/binary containers.',
       source,
     );
   }
@@ -2234,9 +2234,7 @@ bool _supportedJsCollectionElements(
         (collection.declaration == jsMapDeclaration ? 2 : 1) &&
     collection.typeArguments.every(
       (element) =>
-          _isBackendScalar(element) ||
-          isBinaryType(element) ||
-          isSharedBytesType(element) ||
+          _supportedJsCopiedElement(element) ||
           isOpaqueType(element, opaqueParameters) ||
           isReferenceType(
             element,
@@ -2250,6 +2248,41 @@ bool _supportedJsCollectionElements(
                 opaqueParameters,
               )),
     );
+
+bool _supportedJsCopiedElement(BindingType type) {
+  if (type.nullability == TypeNullability.legacy) return false;
+  if (_isBackendScalar(type) || isBinaryType(type) || isSharedBytesType(type)) {
+    return true;
+  }
+  if (type is RecordTypeBinding) {
+    return type.positional.every(_supportedJsCopiedElement) &&
+        type.named.values.every(_supportedJsCopiedElement);
+  }
+  if (type is! DeclaredType || type.semantics != ValueSemantics.structural) {
+    return false;
+  }
+  final declaration = type.declaration;
+  final arity = declaration == dictionaryDeclaration
+      ? 1
+      : declaration ==
+            DeclarationId(
+              Uri.parse('dart:core'),
+              'List',
+              kind: DeclarationKind.classType,
+            )
+      ? 1
+      : declaration ==
+            DeclarationId(
+              Uri.parse('dart:core'),
+              'Map',
+              kind: DeclarationKind.classType,
+            )
+      ? 2
+      : 0;
+  return arity != 0 &&
+      type.typeArguments.length == arity &&
+      type.typeArguments.every(_supportedJsCopiedElement);
+}
 
 bool _containsCallback(BindingType type) => switch (type) {
   FunctionTypeBinding() => true,

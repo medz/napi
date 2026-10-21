@@ -88,7 +88,9 @@ final class _JsMap<K,V> extends _JsCollection implements napi.JsMap<K,V> {
   void clear() { invoke(6, WasmExternRef.nullRef, WasmExternRef.nullRef); }
   (K,V) readEntry(JSAny entry) {
     final raw = externRefForJSAny(entry)!;
-    return (key.read(_jcField(raw, WasmI32.fromInt(0))), value.read(_jcField(raw, WasmI32.fromInt(1))));
+    final entryKey = key.read(invoke(9, raw, _jcRef(0.toJS)));
+    final entryValue = value.read(invoke(9, raw, _jcRef(1.toJS)));
+    return (entryKey, entryValue);
   }
   @override
   Iterable<(K,V)> get entries sync* {

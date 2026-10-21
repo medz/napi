@@ -2,8 +2,9 @@
 ///
 /// Reads and writes use the original object. Ordinary Dart Lists remain copied
 /// bindings. Elements support scalars, selected class references, copied
-/// Uint8List/ByteBuffer values, SharedBytes, nested JS collection handles and
-/// direct opaque type parameters, including nullable forms. Opaque values follow
+/// Uint8List/ByteBuffer values, SharedBytes, copied List/Map/Dictionary/record
+/// trees of scalar/binary/shared leaves, nested JS collection handles and direct
+/// opaque type parameters, including nullable forms. Opaque values follow
 /// the storage-only contract. Resource access joins the current call's operation;
 /// retaining the handle does not keep resources open.
 abstract interface class JsArray<T> {
@@ -22,9 +23,11 @@ abstract interface class JsArray<T> {
 /// A retained handle to an existing JavaScript Map, using SameValueZero keys.
 ///
 /// Keys and values support scalars, selected class references, copied binary
-/// values, SharedBytes, nested JS collection handles and direct opaque type
-/// parameters, including nullable forms. Copied binary keys become new JS objects
-/// on each conversion; use SharedBytes or opaque keys to retain view identity.
+/// values, SharedBytes, copied List/Map/Dictionary/record trees of
+/// scalar/binary/shared leaves, nested JS collection handles and direct opaque
+/// type parameters, including nullable forms. Copied keys become new JS objects
+/// on each conversion; use reference, handle, SharedBytes or opaque keys when
+/// lookup requires object identity.
 /// Returning a handle preserves the original Map identity. Resource access joins
 /// the current call's operation without a permanent resource lease.
 abstract interface class JsMap<K, V> {

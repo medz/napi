@@ -88,6 +88,7 @@ final class JsCollectionConversion extends ValueConversion {
                'JsMap key',
                bigint: bigint,
                classes: classes,
+               direction: ValueDirection.output,
                opaqueParameters: opaqueParameters,
              )
            : null,
@@ -96,6 +97,7 @@ final class JsCollectionConversion extends ValueConversion {
          type.declaration == jsMapDeclaration ? 'JsMap value' : 'JsArray value',
          bigint: bigint,
          classes: classes,
+         direction: ValueDirection.output,
          opaqueParameters: opaqueParameters,
        );
   static Object _signature(ValueConversion value) => switch (value) {
@@ -104,6 +106,25 @@ final class JsCollectionConversion extends ValueConversion {
     ReferenceConversion() => ['reference', value.classId, value.nullable],
     BinaryConversion() => ['binary', value.kind.name, value.nullable],
     SharedBytesConversion() => ['sharedBytes', value.nullable],
+    ListConversion() => ['list', value.nullable, _signature(value.element)],
+    MapConversion() => [
+      'map',
+      value.nullable,
+      _signature(value.key),
+      _signature(value.value),
+    ],
+    DictionaryConversion() => [
+      'dictionary',
+      value.nullable,
+      _signature(value.value),
+    ],
+    RecordConversion() => [
+      'record',
+      value.nullable,
+      value.positional.map(_signature).toList(),
+      for (final name in value.named.keys.toList()..sort())
+        [name, _signature(value.named[name]!)],
+    ],
     JsCollectionConversion() => [
       'collection',
       value.nullable,

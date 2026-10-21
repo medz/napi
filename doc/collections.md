@@ -12,7 +12,7 @@ Both targets use these mappings:
 | `List<T>` | `Array<T>` | Independent container on each conversion |
 | `Map<K, V>` | `Map<K, V>` | Independent container on each conversion |
 | `Dictionary<V>` | String-keyed object | Independent container on each conversion |
-| `JsArray<T>` / `JsMap<K, V>` | Original JS Array or Map | Retains the existing JS container; scalar, reference, binary, nested handle and direct opaque elements |
+| `JsArray<T>` / `JsMap<K, V>` | Original JS Array or Map | Retains the existing JS container; scalar, reference, binary, copied structure, nested handle and direct opaque elements |
 | Exported Dart reference class | Bound class instance | Dart owns its state; methods expose supported operations |
 
 See [structural conversion](structural.md) for strict input validation, element
@@ -56,10 +56,17 @@ the [shared byte view](shared-bytes.md) contract instead, preserving the origina
 Uint8Array identity and observing its live bytes. Both policies validate storage
 on access and support nullable elements and nested handles.
 
-Copied binary Map keys become new JavaScript objects on every conversion.
+List, Map, Dictionary and record elements support nested trees of scalars,
+binary values and SharedBytes. Each read or write copies the ordinary containers
+and binary leaves; SharedBytes leaves retain their shared view identity. A saved
+Dart value is independent of later changes to its source containers. Strict
+structural validation and traversal limits apply separately to each accessed
+element, while admitting the outer handle remains lazy.
+
+Copied structural and binary Map keys become new JavaScript objects on every conversion.
 Passing a copied key back to `has`, `get` or `delete` does not address the original
-key; `set` inserts a new object key. Use `SharedBytes` or an opaque key parameter
-when lookup must retain the original Uint8Array identity.
+key; `set` inserts a new object key. Use reference, handle, SharedBytes or opaque
+keys when lookup requires the original object's identity.
 
 Direct opaque type parameters also work, for example `JsArray<T>`, `JsArray<T?>`,
 `JsMap<String, T>` and `JsMap<K, V>` on an exported generic declaration. They use
@@ -160,8 +167,9 @@ while closing, but new operations reject it. See [resource lifecycle](resources.
 Resource access from detached work after its exported call finishes is rejected;
 for example, return a Future that includes a Timer's resource work rather than
 starting that Timer from a void export. Keeping a handle or extracted Dart object
-alive does not give it a permanent resource lease. Copied containers and value
-classes remain unsupported as typed handle elements.
+alive does not give it a permanent resource lease. Value classes and copied
+subtrees containing references, opaque values or handles remain unsupported as
+typed handle elements.
 
 Handles remain usable when saved by Dart or across await/Timer callbacks in their
 owner. Existing Future/Stream retention and resource operation leases apply;

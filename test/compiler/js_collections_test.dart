@@ -161,6 +161,220 @@ class Resource { Resource(); void close() {} }
     expect(emitNativeLoader(['add']), isNot(contains(r'$jc')));
   });
 
+  test('copied element policies retain their full mutable shape', () async {
+    final module = await read('''
+import 'dart:typed_data';
+@NAPI() JsArray<List<int>> lists(JsArray<List<int>> value) => value;
+@NAPI() JsArray<List<int>?> nullableList(JsArray<List<int>?> value) => value;
+@NAPI() JsArray<List<int?>> nullableLeaf(JsArray<List<int?>> value) => value;
+@NAPI(bigint: true) JsArray<List<int>> wide(JsArray<List<int>> value) => value;
+@NAPI() JsArray<List<double>> floating(JsArray<List<double>> value) => value;
+@NAPI() JsArray<Map<String, List<int>>> maps(JsArray<Map<String, List<int>>> value) => value;
+@NAPI() JsArray<Dictionary<List<int>>> dictionaries(JsArray<Dictionary<List<int>>> value) => value;
+@NAPI() JsArray<(int, {List<String?> values})> records(JsArray<(int, {List<String?> values})> value) => value;
+@NAPI() JsArray<(int, {List<String?> other})> otherField(JsArray<(int, {List<String?> other})> value) => value;
+@NAPI() JsArray<({int a, String b})> named(JsArray<({int a, String b})> value) => value;
+@NAPI() JsArray<({String b, int a})> reordered(JsArray<({String b, int a})> value) => value;
+@NAPI() JsMap<List<int>, Dictionary<(bool, Uint8List?)>> mixed(JsMap<List<int>, Dictionary<(bool, Uint8List?)>> value) => value;
+@NAPI() JsArray<List<ByteBuffer>> buffers(JsArray<List<ByteBuffer>> value) => value;
+@NAPI() JsArray<List<SharedBytes>> shared(JsArray<List<SharedBytes>> value) => value;
+@NAPI() JsArray<List<Uint8List>> bytes(JsArray<List<Uint8List>> value) => value;
+@NAPI() JsArray<()> empty(JsArray<()> value) => value;
+''');
+    final wasm = lower(validate(module));
+    final native = validateNative(module);
+    for (final (inputs, outputs) in [
+      (
+        wasm.functions.map((f) => f.inputs.single).toList(),
+        wasm.functions.map((f) => f.output).toList(),
+      ),
+      (
+        native.functions.map((f) => f.inputs.single).toList(),
+        native.functions.map((f) => f.output).toList(),
+      ),
+    ]) {
+      final values = inputs.cast<JsCollectionConversion>();
+      for (final (index, input) in values.indexed) {
+        final output = outputs[index] as JsCollectionConversion;
+        expect(input.signatureKey, output.signatureKey);
+        expect(input.typescriptType, output.typescriptType);
+        expect(input.typescriptType, isNot(contains('ReadonlyArray')));
+      }
+      expect({
+        for (final i in [0, 1, 2, 3, 4]) values[i].signatureKey,
+      }, hasLength(5));
+      expect(values[5].signatureKey, isNot(values[6].signatureKey));
+      expect(values[7].signatureKey, isNot(values[8].signatureKey));
+      expect(values[9].signatureKey, values[10].signatureKey);
+      expect(
+        (values[9].value as RecordConversion).named.keys,
+        (values[10].value as RecordConversion).named.keys,
+      );
+      expect({
+        for (final i in [12, 13, 14]) values[i].signatureKey,
+      }, hasLength(3));
+      expect(values[0].value, isA<ListConversion>());
+      expect(values[5].value, isA<MapConversion>());
+      expect(values[6].value, isA<DictionaryConversion>());
+      expect(values[7].value, isA<RecordConversion>());
+      expect(values[11].key, isA<ListConversion>());
+    }
+    final dependencies = conversionDependencies(wasm.conversions).toList();
+    expect(
+      dependencies.whereType<BinaryConversion>().map((c) => c.kind).toSet(),
+      {BinaryKind.uint8List, BinaryKind.byteBuffer},
+    );
+    expect(dependencies.whereType<SharedBytesConversion>(), isNotEmpty);
+    expect(dependencies.whereType<MapConversion>(), isNotEmpty);
+    expect(dependencies.whereType<DictionaryConversion>(), isNotEmpty);
+    expect(dependencies.whereType<RecordConversion>(), isNotEmpty);
+    expect(
+      conversionGraph(wasm.conversions).whereType<ListConversion>(),
+      isEmpty,
+    );
+    expect(native.hasBinary, isTrue);
+    expect(native.hasSharedBytesTypes, isTrue);
+    expect(emitDeclarations(wasm), emitNativeDeclarations(native));
+    expect(emitDeclarations(wasm), contains('globalThis.Array<Array<number>>'));
+  });
+
+  test(
+    'pure copied handle elements build and preserve snapshot behavior',
+    () async {
+      final input = await File('${directory.path}/copied.dart')
+          .writeAsString('''
+import 'package:napi/napi.dart';
+@NAPI() JsArray<List<int>?> lists(JsArray<List<int>?> source) {
+  final value = source.get(0);
+  if (value != null) value[0] += 10;
+  source.set(1, value);
+  return source;
+}
+@NAPI() JsArray<Map<String, List<int>>> maps(JsArray<Map<String, List<int>>> source) {
+  final value = source.get(0)!;
+  value['key']![0] += 10;
+  source.set(1, value);
+  return source;
+}
+@NAPI() JsArray<Dictionary<(int, String?)>> dictionaries(JsArray<Dictionary<(int, String?)>> source) {
+  final value = source.get(0)!;
+  value['key'] = (value['key']!.\$1 + 10, null);
+  source.set(1, value);
+  return source;
+}
+@NAPI() JsArray<(int, {List<bool> flags, String \$cost})> records(JsArray<(int, {List<bool> flags, String \$cost})> source) {
+  final value = source.get(0)!;
+  value.flags[0] = !value.flags[0];
+  source.set(1, (value.\$1 + 10, flags: value.flags, \$cost: value.\$cost + '!'));
+  return source;
+}
+@NAPI() JsMap<List<int>, List<int>> keys(JsMap<List<int>, List<int>> source) {
+  final (key, value) = source.entries.first;
+  if (source.has(key)) throw StateError('copied keys must be independent');
+  key[0] += 10;
+  source.set(key, value);
+  return source;
+}
+@NAPI(bigint: true) JsArray<List<int>> wide(JsArray<List<int>> source) {
+  source.set(1, source.get(0)!);
+  return source;
+}
+@NAPI() JsArray<({int id, String tag})> named(JsArray<({int id, String tag})> source) {
+  final value = source.get(0)!;
+  source.set(1, (id: value.id + 1, tag: value.tag + 'a'));
+  return source;
+}
+@NAPI() JsArray<({String tag, int id})> reordered(JsArray<({String tag, int id})> source) {
+  final value = source.get(0)!;
+  source.set(2, (tag: value.tag + 'b', id: value.id + 2));
+  return source;
+}
+@NAPI() Future<JsArray<List<int>?>> callback(Future<JsArray<List<int>?>> Function(JsArray<List<int>?>) f, JsArray<List<int>?> source) async => lists(await f(source));
+int _cleanups = 0;
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+class Resource {
+  Resource(this.id);
+  final int id;
+  void close() { _cleanups++; }
+}
+@NAPI() int cleanups() => _cleanups;
+@NAPI() Future<int> mixed(JsMap<Resource, List<int>> source, Future<void> Function() wait) async {
+  final (key, value) = source.entries.first;
+  await wait();
+  return key.id + value.single;
+}
+''');
+      await buildLibrary(
+        library: input.uri,
+        output: Directory('${directory.path}/copied'),
+        packagesPath: packages,
+      );
+      await File('${directory.path}/copied.mjs').writeAsString('''
+import assert from 'node:assert/strict';
+const original = ['read', 'write'].map(name => [name, Object.getOwnPropertyDescriptor(Object.prototype, name)]);
+let registrations = 0, api;
+try {
+  for (const [name] of original) Object.defineProperty(Object.prototype, name, {
+    configurable: true,
+    get() {return undefined;},
+    set(value) {
+      if (Object.hasOwn(this, 'structure')) registrations++;
+      Object.defineProperty(this, name, {value, writable: true, enumerable: true, configurable: true});
+    },
+  });
+  api = await import('./copied/module.wasm');
+} finally {
+  for (const [name, descriptor] of original) {
+    if (descriptor) Object.defineProperty(Object.prototype, name, descriptor);
+    else delete Object.prototype[name];
+  }
+}
+assert.equal(registrations, 0);
+const first = [1, 2], lists = [first];
+assert.equal(api.lists(lists), lists); assert.deepEqual(first, [1, 2]);
+assert.deepEqual(lists[1], [11, 2]); assert.notEqual(lists[1], first);
+assert.equal(api.lists([null])[1], null);
+const originalMap = new Map([['key', [2]]]), maps = [originalMap];
+assert.equal(api.maps(maps), maps); assert.deepEqual(originalMap.get('key'), [2]);
+assert.notEqual(maps[1], originalMap); assert.deepEqual(maps[1].get('key'), [12]);
+const dictionary = {key: {\$1: 3, \$2: 'old'}}, dictionaries = [dictionary];
+assert.equal(api.dictionaries(dictionaries), dictionaries);
+assert.equal(dictionary.key.\$1, 3); assert.equal(dictionaries[1].key.\$1, 13);
+assert.equal(dictionaries[1].key.\$2, null); assert.equal(Object.getPrototypeOf(dictionaries[1]), null);
+const record = {\$1: 4, flags: [true], \$cost: 'price'}, records = [record];
+assert.equal(api.records(records), records); assert.equal(record.flags[0], true);
+assert.deepEqual(records[1], {\$1: 14, flags: [false], \$cost: 'price!'});
+const key = [5], value = [6], keys = new Map([[key, value]]);
+assert.equal(api.keys(keys), keys); assert.equal(keys.size, 2); assert.equal(keys.get(key), value);
+assert.deepEqual([...keys][1], [[15], [6]]); assert.notEqual([...keys][1][1], value);
+const wide = [[(1n << 62n) + 1n]]; assert.equal(api.wide(wide), wide);
+assert.deepEqual(wide[1], wide[0]); assert.notEqual(wide[1], wide[0]);
+assert.throws(() => api.wide([[1]]), TypeError);
+assert.throws(() => api.wide([[1n << 63n]]), RangeError);
+const named = [{id: 8, tag: 'first'}];
+assert.equal(api.named(named), named); assert.deepEqual(named[1], {id: 9, tag: 'firsta'});
+const reordered = [{tag: 'second', id: 9}];
+assert.equal(api.reordered(reordered), reordered); assert.deepEqual(reordered[2], {id: 11, tag: 'secondb'});
+assert.equal(api.reordered(named), named); assert.deepEqual(named[2], {id: 10, tag: 'firstb'});
+const callback = [[7]]; assert.equal(await api.callback(async value => value, callback), callback);
+assert.deepEqual(callback[1], [17]); assert.deepEqual(callback[0], [7]);
+const resource = new api.Resource(30);
+let closing;
+const mixed = new Proxy([4], {getOwnPropertyDescriptor(target, key) {
+  if (key === '0') {closing = resource.close(); assert.equal(api.cleanups(), 0);}
+  return Reflect.getOwnPropertyDescriptor(target, key);
+}});
+assert.equal(await api.mixed(new Map([[resource, mixed]]), async () => assert.equal(api.cleanups(), 0)), 34);
+await closing; assert.equal(api.cleanups(), 1);
+''');
+      final result = await Process.run('node', [
+        'copied.mjs',
+      ], workingDirectory: directory.path);
+      expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
+    },
+    timeout: const Timeout(Duration(minutes: 2)),
+  );
+
   test(
     'binary policies load dependencies without making admission eager',
     () async {
@@ -445,12 +659,20 @@ for (const value of [null, undefined, object]) {
   );
 
   for (final source in [
-    '@NAPI() JsArray<List<int>> bad(JsArray<List<int>> value) => value;',
     '@NAPI() JsMap<Object, int> bad(JsMap<Object, int> value) => value;',
     '@NAPI() Map<JsArray<int>, int> bad(Map<JsArray<int>, int> value) => value;',
     '@NAPI() Map<(JsMap<String,int>,), int> bad(Map<(JsMap<String,int>,), int> value) => value;',
-    '@NAPI() List<JsArray<List<int>>> bad(List<JsArray<List<int>>> value) => value;',
     '@NAPI() JsArray<List<T>> bad<T>(JsArray<List<T>> value) => value;',
+    '@NAPI() class Ref { Ref(); } @NAPI() JsArray<List<Ref>> bad(JsArray<List<Ref>> value) => value;',
+    '@NAPI(classPolicy: ClassPolicy.resource, cleanup: "close") class Resource { Resource(); void close() {} } @NAPI() JsArray<Map<String, Resource>> bad(JsArray<Map<String, Resource>> value) => value;',
+    '@NAPI() class Ref { Ref(); } @NAPI() JsArray<Dictionary<Ref?>> bad(JsArray<Dictionary<Ref?>> value) => value;',
+    '@NAPI() class Ref { Ref(); } @NAPI() JsArray<(Ref, int)> bad(JsArray<(Ref, int)> value) => value;',
+    '@NAPI() JsArray<({T payload})> bad<T>(JsArray<({T payload})> value) => value;',
+    '@NAPI() JsArray<List<JsArray<int>>> bad(JsArray<List<JsArray<int>>> value) => value;',
+    '@NAPI() JsArray<Dictionary<JsMap<String, int>>> bad(JsArray<Dictionary<JsMap<String, int>>> value) => value;',
+    '@NAPI() JsArray<Set<int>> bad(JsArray<Set<int>> value) => value;',
+    "import 'dart:typed_data'; @NAPI() JsArray<List<Uint16List>> bad(JsArray<List<Uint16List>> value) => value;",
+    '@NAPI(classPolicy: ClassPolicy.value, valueConstructor: "new") class Value { Value(this.n); final int n; } @NAPI() JsArray<List<Value>> bad(JsArray<List<Value>> value) => value;',
     '@NAPI(classPolicy: ClassPolicy.value) class Value { int n = 1; } @NAPI() JsArray<Value> bad(JsArray<Value> value) => value;',
     '@NAPI() JsArray<Future<T>> bad<T>(JsArray<Future<T>> value) => value;',
     '@NAPI() JsArray<Stream<T>> bad<T>(JsArray<Stream<T>> value) => value;',

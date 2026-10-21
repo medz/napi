@@ -768,7 +768,99 @@ async function sharedByteCollections(api) {
   assert.throws(() => resizing.readSaved(0), TypeError);
   assert.throws(() => resizing.captureEntry(), TypeError);
 }
-const cases = {direct, scalars, maps, accessors, admission, captures, futures, streams, retained, opaque, opaqueAsync, opaqueRetained, nested, nestedHandles, references, resourceCollections, resourceCollectionStreams, binaryCollections, sharedByteCollections};
+async function structuralCollections(api) {
+  const resourceKey = new api.ResourceItem(221);
+  let resourceClose, cleanupDuringReflection;
+  const reflected = new Proxy([2], {ownKeys(target) {
+    resourceClose = resourceKey.close();
+    cleanupDuringReflection = api.collectionCleanups(221);
+    return Reflect.ownKeys(target);
+  }});
+  let mixedResult, mixedError;
+  try {mixedResult = api.mixedResourceEntries(new Map([[resourceKey, reflected]]));} catch (error) {mixedError = error;}
+  assert.equal(cleanupDuringReflection, 0, 'entry key remains leased during later value reflection');
+  assert.equal(mixedError, undefined); assert.equal(mixedResult, 223);
+  await resourceClose; assert.equal(api.collectionCleanups(221), 1);
+  const closedKey = new api.ResourceItem(222); await closedKey.close();
+  let reflectedAfterClose = 0;
+  const unread = new Proxy([2], {ownKeys(target) {reflectedAfterClose++; return Reflect.ownKeys(target);}});
+  assert.throws(() => api.mixedResourceEntries(new Map([[closedKey, unread]])), /clos/i);
+  assert.equal(reflectedAfterClose, 0, 'closed entry key rejects before reading its value');
+  const live = new Uint8Array([3]), bytes = new Uint8Array([2]);
+  const item = {text: '雪\ud800\0', values: [1, null], bytes: new Map([['key', bytes]]), shared: {key: live}};
+  const source = [item, null], map = new Map([['key', item], ['nil', null]]);
+  const box = new api.StructuralCollections(source, map);
+  assert.equal(box.array(), source); assert.equal(box.map(), map); assert(box.independentReads());
+  const a = box.read(0), b = box.read(0), entry = box.first();
+  assert.notEqual(a, item); assert.notEqual(a.values, b.values); assert.notEqual(a.bytes, b.bytes);
+  assert.notEqual(a.bytes.get('key').buffer, b.bytes.get('key').buffer);
+  assert.notEqual(entry, item); assert.notEqual(entry.values, a.values);
+  assert.equal(a.text, item.text); assert.equal(a.shared.key, live);
+  a.shared.key[0] = 4; assert.equal(live[0], 4);
+  a.values[0] = 8; a.bytes.get('key')[0] = 9;
+  assert.equal(item.values[0], 1); assert.equal(bytes[0], 2);
+  assert.equal(box.read(1), null); assert.equal(box.get('nil'), null); assert.equal(box.get('absent'), null);
+  box.save(0); item.values[0] = 5; bytes[0] = 6;
+  assert.equal(box.saved().values[0], 1); assert.equal(box.saved().bytes.get('key')[0], 2);
+  box.change(7); box.writeSaved(2); box.writeSaved(3); box.putSaved('copy');
+  assert.notEqual(source[2], source[3]); assert.notEqual(source[2].values, source[3].values);
+  assert.notEqual(source[2].bytes.get('key').buffer, source[3].bytes.get('key').buffer);
+  assert.equal(source[2].shared.key, live); assert.equal(map.get('copy').shared.key, live);
+  box.change(8); assert.equal(source[2].values[0], 7); assert.equal(source[2].bytes.get('key')[0], 7);
+  box.unsafe(); assert.throws(() => box.writeSaved(2), RangeError);
+  assert.equal(source[2].values[0], 7); assert(box.catchesWrite(2));
+  let sets = 0;
+  Object.defineProperty(source, '4', {set() {sets++;}});
+  assert(box.catchesWrite(4)); assert.equal(sets, 0);
+
+  let getters = 0;
+  const accessor = []; Object.defineProperty(accessor, '0', {get() {getters++; return 1;}});
+  for (const [values, error] of [[[undefined], TypeError], [new Array(1), TypeError], [accessor, TypeError], [[2 ** 53], RangeError], [Array(10000).fill(1), RangeError]]) {
+    const input = [{...item, values}], invalid = new api.StructuralCollections(input, new Map());
+    assert.equal(invalid.array(), input); assert(invalid.catches(0));
+    assert.throws(() => invalid.read(0), error);
+  }
+  assert.equal(getters, 0);
+  const reason = Symbol('structural reflection');
+  const proxy = new Proxy([1], {ownKeys() {throw reason;}});
+  const proxied = new api.StructuralCollections([{...item, values: proxy}], new Map());
+  exact(() => proxied.read(0), reason); assert(proxied.catches(0));
+  const detached = new Uint8Array([1]); structuredClone(detached.buffer, {transfer: [detached.buffer]});
+  assert.throws(() => new api.StructuralCollections([{...item, bytes: new Map([['key', detached]])}], new Map()).read(0), TypeError);
+  const keys = new Map([[[1], {value: 2}]]), originalKey = [...keys.keys()][0], originalValue = keys.get(originalKey);
+  assert(api.structuralKeys(keys)); assert.equal(keys.size, 2);
+  assert.equal(keys.get(originalKey), originalValue); assert.deepEqual(originalKey, [1]); assert.equal(originalValue.value, 2);
+  const [keyCopy, valueCopy] = [...keys][1]; assert.deepEqual(keyCopy, [1]); assert.equal(valueCopy.value, 2);
+  const equalRecords = new Map([[{id: 1}, [1]], [{id: 1}, [2]]]);
+  assert.deepEqual(api.recordKey(equalRecords), [1]); assert.equal(equalRecords.size, 2);
+  const mapKey = new Map([['key', 1]]), dictKey = {key: 2};
+  const mapKeys = new Map([[mapKey, {value: 3}]]), dictKeys = new Map([[dictKey, [4]]]);
+  assert(api.containerKeys(mapKeys, dictKeys)); assert.equal(mapKeys.size, 2); assert.equal(dictKeys.size, 2);
+  assert.equal(mapKey.get('key'), 1); assert.equal(dictKey.key, 2);
+  const [newMapKey, newMapValue] = [...mapKeys][1], [newDictKey, newDictValue] = [...dictKeys][1];
+  assert.notEqual(newMapKey, mapKey); assert.notEqual(newDictKey, dictKey);
+  assert.equal(newMapKey.get('key'), 1); assert.equal(newMapValue.value, 3);
+  assert.equal(newDictKey.key, 2); assert.deepEqual(newDictValue, [4]);
+  const collision = [new Map([[{id: 1}, 1], [{id: 1}, 2]])];
+  assert(api.recordMapCollision(collision, true));
+  assert.throws(() => api.recordMapCollision(collision, false), TypeError);
+  const big = [[1n << 62n]]; assert.equal(api.structuralBigints(big), big);
+  assert.throws(() => api.structuralBigints([[1]]), TypeError);
+  assert.throws(() => api.structuralBigints([[1n << 63n]]), RangeError);
+  for (const [target, name, replacement] of [[BigInt.prototype, 'toString', function() {return '7';}], [globalThis, 'BigInt', () => 7n]]) {
+    const original = target[name];
+    try {
+      target[name] = replacement;
+      const ints = [[1n << 62n]], wide = [[1n << 130n]];
+      api.structuralBigints(ints); api.structuralWideBigints(wide);
+      assert.deepEqual(ints, [[1n << 62n]]); assert.deepEqual(wide, [[1n << 130n]]);
+    } finally {target[name] = original;}
+  }
+  const callbackInput = [[11]];
+  const callbackOutput = api.structuralCallback(value => {assert.equal(value, callbackInput); return value;}, callbackInput);
+  callbackInput[0][0] = 12; assert.deepEqual(callbackOutput, [11]);
+}
+const cases = {direct, scalars, maps, accessors, admission, captures, futures, streams, retained, opaque, opaqueAsync, opaqueRetained, nested, nestedHandles, references, resourceCollections, resourceCollectionStreams, binaryCollections, sharedByteCollections, structuralCollections};
 async function worker(held) {
   const thread = new Worker(new URL(import.meta.url), {workerData: {held}});
   await new Promise((resolve, reject) => {

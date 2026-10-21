@@ -27,16 +27,17 @@ String nativeJsCollectionRead(
   String env,
   String value,
   String path, {
+  required NativeStructuralEmitter structures,
   String api = '_api',
-  bool hasResources = false,
 }) {
+  final hasResources = structures.hasResources;
   final method = conversion.isMap ? 'jsMap' : 'jsArray';
   final elements = [?conversion.key, conversion.value];
   final policies = elements
       .map((c) {
         if (c is JsCollectionConversion) {
           return 'NativeJsElement<${c.dartType}>(\'handle\', nullable: ${c.nullable}, '
-              'readHandle: (api, env, value, path) => ${nativeJsCollectionRead(c, 'env', 'value', 'path', api: 'api', hasResources: hasResources)}, '
+              'readHandle: (api, env, value, path) => ${nativeJsCollectionRead(c, 'env', 'value', 'path', structures: structures, api: 'api')}, '
               'writeHandle: (api, env, value, path) => api.jsCollectionResult(env, value${c.nullable ? '!' : ''}, ${_quote(c.signatureKey)}, path))';
         }
         if (c is ReferenceConversion) {
@@ -61,6 +62,16 @@ String nativeJsCollectionRead(
               'readHandle: (api, env, value, path) => api.sharedBytes(env, value, path), '
               'writeHandle: (api, env, value, path) => api.sharedBytesResult(env, value${c.nullable ? '!' : ''}, path))';
         }
+        if (c is ListConversion ||
+            c is MapConversion ||
+            c is DictionaryConversion ||
+            c is RecordConversion) {
+          final read = structures.read(c, forceNormalize: true);
+          final write = structures.write(c);
+          return 'NativeJsElement<${c.dartType}>(\'structure\', nullable: ${c.nullable}, '
+              'readHandle: (api, env, value, path) => $read(env, value, _NativeReadState(${hasResources ? 'null' : ''}), path, 0), '
+              'writeHandle: (api, env, value, path) => $write(env, value, _NativeWriteState(), path, 0))';
+        }
         return 'const NativeJsElement<${c.dartType}>(${_quote(c is OpaqueConversion ? 'opaque' : (c as ScalarConversion).kind.name)}, nullable: ${c.nullable}, bigint: ${c is ScalarConversion && c.bigint})';
       })
       .join(', ');
@@ -84,8 +95,9 @@ final class NativeStructuralEmitter {
   final _outputSnapshots = Map<ValueConversion, String>.identity();
   final _snapshotWriters = Map<ValueConversion, String>.identity();
 
-  String read(ValueConversion conversion) {
-    if (!containsValueClass(conversion) &&
+  String read(ValueConversion conversion, {bool forceNormalize = false}) {
+    if (!forceNormalize &&
+        !containsValueClass(conversion) &&
         !conversionGraph([conversion]).any(
           (value) =>
               value is BinaryConversion ||
@@ -136,6 +148,15 @@ final class NativeStructuralEmitter {
     final name = '_readNativeStructure${_next++}';
     _reads[conversion] = name;
     final functions = [for (final child in _children(conversion)) _read(child)];
+    final collection = conversion is JsCollectionConversion
+        ? nativeJsCollectionRead(
+            conversion,
+            'env',
+            'value',
+            'path',
+            structures: this,
+          )
+        : null;
     _code.writeln(
       '${conversion.dartType} $name(Pointer<Void> env, Pointer<Void> value, _NativeReadState state, String path, int depth) {',
     );
@@ -152,9 +173,7 @@ final class NativeStructuralEmitter {
       case JsCollectionConversion():
         // The adapter owns its source, including cache hits and constructor
         // escapes. It must not join the opaque input rollback list.
-        _code.writeln(
-          '  return ${nativeJsCollectionRead(conversion, 'env', 'value', 'path', hasResources: hasResources)};',
-        );
+        _code.writeln('  return $collection;');
       case OpaqueConversion():
         _code.writeln(
           '  final owned = _api.ownHostValue(env, value);\n  state.owned?.add(owned);\n  return owned;',
