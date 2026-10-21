@@ -178,6 +178,55 @@ function functionValues(api) {
   const payload = {closedOver: true}, capture = api.capturePayload(payload);
   assert.equal(capture(), payload);
   assert.equal(api.capturePayload(javascript)(), javascript, 'a function inside opaque T stays an opaque payload');
+  functionCollectionValues(api, add, javascript, normalize, normalized);
+}
+
+function functionCollectionValues(api, add, javascript, normalize, normalized) {
+  const array = [javascript, 3], map = new Map([['add', javascript], ['unused', null]]);
+  const direct = api.functionHandleValues(array, map, add);
+  assert.equal(direct.array, array); assert.equal(direct.map, map); assert.equal(direct.result, 15);
+  assert.equal(array[0], add); assert.equal(map.get('add'), add);
+  assert.equal(array[1], 3); assert.equal(map.get('unused'), null);
+  for (const invalid of [null, undefined, 3]) {
+    assert.throws(() => api.functionHandleValues([invalid], new Map([['add', javascript]]), add), TypeError);
+    assert.throws(() => api.functionHandleValues([javascript], new Map([['add', invalid]]), add), TypeError);
+  }
+  const nullableArray = [javascript], nullableMap = new Map([['add', javascript]]);
+  const previous = api.nullableFunctionHandles(nullableArray, nullableMap, 0, null);
+  assert.equal(previous.$1, javascript); assert.equal(previous.$2, javascript);
+  assert.equal(nullableArray[0], null); assert.equal(nullableMap.get('add'), null);
+  assert.deepEqual(api.nullableFunctionHandles(nullableArray, nullableMap, 0, add), {$1: null, $2: null});
+  assert.equal(nullableArray[0], add); assert.equal(nullableMap.get('add'), add);
+  assert.deepEqual(api.nullableFunctionHandles([], new Map(), 0, null), {$1: null, $2: null});
+  for (const source of [new Array(1), [undefined]]) {
+    assert.throws(() => api.nullableFunctionHandles(source, new Map(), 0, null), TypeError);
+  }
+  assert.throws(() => api.nullableFunctionHandles([null], new Map([['add', undefined]]), 0, null), TypeError);
+  const opaqueFunction = () => 17;
+  Object.defineProperty(opaqueFunction, 'then', {get() {throw Error('function storage must not inspect then');}});
+  const opaque = api.opaqueFunctionHandles(array, map, opaqueFunction);
+  assert.equal(opaque.array, array); assert.equal(opaque.map, map);
+  assert.equal(opaque.first, add); assert.equal(opaque.second, add);
+  assert.equal(array[0], opaqueFunction); assert.equal(map.get('add'), opaqueFunction);
+  assert.equal(api.functionHandleValues(array, map, add).result, 34,
+    'typed and opaque function policies on one source keep separate adapters');
+  const undefinedPayload = api.opaqueFunctionHandles([undefined], new Map([['add', undefined]]), opaqueFunction);
+  assert.equal(undefinedPayload.first, undefined); assert.equal(undefinedPayload.second, undefined);
+  const original = {value: {callback: javascript}, callbacks: [javascript]}, copied = [original];
+  const structured = api.copiedFunctionHandle(copied, add);
+  assert.equal(structured.values, copied); assert.equal(structured.result, 15);
+  assert.notEqual(copied[0], original); assert.notEqual(copied[0].callbacks, original.callbacks);
+  assert.equal(copied[0].value.callback, add); assert.equal(copied[0].callbacks[0], add);
+  assert.equal(original.value.callback, javascript);
+  assert.throws(() => api.copiedFunctionHandle([{value: {callback: 3}, callbacks: [javascript]}], add), TypeError);
+  assert.throws(() => api.copiedFunctionHandle([{value: {callback: javascript}, callbacks: [undefined]}], add), TypeError);
+  const asymmetric = [normalize], converted = api.normalizedFunctionHandle(asymmetric);
+  assert.equal(converted.values, asymmetric); assert.equal(converted.same, true);
+  assert.deepEqual(converted.before, {value: 13}); assert.deepEqual(converted.after, {value: 15});
+  assert.equal(asymmetric[0], normalized);
+  assert.deepEqual(asymmetric[0]({source: '12'}), {value: 13});
+  assert.equal(api.normalizedFunctionHandle(asymmetric).same, true);
+  assert.throws(() => api.normalizedFunctionHandle([value => value]), TypeError);
 }
 
 async function asyncFunctionValues(api) {
@@ -188,6 +237,24 @@ async function asyncFunctionValues(api) {
   const values = [];
   for await (const value of api.makeStreamAdder(2)(3)) values.push(value);
   assert.deepEqual(values, [5, 6]);
+  let asynchronousMode = false;
+  const adaptive = value => asynchronousMode
+    ? new Promise(resolve => setImmediate(() => {global.gc(); resolve(value * 2);}))
+    : value * 2;
+  const source = [adaptive], map = new Map([['add', adaptive]]);
+  assert.equal(api.functionHandleValues(source, map, adaptive).result, 10);
+  asynchronousMode = true;
+  const asynchronousHandle = await api.asyncFunctionHandle(source, adaptive);
+  assert.equal(asynchronousHandle.values, source);
+  assert.equal(asynchronousHandle.before, 4); assert.equal(asynchronousHandle.after, 6);
+  assert.equal(source[0], adaptive);
+  const replaced = await api.asyncFunctionHandle(source, asynchronous);
+  assert.equal(replaced.values, source); assert.equal(source[0], asynchronous);
+  assert.equal(replaced.before, 4); assert.equal(replaced.after, 5);
+  asynchronousMode = false; source[0] = adaptive;
+  assert.equal(api.functionHandleValues(source, map, adaptive).result, 10);
+  await assert.rejects(api.asyncFunctionHandle([value => value], asynchronous), TypeError);
+  await assert.rejects(api.asyncFunctionHandle([async () => 'bad'], asynchronous), TypeError);
 }
 
 function payloadValues(api) {
@@ -1337,6 +1404,8 @@ async function scenario(name) {
         'isCanonicalFunction', 'capturePayload', 'rejectFunctionResult',
         'resourceFunction', 'asyncResourceFunction', 'resourceStreamFunction',
         'startFunctionOnlyCallback',
+        'functionHandleValues', 'nullableFunctionHandles', 'asyncFunctionHandle',
+        'opaqueFunctionHandles', 'copiedFunctionHandle', 'normalizedFunctionHandle',
       ].sort());
       assert.equal(external.plainCallback(n => n + 1, 3), 4);
       assert.throws(() => external.plainCallback(), TypeError);

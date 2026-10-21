@@ -505,7 +505,7 @@ void _emitCallbackAdapter(
       ? 'Future<$payloadType>'
       : payloadType;
   result.writeln(
-    '''${callback.dartType} _callback$context(WasmExternRef callback) {
+    '''$adapterType _callback$context(WasmExternRef callback) {
   final signature = externRefForJSAny(${quote(callback.signatureKey)}.toJS)!;
   final original = _unwrapFunction(callback, signature);
   if (!original.isNull) return original!.internalize().toObject() as $adapterType;

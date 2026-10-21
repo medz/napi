@@ -12,7 +12,7 @@ Both targets use these mappings:
 | `List<T>` | `Array<T>` | Independent container on each conversion |
 | `Map<K, V>` | `Map<K, V>` | Independent container on each conversion |
 | `Dictionary<V>` | String-keyed object | Independent container on each conversion |
-| `JsArray<T>` / `JsMap<K, V>` | Original JS Array or Map | Retains the existing JS container; scalar, reference, binary, value class, copied structure, nested handle and direct opaque elements |
+| `JsArray<T>` / `JsMap<K, V>` | Original JS Array or Map | Retains the existing JS container; scalar, reference, binary, value class, function, copied structure, nested handle and direct opaque elements |
 | Exported Dart reference class | Bound class instance | Dart owns its state; methods expose supported operations |
 
 See [structural conversion](structural.md) for strict input validation, element
@@ -57,9 +57,10 @@ Uint8Array identity and observing its live bytes. Both policies validate storage
 on access and support nullable elements and nested handles.
 
 List, Map, Dictionary and record elements support nested trees of supported
-leaves, including value classes, selected references, opaque values and JS handles. Each read or
-write copies the ordinary containers and binary leaves. References, opaque values,
-handles and SharedBytes retain their respective identity and ownership contracts.
+leaves, including value classes, typed functions, selected references, opaque values
+and JS handles. Each read or write copies the ordinary containers and binary
+leaves. References, opaque values, handles and SharedBytes retain their respective
+identity and ownership contracts.
 A saved Dart value is independent of later changes to its source containers. Strict
 structural validation and traversal limits apply separately to each accessed
 element, while admitting the outer handle remains lazy. As with ordinary copied
@@ -86,6 +87,35 @@ When writing value classes, each getter result is converted and retained before
 the next getter runs. Resource leaves therefore acquire their operation lease
 before a later getter can request cleanup. Conversion completes before assigning
 the target slot; constructor, getter and setter side effects are not rolled back.
+
+Typed functions work as Array elements and Map values, including inside copied
+containers and value classes:
+
+```dart
+@NAPI()
+JsArray<int Function(int)> replace(
+  JsArray<int Function(int)> values,
+  int Function(int) callback,
+) {
+  values.set(0, callback);
+  return values;
+}
+```
+
+Reading produces a typed Dart function; writing exposes a callable JS function.
+The Array or Map itself keeps its original identity. Functions follow the
+[ordinary function conversion contract](callbacks.md#returned-functions), including
+Future results and signature-specific identity. A JS function is restored unchanged
+when the input and output conversions agree. Asymmetric value-class signatures
+need a converting function facade instead; reading that facade restores its Dart
+function. TypeScript describes these stored functions as a union of input and
+output signatures. Nullable functions accept null; present undefined and unfilled
+holes fail conversion. An absent slot or Map key returns Dart null.
+
+Function keys of `JsMap` and Stream-returning function elements are unsupported.
+A function stored through an opaque type parameter remains an uninterpreted JS
+value. Function signatures alone do not lease resources captured by a closure;
+resource arguments and results use the normal call lifetime rules.
 
 Direct opaque type parameters also work, for example `JsArray<T>`, `JsArray<T?>`,
 `JsMap<String, T>` and `JsMap<K, V>` on an exported generic declaration. They use

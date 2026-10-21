@@ -276,6 +276,35 @@ const externalStream: AsyncIterableIterator<number, undefined, undefined> = exte
 const directStream: AsyncIterableIterator<number, undefined, undefined> = direct.makeStreamAdder(2)(3);
 const externalAdder: (value: number) => number = externalHandles.makeAdder(2);
 const directAdder: (value: number) => number = direct.makeAdder(2);
+const functionHandles: {array: Array<(value: number) => number>; map: Map<string, (value: number) => number>; result: number} =
+  api.functionHandleValues([adder], new Map([['add', adder]]), adder);
+const nullableFunctionHandles: {$1: ((value: number) => number) | null; $2: ((value: number) => number) | null} =
+  api.nullableFunctionHandles([null], new Map([['add', adder]]), 0, null);
+const asyncFunctionHandle: Promise<{values: Array<(value: number) => Promise<number>>; before: number; after: number}> =
+  api.asyncFunctionHandle([asyncAdder], asyncAdder);
+const opaqueFunctionHandles = api.opaqueFunctionHandles<typeof adder | undefined>(
+  [undefined], new Map([['add', undefined]]), adder);
+const copiedFunctionHandles = api.copiedFunctionHandle([{value: {callback: adder}, callbacks: [adder]}], adder);
+const copiedFunctionResult: number = copiedFunctionHandles.values[0].value.callback(3);
+type StoredNormalizedFunction =
+  | ((value: api.CallbackNormalized) => {source: string})
+  | ((value: {source: string}) => api.CallbackNormalized);
+const normalizedFunctions: {values: StoredNormalizedFunction[]; before: api.CallbackNormalized; after: api.CallbackNormalized; same: boolean} =
+  api.normalizedFunctionHandle([(value: api.CallbackNormalized) => ({source: String(value.value)})]);
+externalHandles.functionHandleValues([adder], new Map([['add', adder]]), adder);
+direct.nullableFunctionHandles([null], new Map(), 0, null);
+// @ts-expect-error Function handle values preserve their callback result type.
+api.functionHandleValues([() => 'bad'], new Map([['add', adder]]), adder);
+// @ts-expect-error Non-null function elements exclude null.
+api.functionHandleValues([null], new Map([['add', adder]]), adder);
+// @ts-expect-error Nullable function elements still exclude undefined.
+api.nullableFunctionHandles([undefined], new Map(), 0, null);
+// @ts-expect-error Future-function handle values require genuine Promise signatures.
+api.asyncFunctionHandle([value => value], asyncAdder);
+// @ts-expect-error Copied function element fields retain their callable type.
+api.copiedFunctionHandle([{value: {callback: () => 'bad'}, callbacks: [adder]}], adder);
+// @ts-expect-error Asymmetric function inputs still require a callable value.
+api.normalizedFunctionHandle([{}]);
 // @ts-expect-error Returned functions preserve required positional parameters.
 adder();
 // @ts-expect-error Returned function inputs retain their strict scalar type.
@@ -317,6 +346,8 @@ void [sum, namedAdder, futureAdder, asyncAdder, consumedFunctions, transformed, 
   canonical, composer, normalizedOutput, echoedNormalized, positionalDefaults, capturedPayload,
   capturedFunction, rejectedFunction, resourceFunction, asyncResourceFunction, resourceStreamFunction,
   externalAdder, directAdder, externalStream, directStream, promisedStream];
+void [functionHandles, nullableFunctionHandles, asyncFunctionHandle, opaqueFunctionHandles,
+  copiedFunctionResult, normalizedFunctions];
 
 // @ts-expect-error Future callback results require a Promise, not a plain scalar.
 api.callAsync(n => n + 1, 3);

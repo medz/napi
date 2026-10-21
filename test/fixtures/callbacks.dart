@@ -947,3 +947,95 @@ void startFunctionOnlyCallback(
 ) {
   callback((value) => value);
 }
+
+@NAPI()
+({JsArray<Unary> array, JsMap<String, Unary> map, int result})
+functionHandleValues(
+  JsArray<Unary> array,
+  JsMap<String, Unary> map,
+  Unary replacement,
+) {
+  final result = array.get(0)!(2) + map.get('add')!(3);
+  array.set(0, replacement);
+  map.set('add', replacement);
+  return (array: array, map: map, result: result);
+}
+
+@NAPI()
+(Unary?, Unary?) nullableFunctionHandles(
+  JsArray<Unary?> array,
+  JsMap<String, Unary?> map,
+  int index,
+  Unary? replacement,
+) {
+  final previous = (array.get(index), map.get('add'));
+  array.set(index, replacement);
+  map.set('add', replacement);
+  return previous;
+}
+
+typedef AsyncUnary = Future<int> Function(int);
+
+@NAPI()
+Future<({JsArray<AsyncUnary> values, int before, int after})>
+asyncFunctionHandle(JsArray<AsyncUnary> values, AsyncUnary replacement) async {
+  final before = await values.get(0)!(2);
+  values.set(0, replacement);
+  final after = await values.get(0)!(3);
+  return (values: values, before: before, after: after);
+}
+
+@NAPI()
+({JsArray<T> array, JsMap<String, T> map, T? first, T? second})
+opaqueFunctionHandles<T>(
+  JsArray<T> array,
+  JsMap<String, T> map,
+  T replacement,
+) {
+  final first = array.get(0);
+  final second = map.get('add');
+  array.set(0, replacement);
+  map.set('add', replacement);
+  return (array: array, map: map, first: first, second: second);
+}
+
+typedef CopiedFunctionElement = ({
+  CallbackFunctionValue value,
+  List<Unary> callbacks,
+});
+
+@NAPI()
+({JsArray<CopiedFunctionElement> values, int result}) copiedFunctionHandle(
+  JsArray<CopiedFunctionElement> values,
+  Unary replacement,
+) {
+  final entry = values.get(0)!;
+  final result = entry.value.callback(2) + entry.callbacks.single(3);
+  values.set(0, (
+    value: CallbackFunctionValue(replacement),
+    callbacks: [replacement],
+  ));
+  return (values: values, result: result);
+}
+
+typedef NormalizedUnary = CallbackNormalized Function(CallbackNormalized);
+
+@NAPI()
+({
+  JsArray<NormalizedUnary> values,
+  CallbackNormalized before,
+  CallbackNormalized after,
+  bool same,
+})
+normalizedFunctionHandle(JsArray<NormalizedUnary> values) {
+  final first = values.get(0)!;
+  final before = first(CallbackNormalized.parse('12'));
+  values.set(0, first);
+  final restored = values.get(0)!;
+  return (
+    values: values,
+    before: before,
+    after: restored(CallbackNormalized.parse('14')),
+    same: identical(first, restored),
+  );
+}

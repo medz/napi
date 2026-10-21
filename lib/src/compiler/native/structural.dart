@@ -70,12 +70,14 @@ String nativeJsCollectionRead(
             c is MapConversion ||
             c is DictionaryConversion ||
             c is RecordConversion ||
-            c is ValueClassConversion) {
+            c is ValueClassConversion ||
+            c is CallbackConversion) {
           final read = structures.read(input, forceNormalize: true);
           final write = structures.write(c, collectionElement: true);
-          final tracksOpaque = conversionGraph([input])
-              .any((leaf) => leaf is OpaqueConversion);
-          final hasOwners = conversionGraph([c]).any(
+          final tracksOpaque = conversionGraph([
+            input,
+          ], includeFunctions: false).any((leaf) => leaf is OpaqueConversion);
+          final hasOwners = conversionGraph([c], includeFunctions: false).any(
             (leaf) => leaf is ReferenceConversion || leaf is CallbackConversion,
           );
           final state =

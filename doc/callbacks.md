@@ -68,7 +68,10 @@ JsArray<T> transform<T>(
 
 The callback receives the original JS array. It may return that array or another
 array; Dart receives a handle with the declared element policy. Elements use the
-same conversion rules as ordinary handle arguments.
+same conversion rules as ordinary handle arguments. Handles also support typed
+function elements and Map values, including Future-returning functions; see
+[function collection values](collections.md). An opaque type parameter containing
+a function keeps that function as a raw payload.
 
 ## Returned functions
 
@@ -220,7 +223,7 @@ parameters skip payload conversion and resource admission.
 
 Generic function signatures, nullable outer Future results, FutureOr and opaque
 Map keys receive diagnostics.
-Typed function elements in `JsArray` and `JsMap` are not yet supported.
+Function keys of `JsMap` and Stream-returning function elements receive diagnostics.
 [Stream exports](streams.md) retain input
 callbacks through subscription completion. [Explicit cancellation](cancellation.md)
 never revokes a retained callback or cancels a JavaScript Promise returned by it.

@@ -2235,7 +2235,7 @@ void _validateJsCollection(
   if (!_supportedJsCollectionElements(collection, classes, opaqueParameters)) {
     throw BindingDiagnostic(
       'NAPI_JS_COLLECTION',
-      'JsArray/JsMap support scalars, selected references, binary values, SharedBytes, opaque elements, nested JS collection handles, value classes and copied containers. Copied Map keys cannot contain opaque values or JS collection handles.',
+      'JsArray/JsMap support scalars, selected references, binary values, SharedBytes, opaque elements, typed functions, nested JS collection handles, value classes and copied containers. Function keys and Stream-returning function elements are unsupported. Copied Map keys cannot contain opaque values or JS collection handles.',
       source,
     );
   }
@@ -2249,13 +2249,17 @@ bool _supportedJsCollectionElements(
 }) =>
     collection.typeArguments.length ==
         (collection.declaration == jsMapDeclaration ? 2 : 1) &&
-    collection.typeArguments.every(
-      (element) => _supportedJsCollectionElement(
-        element,
-        classes,
-        opaqueParameters,
-        visited: visited ?? {},
-      ),
+    collection.typeArguments.indexed.every(
+      (entry) =>
+          !(collection.declaration == jsMapDeclaration &&
+              entry.$1 == 0 &&
+              entry.$2 is FunctionTypeBinding) &&
+          _supportedJsCollectionElement(
+            entry.$2,
+            classes,
+            opaqueParameters,
+            visited: visited ?? {},
+          ),
     );
 
 bool _supportedJsCollectionElement(
@@ -2281,6 +2285,41 @@ bool _supportedJsCollectionElement(
   }
   if (_isBackendScalar(type) || isBinaryType(type) || isSharedBytesType(type)) {
     return true;
+  }
+  if (type is FunctionTypeBinding) {
+    final result = type.result;
+    if (mapKey ||
+        type.typeParameters.isNotEmpty ||
+        type.parameters.any((parameter) => parameter.hasDefault) ||
+        isStreamType(result) ||
+        isFutureType(result) &&
+            (result.nullability != TypeNullability.nonNullable ||
+                (result as DeclaredType).typeArguments.length != 1)) {
+      return false;
+    }
+    bool payload(BindingType value) => _supportedJsCollectionElement(
+      value,
+      classes,
+      opaqueParameters,
+      visited: visited,
+    );
+    final output = resultPayload(result);
+    return type.parameters.every((parameter) => payload(parameter.type)) &&
+        (output == null || payload(output)) &&
+        _isBackendValue(
+          type,
+          classes,
+          ValueDirection.input,
+          null,
+          opaqueParameters,
+        ) &&
+        _isBackendValue(
+          type,
+          classes,
+          ValueDirection.output,
+          null,
+          opaqueParameters,
+        );
   }
   bool child(BindingType value, {bool key = false}) =>
       _supportedJsCollectionElement(

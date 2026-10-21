@@ -34,6 +34,7 @@ final class DartStructuralEmitter {
       case ScalarConversion():
         return '_JsElement<$type>(false, (value) => $nullable${_readScalar(conversion, bigintText: true)}, (value) => $nullable${_writeScalar(conversion)})';
       case BinaryConversion() ||
+          CallbackConversion() ||
           ListConversion() ||
           MapConversion() ||
           DictionaryConversion() ||

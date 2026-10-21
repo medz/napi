@@ -91,6 +91,11 @@ final class JsCollectionConversion extends ValueConversion {
     ReferenceConversion() => ['reference', value.classId, value.nullable],
     BinaryConversion() => ['binary', value.kind.name, value.nullable],
     SharedBytesConversion() => ['sharedBytes', value.nullable],
+    CallbackConversion() => [
+      'function',
+      value.wireSignatureKey,
+      value.nullable,
+    ],
     ValueClassConversion() => [
       'value',
       value.schemaId,
@@ -140,8 +145,11 @@ final class JsCollectionConversion extends ValueConversion {
     }
     final read = input.typescriptType;
     final write = output.typescriptType;
-    return read == write || read == 'never' || read == 'null' && output.nullable
-        ? write
+    if (read == write || read == 'never' || read == 'null' && output.nullable) {
+      return write;
+    }
+    return input is CallbackConversion || output is CallbackConversion
+        ? '($read) | ($write)'
         : '$read | $write';
   }
 
@@ -153,8 +161,10 @@ final class JsCollectionConversion extends ValueConversion {
 /// Lazy references may expose a resource through an ordinary selected view.
 bool containsJsCollectionReference(ValueConversion conversion) =>
     conversion is JsCollectionConversion &&
-    conversionDependencies([conversion])
-        .any((element) => element is ReferenceConversion);
+    conversionDependencies(
+      [conversion],
+      includeFunctions: false,
+    ).any((element) => element is ReferenceConversion);
 
 /// An explicit cancellation input. Each backend retains the host signal while
 /// its Dart adapter is reachable; accepting it does not cancel ordinary work.

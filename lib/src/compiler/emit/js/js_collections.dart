@@ -14,7 +14,8 @@ Iterable<JsCollectionConversion> _collectionPolicies(
   }.values;
 }
 
-bool _copiedStructure(ValueConversion c) =>
+bool _convertedElement(ValueConversion c) =>
+    c is CallbackConversion ||
     c is ListConversion ||
     c is MapConversion ||
     c is DictionaryConversion ||
@@ -50,6 +51,7 @@ String jsCollectionPolicies(Iterable<JsCollectionConversion> conversions) {
       'collection': c.isMap ? 'map' : 'array',
       'nullable': c.nullable,
     },
+    CallbackConversion() ||
     ListConversion() ||
     MapConversion() ||
     DictionaryConversion() ||
@@ -73,10 +75,11 @@ String jsCollectionPolicies(Iterable<JsCollectionConversion> conversions) {
   });
 }
 
-/// Copied elements use the ordinary structural boundary for each lazy access.
+/// Converted elements use the ordinary structural boundary for each lazy access.
 String jsCollectionStructurePolicies(
   Iterable<JsCollectionConversion> conversions, {
   bool resources = false,
+  Map<String, int> functionContracts = const {},
 }) {
   final source = StringBuffer();
   var next = 0;
@@ -85,20 +88,24 @@ String jsCollectionStructurePolicies(
       ('key', c.key, c.inputKey),
       ('value', c.value, c.inputValue),
     ]) {
-      if (child == null || !_copiedStructure(child)) continue;
+      if (child == null || !_convertedElement(child)) continue;
       final reader = emitStructuralBoundary(
         input!,
         prefix: '\$jcStructure${next++}',
         leafAdapter: BoundaryLeafAdapter(
           bigintText: true,
           resources: resources,
+          functionContracts: functionContracts,
         ),
         generateWrite: false,
       );
       final writer = emitStructuralBoundary(
         child,
         prefix: '\$jcStructure${next++}',
-        leafAdapter: BoundaryLeafAdapter(resources: resources),
+        leafAdapter: BoundaryLeafAdapter(
+          resources: resources,
+          functionContracts: functionContracts,
+        ),
         generateRead: false,
       );
       source.writeln(reader.source);

@@ -114,6 +114,43 @@ class Resource extends Ref { Resource(); void close() {} }
     );
   }, timeout: const Timeout(Duration(minutes: 2)));
 
+  test('JS collection-only functions compile as native AOT', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'napi-collection-functions-',
+    );
+    addTearDown(() => directory.delete(recursive: true));
+    final source = await File('${directory.path}/business.dart')
+        .writeAsString('''
+import 'package:napi/napi.dart';
+@NAPI() JsArray<int Function(int)> functions(JsArray<int Function(int)> values) {
+  final first = values.get(0);
+  values.set(1, (value) => value + 1);
+  first?.call(2);
+  return values;
+}
+''');
+    final plan = validateNative(
+      await AnnotationFrontend(
+        packagesPath: packages,
+        native: true,
+      ).read(source.uri),
+    );
+    final entry = await File('${directory.path}/entry.dart')
+        .writeAsString(emitNativeDart(plan));
+    final compiled = await Process.run(Platform.resolvedExecutable, [
+      'compile',
+      'aot-snapshot',
+      '--packages=$packages',
+      entry.path,
+      '--output=${directory.path}/module.aot',
+    ]);
+    expect(
+      compiled.exitCode,
+      0,
+      reason: '${compiled.stdout}${compiled.stderr}',
+    );
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
   test('function outputs and nested functions compile as native AOT', () async {
     final directory = await Directory.systemTemp.createTemp(
       'napi-function-values-',
