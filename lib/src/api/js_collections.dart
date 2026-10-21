@@ -1,10 +1,10 @@
 /// A retained handle to an existing JavaScript Array.
 ///
 /// Reads and writes use the original object. Ordinary Dart Lists remain copied
-/// bindings. Elements support scalars, ordinary selected class references, nested
+/// bindings. Elements support scalars, selected class references, nested
 /// JS collection handles and direct opaque type parameters, including nullable
-/// forms. Opaque values follow the storage-only contract. Resource objects are
-/// not supported as typed elements.
+/// forms. Opaque values follow the storage-only contract. Resource access joins
+/// the current call's operation; retaining the handle does not keep resources open.
 abstract interface class JsArray<T> {
   int get length;
 
@@ -20,10 +20,10 @@ abstract interface class JsArray<T> {
 
 /// A retained handle to an existing JavaScript Map, using SameValueZero keys.
 ///
-/// Keys and values support scalars, ordinary selected class references, nested
+/// Keys and values support scalars, selected class references, nested
 /// JS collection handles and direct opaque type parameters, including nullable
 /// forms. Returning a handle preserves the original Map identity. Resource
-/// objects are not supported as typed elements.
+/// access joins the current call's operation without a permanent resource lease.
 abstract interface class JsMap<K, V> {
   int get size;
   bool has(K key);

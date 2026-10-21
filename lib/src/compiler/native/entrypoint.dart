@@ -23,6 +23,7 @@ import '../lowering/plan.dart'
         ValueConversion,
         containsDictionary,
         containsDefaultReference,
+        containsJsCollectionReference,
         containsValueClass,
         conversionGraph,
         dartOpaqueTypeArguments,
@@ -65,6 +66,8 @@ String emitNativeDart(NativeModulePlan plan) {
     for (final binding in plan.classes) binding.shape,
   ]);
   final hasResources = policies.isNotEmpty;
+  final scopedCollections =
+      hasResources && plan.jsCollections.any(containsJsCollectionReference);
   final hasCompositeViews = hasCompositeReferenceViews([
     for (final binding in plan.classes) binding.shape,
   ]);
@@ -200,6 +203,17 @@ ${resourceTests.declarations}  int? policy;''');
         '''  return policy == null ? null : ResourceControl.forObject(value);
 }''',
       );
+      if (scopedCollections) {
+        code.writeln(
+          '''void _retainJsCollectionResource(Object value, String path) {
+  final control = _resourceControl(value);
+  if (control == null) return;
+  final operation = ResourceOperation.current;
+  if (operation == null) throw NapiTypeError('\$path: resource access requires an active bound call');
+  operation.retain(control);
+}''',
+        );
+      }
     }
     code.writeln('const _referenceMemberships = <Set<int>>[');
     for (final binding in plan.classes) {
@@ -239,9 +253,12 @@ ${tests.declarations}  int? canonical;''');
   for (final call in plan.calls) {
     final hasReceiver =
         call.owner != null && !call.isConstructor && !call.isStatic;
+    final scopedOperation =
+        scopedCollections && !(call.isConstructor && call.member == null);
     final retainsResources =
         hasResources &&
-        (hasReceiver ||
+        (scopedOperation ||
+            hasReceiver ||
             conversionGraph(call.inputs)
                 .any((value) => value is ReferenceConversion));
     final parameters = call.parameters;
@@ -285,6 +302,9 @@ ${tests.declarations}  int? canonical;''');
       }
     }
     code.writeln('  try {');
+    if (scopedOperation && !call.isCleanup) {
+      code.writeln('    return operation.run(() {');
+    }
     code.writeln(
       '    final call = _api.call(envAddress, infoAddress, $capacity);',
     );
@@ -311,6 +331,7 @@ ${tests.declarations}  int? canonical;''');
         code.writeln('''    final control = _resourceControl(object)!;
     final operation = ResourceOperation(exempt: control);
     _api.attachOperation(token, operation);''');
+        if (scopedOperation) code.writeln('    return operation.run(() {');
       } else if (retainsResources) {
         code.writeln('    operation.retain(_resourceControl(object));');
       }
@@ -543,7 +564,7 @@ ${tests.declarations}  int? canonical;''');
     if (!first) return promise;''');
       }
       code.writeln(
-        '    _api.retainFuture(token, [${[if (call.owner != null && !call.isStatic) 'object', for (var i = 0; i < parameters.length; i++) 'a$i'].join(', ')}]${retainsResources && call.output != null && call.output is! ScalarConversion ? ', observeEnv: envAddress' : ''});',
+        '    _api.retainFuture(token, [${[if (call.owner != null && !call.isStatic) 'object', for (var i = 0; i < parameters.length; i++) 'a$i'].join(', ')}]${retainsResources && call.output != null && call.output is! ScalarConversion ? ', observeEnv: envAddress${scopedOperation ? ', observeEmpty: true' : ''}' : ''});',
       );
       code.writeln('    final env = Pointer<Void>.fromAddress(envAddress);');
       if (!call.isCleanup) _checkSignals(code, call);
@@ -553,6 +574,7 @@ ${tests.declarations}  int? canonical;''');
       );
       _writeResult(code, call.output, structures, 'env');
       code.writeln('    }, ${_quote(call.context)});\n    return 0;');
+      if (scopedOperation) code.writeln('    });');
       code.writeln(
         '  } catch (error, stack) {\n'
         '    _api.rejectFuture(envAddress, token, error, stack, ${_quote(call.context)});\n'
@@ -595,6 +617,7 @@ ${tests.declarations}  int? canonical;''');
         );
         _writeResult(code, call.output, structures, 'call.env');
       }
+      if (scopedOperation) code.writeln('    });');
       code.writeln(
         '  } catch (error) {\n    return _api.fail(envAddress, error);\n  }${retainsResources || tracksInputOwners ? ' finally {\n${tracksInputOwners ? '    for (final value in pendingInputs) { value.release(); }\n' : ''}${retainsResources ? '    ${call.returnsStream ? 'if (!operationTransferred) ' : ''}operation.release();\n' : ''}  }' : ''}\n}',
       );

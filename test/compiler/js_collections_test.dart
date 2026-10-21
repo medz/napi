@@ -113,6 +113,46 @@ class Packet { Packet(this.items); final JsArray<int> items; }
     expect(emitNativeDart(native), contains('jsCollectionResult'));
   });
 
+  test(
+    'resource collections scope later calls without changing unrelated modules',
+    () async {
+      for (final element in ['Resource', 'Resource?', 'JsArray<Resource>']) {
+        final module = await read('''
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+class Resource { Resource(); void close() {} }
+@NAPI() JsArray<$element> keep(JsArray<$element> value) => value;
+@NAPI() int later() => 1;
+''');
+        final wasm = lower(validate(module));
+        final native = validateNative(module);
+        expect(wasm.hasResourceCollections, isTrue);
+        expect(wasm.needsResourceOperation(wasm.functions.last), isTrue);
+        expect(
+          wasm.functions.last.representation,
+          ExportRepresentation.callableGlobal,
+        );
+        expect(emitDeclarations(wasm), emitNativeDeclarations(native));
+      }
+      final module = await read('''
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+class Resource { Resource(); void close() {} }
+@NAPI() JsArray<int> keep(JsArray<int> value) => value;
+@NAPI() int later() => 1;
+''');
+      final wasm = lower(validate(module));
+      expect(wasm.hasResourceCollections, isFalse);
+      expect(wasm.needsResourceOperation(wasm.functions.last), isFalse);
+      expect(
+        wasm.functions.last.representation,
+        ExportRepresentation.nativeFunction,
+      );
+      expect(
+        emitNativeDart(validateNative(module)),
+        isNot(contains('_retainJsCollectionResource')),
+      );
+    },
+  );
+
   test('unused modules emit no collection runtime', () async {
     final module = await read('@NAPI() int add(int a, int b) => a + b;');
     final wasm = lower(validate(module));
@@ -304,8 +344,6 @@ for (const value of [null, undefined, object]) {
     '@NAPI() Map<(JsMap<String,int>,), int> bad(Map<(JsMap<String,int>,), int> value) => value;',
     '@NAPI() List<JsArray<List<int>>> bad(List<JsArray<List<int>>> value) => value;',
     '@NAPI() JsArray<List<T>> bad<T>(JsArray<List<T>> value) => value;',
-    '@NAPI(classPolicy: ClassPolicy.resource, cleanup: "close") class Resource { void close() {} } @NAPI() JsArray<Resource> bad(JsArray<Resource> value) => value;',
-    '@NAPI(classPolicy: ClassPolicy.resource, cleanup: "close") class Resource { void close() {} } @NAPI() class Child extends Resource {} @NAPI() JsArray<Child> bad(JsArray<Child> value) => value;',
     '@NAPI(classPolicy: ClassPolicy.value) class Value { int n = 1; } @NAPI() JsArray<Value> bad(JsArray<Value> value) => value;',
     '@NAPI() JsArray<Future<T>> bad<T>(JsArray<Future<T>> value) => value;',
     '@NAPI() JsArray<Stream<T>> bad<T>(JsArray<Stream<T>> value) => value;',

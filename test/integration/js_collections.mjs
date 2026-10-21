@@ -17,6 +17,13 @@ function exact(action, expected) {
   try { action(); } catch (error) {caught = true; assert.equal(error, expected);}
   assert(caught);
 }
+async function until(predicate, message) {
+  for (let i = 0; i < 100; i++) {
+    if (predicate()) return;
+    await tick();
+  }
+  assert.fail(message);
+}
 async function direct(api) {
   const source = [1, 2];
   assert.equal(api.remember(source), source); assert(api.same(source));
@@ -513,25 +520,123 @@ async function references(api) {
   assert.throws(() => api.referenceBox([first]), TypeError);
   assert.throws(() => api.referenceBox([null]), TypeError);
 
-  // An ordinary static base cannot bypass resource lifetime admission.
+  // Ordinary base views still use the actual resource's lifecycle.
   const resource = new api.ResourceItem(41);
   const resourceRefs = new api.ReferenceCollections([resource], new Map([[resource, first], [first, resource]]));
-  assert.throws(() => resourceRefs.read(0), TypeError);
-  await assert.rejects(resourceRefs.delayedRead(0), TypeError);
-  await assert.rejects(resourceRefs.captured(0), TypeError);
-  assert.throws(() => resourceRefs.has(resource), TypeError);
-  assert.throws(() => resourceRefs.get(first), TypeError);
-  resourceRefs.start(); assert.throws(() => resourceRefs.next(), TypeError);
-  assert.throws(() => refs.write(0, resource), TypeError); assert.equal(array[0], restored);
-  assert.throws(() => refs.writeResource(0), TypeError); assert.equal(array[0], restored);
-  assert.throws(() => refs.putResourceKey(), TypeError); assert.equal(map.size, 1);
-  assert.throws(() => refs.putResourceValue(restored), TypeError); assert.equal(map.get(restored), restored);
-  assert.throws(() => api.writeReferenceResource(array), TypeError); assert.equal(array[0], restored);
+  assert.equal(resourceRefs.read(0), resource);
+  assert.equal(await resourceRefs.delayedRead(0), resource);
+  assert.equal(await resourceRefs.captured(0), resource);
+  assert(resourceRefs.has(resource)); assert.equal(resourceRefs.get(first), resource);
+  resourceRefs.start(); assert(resourceRefs.next()); assert.equal(resourceRefs.key(), resource);
+  refs.write(0, resource); assert.equal(array[0], resource);
+  refs.writeResource(0); assert(array[0] instanceof api.ResourceItem); await array[0].close();
+  refs.putResourceKey();
+  const createdKey = [...map.keys()].find(key => key instanceof api.ResourceItem);
+  assert(createdKey); await createdKey.close(); map.delete(createdKey);
+  refs.putResourceValue(restored); assert(map.get(restored) instanceof api.ResourceItem); await map.get(restored).close();
+  map.set(restored, restored);
+  api.writeReferenceResource(array); assert(array[0] instanceof api.ResourceItem); await array[0].close();
+  array[0] = restored;
   assert.throws(() => api.writeConflictingResource(array), TypeError); assert.equal(array[0], restored);
   await resource.close();
-  assert.throws(() => resourceRefs.read(0), TypeError);
+  assert.throws(() => resourceRefs.read(0), /clos/i);
 }
-const cases = {direct, scalars, maps, accessors, admission, captures, futures, streams, retained, opaque, opaqueAsync, opaqueRetained, nested, nestedHandles, references};
+
+async function resourceCollections(api) {
+  const first = new api.ResourceItem(201), second = new api.ResourceItem(202);
+  const array = [first, null], map = new Map([[first, second]]);
+  const resources = new api.ResourceCollections(array, map);
+  assert.equal(resources.array(), array); assert.equal(resources.map(), map);
+  assert.equal(resources.read(0), first); assert.equal(resources.read(1), null);
+  resources.write(1, second); assert.equal(array[1], second);
+  assert(resources.has(first)); assert.equal(resources.get(first), second);
+  resources.put(second, first); assert.equal(map.get(second), first);
+  resources.start(); assert(resources.next());
+  assert.equal(resources.key(), first); assert.equal(resources.value(), second);
+  await first.close(); await second.close();
+  assert.throws(() => resources.read(0), /clos/i);
+
+  // Neither storing a handle nor starting a Future eagerly reads its elements.
+  const untouched = new api.ResourceItem(203);
+  const idle = new api.ResourceCollections([untouched], new Map());
+  await untouched.close(); assert.equal(api.collectionCleanups(203), 1);
+  assert.throws(() => idle.read(0), /clos/i);
+  const beforeRead = new api.ResourceItem(204);
+  const late = new api.ResourceCollections([beforeRead], new Map());
+  const rejected = assert.rejects(late.hold(4, true), /clos/i);
+  await until(() => api.collectionWaiting(1004), 'expected pre-read gate');
+  await beforeRead.close(); assert.equal(api.collectionCleanups(204), 1);
+  api.collectionComplete(1004); await rejected;
+
+  const afterAwait = new api.ResourceItem(205);
+  const delayed = new api.ResourceCollections([afterAwait], new Map());
+  const pending = delayed.hold(5, true);
+  await until(() => api.collectionWaiting(1005), 'expected delayed first access');
+  api.collectionComplete(1005);
+  await until(() => api.collectionWaiting(5), 'expected resource accepted after await');
+  const closing = afterAwait.close(); assert.equal(api.collectionCleanups(205), 0);
+  assert.throws(() => delayed.read(0), /clos/i);
+  api.collectionComplete(5); assert.equal(await pending, 205);
+  await closing; assert.equal(api.collectionCleanups(205), 1);
+
+  // A cached handle must use the operation of each concurrent and reentrant call.
+  const shared = new api.ResourceItem(206), source = [];
+  const concurrent = new api.ResourceCollections(source, new Map());
+  let reentered = false, inner;
+  Object.defineProperty(source, '0', {get() {
+    if (!reentered) {reentered = true; inner = concurrent.hold(7, false);}
+    return shared;
+  }});
+  const outer = concurrent.hold(6, false), third = concurrent.hold(8, false);
+  await until(() => [6, 7, 8].every(token => api.collectionWaiting(token)), 'expected independent resource operations');
+  const sharedClose = shared.close();
+  for (const [token, work] of [[6, outer], [7, inner], [8, third]]) {
+    assert.equal(api.collectionCleanups(206), 0);
+    api.collectionComplete(token); assert.equal(await work, 206);
+    await tick();
+  }
+  await sharedClose; assert.equal(api.collectionCleanups(206), 1);
+
+  const adopted = new api.ResourceItem(207);
+  const adoption = new api.ResourceCollections([adopted], new Map());
+  let finish, adoptedClose;
+  const thenable = {get then() {
+    adoptedClose = adopted.close(); assert.equal(api.collectionCleanups(207), 0);
+    return resolve => {finish = resolve;};
+  }};
+  const result = adoption.result(9, thenable);
+  await until(() => api.collectionWaiting(9), 'expected result gate');
+  api.collectionComplete(9);
+  await until(() => finish !== undefined, 'expected result thenable adoption');
+  for (let i = 0; i < 3; i++) {await tick(); global.gc(); assert.equal(api.collectionCleanups(207), 0);}
+  finish(37); assert.equal(await result, 37); await adoptedClose;
+  assert.equal(api.collectionCleanups(207), 1);
+
+  const expired = new api.ResourceItem(208);
+  api.collectionTimers([expired], [23]);
+  await new Promise(resolve => setTimeout(resolve, 5));
+  await until(() => api.collectionTimerResult().length === 2, 'expected detached timer access');
+  assert.deepEqual(api.collectionTimerResult(), [1, 23]);
+  assert.equal(api.collectionCleanups(208), 0); await expired.close();
+}
+
+async function resourceCollectionStreams(api) {
+  const resource = new api.ResourceItem(211);
+  const holder = new api.ResourceCollections([resource], new Map());
+  const stream = holder.watch(11), first = stream.next();
+  await until(() => api.collectionWaiting(11), 'expected lazy stream first access');
+  api.collectionComplete(11);
+  assert.equal((await first).value, 211);
+  const pending = stream.next(), closing = resource.close();
+  await until(() => api.collectionWaiting(-11), 'expected late resource to cancel stream');
+  assert.equal(api.collectionCleanups(211), 0);
+  api.collectionComplete(-11); await closing;
+  assert.equal((await pending).done, true); await stream.return();
+  const events = api.collectionEvents();
+  assert(events.indexOf('read:11') < events.indexOf('cancel:11'));
+  assert(events.indexOf('cancelled:11') < events.indexOf('close:211'));
+}
+const cases = {direct, scalars, maps, accessors, admission, captures, futures, streams, retained, opaque, opaqueAsync, opaqueRetained, nested, nestedHandles, references, resourceCollections, resourceCollectionStreams};
 async function worker(held) {
   const thread = new Worker(new URL(import.meta.url), {workerData: {held}});
   await new Promise((resolve, reject) => {
@@ -543,6 +648,10 @@ async function worker(held) {
 }
 if (!isMainThread) {
   const api = await import('@napi/js-collections-fixture'); await direct(api); await retained(api); await opaque(api);
+  const resource = new api.ResourceItem(301), resources = new api.ResourceCollections([resource], new Map());
+  assert.equal(resources.read(0), resource);
+  if (workerData.held) {globalThis.resourceUse = resources.hold(50, false); globalThis.resourceClose = resource.close();}
+  else await resource.close();
   if (workerData.held) {api.remember([1]); api.rememberMap(new Map([['a', 1]])); api.iterate(); api.next(); globalThis.pending = api.hold([2]); globalThis.opaque = new api.ArrayPayloads([{held: true}]); globalThis.opaque.load(0); globalThis.opaquePending = globalThis.opaque.captured(60000); setInterval(() => {}, 1000); parentPort.postMessage('ready');}
 } else if (process.argv[2]) {
   const name = process.argv[2];

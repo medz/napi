@@ -278,14 +278,16 @@ final class NapiStream<T, S extends Object> {
     _started = true;
     _busy++;
     try {
-      final source = _source!;
-      _broadcast = source.isBroadcast;
-      final subscription = source.listen(
-        _onData,
-        onError: _onError,
-        onDone: _onDone,
-        cancelOnError: false,
-      );
+      final subscription = _inOperation(() {
+        final source = _source!;
+        _broadcast = source.isBroadcast;
+        return source.listen(
+          _onData,
+          onError: _onError,
+          onDone: _onDone,
+          cancelOnError: false,
+        );
+      });
       if (!_sourceDone) _subscription = subscription;
       _source = null;
     } catch (error, stack) {
@@ -307,7 +309,7 @@ final class NapiStream<T, S extends Object> {
     _items.add(item);
     _busy++;
     try {
-      final snapshot = _snapshot(value);
+      final snapshot = _inOperation(() => _snapshot(value));
       if (_closing) {
         _releaseSnapshot?.call(snapshot);
       } else {
@@ -358,9 +360,9 @@ final class NapiStream<T, S extends Object> {
     _busy++;
     try {
       if (pause) {
-        subscription.pause();
+        _inOperation(subscription.pause);
       } else {
-        subscription.resume();
+        _inOperation(subscription.resume);
       }
     } catch (error, stack) {
       _fail(error, stack);
@@ -380,7 +382,7 @@ final class NapiStream<T, S extends Object> {
       if (subscription == null) {
         _cancelled.complete();
       } else {
-        _cancelled.complete(subscription.cancel());
+        _cancelled.complete(_inOperation(subscription.cancel));
       }
     } catch (error, stack) {
       _cancelled.completeError(error, stack);
@@ -392,6 +394,11 @@ final class NapiStream<T, S extends Object> {
     _cancelError = error;
     _cancelStack = stack;
     _advance();
+  }
+
+  R _inOperation<R>(R Function() body) {
+    final operation = _operation;
+    return operation == null ? body() : operation.run(body);
   }
 
   void _deliver(

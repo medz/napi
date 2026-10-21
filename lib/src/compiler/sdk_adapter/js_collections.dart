@@ -105,12 +105,17 @@ final class _JsMap<K,V> extends _JsCollection implements napi.JsMap<K,V> {
 
 /// Resource checks are independent of the operation active during a lazy read.
 const jsCollectionsResourceEntrypointPrelude = r'''
-void _jcRejectResource(Object? value, String path) {
+void _jcRetainResource(Object? value, String path) {
   try {
-    if (_resourceControl(value) == null) return;
+    final control = _resourceControl(value);
+    if (control == null) return;
+    final operation = ResourceOperation.current;
+    if (operation == null) {
+      throw _CallbackThrown(_jcTypeError(externRefForJSAny((path + ': resource access requires an active bound call').toJS)));
+    }
+    operation.retain(control);
   } on _ResourcePolicyViolation {
-    // Incompatible resource views are also inadmissible collection elements.
+    throw _CallbackThrown(_jcTypeError(externRefForJSAny((path + ': incompatible resource cleanup policies').toJS)));
   }
-  throw _CallbackThrown(_jcTypeError(externRefForJSAny((path + ': resource elements are not supported').toJS)));
 }
 ''';

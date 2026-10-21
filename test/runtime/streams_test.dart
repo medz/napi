@@ -299,6 +299,105 @@ void main() {
   );
 
   test(
+    'async source acquires its first resource after lazy subscription',
+    () async {
+      final control = ResourceControl.forObject(Object());
+      final operation = ResourceOperation();
+      final cancelled = Completer<void>();
+      final cancellation = Completer<void>();
+      Stream<int> source() async* {
+        expect(ResourceOperation.current, same(operation));
+        try {
+          await Future<void>.value();
+          expect(ResourceOperation.current, same(operation));
+          ResourceOperation.current!.retain(control);
+          yield 1;
+          yield 2;
+        } finally {
+          expect(ResourceOperation.current, same(operation));
+          cancelled.complete();
+          await cancellation.future;
+        }
+      }
+
+      final state = operation.run(
+        () => _binding(source(), operation: operation),
+      );
+      expect(operation.isEmpty, isTrue);
+      final first = await state.next();
+      expect(first.value!.value, 1);
+      var cleaned = false;
+      final disposed = control.dispose(() => cleaned = true);
+      await cancelled.future;
+      expect(cleaned, isFalse);
+      first.release();
+      expect(cleaned, isFalse);
+      cancellation.complete();
+      await disposed;
+      expect(cleaned, isTrue);
+      expect(operation.isReleased, isTrue);
+      final done = await state.next();
+      expect(done.kind, StreamDeliveryKind.done);
+      done.release();
+    },
+  );
+
+  test(
+    'source hooks and external deliveries use the stream operation',
+    () async {
+      final operation = ResourceOperation();
+      final control = ResourceControl.forObject(Object());
+      final calls = <String>[];
+      void check(String hook) {
+        expect(ResourceOperation.current, same(operation));
+        calls.add(hook);
+      }
+
+      final subscription = _Subscription<int>(
+        onCancel: () async => check('cancel'),
+        onPause: () => check('pause'),
+      )..onResume = () => check('resume');
+      late void Function(int) send;
+      final source = _Stream<int>(
+        (data, error, done) {
+          check('listen');
+          send = data;
+          return subscription;
+        },
+        broadcast: () {
+          check('broadcast');
+          return false;
+        },
+      );
+      final state = NapiStream<int, _Box<int>>(
+        source,
+        snapshot: (value) {
+          check('snapshot');
+          ResourceOperation.current!.retain(control);
+          return _Box(value);
+        },
+        roots: [],
+        operation: operation,
+      )..finishCreation(true);
+      final pending = state.next();
+      send(1);
+      final first = await pending;
+      expect(calls, ['broadcast', 'listen', 'snapshot', 'pause']);
+      first.release();
+      final next = state.next();
+      expect(calls.last, 'resume');
+      final disposed = control.dispose(() => calls.add('cleanup'));
+      final done = await next;
+      expect(done.kind, StreamDeliveryKind.done);
+      expect(calls.last, 'cancel');
+      done.release();
+      await disposed;
+      expect(calls.last, 'cleanup');
+      (await state.return_()).release();
+    },
+  );
+
+  test(
     'late close waits for creation and never starts a subscription',
     () async {
       final control = ResourceControl.forObject(Object());
@@ -927,7 +1026,10 @@ final class _Box<T> {
 }
 
 final class _Stream<T> extends Stream<T> {
-  _Stream(this.listen_);
+  _Stream(this.listen_, {this.broadcast});
+  final bool Function()? broadcast;
+  @override
+  bool get isBroadcast => broadcast?.call() ?? false;
   final StreamSubscription<T> Function(
     void Function(T),
     void Function(Object, StackTrace),
@@ -952,16 +1054,21 @@ final class _Stream<T> extends Stream<T> {
 }
 
 final class _Subscription<T> implements StreamSubscription<T> {
-  _Subscription({required this.onCancel, this.onListen});
+  _Subscription({required this.onCancel, this.onListen, this.onPause});
   final Future<void> Function() onCancel;
   final void Function()? onListen;
+  final void Function()? onPause;
   void Function()? onResume;
   @override
   Future<void> cancel() => onCancel();
   @override
   bool isPaused = false;
   @override
-  void pause([Future<void>? resumeSignal]) => isPaused = true;
+  void pause([Future<void>? resumeSignal]) {
+    isPaused = true;
+    onPause?.call();
+  }
+
   @override
   void resume() {
     isPaused = false;

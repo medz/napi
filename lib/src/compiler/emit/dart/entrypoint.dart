@@ -177,7 +177,14 @@ ${emitDartDefaultResourceRetains(call.inputs[i], value, indent: '    ')}  } catc
           : (call as MemberCallPlan).context,
     ).replaceAll(r'$', r'\$');
     if (plan.needsResourceOperation(call)) {
-      _emitResourceCall(result, structural, call, index, errorContext);
+      _emitResourceCall(
+        result,
+        structural,
+        call,
+        index,
+        errorContext,
+        scopedCollections: plan.hasResourceCollections,
+      );
       continue;
     }
     final constructor =
@@ -519,8 +526,9 @@ void _emitResourceCall(
   DartStructuralEmitter structural,
   CallPlan call,
   int index,
-  String errorContext,
-) {
+  String errorContext, {
+  required bool scopedCollections,
+}) {
   final member = call is MemberCallPlan ? call : null;
   final constructor = member?.kind == MemberCallKind.constructor;
   final instance = member != null && !member.isStatic;
@@ -593,7 +601,9 @@ void _emitResourceCall(
           ? '${conversion.nullable ? 'v$i.isNull ? null : ' : ''}${_read(conversion, 'v$i!')}'
           : '${structural.read(conversion)}(v$i.isNull ? null : v$i!.toJS, ${jsonEncode(conversion.context).replaceAll(r'$', r'\$')})';
       if (conversion is! ScalarConversion) result.writeln('  try {');
-      result.writeln('  a$i = $value;');
+      result.writeln(
+        '  a$i = ${scopedCollections && conversion is! ScalarConversion ? 'operation.run(() => $value)' : value};',
+      );
       if (conversion is! ScalarConversion) {
         result.writeln('  } on _StructureViolation catch (error) {');
         result.writeln(
@@ -620,7 +630,7 @@ void _emitResourceCall(
   }
   if (call.returnsFuture) {
     result.writeln(
-      '  _activateResourceOperation(capability, WasmI32.fromInt(operation.isEmpty ? 0 : 1));',
+      '  _activateResourceOperation(capability, WasmI32.fromInt(${scopedCollections ? '1' : 'operation.isEmpty ? 0 : 1'}));',
     );
     result.writeln(
       '  _retainPromise(capability, WasmAnyRef.fromObject(<Object?>[${[if (instance) 'object', for (var i = 0; i < call.parameters.length; i++) 'a$i'].join(', ')}]).externalize());',
@@ -638,7 +648,7 @@ void _emitResourceCall(
   result.writeln('  try {');
   if (!cleanup) _checkAbortSignals(result, call);
   result.writeln(
-    '    ${call.returnsFuture || call.returnsStream || constructor || output != null ? 'value = ' : ''}$invoke;',
+    '    ${call.returnsFuture || call.returnsStream || constructor || output != null ? 'value = ' : ''}${scopedCollections ? 'operation.run(() => $invoke)' : invoke};',
   );
   catchDartError();
   if (call.returnsStream) {
@@ -650,7 +660,7 @@ void _emitResourceCall(
   }
   if (call.returnsFuture) {
     result.writeln(
-      '  _observeFuture(value, capability, $errorContext, ${output == null ? 'null' : '(value) { _resolvePromiseValue(capability, _futureOutput$index(value)); }'});\n}',
+      '  ${scopedCollections ? 'operation.run(() { ' : ''}_observeFuture(value, capability, $errorContext, ${output == null ? 'null' : '(value) { _resolvePromiseValue(capability, _futureOutput$index(value)); }'});${scopedCollections ? ' });' : ''}\n}',
     );
     if (output == null) return;
     result.writeln(
@@ -668,6 +678,7 @@ void _emitResourceCall(
       call.outputContext!,
       '  ',
       futureContext: call.returnsFuture ? errorContext : null,
+      scoped: scopedCollections && !call.returnsFuture,
     );
   }
   result.writeln('}');
@@ -680,6 +691,7 @@ void _emitResourceOutput(
   int context,
   String indent, {
   String? futureContext,
+  bool scoped = false,
 }) {
   if (output.nullable) {
     result.writeln('${indent}if (value == null) return WasmExternRef.nullRef;');
@@ -696,7 +708,7 @@ void _emitResourceOutput(
     result.writeln('${indent}final JSAny? serialized;');
     result.writeln('${indent}try {');
     result.writeln(
-      '$indent  serialized = ${structural.write(output)}(value, _StructureState(), ${jsonEncode(output.context).replaceAll(r'$', r'\$')}, 0);',
+      '$indent  serialized = ${scoped ? 'operation.run(() => ' : ''}${structural.write(output)}(value, _StructureState(), ${jsonEncode(output.context).replaceAll(r'$', r'\$')}, 0)${scoped ? ')' : ''};',
     );
     result.writeln('$indent} on _StructureViolation catch (error) {');
     result.writeln('$indent  return _reportStructureError(error);');

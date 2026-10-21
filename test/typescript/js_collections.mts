@@ -128,3 +128,20 @@ api.referenceBox<Payload>([new api.RefBox('wrong')]);
 // @ts-expect-error Concrete specializations retain distinct class brands.
 api.concreteReference(new Map([[intItem, intItem]]), intItem);
 void [refArray, refMap, readRef, refLater, nestedRef, callbackRef, refBox, concreteRef];
+
+const resourceItem = new api.ResourceItem(1);
+const resourceCollections = new api.ResourceCollections([resourceItem, null], new Map([[resourceItem, null]]));
+const resourceArray: Array<api.ResourceItem | null> = resourceCollections.array();
+const resourceMap: Map<api.ResourceItem, api.ResourceItem | null> = resourceCollections.map();
+const resourceRead: api.ResourceItem | null = resourceCollections.read(0);
+resourceCollections.write(0, resourceItem); resourceCollections.put(resourceItem, null);
+const resourceUse: Promise<number> = resourceCollections.hold(1, true);
+const resourceResult: Promise<Payload> = resourceCollections.result<Payload>(1, undefined);
+const resourceStream: AsyncIterableIterator<number, undefined, undefined> = resourceCollections.watch(1);
+// @ts-expect-error Resource collection values retain their resource class brand.
+new api.ResourceCollections([ref], new Map());
+// @ts-expect-error Resource Map keys cannot be ordinary base references.
+resourceCollections.has(ref);
+// @ts-expect-error Nullable resource elements permit null, not undefined.
+resourceCollections.write(0, undefined);
+void [resourceArray, resourceMap, resourceRead, resourceUse, resourceResult, resourceStream];

@@ -125,6 +125,15 @@ final class JsCollectionConversion extends ValueConversion {
       'globalThis.${isMap ? 'Map<${key!.typescriptType}, ${value.typescriptType}>' : 'Array<${value.typescriptType}>'}${nullable ? ' | null' : ''}';
 }
 
+/// Lazy references may expose a resource through an ordinary selected view.
+bool containsJsCollectionReference(ValueConversion conversion) =>
+    conversion is JsCollectionConversion &&
+    [?conversion.key, conversion.value].any(
+      (element) =>
+          element is ReferenceConversion ||
+          containsJsCollectionReference(element),
+    );
+
 /// An explicit cancellation input. Each backend retains the host signal while
 /// its Dart adapter is reachable; accepting it does not cancel ordinary work.
 final class AbortSignalConversion extends ValueConversion {
@@ -796,10 +805,12 @@ abstract interface class CallPlan {
 final class FunctionPlan implements CallPlan {
   final FunctionBinding binding;
   final bool _hasResources;
+  late final bool _hasResourceCollections;
   final int _index;
   late final ExportRepresentation representation =
       returnsFuture ||
           returnsStream ||
+          _hasResourceCollections ||
           inputs.any((c) => c is OpaqueConversion) ||
           inputs.any((c) => c is CallbackConversion) ||
           inputs.any((c) => c is AbortSignalConversion) ||
@@ -971,10 +982,14 @@ final class ModulePlan {
   late final Map<int, int> resourcePolicies = analysis.resourcePolicies(
     classes.map((binding) => binding.shape).toList(),
   );
+  late final bool hasResourceCollections =
+      resourcePolicies.isNotEmpty &&
+      conversionGraph(conversions).any(containsJsCollectionReference);
 
   bool needsResourceOperation(CallPlan call) =>
       resourcePolicies.isNotEmpty &&
-      ((call is MemberCallPlan && !call.isStatic) ||
+      (hasResourceCollections ||
+          (call is MemberCallPlan && !call.isStatic) ||
           conversionGraph(call.inputs).any((c) => c is ReferenceConversion));
   ModulePlan._(
     this.source,
@@ -1042,7 +1057,7 @@ ModulePlan lower(ValidatedModule module) {
     ];
     classes.add(ClassPlan._(shape, constructor, members));
   }
-  return ModulePlan._(
+  final plan = ModulePlan._(
     module.bindings.importUri,
     functions,
     classes,
@@ -1052,4 +1067,8 @@ ModulePlan lower(ValidatedModule module) {
     module.valueSchemas,
     referenceClassOrder(module.classes),
   );
+  for (final function in functions) {
+    function._hasResourceCollections = plan.hasResourceCollections;
+  }
+  return plan;
 }
