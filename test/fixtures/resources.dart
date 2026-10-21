@@ -202,6 +202,70 @@ class ResourceDefaultValue {
   }
 }
 
+@NAPI(classPolicy: ClassPolicy.value)
+class HiddenResourceValue {
+  final ValueDefaultResource _owner;
+  @NAPI()
+  const HiddenResourceValue() : _owner = const ValueDefaultResource(600);
+  const HiddenResourceValue.field() : _owner = const ValueDefaultResource(601);
+  int get marker => _owner.id;
+}
+
+@NAPI(classPolicy: ClassPolicy.value)
+class HiddenResourceField {
+  final HiddenResourceValue _payload;
+  final int marker;
+  HiddenResourceField({
+    HiddenResourceValue payload = const HiddenResourceValue.field(),
+    this.marker = 7,
+    // ignore: prefer_initializing_formals
+  }) : _payload = payload;
+  int get payload => _payload.marker;
+}
+
+@NAPI(classPolicy: ClassPolicy.value, valueFields: {'ignored': 'marker'})
+class IgnoredResourceValue {
+  const IgnoredResourceValue(ValueDefaultResource ignored);
+  int get marker => 7;
+}
+
+@NAPI()
+ValueDefaultResource resourceGraphOwner(int id) => switch (id) {
+  600 => const ValueDefaultResource(600),
+  601 => const ValueDefaultResource(601),
+  602 => const ValueDefaultResource(602),
+  _ => throw ArgumentError.value(id),
+};
+
+@NAPI()
+Future<int> resourceHiddenHold(
+  List<int> later,
+  int token, {
+  HiddenResourceValue value = const HiddenResourceValue(),
+}) {
+  final gate = Completer<int>();
+  _gates[token] = gate;
+  return gate.future.then((_) => value.marker + later.length);
+}
+
+@NAPI()
+Future<int> resourceHiddenArray(
+  JsArray<HiddenResourceField> values,
+  int token,
+) {
+  final value = values.get(0)!.payload;
+  final gate = Completer<int>();
+  _gates[token] = gate;
+  return gate.future.then((_) => value);
+}
+
+@NAPI()
+int resourceIgnoredDefault([
+  IgnoredResourceValue value = const IgnoredResourceValue(
+    ValueDefaultResource(602),
+  ),
+]) => value.marker;
+
 @NAPI()
 ResourceDefaultValue resourceDefaultEcho(ResourceDefaultValue value) {
   _events.add('value-default-business');

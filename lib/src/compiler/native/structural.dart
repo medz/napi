@@ -1,8 +1,11 @@
 import 'dart:convert';
 
 import '../emit/dart/defaults.dart'
-    show emitDartDefaultResourceRetains, renderDartDefault;
-import '../ir/model.dart' show DeclarationId, ParameterKind, ScalarDefault;
+    show
+        emitDartDefaultResourceRetains,
+        hasDartDefaultResourceRetains,
+        renderDartDefault;
+import '../ir/model.dart' show ClassBinding, DeclarationId, ParameterKind;
 import '../lowering/plan.dart';
 
 String _quote(String value) => jsonEncode(value).replaceAll(r'$', r'\$');
@@ -121,11 +124,13 @@ String nativeJsCollectionRead(
 /// Typed traversal owns only callback-scoped JS handles and ordinary Dart values.
 final class NativeStructuralEmitter {
   final bool hasResources;
+  final List<ClassBinding> classes;
   final String Function(DeclarationId)? defaultDeclarationSource;
   final String Function(CallbackConversion)? callbackReader;
   final String Function(CallbackConversion)? functionExport;
   NativeStructuralEmitter({
     this.hasResources = false,
+    this.classes = const [],
     this.defaultDeclarationSource,
     this.callbackReader,
     this.functionExport,
@@ -805,11 +810,13 @@ final class NativeStructuralEmitter {
             '    final raw$index = _api.$reader(env, value, ${_quote(field.name)}, $path);',
           );
           if (field.optional) {
-            final defaultValue = field.parameter!.defaultValue;
             final retains =
                 hasResources &&
-                    defaultValue != null &&
-                    defaultValue is! ScalarDefault
+                    hasDartDefaultResourceRetains(
+                      field.parameter!,
+                      field.conversion,
+                      classes,
+                    )
                 ? emitDartDefaultResourceRetains(
                     field.conversion,
                     renderDartDefault(
@@ -819,6 +826,9 @@ final class NativeStructuralEmitter {
                     ),
                     operation: 'state',
                     indent: '      ',
+                    parameter: field.parameter,
+                    classes: classes,
+                    declarationSource: defaultDeclarationSource,
                   )
                 : '';
             _code.writeln(

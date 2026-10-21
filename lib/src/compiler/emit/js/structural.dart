@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import '../../ir/model.dart';
 import '../../lowering/plan.dart';
+import '../dart/defaults.dart' show hasDartDefaultResourceRetains;
 
 /// Leaf engines plug into generated structural traversal without owning or
 /// cloning containers. Production supplies scalar and selected class engines.
@@ -13,10 +14,12 @@ abstract interface class StructuralLeafAdapter {
 final class BoundaryLeafAdapter implements StructuralLeafAdapter {
   final bool resources;
   final bool bigintText;
+  final List<ClassBinding> classes;
   final Map<String, int> functionContracts;
   const BoundaryLeafAdapter({
     this.resources = false,
     this.bigintText = false,
+    this.classes = const [],
     this.functionContracts = const {},
   });
   @override
@@ -271,9 +274,11 @@ StructuralBoundary emitStructuralBoundary(
             final retainDefault =
                 leafAdapter is BoundaryLeafAdapter &&
                 leafAdapter.resources &&
-                field.parameter!.defaultValue != null &&
-                field.parameter!.defaultValue is! ScalarDefault &&
-                containsDefaultReference(field.conversion);
+                hasDartDefaultResourceRetains(
+                  field.parameter!,
+                  field.conversion,
+                  leafAdapter.classes,
+                );
             code.writeln(
               '''      if (property && !Object.hasOwn(property, 'value')) {
         throw new TypeError(childPath + ': expected an own data property');

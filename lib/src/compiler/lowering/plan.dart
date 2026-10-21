@@ -161,12 +161,16 @@ final class JsCollectionConversion extends ValueConversion {
 }
 
 /// Lazy references may expose a resource through an ordinary selected view.
-bool containsJsCollectionReference(ValueConversion conversion) =>
+bool containsJsCollectionReference(
+  ValueConversion conversion, {
+  List<ClassBinding> classes = const [],
+}) =>
     conversion is JsCollectionConversion &&
-    conversionDependencies(
-      [conversion],
-      includeFunctions: false,
-    ).any((element) => element is ReferenceConversion);
+    (conversionDependencies(
+          [conversion],
+          includeFunctions: false,
+        ).any((element) => element is ReferenceConversion) ||
+        hasDefaultResources(const [], [conversion], classes));
 
 /// An explicit cancellation input. Each backend retains the host signal while
 /// its Dart adapter is reachable; accepting it does not cancel ordinary work.
@@ -738,6 +742,21 @@ bool containsDefaultReference(ValueConversion conversion) =>
       _ => false,
     };
 
+bool hasDefaultResources(
+  Iterable<ParameterBinding> parameters,
+  Iterable<ValueConversion> conversions,
+  List<ClassBinding> classes,
+) {
+  bool resource(ParameterBinding parameter) =>
+      defaultResourceObjects(parameter, classes).isNotEmpty;
+  return parameters.any(resource) ||
+      conversionDependencies(conversions).whereType<ValueClassConversion>().any(
+        (value) => value.fields.any(
+          (field) => field.parameter != null && resource(field.parameter!),
+        ),
+      );
+}
+
 bool containsValueClass(ValueConversion value) =>
     conversionGraph([value]).any((c) => c is ValueClassConversion);
 
@@ -1288,6 +1307,7 @@ final class FunctionValueCallPlan implements CallPlan {
           ParameterBinding(
             parameter.name,
             parameter.type,
+            defaultObjects: parameter.defaultObjects,
             kind: parameter.kind,
             presence: conversion.inputs[index] is OpaqueConversion
                 ? conversion.isOptionalParameter(index)
@@ -1324,13 +1344,19 @@ final class ModulePlan {
   );
   late final bool hasResourceCollections =
       resourcePolicies.isNotEmpty &&
-      conversionGraph(conversions).any(containsJsCollectionReference);
+      conversionGraph(conversions).any(
+        (value) => containsJsCollectionReference(value, classes: allClasses),
+      );
   late final bool hasResourceCallbacks =
       resourcePolicies.isNotEmpty &&
       conversionGraph(conversions).whereType<CallbackConversion>().any(
         (callback) =>
             conversionDependencies([...callback.inputs, ?callback.output])
-                .any((conversion) => conversion is ReferenceConversion),
+                .any((conversion) => conversion is ReferenceConversion) ||
+            hasDefaultResources(const [], [
+              ...callback.inputs,
+              ?callback.output,
+            ], allClasses),
       );
   bool get hasScopedResourceAccess =>
       hasResourceCollections || hasResourceCallbacks;
@@ -1339,7 +1365,8 @@ final class ModulePlan {
       resourcePolicies.isNotEmpty &&
       (hasScopedResourceAccess ||
           (call is MemberCallPlan && !call.isStatic) ||
-          conversionGraph(call.inputs).any((c) => c is ReferenceConversion));
+          conversionGraph(call.inputs).any((c) => c is ReferenceConversion) ||
+          hasDefaultResources(call.parameters, call.inputs, allClasses));
   ModulePlan._(
     this.source,
     Iterable<FunctionPlan> functions,
@@ -1440,7 +1467,13 @@ ModulePlan lower(ValidatedModule module) {
     referenceClassOrder(module.classes),
   );
   for (final function in functions) {
-    function._hasScopedResourceAccess = plan.hasScopedResourceAccess;
+    function._hasScopedResourceAccess =
+        plan.hasScopedResourceAccess ||
+        hasDefaultResources(
+          function.parameters,
+          function.inputs,
+          plan.allClasses,
+        );
   }
   return plan;
 }

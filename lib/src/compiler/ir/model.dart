@@ -290,6 +290,23 @@ final class NamedObjectDefault extends ConstantDefault {
   ) : supertypes = List.unmodifiable(supertypes);
 }
 
+/// One actual instance stored in a constant default, independent of its input
+/// schema or constructor arguments. A missing expression cannot be named from
+/// the generated library. Field paths contain public fields and proven `!`s.
+final class DefaultObjectBinding {
+  final DeclaredType type;
+  final List<DeclaredType> supertypes;
+  final ConstantDefault? expression;
+  final List<String> fieldPath;
+  DefaultObjectBinding({
+    required this.type,
+    Iterable<DeclaredType> supertypes = const [],
+    this.expression,
+    Iterable<String> fieldPath = const [],
+  }) : supertypes = List.unmodifiable(supertypes),
+       fieldPath = List.unmodifiable(fieldPath);
+}
+
 final class ParameterBinding {
   final String name;
   final BindingType type;
@@ -297,6 +314,10 @@ final class ParameterBinding {
   final ParameterKind kind;
   final String? defaultSource;
   final ConstantDefault? defaultValue;
+
+  /// Actual constant storage, including private fields and inherited state.
+  /// Null means it could not be scanned; an empty list is a complete empty scan.
+  final List<DefaultObjectBinding>? defaultObjects;
 
   /// Shared only for canonically equal constants read in one frontend session.
   /// An opaque token preserves identity without retaining analyzer metadata.
@@ -318,6 +339,7 @@ final class ParameterBinding {
     this.kind = ParameterKind.requiredPositional,
     this.defaultSource,
     this.defaultValue,
+    this.defaultObjects,
     this.defaultIdentity,
     this.defaultTypeIsAssignable = false,
     bool hasDefault = false,

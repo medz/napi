@@ -34,6 +34,16 @@ const defaultCleanup: Promise<void> = valueDefaults.pair.$1.close();
 const externalDefaults: external.ResourceDefaultValue = external.resourceDefaultEcho({});
 external.resourceDefaultHold({owner: null}, () => {}, 10);
 direct.resourceDefaultEcho({owner: null});
+const hiddenHold: Promise<number> = api.resourceHiddenHold([], 620);
+const hiddenValue: api.HiddenResourceValue = {marker: 600};
+api.resourceHiddenHold([], 621, {value: undefined});
+const hiddenArray: Promise<number> = api.resourceHiddenArray([{marker: 7}], 622);
+const hiddenExternal: Promise<number> = external.resourceHiddenHold([], 620);
+const hiddenDirect: number = direct.resourceIgnoredDefault();
+// @ts-expect-error The hidden Dart reference does not change the public scalar field.
+api.resourceHiddenArray([{payload: {marker: 601}, marker: 'wrong'}], 623);
+// @ts-expect-error The nested value constructor expects a record input.
+api.resourceHiddenArray([{payload: 7}], 624);
 const genericText = new api.GenericResource<string>(500, 'text');
 const genericSelf: api.GenericResource<string> = genericText.self();
 const genericFuture: Promise<string> = genericText.hold(500);
@@ -82,4 +92,5 @@ api.resourceHold({}, 7);
 void [synchronous, named, directOrder, directOrderFuture, held, orphan, close, closed, asyncClose, required, dynamicCleanup, orphanCleanup, result, nested,
   list, map, dictionary, record, subpath, eager, wrong, valueDefaultsUndefined, valueDefaultHold,
   defaultOwner, defaultPeer, defaultCleanup, externalDefaults, missingDefaultOwner,
+  hiddenHold, hiddenValue, hiddenArray, hiddenExternal, hiddenDirect,
   genericSelf, genericFuture, genericStream, genericCallback, genericClose, genericExternal, genericDirect, wrongGeneric];

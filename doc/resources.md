@@ -67,6 +67,17 @@ operation. A closed default fails before the value constructor and business code
 run; conversion and constructor failures release any acquired leases. An explicit
 null selects no default when the property is nullable.
 
+Resources stored in const value-object defaults are retained too, including
+private fields, inherited fields and nested objects. Discovery uses the evaluated
+constant's stored state; it does not invoke business getters or retain constructor
+arguments that the object discards. Each resource must match a selected resource
+view. Generic resources need the corresponding concrete alias.
+
+A resource can be named through its public const constructor or binding, or
+through public stored fields of an accessible default. A getter that computes a
+value cannot supply that path. Resources that have no such expression produce
+`NAPI_DEFAULT`; custom const collection implementations remain unsupported.
+
 ## State and cleanup
 
 | State | New receiver/input operation | Valid cleanup call |

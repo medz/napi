@@ -8,6 +8,10 @@ import 'package:analyzer/dart/element/element.dart' as a;
 import 'package:analyzer/dart/element/nullability_suffix.dart';
 import 'package:analyzer/dart/element/type.dart' as a;
 import 'package:analyzer/diagnostic/diagnostic.dart';
+// The exact analyzer dependency keeps actual constant storage in this adapter.
+// ignore: implementation_imports
+import 'package:analyzer/src/dart/constant/value.dart'
+    show DartObjectImpl, GenericState;
 import 'package:path/path.dart' as p;
 
 import '../../api/annotation.dart';
@@ -144,6 +148,12 @@ final class ExternalFrontend implements BindingFrontend {
   }
 }
 
+typedef _DefaultAccess = ({
+  ConstantDefault expression,
+  a.DartType type,
+  List<String> fieldPath,
+});
+
 final class _Reader {
   final Uri entry;
   final a.ClassElement? annotationClass;
@@ -156,6 +166,7 @@ final class _Reader {
   final _typeParameterIds = <a.TypeParameterElement, DeclarationId>{};
   final _opaqueParameters = <DeclarationId>{};
   final _defaultIdentities = <DartObject, Object>{};
+  final _defaultVariableTypes = <DeclarationId, a.DartType>{};
   final _libraryImportUris = <a.LibraryElement, Set<Uri>>{};
   _Reader(this.entry, this.annotationClass);
 
@@ -1125,6 +1136,9 @@ final class _Reader {
         ? element.computeConstantValue()
         : null;
     final defaultType = defaultValue?.type;
+    final representedDefault = element.hasDefaultValue
+        ? _parameterDefault(element, defaultValue)
+        : null;
     return ParameterBinding(
       element.name ?? '',
       type,
@@ -1141,8 +1155,9 @@ final class _Reader {
           ? ParameterKind.optionalPositional
           : ParameterKind.requiredPositional,
       defaultSource: element.defaultValueCode,
-      defaultValue: element.hasDefaultValue
-          ? _parameterDefault(element, defaultValue)
+      defaultValue: representedDefault,
+      defaultObjects: element.hasDefaultValue
+          ? _parameterDefaultObjects(element, defaultValue, representedDefault)
           : null,
       defaultIdentity: defaultValue == null || !defaultValue.hasKnownValue
           ? null
@@ -1173,6 +1188,223 @@ final class _Reader {
         'NAPI_DEFAULT',
         error.toString(),
         _source(element),
+      );
+    }
+  }
+
+  List<DefaultObjectBinding>? _parameterDefaultObjects(
+    a.FormalParameterElement parameter,
+    DartObject? root,
+    ConstantDefault? expression,
+  ) {
+    if (root == null || !root.hasKnownValue) return null;
+    final budget = ConstantDefaultBudget();
+    final objects = <DefaultObjectBinding>[];
+    final indices = <DartObject, int>{};
+    // Equal constants can arrive through different public/private bindings.
+    final expressions = Map<DartObject, ConstantDefault?>.identity()
+      ..[root] = expression;
+    var complete = true;
+
+    _DefaultAccess? accessFor(DartObject value, ConstantDefault? expression) {
+      final type = switch (expression) {
+        ObjectDefault() => value.constructorInvocation?.constructor.returnType,
+        NamedObjectDefault(:final variable) => _defaultVariableTypes[variable],
+        _ => value.type,
+      };
+      return expression == null || type == null
+          ? null
+          : (expression: expression, type: type, fieldPath: const []);
+    }
+
+    _DefaultAccess? fieldAccess(
+      _DefaultAccess? parent,
+      a.InterfaceType runtimeType,
+      a.FieldElement? field,
+    ) {
+      if (parent == null ||
+          field == null ||
+          field.isPrivate ||
+          parent.type is! a.InterfaceType ||
+          parent.fieldPath.isEmpty &&
+              parent.type.nullabilitySuffix == NullabilitySuffix.question) {
+        return null;
+      }
+      final name = field.name!;
+      final actual = runtimeType.lookUpGetter(
+        name,
+        runtimeType.element.library,
+        concrete: true,
+      );
+      final exposed = (parent.type as a.InterfaceType).lookUpGetter(
+        name,
+        runtimeType.element.library,
+      );
+      if (actual == null ||
+          exposed == null ||
+          !actual.isOriginVariable ||
+          actual.variable.baseElement != field.baseElement) {
+        return null;
+      }
+      return (
+        expression: parent.expression,
+        type: exposed.returnType,
+        fieldPath: [
+          ...parent.fieldPath,
+          '$name${exposed.returnType.nullabilitySuffix == NullabilitySuffix.question ? '!' : ''}',
+        ],
+      );
+    }
+
+    late void Function(DartObject?, int, _DefaultAccess?) visit;
+    void fields(
+      DartObjectImpl value,
+      a.InterfaceType storedType,
+      a.InterfaceType runtimeType,
+      int depth,
+      _DefaultAccess? access,
+    ) {
+      final stored = value.fields;
+      if (stored == null) {
+        complete = false;
+        return;
+      }
+      for (final entry in stored.entries) {
+        if (entry.key == GenericState.SUPERCLASS_FIELD) {
+          final parent = entry.value;
+          final a.DartType parentType = parent.type;
+          budget.visit(depth + 1);
+          if (parentType is! a.InterfaceType) {
+            complete = false;
+          } else {
+            // This pseudo-object is inherited state, not a separate instance.
+            fields(parent, parentType, runtimeType, depth + 1, access);
+          }
+        } else {
+          final field = storedType.element.getField(entry.key);
+          visit(
+            entry.value,
+            depth + 1,
+            fieldAccess(access, runtimeType, field),
+          );
+        }
+      }
+    }
+
+    visit = (value, depth, inheritedAccess) {
+      if (value == null || !value.hasKnownValue) {
+        complete = false;
+        return;
+      }
+      final scalar =
+          value.isNull ||
+          value.toBoolValue() != null ||
+          value.toIntValue() != null ||
+          value.toDoubleValue() != null ||
+          value.toStringValue() != null;
+      budget.visit(depth, leaf: scalar);
+      if (scalar) return;
+      final actual = value.type;
+      if (actual == null) {
+        complete = false;
+        return;
+      }
+      if (actual.isDartCoreList) {
+        final elements = value.toListValue();
+        if (elements == null) {
+          complete = false;
+        } else {
+          for (final element in elements) {
+            visit(element, depth + 1, null);
+          }
+        }
+        return;
+      }
+      if (actual.isDartCoreMap) {
+        final entries = value.toMapValue();
+        if (entries == null) {
+          complete = false;
+        } else {
+          for (final entry in entries.entries) {
+            visit(entry.key, depth + 1, null);
+            visit(entry.value, depth + 1, null);
+          }
+        }
+        return;
+      }
+      if (actual.isDartCoreSet) {
+        final elements = value.toSetValue();
+        if (elements == null) {
+          complete = false;
+        } else {
+          for (final element in elements) {
+            visit(element, depth + 1, null);
+          }
+        }
+        return;
+      }
+      final record = value.toRecordValue();
+      if (record != null) {
+        for (final element in [...record.positional, ...record.named.values]) {
+          visit(element, depth + 1, null);
+        }
+        return;
+      }
+      if (value.toFunctionValue() != null ||
+          value.toTypeValue() != null ||
+          value.toSymbolValue() != null) {
+        return;
+      }
+      if (actual is! a.InterfaceType || value is! DartObjectImpl) {
+        complete = false;
+        return;
+      }
+      if (actual.allSupertypes.any(
+        (type) =>
+            type.isDartCoreList || type.isDartCoreMap || type.isDartCoreSet,
+      )) {
+        // Storage does not describe values produced by custom collection code.
+        complete = false;
+        return;
+      }
+      final own = expressions.containsKey(value)
+          ? expressions[value]
+          : expressions[value] = _constantDefault(value, budget, depth);
+      final access = accessFor(value, own) ?? inheritedAccess;
+      final index = indices[value];
+      if (index == null ||
+          objects[index].expression == null && access != null) {
+        final object = DefaultObjectBinding(
+          type: _type(actual) as DeclaredType,
+          supertypes: actual.allSupertypes.map((t) => _type(t) as DeclaredType),
+          expression: access?.expression,
+          fieldPath: access?.fieldPath ?? const [],
+        );
+        if (index == null) {
+          indices[value] = objects.length;
+          objects.add(object);
+        } else {
+          objects[index] = object;
+        }
+      }
+      fields(value, actual, actual, depth, access);
+    };
+
+    try {
+      visit(root, 0, accessFor(root, expression));
+      if (!complete) {
+        throw BindingDiagnostic(
+          'NAPI_DEFAULT',
+          'The evaluated default contains unsupported constant storage.',
+          _source(parameter),
+        );
+      }
+      return List.unmodifiable(objects);
+    } on ConstantDefaultLimit catch (error) {
+      throw BindingDiagnostic(
+        'NAPI_DEFAULT',
+        error.toString(),
+        _source(parameter),
       );
     }
   }
@@ -1306,6 +1538,7 @@ final class _Reader {
                   owner is a.InterfaceElement &&
                   owner.isPublic);
       if (public && variable.computeConstantValue() == value) {
+        _defaultVariableTypes[_id(variable)] = variable.type;
         return NamedObjectDefault(
           _type(type) as DeclaredType,
           _id(variable),

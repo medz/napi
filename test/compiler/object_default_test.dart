@@ -245,16 +245,14 @@ class Point {
           ? emitNativeDart(validateNative(module))
           : emitDart(lower(validate(module)));
       if (native) {
-        final lease = generated.indexOf(
-          'if (reference0 != null) operation.retain(_resourceControl(reference0))',
-        );
+        final lease =
+            RegExp(
+              r'operation\.retain\(_resourceControl\([^\n;]*const [_a-zA-Z0-9]+\.Point\(\)',
+            ).firstMatch(generated)?.start ??
+            -1;
         expect(lease, greaterThan(0));
         expect(lease, lessThan(generated.indexOf('_api.checkCallback(')));
         expect(generated, contains('ResourceOperation(exempt: control)'));
-        expect(
-          generated,
-          contains('operation.retain(_resourceControl(reference0))'),
-        );
       }
     });
   }

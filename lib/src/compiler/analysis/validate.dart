@@ -234,6 +234,7 @@ ParameterBinding projectOpaqueParameter(
   defaultSource: parameter.defaultSource,
   defaultValue: parameter.defaultValue,
   defaultIdentity: parameter.defaultIdentity,
+  defaultObjects: parameter.defaultObjects,
   defaultTypeIsAssignable: parameter.defaultTypeIsAssignable,
   hasDefault: parameter.hasDefault,
   source: parameter.source,
@@ -2618,14 +2619,54 @@ void validateParameterDefault(
         (isReferenceType(type, referenceClasses) &&
                 !isValueClassType(type, referenceClasses) ||
             _resourceContainerDefault(type, referenceClasses));
+    final completeGraph = parameter.defaultObjects != null;
+    final resourceObjects = defaultResourceObjects(parameter, referenceClasses);
+    for (final object in resourceObjects) {
+      final expression = object.expression;
+      if (expression == null ||
+          object.fieldPath.any((field) {
+            final name = field.endsWith('!')
+                ? field.substring(0, field.length - 1)
+                : field;
+            return name.startsWith('_') || !_dartIdentifier.hasMatch(name);
+          }) ||
+          !_defaultResourceHasRuntimeView(object, referenceClasses)) {
+        throw BindingDiagnostic(
+          'NAPI_DEFAULT',
+          'A resource stored in a default requires an accessible constant or public stored field path and a selected concrete resource view.',
+          parameter.source ?? source,
+        );
+      }
+      try {
+        constantDefaultSource(
+          expression,
+          declarationSource: constantDeclarationKey,
+        );
+      } on ConstantDefaultLimit catch (error) {
+        throw BindingDiagnostic(
+          'NAPI_DEFAULT',
+          error.toString(),
+          parameter.source ?? source,
+        );
+      } on FormatException catch (error) {
+        throw BindingDiagnostic(
+          'NAPI_DEFAULT',
+          error.message,
+          parameter.source ?? source,
+        );
+      }
+    }
     if ((admittedResourceDefault ||
             _portableDefaultParameter(
               type,
               referenceClasses,
               opaqueParameters: opaqueParameters,
+              completeGraph: completeGraph,
             )) &&
-        (admittedResourceDefault ||
-            !_defaultGraphHasResource(constant, referenceClasses)) &&
+        (completeGraph
+            ? resourceObjects.isEmpty || allowResourceDefaults
+            : admittedResourceDefault ||
+                  !_defaultGraphHasResource(constant, referenceClasses)) &&
         _structuralDefaultFits(
           constant,
           type,
@@ -2641,10 +2682,8 @@ void validateParameterDefault(
       'Non-null defaults require a compatible const graph of scalars, selected '
           'reference/value objects, Lists, Maps, Dictionaries or records. '
           'Object defaults need accessible const constructors or bindings; resource '
-          'defaults require direct references or built-in containers. Non-null '
-          'opaque payload defaults remain unsupported. '
-          'Value-object defaults containing class-valued fields are unsupported '
-          'when the library exports resources.',
+          'defaults need a complete stored object graph with accessible resource '
+          'leaves. Non-null opaque payload defaults remain unsupported.',
       parameter.source ?? source,
     );
   }
@@ -3134,6 +3173,7 @@ bool _portableDefaultParameter(
   Set<ClassBinding>? seen,
   bool withinValueDefault = false,
   Set<DeclarationId> opaqueParameters = const {},
+  bool completeGraph = false,
 }) {
   if (_isBackendScalar(type) || isOpaqueType(type, opaqueParameters)) {
     return true;
@@ -3146,6 +3186,7 @@ bool _portableDefaultParameter(
     seen: visited,
     withinValueDefault: withinValueDefault,
     opaqueParameters: opaqueParameters,
+    completeGraph: completeGraph,
   );
   if (type is RecordTypeBinding) {
     return type.positional.every(child) && type.named.values.every(child);
@@ -3161,10 +3202,13 @@ bool _portableDefaultParameter(
   final binding = classes
       .where((c) => referenceClassMatches(c, type))
       .firstOrNull;
-  if (binding == null || _isResourceClass(binding, classes)) return false;
+  if (binding == null || !completeGraph && _isResourceClass(binding, classes)) {
+    return false;
+  }
   // A class-valued field can hold a resource subtype or composite view,
   // even when its declared class uses value semantics.
-  if (withinValueDefault &&
+  if (!completeGraph &&
+      withinValueDefault &&
       classes.any(
         (binding) =>
             binding.classPolicy == ClassPolicy.resource ||
@@ -3185,6 +3229,7 @@ bool _portableDefaultParameter(
     seen: visited,
     withinValueDefault: true,
     opaqueParameters: opaqueParameters,
+    completeGraph: completeGraph,
   );
   return _valueChildren(
         binding,
@@ -3218,6 +3263,39 @@ bool _isResourceClass(ClassBinding binding, List<ClassBinding> classes) =>
             (type) => referenceClassMatches(ancestor, type),
           ),
     );
+
+/// Only the evaluated stored graph determines which default objects need a
+/// lifecycle operation. Constructor arguments and exported getters are views.
+List<DefaultObjectBinding> defaultResourceObjects(
+  ParameterBinding parameter,
+  List<ClassBinding> classes,
+) => [
+  for (final object
+      in parameter.defaultObjects ?? const <DefaultObjectBinding>[])
+    if (classes.any(
+      (binding) =>
+          _isResourceClass(binding, classes) &&
+          [
+            object.type,
+            ...object.supertypes,
+          ].any((type) => referenceClassMatches(binding, type)),
+    ))
+      object,
+];
+
+bool _defaultResourceHasRuntimeView(
+  DefaultObjectBinding object,
+  List<ClassBinding> classes,
+) => classes.any(
+  (binding) =>
+      binding.classPolicy != ClassPolicy.value &&
+      binding.typeParameters.isEmpty &&
+      _isResourceClass(binding, classes) &&
+      [
+        object.type,
+        ...object.supertypes,
+      ].any((type) => referenceClassMatches(binding, type)),
+);
 
 bool _defaultGraphHasResource(
   ConstantDefault value,

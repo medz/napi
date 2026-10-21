@@ -81,9 +81,9 @@ Direct resource parameters and built-in List, Map, Dictionary and record
 defaults acquire the same operation leases as explicit inputs; see
 [resource defaults](resources.md#constant-defaults). Value-class input properties
 also support these resource defaults, with leases acquired before later fields or
-callbacks run. When a library exports resources, value-object defaults may contain
-only scalar fields or built-in containers of scalars. Supply objects with reference
-or nested value-class fields explicitly.
+callbacks run. Const value-object defaults may also contain references and nested
+value objects. Resource discovery uses their actual stored fields, including
+private and inherited fields, rather than constructor arguments or output getters.
 Non-null opaque payload defaults remain unsupported. Containers with opaque
 elements can use compatible empty constants, such as `List<T> = const []` or
 `Map<String, T> = const {}`; nullable opaque elements may also default to Dart
@@ -91,6 +91,10 @@ null. The evaluated constant type must remain compatible with the declared
 container. An object that has neither a reconstructible
 public constructor nor a reachable public const binding produces `NAPI_DEFAULT`.
 Unsupported constant kinds outside those objects are also diagnosed.
+Custom const collection implementations remain unsupported. A resource stored
+inside a default must have a matching selected resource view and be reachable
+through an accessible const expression or a safe public stored-field path.
+Otherwise the parameter receives `NAPI_DEFAULT`.
 Defaults exceeding the
 structural work/depth or generated-text limit produce `NAPI_DEFAULT`.
 

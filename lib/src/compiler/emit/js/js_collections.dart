@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import '../../lowering/plan.dart';
+import '../../ir/model.dart' show ClassBinding;
 import 'structural.dart';
 
 Iterable<JsCollectionConversion> _collectionPolicies(
@@ -79,6 +80,7 @@ String jsCollectionPolicies(Iterable<JsCollectionConversion> conversions) {
 String jsCollectionStructurePolicies(
   Iterable<JsCollectionConversion> conversions, {
   bool resources = false,
+  List<ClassBinding> classes = const [],
   Map<String, int> functionContracts = const {},
 }) {
   final source = StringBuffer();
@@ -95,6 +97,7 @@ String jsCollectionStructurePolicies(
         leafAdapter: BoundaryLeafAdapter(
           bigintText: true,
           resources: resources,
+          classes: classes,
           functionContracts: functionContracts,
         ),
         generateWrite: false,
@@ -104,6 +107,7 @@ String jsCollectionStructurePolicies(
         prefix: '\$jcStructure${next++}',
         leafAdapter: BoundaryLeafAdapter(
           resources: resources,
+          classes: classes,
           functionContracts: functionContracts,
         ),
         generateRead: false,

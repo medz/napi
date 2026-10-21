@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import '../../analysis/reference_views.dart';
+import '../dart/defaults.dart' show hasDartDefaultResourceRetains;
 import '../../ir/model.dart';
 import '../../lowering/plan.dart';
 import 'reference_views.dart';
@@ -160,6 +161,7 @@ function intern(reference, expectedId, context, pending, receiver, newTarget) {
       names[function],
       indent: function.returnsFuture || resource ? '    ' : '  ',
       retainReferences: resource,
+      classes: plan.allClasses,
     );
     final invocation =
         'core[${jsonEncode(function.coreExportName)}](${[if (function.returnsFuture || resource) 'capability', if (resource) 'operation', if (arguments.isNotEmpty) arguments].join(', ')})';
@@ -196,6 +198,7 @@ function intern(reference, expectedId, context, pending, receiver, newTarget) {
       names[call],
       indent: resource || call.returnsFuture ? '      ' : '    ',
       retainReferences: resource,
+      classes: plan.allClasses,
     );
     final invocation =
         'core[${jsonEncode(call.coreExportName)}](${[if (resource || call.returnsFuture) 'capability', if (resource) 'operation', 'reference', if (arguments.isNotEmpty) arguments].join(', ')})';
@@ -234,6 +237,7 @@ function intern(reference, expectedId, context, pending, receiver, newTarget) {
         names[constructor],
         indent: indent,
         retainReferences: resource,
+        classes: plan.allClasses,
       );
       result.writeln(
         '${indent}const reference = core[${jsonEncode(constructor.coreExportName)}](${[
@@ -291,6 +295,7 @@ function intern(reference, expectedId, context, pending, receiver, newTarget) {
         names[member],
         indent: indent,
         retainReferences: resource,
+        classes: plan.allClasses,
       );
       final invocation =
           'core[${jsonEncode(member.coreExportName)}](${[if (member.returnsFuture || resource) 'capability', if (resource) 'operation', if (!member.isStatic) 'reference', if (arguments.isNotEmpty) arguments].join(', ')})';
@@ -399,6 +404,7 @@ String _arguments(
   String? names, {
   String indent = '  ',
   bool retainReferences = false,
+  List<ClassBinding> classes = const [],
 }) {
   final parameters = call.parameters;
   final positionalCount = parameters.where((p) => !_named(p)).length;
@@ -444,9 +450,7 @@ String _arguments(
     for (final (i, parameter) in parameters.indexed)
       if (retainReferences &&
           call.inputs[i] is! ReferenceConversion &&
-          containsDefaultReference(call.inputs[i]) &&
-          parameter.defaultValue != null &&
-          parameter.defaultValue is! ScalarDefault)
+          hasDartDefaultResourceRetains(parameter, call.inputs[i], classes))
         i,
   ];
   String reference(int i) {
@@ -457,7 +461,7 @@ String _arguments(
     final constant = parameters[i].defaultValue;
     final omitted =
         retainReferences && constant != null && constant is! ScalarDefault
-        ? 'retainResourceReference(capability, core[${jsonEncode('${call.coreExportName}:default:$i')}]())'
+        ? 'retainResourceReference(capability, core[${jsonEncode('${call.coreExportName}:default:$i')}](operation))'
         : 'null';
     return 'd$i ? $omitted : $supplied';
   }
