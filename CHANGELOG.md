@@ -1,21 +1,111 @@
 ## 0.17.0
 
-- Support resource objects inside const container defaults, with operation leases
-  and disposal behavior matching explicit inputs.
-- Extend `JsArray` and `JsMap` elements with references, resources, binary values,
-  nested handles, copied structures, value classes and typed function values.
-  Preserve the original JavaScript container and validate elements on access.
-- Export Dart function values through fields, copied containers and higher-order
-  signatures, including Future and Stream results. Preserve function identity
-  when the input and output conversions agree.
-- Support optional and named callback parameters, binary and structured payloads,
-  and selected class references. Keep asynchronous resource leases tied to actual
-  callback payloads.
-- Infer value-class input constructors from Dart declarations; select a different
-  constructor or factory with `@NAPI()`. Remove the `valueConstructor` option;
-  existing declarations using it must migrate to constructor selection.
-- Fix nullable and non-nullable function values sharing a generated adapter, and
-  describe asymmetric value-class function conversions accurately in TypeScript.
+This release adds Dart function-value exports, more element types for shared
+JavaScript collections, and broader callback parameter support. Value-class input
+constructors can now be inferred from Dart declarations, so common migrations
+only need to remove one annotation option.
+
+> **Upgrading:** `valueConstructor` has been removed. If you use it, see the
+> migration examples below before regenerating your bindings.
+
+### 📦 Return Dart functions
+
+Exported Dart APIs can now return closures that JavaScript calls directly.
+Captured values and optional parameter defaults stay with the Dart closure:
+
+```dart
+@NAPI()
+int Function([int]) makeAdder(int delta) =>
+    ([int value = 7]) => value + delta;
+```
+
+```js
+const add = makeAdder(2);
+
+add(3); // 5
+add();  // 9: uses the Dart default of 7
+```
+
+Function values can also cross through fields, copied containers, and
+higher-order signatures, including Future and Stream results. Function identity
+is preserved when the input and output conversions agree.
+
+If a closure captures a resource, keep that resource open while the function
+uses it. Capturing a resource does not create an implicit operation lease.
+
+[Returned functions and their limits](https://github.com/medz/napi/blob/v0.17.0/doc/callbacks.md#returned-functions)
+
+### 🧩 More shared collection element types
+
+`JsArray` and `JsMap` now support references, resources, binary values, nested
+handles, copied structures, value classes, and typed function values.
+
+The sharing model is unchanged: the original JavaScript container is preserved,
+and elements are validated when accessed.
+
+Const container defaults can now contain resource objects too, with operation
+leases and disposal behavior matching explicitly supplied inputs.
+
+### ↔️ Broader callback parameters
+
+Callbacks now support optional and named parameters, along with binary and
+structured payloads and selected class references.
+
+Asynchronous resource leases are tied to the actual callback payloads. A callback
+without resource payloads does not extend unrelated resource operations.
+
+### 🔧 Infer value-class input constructors
+
+You no longer need a string to tell napi which constructor to call.
+
+For a public unnamed constructor, remove `valueConstructor`:
+
+```diff
+-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
++@NAPI(classPolicy: ClassPolicy.value)
+ class Point {
+   final int x;
+   Point(this.x);
+ }
+```
+
+If there is no public unnamed constructor, napi selects the sole public named
+constructor or factory.
+
+To explicitly select a constructor or factory, put `@NAPI()` on its declaration:
+
+```diff
+ @NAPI(
+   classPolicy: ClassPolicy.value,
+-  valueConstructor: 'parse',
+   valueFields: {'source': 'value'},
+ )
+ class Label {
+   final String value;
++  @NAPI()
+   Label.parse(String source) : value = source.trim();
+ }
+```
+
+The constructor annotation is an explicit selection, not a requirement for every
+value class. The `Label` example has only one public named constructor, so it can
+also be inferred without the extra annotation.
+
+[Constructor selection rules](https://github.com/medz/napi/blob/v0.17.0/doc/values.md)
+
+### Other fixes
+
+- Fix nullable and non-nullable function values sharing a generated adapter.
+- Describe function conversions involving different value-class input and output
+  shapes accurately in generated TypeScript.
+
+### Upgrading to 0.17.0
+
+Remove any `valueConstructor` options, select a constructor explicitly where
+needed, and regenerate your bindings. If an input constructor cannot be inferred
+and none is explicitly selected, the value class is output-only.
+
+[Release on GitHub](https://github.com/medz/napi/releases/tag/v0.17.0)
 
 ## 0.16.1
 
