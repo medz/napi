@@ -459,6 +459,138 @@ typedef Bytes = Uint8List;
     expect(wasm.needsResourceOperation(wasm.functions.last), isTrue);
   });
 
+  test(
+    'callback parameter shapes preserve kinds, names and cache identity',
+    () async {
+      final module = await read('''
+@NAPI() int required(int Function(int) callback) => 1;
+@NAPI() int optional(int Function([int value]) callback) => 1;
+@NAPI() int renamed(int Function([int renamed]) callback) => 1;
+@NAPI() int nullable(int Function([int?]) callback) => 1;
+@NAPI() int named(int Function({int value}) callback) => 1;
+@NAPI() int namedRename(int Function({int renamed}) callback) => 1;
+@NAPI() int requiredNamed(int Function({required int value}) callback) => 1;
+@NAPI() int ordered(int Function({int a, String b}) callback) => 1;
+@NAPI() int reordered(int Function({String b, int a}) callback) => 1;
+@NAPI() int mixed(int Function(String source, {required int c0, int? operation}) callback) => 1;
+@NAPI() int opaque<T>(T Function([T]) callback) => 1;
+@NAPI() int other<U>(U Function([U]) callback) => 1;
+@NAPI() int future(Future<int> Function({int value}) callback) => 1;
+@NAPI() class Calls<T> {
+  Calls();
+  U call<U>(U Function([U]) callback, U value) => callback(value);
+  T named(T Function({T value}) callback, T value) => callback(value: value);
+}
+''');
+      final wasm = lower(validate(module));
+      final native = validateNative(module);
+      List<String>? signatures;
+      for (final conversions in [
+        wasm.functions.map((f) => f.inputs.single),
+        native.functions.map((f) => f.inputs.single),
+      ]) {
+        final callbacks = conversions.cast<CallbackConversion>().toList();
+        final keys = callbacks
+            .map((callback) => callback.signatureKey)
+            .toList();
+        expect(keys[1], keys[2]);
+        expect(keys[7], keys[8]);
+        expect(keys[10], keys[11]);
+        expect(keys.toSet(), hasLength(10));
+        expect(callbacks[0].hasParameterShape, isFalse);
+        expect(callbacks[1].dartType, 'int Function([int])');
+        expect(callbacks[1].typescriptType, '(arg0?: number) => number');
+        expect(callbacks[3].dartType, 'int Function([int?])');
+        expect(callbacks[4].dartType, 'int Function({int value})');
+        expect(callbacks[6].dartType, 'int Function({required int value})');
+        expect(
+          callbacks[9].dartType,
+          'int Function(String, {required int c0, int? operation})',
+        );
+        expect(
+          callbacks[9].typescriptType,
+          '(arg0: string, options: { "c0": number; "operation"?: number | null }) => number',
+        );
+        expect(
+          callbacks[10].dartType,
+          '_NapiHostValue Function([_NapiHostValue])',
+        );
+        expect(
+          callbacks[12].typescriptType,
+          '(options?: { "value"?: number }) => globalThis.Promise<number>',
+        );
+        if (signatures == null) {
+          signatures = keys;
+        } else {
+          expect(keys, signatures);
+        }
+      }
+      expect(emitDeclarations(wasm), emitNativeDeclarations(native));
+    },
+  );
+
+  test(
+    'reference views compare optional callback contracts contravariantly',
+    () async {
+      final module = await read('''
+@NAPI() class Optional {
+  Optional();
+  int run(int Function([int?]) callback) => callback();
+}
+@NAPI() class Required {
+  Required();
+  int run(int Function(int?) callback) => callback(1);
+}
+@NAPI() class NamedOptional {
+  NamedOptional();
+  int run(int Function({int? value}) callback) => callback();
+}
+@NAPI() class NamedRequired {
+  NamedRequired();
+  int run(int Function({required int? value}) callback) => callback(value: 1);
+}
+@NAPI() class NamedExtra {
+  NamedExtra();
+  int run(int Function({int? value, String? extra}) callback) => callback();
+}
+@NAPI() class NamedOther {
+  NamedOther();
+  int run(int Function({int? other}) callback) => callback();
+}
+@NAPI() class Base {
+  Base();
+  int run(int Function([int?]) callback) => callback();
+}
+@NAPI() class Child extends Base {
+  Child();
+  @override int run(int Function([int?]) callback) => callback(1);
+}
+''');
+      final classes = validate(module).classes;
+      validateNative(module);
+      bool accepts(String implementation, String contract) {
+        final a = classes.singleWhere(
+          (c) => c.binding.exportName == implementation,
+        );
+        final b = classes.singleWhere((c) => c.binding.exportName == contract);
+        return referenceMemberAccepts(
+          a.members.singleWhere((m) => m.binding.exportName == 'run'),
+          b.members.singleWhere((m) => m.binding.exportName == 'run'),
+          classes,
+        );
+      }
+
+      expect(accepts('Required', 'Optional'), isTrue);
+      expect(accepts('Optional', 'Required'), isFalse);
+      expect(accepts('NamedRequired', 'NamedOptional'), isTrue);
+      expect(accepts('NamedOptional', 'NamedRequired'), isFalse);
+      expect(accepts('NamedOptional', 'NamedExtra'), isTrue);
+      expect(accepts('NamedExtra', 'NamedOptional'), isFalse);
+      expect(accepts('NamedOptional', 'NamedOther'), isFalse);
+      expect(accepts('Child', 'Base'), isTrue);
+    },
+  );
+
   for (final entry in {
     'output-only result': (
       '''@NAPI(classPolicy: ClassPolicy.value) class Projection {
@@ -630,10 +762,6 @@ void [value, big, asynchronous, empty, wide, record, syncInFuture, globalName, l
         '@NAPI() int run(int Function(void Function()) callback) => 1;',
     'nested callback result':
         '@NAPI() int run(int Function() Function() callback) => 1;',
-    'optional callback parameter':
-        '@NAPI() int run(int Function([int?]) callback) => 1;',
-    'named callback parameter':
-        '@NAPI() int run(int Function({required int value}) callback) => 1;',
     'generic callback': '@NAPI() int run(T Function<T>(T) callback) => 1;',
     'untyped Function': '@NAPI() int run(Function callback) => 1;',
     'callback FutureOr result': "import 'dart:async'; @NAPI() int run(FutureOr<int> Function(int) callback) => 1;",

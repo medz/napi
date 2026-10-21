@@ -197,11 +197,69 @@ final class CallbackConversion extends ValueConversion {
   }) : returnsFuture = isFutureType(type.result),
        parameters = type.parameters,
        inputs = List.unmodifiable(inputs);
+
+  bool get hasParameterShape => parameters.any(
+    (parameter) => parameter.kind != ParameterKind.requiredPositional,
+  );
+  bool isOptionalParameter(int index) =>
+      parameters[index].kind == ParameterKind.optionalPositional ||
+      parameters[index].kind == ParameterKind.optionalNamed;
+  bool isNamedParameter(int index) =>
+      parameters[index].kind == ParameterKind.requiredNamed ||
+      parameters[index].kind == ParameterKind.optionalNamed;
+
+  String _dartParameters({bool adapter = false}) {
+    final positional = <String>[];
+    final optional = <String>[];
+    final named = <String>[];
+    for (final (index, parameter) in parameters.indexed) {
+      final type = adapter && isOptionalParameter(index)
+          ? 'Object?'
+          : inputs[index].dartType;
+      final fallback = adapter && isOptionalParameter(index)
+          ? ' = _napiCallbackAbsent'
+          : '';
+      switch (parameter.kind) {
+        case ParameterKind.requiredPositional:
+          positional.add('$type${adapter ? ' _p$index' : ''}');
+        case ParameterKind.optionalPositional:
+          optional.add('$type${adapter ? ' _p$index$fallback' : ''}');
+        case ParameterKind.requiredNamed:
+          named.add('required $type ${parameter.name}');
+        case ParameterKind.optionalNamed:
+          named.add('$type ${parameter.name}$fallback');
+      }
+    }
+    return [
+      ...positional,
+      if (optional.isNotEmpty) '[${optional.join(', ')}]',
+      if (named.isNotEmpty) '{${named.join(', ')}}',
+    ].join(', ');
+  }
+
+  /// Optional adapters accept a private sentinel through contravariant inputs.
+  /// A separate invocation body keeps named parameters out of generated scopes.
+  String get adapterParameters => _dartParameters(adapter: true);
+  String get invocationParameters => [
+    for (final (index, conversion) in inputs.indexed)
+      '${isOptionalParameter(index) ? 'Object?' : conversion.dartType} c$index',
+  ].join(', ');
+  String get adapterArguments => [
+    for (final (index, parameter) in parameters.indexed)
+      isNamedParameter(index) ? parameter.name : '_p$index',
+  ].join(', ');
+  String argumentValue(int index) => isOptionalParameter(index)
+      ? '(c$index as ${inputs[index].dartType})'
+      : 'c$index';
+  String argumentPresent(int index) => isOptionalParameter(index)
+      ? '!identical(c$index, _napiCallbackAbsent)'
+      : 'true';
+
   @override
   String get dartType {
     final payload = output?.dartType ?? 'void';
     final result = returnsFuture ? 'Future<$payload>' : payload;
-    return '$result Function(${inputs.map((c) => c.dartType).join(', ')})${nullable ? '?' : ''}';
+    return '$result Function(${_dartParameters()})${nullable ? '?' : ''}';
   }
 
   @override
@@ -210,18 +268,59 @@ final class CallbackConversion extends ValueConversion {
   String get typescriptType {
     final payload = output?.typescriptType ?? 'void';
     final result = returnsFuture ? 'globalThis.Promise<$payload>' : payload;
-    final signature =
-        '(${[for (final (i, c) in inputs.indexed) 'arg$i: ${c.typescriptType}'].join(', ')}) => $result';
+    final positional = <String>[];
+    final named = <String>[];
+    var requiredOptions = false;
+    for (final (index, parameter) in parameters.indexed) {
+      final optional = isOptionalParameter(index) ? '?' : '';
+      final type = inputs[index].typescriptType;
+      if (isNamedParameter(index)) {
+        named.add('${jsonEncode(parameter.name)}$optional: $type');
+        requiredOptions |= parameter.kind == ParameterKind.requiredNamed;
+      } else {
+        positional.add('arg$index$optional: $type');
+      }
+    }
+    if (named.isNotEmpty) {
+      positional.add(
+        'options${requiredOptions ? '' : '?'}: { ${named.join('; ')} }',
+      );
+    }
+    final signature = '(${positional.join(', ')}) => $result';
     return nullable ? '($signature) | null' : signature;
   }
 
   /// The same JavaScript function has one adapter per conversion contract.
-  /// Call-site names and nullable admission do not change an accepted adapter.
-  String get signatureKey => jsonEncode([
-    returnsFuture,
-    inputs.map(_callbackValueSignature).toList(),
-    _callbackValueSignature(output),
-  ]);
+  /// Positional names and nullable admission do not change an accepted adapter.
+  String get signatureKey {
+    if (!hasParameterShape) {
+      return jsonEncode([
+        returnsFuture,
+        inputs.map(_callbackValueSignature).toList(),
+        _callbackValueSignature(output),
+      ]);
+    }
+    final ordered = parameters.indexed.toList()
+      ..sort((a, b) {
+        final aNamed = isNamedParameter(a.$1);
+        final bNamed = isNamedParameter(b.$1);
+        if (aNamed != bNamed) return aNamed ? 1 : -1;
+        return aNamed ? a.$2.name.compareTo(b.$2.name) : a.$1.compareTo(b.$1);
+      });
+    return jsonEncode([
+      returnsFuture,
+      [
+        'parameters',
+        for (final (index, parameter) in ordered)
+          [
+            parameter.kind.name,
+            if (isNamedParameter(index)) parameter.name,
+            _callbackValueSignature(inputs[index]),
+          ],
+      ],
+      _callbackValueSignature(output),
+    ]);
+  }
 }
 
 Object? _callbackValueSignature(ValueConversion? conversion) =>

@@ -205,7 +205,7 @@ class Business { U echo<U>(U value) => value; }
     ),
     (
       'callback',
-      '@NAPI() class A { void call<U>(U Function([U?]) fn) {} }',
+      '@NAPI() class A { void call<U>(U Function(U Function()) fn) {} }',
       'NAPI_CALLBACK',
     ),
     (

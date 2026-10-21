@@ -701,3 +701,112 @@ class CallbackPayloadBox<T> {
 @NAPI()
 void rejectCallbackPayload<T>((T, CallbackValue) Function() callback) =>
     callback();
+
+@NAPI()
+List<int> callOptionalPositionals(int Function([int]) callback) => [
+  callback(),
+  callback(3),
+];
+
+@NAPI()
+List<int?> callNullablePositionals(int? Function([int?]) callback) => [
+  callback(),
+  callback(null),
+  callback(4),
+];
+
+@NAPI()
+List<T?> callOpaquePositionals<T>(T? Function([T?]) callback, T value) => [
+  callback(),
+  callback(null),
+  callback(value),
+];
+
+@NAPI()
+List<int> callOptionalNames(
+  int Function({
+    int callback,
+    int operation,
+    int arguments,
+    int value,
+    int env,
+    int adapter,
+    int state,
+  })
+  callback,
+) => [
+  callback(),
+  callback(callback: 1),
+  callback(operation: 2, arguments: 3, value: 4, env: 5, adapter: 6, state: 7),
+];
+
+@NAPI()
+List<int> callNamesBA(int Function({int b, int a}) callback) => [
+  callback(b: 2, a: 1),
+  callback(b: 3),
+  callback(),
+];
+
+@NAPI()
+List<int> callNamesAB(int Function({int a, int b}) callback) => [
+  callback(a: 1, b: 2),
+  callback(b: 3),
+  callback(),
+];
+
+@NAPI()
+List<int> callMixedNames(
+  int Function(
+    int value, {
+    required int operation,
+    required int constructor,
+    int callback,
+  })
+  callback,
+) => [
+  callback(1, operation: 2, constructor: 4),
+  callback(1, operation: 2, constructor: 4, callback: 3),
+];
+
+@NAPI()
+int callRequiredNames(int Function({required int constructor}) callback) =>
+    callback(constructor: 6);
+
+@NAPI()
+Future<List<int>> callAsyncOptionalPositionals(
+  Future<int> Function([int]) callback,
+) async => [await callback(), await callback(5)];
+
+@NAPI()
+Future<List<T?>> callAsyncOptionalNames<T>(
+  Future<T?> Function({T? value}) callback,
+  T value,
+) async => [
+  await callback(),
+  await callback(value: null),
+  await callback(value: value),
+];
+
+@NAPI()
+List<int> callOptionalModels(
+  int Function({CallbackResource? resource, CallbackValue? value}) callback,
+  int id,
+) => [
+  callback(),
+  callback(resource: null, value: null),
+  callback(value: CallbackValue(1)),
+  callback(resource: CallbackResource(id)),
+];
+
+@NAPI()
+bool callbackParameterPolicies(
+  int Function([int value]) optional,
+  int Function([int renamed]) renamed,
+  int Function(int value) mandatory,
+  int Function({int value}) named,
+  int Function({int other}) other,
+) =>
+    identical(optional, renamed) &&
+    !identical(optional, mandatory) &&
+    !identical(optional, named) &&
+    !identical(named, other);

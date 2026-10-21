@@ -219,6 +219,18 @@ async function payloadResources(api) {
   }, {...row, resource: asyncNested});
   assert.equal((await asynchronous).resource, asyncNested); await closing;
   assert.equal(api.callbackCleanups(906), 1);
+  assert.deepEqual(api.callOptionalModels(function(options) {
+    if (arguments.length === 0) return 0;
+    if (options.resource === null && options.value === null) return 1;
+    if (Object.hasOwn(options, 'value')) {
+      assert.deepEqual(options.value, {value: 1, step: 7}); return 2;
+    }
+    assert.equal(options.resource.id, 907);
+    closing = options.resource.close();
+    assert.equal(api.callbackCleanups(907), 0);
+    return 907;
+  }, 907), [0, 1, 2, 907]);
+  await closing; assert.equal(api.callbackCleanups(907), 1);
 }
 
 function failedCallbackPayload(api) {
@@ -399,6 +411,66 @@ function validation(api) {
   box.callback = n => n + 2;
   assert.equal(box.value, 6);
   assert.equal(box.invokeStored(), 8);
+  optionalArguments(api);
+}
+
+function optionalArguments(api) {
+  let seen = [];
+  assert.deepEqual(api.callOptionalPositionals(function(value = 7) {
+    seen.push(Array.from(arguments)); return value;
+  }), [7, 3]);
+  assert.deepEqual(seen, [[], [3]], 'omission lets the JS callback apply its own default');
+  seen = [];
+  assert.deepEqual(api.callNullablePositionals(function(value = 7) {
+    seen.push(Array.from(arguments)); return value;
+  }), [7, null, 4]);
+  assert.deepEqual(seen, [[], [null], [4]], 'explicit null never applies a JS default');
+  const fallback = {fallback: true}; seen = [];
+  const opaque = api.callOpaquePositionals(function(value = fallback) {
+    seen.push(Array.from(arguments)); return value;
+  }, undefined);
+  assert.equal(opaque[0], fallback); assert.equal(opaque[1], null); assert.equal(opaque[2], fallback);
+  assert.deepEqual(seen, [[], [null], [undefined]], 'present opaque undefined keeps its argument slot');
+  seen = [];
+  assert.deepEqual(api.callOptionalNames(function(options) {
+    seen.push(arguments.length === 0 ? [] : [{...options}]);
+    if (arguments.length === 0) return 7;
+    assert.equal(Object.getPrototypeOf(options), null);
+    return Object.values(options).reduce((sum, value) => sum + value, 0);
+  }), [7, 1, 27]);
+  assert.deepEqual(seen, [[], [{callback: 1}], [{operation: 2, arguments: 3, value: 4, env: 5, adapter: 6, state: 7}]]);
+  assert.deepEqual(api.callMixedNames(function(value, options) {
+    assert.equal(arguments.length, 2);
+    assert.equal(Object.getPrototypeOf(options), null);
+    assert.equal(Object.getOwnPropertyDescriptor(options, 'constructor').value, 4);
+    return value + options.operation + options.constructor + (options.callback ?? 0);
+  }), [7, 10]);
+  assert.equal(api.callRequiredNames(function(options) {
+    assert.equal(arguments.length, 1);
+    assert.equal(Object.getOwnPropertyDescriptor(options, 'constructor').value, 6);
+    return options.constructor;
+  }), 6);
+  const same = () => 0;
+  assert.equal(api.callbackParameterPolicies(same, same, same, same, same), true,
+    'positional names share adapters; parameter kinds and named keys do not');
+  const named = () => function(options) {
+    if (arguments.length === 0) {
+      assert.equal(options, undefined); return 0;
+    }
+    assert.equal(arguments.length, 1);
+    if (Object.hasOwn(options, 'a')) {
+      assert.deepEqual(Object.keys(options), ['a', 'b']);
+      assert.equal(options.a, 1); assert.equal(options.b, 2); return 12;
+    }
+    assert.deepEqual(Object.keys(options), ['b']);
+    assert.equal(options.b, 3); return 3;
+  };
+  for (const exports of [[api.callNamesAB, api.callNamesBA], [api.callNamesBA, api.callNamesAB]]) {
+    const shared = named();
+    for (const call of exports) assert.deepEqual(call(shared), [12, 3, 0]);
+    for (const call of exports) assert.deepEqual(call(named()), [12, 3, 0]);
+  }
+  assert.throws(() => api.callOptionalPositionals(() => null), TypeError);
 }
 
 function reentry(api) {
@@ -615,6 +687,28 @@ async function asyncValues(api) {
   assert.equal(await api.callAsync(async n => await api.callAsync(async x => x + 2, n), 3), 5);
   await asyncBinaryValues(api);
   await asyncPayloadValues(api);
+  await asyncOptionalArguments(api);
+}
+
+async function asyncOptionalArguments(api) {
+  const seen = [];
+  assert.deepEqual(await api.callAsyncOptionalPositionals(async function(value = 7) {
+    seen.push(Array.from(arguments)); await turn(); return value;
+  }), [7, 5]);
+  assert.deepEqual(seen, [[], [5]]);
+  const fallback = {asyncFallback: true}, named = [];
+  const result = await api.callAsyncOptionalNames(async function(options = {}) {
+    named.push({argc: arguments.length, present: Object.hasOwn(options, 'value'), value: options.value});
+    const {value = fallback} = options;
+    await turn(); return value;
+  }, undefined);
+  assert.equal(result[0], fallback); assert.equal(result[1], null); assert.equal(result[2], fallback);
+  assert.deepEqual(named, [
+    {argc: 0, present: false, value: undefined},
+    {argc: 1, present: true, value: null},
+    {argc: 1, present: true, value: undefined},
+  ]);
+  await assert.rejects(api.callAsyncOptionalPositionals(() => 7), TypeError);
 }
 
 async function asyncPayloadValues(api) {
@@ -1090,6 +1184,10 @@ async function scenario(name) {
         'callProjection', 'readProjectionCallback', 'callReference', 'callNewResource',
         'callAsyncNewResource', 'callPayload', 'callAsyncPayload', 'rejectCallbackPayload', 'callbackCleanups',
         'startResourceCallback',
+        'callOptionalPositionals', 'callNullablePositionals', 'callOpaquePositionals',
+        'callOptionalNames', 'callNamesAB', 'callNamesBA', 'callMixedNames', 'callRequiredNames',
+        'callAsyncOptionalPositionals', 'callAsyncOptionalNames',
+        'callOptionalModels', 'callbackParameterPolicies',
       ].sort());
       assert.equal(external.plainCallback(n => n + 1, 3), 4);
       assert.throws(() => external.plainCallback(), TypeError);
@@ -1102,6 +1200,7 @@ async function scenario(name) {
       handleValues(external); await asyncHandles(external);
       binaryValues(external); await asyncBinaryValues(external);
       payloadValues(external); await asyncPayloadValues(external);
+      optionalArguments(external); await asyncOptionalArguments(external);
       await payloadResources(external); await retainedPayloads(external);
       break;
     }
@@ -1128,6 +1227,7 @@ if (!isMainThread) {
   assert.equal(await api.callAsync(async n => n + 2, 5), 7);
   binaryValues(api); await asyncBinaryValues(api);
   payloadValues(api); await asyncPayloadValues(api); await payloadResources(api);
+  optionalArguments(api); await asyncOptionalArguments(api);
   api.registerAsyncCallback(() => new Promise(() => {}));
   api.invokeAsyncRegistered(0, 1);
   if (workerData.queued) {

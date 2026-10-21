@@ -48,6 +48,11 @@ String emitNativeDart(NativeModulePlan plan) {
       (value) => value is CallbackConversion && value.returnsFuture,
     ),
   );
+  final shapedCallbacks = plan.calls.any(
+    (call) => call.inputs.any(
+      (value) => value is CallbackConversion && value.hasParameterShape,
+    ),
+  );
   final hasSignals = plan.calls.any(
     (call) => call.inputs.any((value) => value is AbortSignalConversion),
   );
@@ -148,6 +153,7 @@ String emitNativeDart(NativeModulePlan plan) {
 import 'package:napi/src/compiler/native/bindings.dart';
 import ${_quote(plan.bindings.importUri.toString())} as target;
 
+${shapedCallbacks ? 'final class _NapiCallbackAbsent { const _NapiCallbackAbsent(); }\nconst _napiCallbackAbsent = _NapiCallbackAbsent();\n\n' : ''}
 ${hasOpaque ? 'typedef _NapiHostValue = NativeHostValue;\n\n' : ''}late final NapiApi _api;
 @pragma('vm:entry-point')
 List<Object?> napiBindings(int apiTableAddress, int tableCount) {
@@ -729,9 +735,58 @@ void _readCallback(
   final type = conversion.nullable
       ? conversion.dartType.substring(0, conversion.dartType.length - 1)
       : conversion.dartType;
-  code.writeln(
-    '    a$index = _api.callback<$type>(call.env, raw$index, ${_quote(conversion.signatureKey)}, ${_quote(conversion.context)}, (callback) ${conversion.returnsFuture ? '{\n      late final $type adapter;\n      adapter =' : '=>'} ($parameters) {',
-  );
+  final shaped = conversion.hasParameterShape;
+  if (shaped) {
+    code.writeln(
+      '    a$index = _api.callback<$type>(call.env, raw$index, ${_quote(conversion.signatureKey)}, ${_quote(conversion.context)}, (callback) {',
+    );
+    if (conversion.returnsFuture) {
+      code.writeln('      late final $type adapter;');
+    }
+    final resultType = conversion.output?.dartType ?? 'void';
+    code.writeln(
+      '      ${conversion.returnsFuture ? 'Future<$resultType>' : resultType} _invoke(${conversion.invocationParameters}) {',
+    );
+    for (var i = 0; i < conversion.inputs.length; i++) {
+      if (conversion.isOptionalParameter(i)) {
+        code.writeln(
+          '      final present$i = ${conversion.argumentPresent(i)};',
+        );
+      }
+    }
+    final positional = [
+      for (var i = 0; i < conversion.inputs.length; i++)
+        if (!conversion.isNamedParameter(i)) i,
+    ];
+    final named = [
+      for (var i = 0; i < conversion.inputs.length; i++)
+        if (conversion.isNamedParameter(i)) i,
+    ];
+    if (named.isNotEmpty) {
+      final optionsPresent =
+          named.any((i) => !conversion.isOptionalParameter(i))
+          ? 'true'
+          : named.map((i) => 'present$i').join(' || ');
+      code.writeln('      final hasOptions = $optionsPresent;');
+      code.writeln(
+        '      final argc = ${positional.length} + (hasOptions ? 1 : 0);',
+      );
+    } else {
+      final required = positional
+          .where((i) => !conversion.isOptionalParameter(i))
+          .length;
+      code.writeln('      var argc = $required;');
+      for (final i in positional) {
+        if (conversion.isOptionalParameter(i)) {
+          code.writeln('      if (present$i) argc = ${i + 1};');
+        }
+      }
+    }
+  } else {
+    code.writeln(
+      '    a$index = _api.callback<$type>(call.env, raw$index, ${_quote(conversion.signatureKey)}, ${_quote(conversion.context)}, (callback) ${conversion.returnsFuture ? '{\n      late final $type adapter;\n      adapter =' : '=>'} ($parameters) {',
+    );
+  }
   if (resourceValues) {
     code.writeln(
       '''      final active = ResourceOperation.current;
@@ -739,7 +794,7 @@ void _readCallback(
     );
   }
   code.writeln(
-    "      return callback.${conversion.returnsFuture ? 'invokeFuture' : 'invoke'}<${conversion.output?.dartType ?? 'void'}>(${conversion.returnsFuture ? 'adapter, ' : ''}${conversion.inputs.length}, (env, argv) {",
+    "      return callback.${conversion.returnsFuture ? 'invokeFuture' : 'invoke'}<${conversion.output?.dartType ?? 'void'}>(${conversion.returnsFuture ? 'adapter, ' : ''}${shaped ? 'argc' : conversion.inputs.length}, (env, argv) {",
   );
   if (inputReferences) {
     code.writeln(
@@ -749,24 +804,64 @@ void _readCallback(
   }
   for (final (i, input) in conversion.inputs.indexed) {
     if (input is ScalarConversion) continue;
+    final argument = shaped ? conversion.argumentValue(i) : 'c$i';
     code.writeln(
-      '        final snapshot$i = ${structures.snapshotOutput(input)}(c$i, _NativeWriteState(), ${_quote(input.context)}, 0);',
+      '        final snapshot$i = ${shaped && conversion.isOptionalParameter(i) ? 'present$i ? ' : ''}${structures.snapshotOutput(input)}($argument, _NativeWriteState(), ${_quote(input.context)}, 0)${shaped && conversion.isOptionalParameter(i) ? ' : null' : ''};',
     );
   }
+  final namedParameters = [
+    for (final (i, parameter) in conversion.parameters.indexed)
+      if (shaped && conversion.isNamedParameter(i)) (i, parameter),
+  ]..sort((a, b) => a.$2.name.compareTo(b.$2.name));
+  var optionsStarted = false;
   for (final (i, input) in conversion.inputs.indexed) {
+    final named = shaped && conversion.isNamedParameter(i);
+    final optional = shaped && conversion.isOptionalParameter(i);
+    if (named && !optionsStarted) {
+      optionsStarted = true;
+      final positionalCount = conversion.parameters
+          .where((p) => !_named(p))
+          .length;
+      code.writeln('''        if (hasOptions) {
+        final options = _api.createDictionary(env);
+        argv[$positionalCount] = Pointer<Void>.fromAddress(options);''');
+      for (final (index, _) in namedParameters) {
+        code.writeln('        late final int option$index;');
+      }
+    }
+    if (optional) code.writeln('        if (present$i) {');
     final String value;
     if (input is ScalarConversion) {
+      final argument = shaped ? 'value$i' : 'c$i';
+      if (shaped) {
+        code.writeln(
+          '        final $argument = ${conversion.argumentValue(i)};',
+        );
+      }
       final context = input.kind == ScalarKind.integer && !input.usesBigInt
           ? ', ${_quote(input.context)}'
           : '';
       value =
-          '${input.nullable ? 'c$i == null ? _api.nullResult(env) : ' : ''}'
-          '_api.${nativeScalarWriter(input)}(env, c$i$context)';
+          '${input.nullable ? '$argument == null ? _api.nullResult(env) : ' : ''}'
+          '_api.${nativeScalarWriter(input)}(env, $argument$context)';
     } else {
       value =
           '${structures.writeSnapshot(input)}(env, snapshot$i, ${inputReferences ? 'state' : '_NativeWriteState()'}, ${_quote(input.context)})';
     }
-    code.writeln('        argv[$i] = Pointer<Void>.fromAddress($value);');
+    if (named) {
+      code.writeln('        option$i = $value;');
+    } else {
+      code.writeln('        argv[$i] = Pointer<Void>.fromAddress($value);');
+    }
+    if (optional) code.writeln('        }');
+  }
+  if (optionsStarted) {
+    for (final (i, parameter) in namedParameters) {
+      code.writeln(
+        '        ${conversion.isOptionalParameter(i) ? 'if (present$i) ' : ''}_api.defineOwnValue(env, options, ${_quote(parameter.name)}, option$i);',
+      );
+    }
+    code.writeln('        }');
   }
   if (inputReferences) {
     code.writeln('''        } catch (_) {
@@ -812,7 +907,15 @@ void _readCallback(
   code.writeln(
     '      }${resourceValues && conversion.returnsFuture ? ', lease: operation' : ''});',
   );
-  if (conversion.returnsFuture) code.writeln('      };\n      return adapter;');
+  if (shaped) {
+    code.writeln('      }');
+    code.writeln(
+      '      ${conversion.returnsFuture ? 'adapter =' : 'return'} (${conversion.adapterParameters}) => _invoke(${conversion.adapterArguments});',
+    );
+    if (conversion.returnsFuture) code.writeln('      return adapter;');
+  } else if (conversion.returnsFuture) {
+    code.writeln('      };\n      return adapter;');
+  }
   code.writeln('    }, prechecked: true);');
   if (conversion.nullable) code.writeln('    }');
 }

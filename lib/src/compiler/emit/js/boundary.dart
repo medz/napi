@@ -168,6 +168,12 @@ export function callbackStructureError(path, message, range) {
   return {threw: true, value: range ? new RangeError(path + ': ' + message) : new TypeError(path + ': ' + message)};
 }
 ''');
+  if (callbacks.values.any((callback) => callback.hasParameterShape)) {
+    source.writeln(r'''
+const callbackCreate = Object.create;
+const callbackDefine = Object.defineProperty;
+''');
+  }
   if (resources) {
     source.writeln(r'''
 function writeCallbackReference(value, classId, path, state) {
@@ -203,6 +209,13 @@ function settleCallback(record, envelope) {
   for (final entry in callbacks.entries) {
     final id = entry.key;
     final callback = entry.value;
+    final mapped = callback.hasParameterShape;
+    final optional = [
+      for (final (index, _) in callback.parameters.indexed)
+        if (callback.isOptionalParameter(index)) index,
+    ];
+    String present(int index) =>
+        'values[${callback.inputs.length + optional.indexOf(index)}]';
     final arguments = <String>[];
     for (final (index, conversion) in callback.inputs.indexed) {
       final boundary = emitStructuralBoundary(
@@ -235,11 +248,57 @@ function settleCallback(record, envelope) {
     cases.writeln('      case $id: {');
     for (final (index, argument) in arguments.indexed) {
       if (index != 0) cases.writeln('        state.work = 0;');
-      cases.writeln('        const arg$index = $argument;');
+      cases.writeln(
+        '        const arg$index = ${optional.contains(index) ? '${present(index)} ? $argument : undefined' : argument};',
+      );
     }
-    cases.writeln(
-      '        const args = [${[for (var index = 0; index < arguments.length; index++) 'arg$index'].join(', ')}];',
-    );
+    if (!mapped) {
+      cases.writeln(
+        '        const args = [${[for (var index = 0; index < arguments.length; index++) 'arg$index'].join(', ')}];',
+      );
+    } else {
+      final required = [
+        for (final (index, _) in callback.parameters.indexed)
+          if (!callback.isOptionalParameter(index) &&
+              !callback.isNamedParameter(index))
+            'arg$index',
+      ];
+      cases.writeln('        const args = [${required.join(', ')}];');
+      String append(String array, String key, String value) =>
+          'callbackDefine($array, $key, {__proto__: null, value: $value, enumerable: true, writable: true, configurable: true});';
+      for (final (index, _) in callback.parameters.indexed) {
+        if (callback.isOptionalParameter(index) &&
+            !callback.isNamedParameter(index)) {
+          cases.writeln(
+            '        if (${present(index)}) ${append('args', 'args.length', 'arg$index')}',
+          );
+        }
+      }
+      final named = [
+        for (final (index, _) in callback.parameters.indexed)
+          if (callback.isNamedParameter(index)) index,
+      ];
+      named.sort(
+        (a, b) =>
+            callback.parameters[a].name.compareTo(callback.parameters[b].name),
+      );
+      if (named.isNotEmpty) {
+        final anyNamed = named.any((index) => !optional.contains(index))
+            ? 'true'
+            : named.map(present).join(' || ');
+        cases.writeln(
+          '        if ($anyNamed) {\n          const options = callbackCreate(null);',
+        );
+        for (final index in named) {
+          cases.writeln(
+            '          ${optional.contains(index) ? 'if (${present(index)}) ' : ''}${append('options', jsonEncode(callback.parameters[index].name), 'arg$index')}',
+          );
+        }
+        cases.writeln(
+          '          ${append('args', 'args.length', 'options')}\n        }',
+        );
+      }
+    }
     cases.writeln('        state.pending = null;');
     cases.writeln(
       '        const value = callbackApply(callback, undefined, args);',

@@ -70,6 +70,13 @@ String emitDart(ModulePlan plan) {
     );
   }
   if (callbacks.isNotEmpty) result.writeln(callbackEntrypointPrelude);
+  if (callbacks.values.any(
+    (callback) => callback.parameters.indexed.any(
+      (entry) => callback.isOptionalParameter(entry.$1),
+    ),
+  )) {
+    result.writeln(callbackPresenceEntrypointPrelude);
+  }
   if (callbacks.isEmpty) result.writeln(callbackErrorEntrypointPrelude);
   result.writeln(sharedBytesEntrypointPrelude);
   if (signals) {
@@ -451,24 +458,42 @@ void _emitCallbackAdapter(
   final adapterType = callback.nullable
       ? callback.dartType.substring(0, callback.dartType.length - 1)
       : callback.dartType;
-  final parameters = [
-    for (final (index, conversion) in callback.inputs.indexed)
-      '${conversion.dartType} c$index',
-  ].join(', ');
-  final arguments = [
-    for (final (index, conversion) in callback.inputs.indexed)
-      if (conversion is JsCollectionConversion)
-        '${conversion.nullable ? 'c$index == null ? null : ' : ''}_writeJsCollection(c$index, ${quote(conversion.signatureKey)}, defer: true)'
-      else
-        '${structural.write(conversion)}(c$index, _StructureState(), ${quote(conversion.context)}, 0)',
-  ].join(', ');
+  final mapped = callback.hasParameterShape;
+  final optional = [
+    for (final (index, _) in callback.parameters.indexed)
+      if (callback.isOptionalParameter(index)) index,
+  ];
+  final parameters = callback.invocationParameters;
+  final arguments = <String>[];
+  for (final (index, conversion) in callback.inputs.indexed) {
+    final value = callback.argumentValue(index);
+    final collectionValue =
+        callback.isOptionalParameter(index) && conversion.nullable
+        ? '$value!'
+        : value;
+    final serialized = conversion is JsCollectionConversion
+        ? '${conversion.nullable ? '$value == null ? null : ' : ''}_writeJsCollection($collectionValue, ${quote(conversion.signatureKey)}, defer: true)'
+        : '${structural.write(conversion)}($value, _StructureState(), ${quote(conversion.context)}, 0)';
+    arguments.add(
+      optional.contains(index)
+          ? '${callback.argumentPresent(index)} ? $serialized : null'
+          : serialized,
+    );
+  }
+  arguments.addAll([
+    for (final index in optional) '(${callback.argumentPresent(index)}).toJS',
+  ]);
+  final payloadType = callback.output?.dartType ?? 'void';
+  final resultType = callback.returnsFuture
+      ? 'Future<$payloadType>'
+      : payloadType;
   result.writeln(
     '''${callback.dartType} _callback$context(WasmExternRef callback) {
   final signature = externRefForJSAny(${quote(callback.signatureKey)}.toJS)!;
   final cached = _findCallbackAdapter(callback, signature);
   if (!cached.isNull) return cached!.internalize().toObject() as $adapterType;
   late final $adapterType adapter;
-  adapter = ($parameters) {''',
+  ${mapped ? '$resultType _invoke($parameters)' : 'adapter = ($parameters)'} {''',
   );
   if (resourceValues) {
     result.writeln(
@@ -479,7 +504,7 @@ void _emitCallbackAdapter(
   result.writeln(
     '''    final JSArray<JSAny?> arguments;
     try {
-      arguments = <JSAny?>[$arguments].toJS;
+      arguments = <JSAny?>[${arguments.join(', ')}].toJS;
     } on _StructureViolation catch (error) {
 ${resourceValues && callback.returnsFuture ? '      operation?.release();\n' : ''}      throw $structureFailure;
 ${resourceValues && callback.returnsFuture ? '    } catch (_) {\n      operation?.release();\n      rethrow;\n' : ''}    }''',
@@ -549,7 +574,15 @@ ${resourceValues && callback.returnsFuture ? '    } catch (_) {\n      operation
     return completer.future;''',
     );
   }
-  result.writeln('''  };
+  if (mapped) {
+    result.writeln(
+      '''  }
+  adapter = (${callback.adapterParameters}) => _invoke(${callback.adapterArguments});''',
+    );
+  } else {
+    result.writeln('  };');
+  }
+  result.writeln('''
   _cacheCallbackAdapter(callback, signature, WasmAnyRef.fromObject(adapter).externalize());
   return adapter;
 }''');
