@@ -34,6 +34,27 @@ const defaultCleanup: Promise<void> = valueDefaults.pair.$1.close();
 const externalDefaults: external.ResourceDefaultValue = external.resourceDefaultEcho({});
 external.resourceDefaultHold({owner: null}, () => {}, 10);
 direct.resourceDefaultEcho({owner: null});
+const genericText = new api.GenericResource<string>(500, 'text');
+const genericSelf: api.GenericResource<string> = genericText.self();
+const genericFuture: Promise<string> = genericText.hold(500);
+const genericStream: AsyncIterableIterator<string, undefined, undefined> = genericText.sequence(501);
+const genericCallback: Promise<string> = genericText.apply(async value => value.toUpperCase());
+const genericClose: Promise<void> = genericText.close('reason', reason => {
+  const typed: string | null = reason; void typed;
+});
+const genericNullish = new api.GenericResource<string | null | undefined>(502, undefined);
+genericNullish.value = null; genericNullish.value = undefined;
+genericNullish.close(undefined, reason => {const typed: string | null | undefined = reason; void typed;});
+const genericExternal: external.GenericResource<string> = new external.GenericResource(503, 'external').self();
+const genericDirect: direct.GenericResource<number> = new direct.GenericResource(504, 7).self();
+// @ts-expect-error Generic resource handles preserve their invariant payload type.
+const wrongGeneric: api.GenericResource<number> = genericText;
+// @ts-expect-error Generic resource writes retain their declared payload type.
+genericText.value = 3;
+// @ts-expect-error Cleanup uses the class's existing type parameter.
+genericText.close(3);
+// @ts-expect-error Generic resource callback results retain their payload type.
+genericText.apply(async () => 3);
 // @ts-expect-error Non-null resource containers cannot default from null.
 api.resourceDefaultEcho({peers: null});
 // @ts-expect-error Explicit defaults retain their declared resource brand.
@@ -60,4 +81,5 @@ resource.release('bad');
 api.resourceHold({}, 7);
 void [synchronous, named, directOrder, directOrderFuture, held, orphan, close, closed, asyncClose, required, dynamicCleanup, orphanCleanup, result, nested,
   list, map, dictionary, record, subpath, eager, wrong, valueDefaultsUndefined, valueDefaultHold,
-  defaultOwner, defaultPeer, defaultCleanup, externalDefaults, missingDefaultOwner];
+  defaultOwner, defaultPeer, defaultCleanup, externalDefaults, missingDefaultOwner,
+  genericSelf, genericFuture, genericStream, genericCallback, genericClose, genericExternal, genericDirect, wrongGeneric];

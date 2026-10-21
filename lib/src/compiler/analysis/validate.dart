@@ -1050,12 +1050,6 @@ List<ReferenceClassShape> validateReferenceClasses(BindingModule module) {
         'Opaque type parameters must not shadow their exported class name ${binding.exportName}.',
       );
     }
-    if (opaque.isNotEmpty && binding.classPolicy != ClassPolicy.reference) {
-      reject(
-        'NAPI_GENERIC',
-        'Opaque parameters require the ordinary reference class policy.',
-      );
-    }
     if (binding.cleanup case final cleanup?) {
       final member = binding.members.singleWhere(
         (member) => member.declaration == cleanup,

@@ -236,6 +236,91 @@ async function valueResourceDefaultFailure(api) {
   assert.equal(api.resourceCleanupCalls(301), 1, 'constructor failures release container default leases');
 }
 
+async function genericResources(api) {
+  let traps = 0;
+  const hostile = new Proxy({}, {
+    get() {traps++; throw Error('opaque resource payload property');},
+    getPrototypeOf() {traps++; throw Error('opaque resource payload prototype');},
+  });
+  const payloads = [undefined, null, {stored: true}, Symbol('resource'), () => 1, hostile];
+  for (const [index, payload] of payloads.entries()) {
+    const resource = new api.GenericResource(410 + index, payload);
+    assert.equal(resource.self(), resource);
+    assert.equal(resource.value, payload);
+    resource.value = undefined; assert.equal(resource.value, undefined);
+    resource.value = null; assert.equal(resource.value, null);
+    resource.value = payload; assert.equal(resource.value, payload);
+    let observed = Symbol('not called');
+    const closing = promise(() => resource.close(payload, reason => {observed = reason;}));
+    assert.equal(resource.close(payload), closing);
+    await closing;
+    assert.equal(observed, payload);
+    assert.equal(api.resourceCleanupCode(410 + index), 48, 'present opaque null and undefined are not the Dart null default');
+    assert.equal(api.resourceCleanupCalls(410 + index), 1);
+    assert.throws(() => resource.value);
+  }
+  assert.equal(traps, 0);
+
+  const payload = {pending: true};
+  const future = new api.GenericResource(420, payload);
+  const pending = promise(() => future.hold(420));
+  const closing = promise(() => future.close(payload));
+  await turn();
+  assert.equal(api.resourceCleanupCalls(420), 0);
+  api.resourceComplete(420);
+  assert.equal(await pending, payload);
+  await closing;
+  assert.equal(api.resourceCleanupCalls(420), 1);
+
+  for (const cancel of [false, true]) {
+    const id = cancel ? 422 : 421;
+    const value = cancel ? null : undefined;
+    const resource = new api.GenericResource(id, value);
+    const iterator = resource.sequence(id);
+    const first = await iterator.next();
+    assert.equal(first.value, value); assert.equal(first.done, false);
+    let observed = Symbol('not called');
+    let closed;
+    if (cancel) {
+      closed = promise(() => resource.close(value, reason => {observed = reason;}));
+      assert.equal(api.resourceCleanupCalls(id), 0);
+      const cancelled = iterator.return();
+      api.resourceComplete(id);
+      assert.equal((await cancelled).done, true);
+    } else {
+      api.resourceComplete(id);
+      const second = await iterator.next();
+      assert.equal(second.value, value); assert.equal(second.done, false);
+      assert.equal((await iterator.next()).done, true);
+      closed = promise(() => resource.close(value, reason => {observed = reason;}));
+    }
+    await closed;
+    assert.equal(observed, value);
+    assert.equal(api.resourceCleanupCalls(id), 1);
+  }
+
+  const callbackResource = new api.GenericResource(423, payload);
+  let finish, callbackClosing, observed = Symbol('not called');
+  const callbackResult = promise(() => callbackResource.apply(value => {
+    assert.equal(value, payload);
+    callbackClosing = promise(() => callbackResource.close(undefined, reason => {observed = reason;}));
+    return new Promise(resolve => {finish = () => resolve(value);});
+  }));
+  await turn();
+  assert.equal(api.resourceCleanupCalls(423), 0, 'a pending callback keeps its generic resource operation');
+  finish();
+  assert.equal(await callbackResult, payload);
+  await callbackClosing;
+  assert.equal(observed, undefined);
+  assert.equal(api.resourceCleanupCalls(423), 1);
+
+  const invalid = new api.GenericResource(424, payload);
+  await rejects(() => invalid.apply(3), TypeError);
+  await promise(() => invalid.close());
+  assert.equal(api.resourceCleanupCode(424), 47, 'omitting an opaque cleanup parameter keeps the Dart null default');
+  assert.equal(api.resourceCleanupCalls(424), 1, 'failed callback conversion releases its operation');
+}
+
 async function failure(api) {
   const sync = new api.ResourceCounter(20);
   const first = promise(() => sync.release(-1));
@@ -605,6 +690,8 @@ async function scenario(name) {
       await leases(api);
       await valueResourceDefaults(api);
       await valueResourceDefaults(await import('@napi/resources-external'));
+      await genericResources(api);
+      await genericResources(await import('@napi/resources-external'));
       break;
     case 'nested': await nested(api); break;
     case 'input-reentry': await inputReentry(api); break;
@@ -729,6 +816,8 @@ if (!isMainThread) {
   const api = await import(packageName);
   await valueResourceDefaults(api);
   await valueResourceDefaults(await import('@napi/resources-external'));
+  await genericResources(api);
+  await genericResources(await import('@napi/resources-external'));
   if (workerData.hold) {
     const resource = new api.ResourceCounter(80);
     let adopted = false;

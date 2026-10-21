@@ -156,7 +156,7 @@ value without inspecting it.
 
 Structural defaults containing opaque leaves, opaque
 Map keys and JS collection handles as Map keys are not supported.
-Open generic resource/value classes are still unsupported. Failed input conversion
+Open generic value classes are still unsupported. Failed input conversion
 does not invoke the exported business method, reference constructor or setter.
 Explicit [value-class constructors](values.md) execute
 during input materialization after raw validation; domain failures may retain

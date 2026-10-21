@@ -115,6 +115,38 @@ class ResourceOrphan {
   }
 }
 
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+class GenericResource<T> {
+  final int id;
+  T value;
+  GenericResource(this.id, this.value);
+
+  GenericResource<T> self() => this;
+
+  Future<T> hold(int token) {
+    final current = value;
+    final gate = Completer<int>();
+    _gates[token] = gate;
+    return gate.future.then((_) => current);
+  }
+
+  Stream<T> sequence(int token) async* {
+    final current = value;
+    final gate = Completer<int>();
+    _gates[token] = gate;
+    yield current;
+    await gate.future;
+    yield current;
+  }
+
+  Future<T> apply(Future<T> Function(T) callback) => callback(value);
+
+  void close([T? reason, void Function(T?)? observe]) {
+    _cleanup(id, reason == null ? 47 : 48);
+    observe?.call(reason);
+  }
+}
+
 @NAPI()
 bool resourceOrphanCleanupAlive() => _orphanCleanup?.target != null;
 

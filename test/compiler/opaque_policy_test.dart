@@ -641,8 +641,8 @@ const stream: AsyncIterableIterator<{ then: Then }, undefined, undefined> = stre
       "$router @NAPI() class Child extends Router<String> { Child(); }",
       'NAPI_GENERIC',
     ),
-    'generic resource': (
-      "@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close') class Resource<T> { Resource(); void close() {} }",
+    'generic resource hierarchy': (
+      "@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close') class Resource<T> { Resource(); void close() {} } @NAPI() class Child<U> extends Resource<U> { Child(); }",
       'NAPI_GENERIC',
     ),
     'generic value': (
