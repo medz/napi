@@ -85,7 +85,6 @@ Future<void> main(List<String> arguments) async {
       external: const ExternalLibrary([
         ExternalClass('Resource', config: NAPI(
           classPolicy: ClassPolicy.value,
-          valueConstructor: 'new',
           valueFields: {'missing': 'value'},
         )),
       ]),

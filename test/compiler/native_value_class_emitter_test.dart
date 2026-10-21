@@ -12,7 +12,7 @@ import 'package:test/test.dart';
 final _packages = File('.dart_tool/package_config.json').absolute.path;
 const _source = '''
 import 'package:napi/napi.dart';
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 class Point {
   Point(this.x, {this.y = 2});
   final int x;
@@ -20,18 +20,18 @@ class Point {
   int get total => x + y;
 }
 @NAPI() class Ref { Ref(this.value); int value; }
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 class Node {
   Node(this.children, {this.next, this.ref});
   final List<Node> children;
   final Node? next;
   final Ref? ref;
 }
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 class Left { Left(this.right); final Right? right; }
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 class Right { Right(this.left); final Left? left; }
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'from', valueFields: {'source': 'value'})
+@NAPI(classPolicy: ClassPolicy.value, valueFields: {'source': 'value'})
 abstract class Normalized {
   factory Normalized.from(String source, {int code = 3}) => _Normalized(source, code: code);
   int get value;
@@ -190,7 +190,7 @@ void main() {
     await expectLater(
       read('''
 import 'package:napi/napi.dart';
-@NAPI(classPolicy: ClassPolicy.value) class Output { final int value = 1; }
+@NAPI(classPolicy: ClassPolicy.value) class Output { Output._(); final int value = 1; }
 @NAPI() List<Output> invalid(List<Output> values) => values;
 '''),
       throwsA(

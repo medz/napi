@@ -59,7 +59,7 @@ Future<void> main() async {
         ExternalFunction('compositeItems'),
         ExternalFunction('rightItems'),
         ExternalClass('StreamBox'),
-        ExternalClass('StreamPoint', config: NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')),
+        ExternalClass('StreamPoint', config: NAPI(classPolicy: ClassPolicy.value)),
         ExternalClass('IntFeed'),
         ExternalClass('OpaqueFeed'),
         ExternalClass('SnapshotFeed'),

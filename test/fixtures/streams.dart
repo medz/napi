@@ -79,7 +79,7 @@ class StreamBox {
   static Stream<String> label() => Stream.value('StreamBox');
 }
 
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 class StreamPoint {
   final int x;
   StreamPoint(this.x);

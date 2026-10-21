@@ -20,34 +20,22 @@ class Box<T> {
   Box<T>? next;
   Box(this.value, {this.next});
 }
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 typedef IntBox = Box<int>;
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 typedef TextBox = Box<String>;
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 typedef NullableBox = Box<int?>;
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 typedef NestedBox = Box<IntBox>;
 @NAPI() (IntBox, TextBox) pair((IntBox, TextBox) value) => value;
 @NAPI() NestedBox nested(NestedBox value) => value;
 ''';
 const _selections = ExternalLibrary([
-  ExternalClass(
-    'IntBox',
-    config: NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new'),
-  ),
-  ExternalClass(
-    'TextBox',
-    config: NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new'),
-  ),
-  ExternalClass(
-    'NullableBox',
-    config: NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new'),
-  ),
-  ExternalClass(
-    'NestedBox',
-    config: NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new'),
-  ),
+  ExternalClass('IntBox', config: NAPI(classPolicy: ClassPolicy.value)),
+  ExternalClass('TextBox', config: NAPI(classPolicy: ClassPolicy.value)),
+  ExternalClass('NullableBox', config: NAPI(classPolicy: ClassPolicy.value)),
+  ExternalClass('NestedBox', config: NAPI(classPolicy: ClassPolicy.value)),
   ExternalFunction('pair'),
   ExternalFunction('nested'),
 ]);
@@ -134,19 +122,17 @@ void main() {
   }
 
   test(
-    'later specialization cannot borrow an input constructor from its origin',
+    'each specialization automatically resolves the origin constructor',
     () async {
-      await input.writeAsString(
-        _source.replaceFirst(
-          "@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')\ntypedef TextBox",
-          '@NAPI(classPolicy: ClassPolicy.value)\ntypedef TextBox',
-        ),
-      );
+      await input.writeAsString(_source);
       final module = await read();
-      expect(() => validate(module), throwsA(diagnostic('NAPI_VALUE_INPUT')));
       expect(
-        () => validateNative(module),
-        throwsA(diagnostic('NAPI_VALUE_INPUT')),
+        validate(module).valueSchemas.every((s) => s.constructor != null),
+        isTrue,
+      );
+      expect(
+        validateNative(module).valueSchemas.every((s) => s.constructor != null),
+        isTrue,
       );
     },
   );
@@ -171,7 +157,6 @@ TextBox text(TextBox value) => value;
             'IntBox',
             config: NAPI(
               classPolicy: ClassPolicy.value,
-              valueConstructor: 'named',
               valueFields: {'source': 'value'},
             ),
             members: [
@@ -181,10 +166,7 @@ TextBox text(TextBox value) => value;
           ),
           ExternalClass(
             'TextBox',
-            config: NAPI(
-              classPolicy: ClassPolicy.value,
-              valueConstructor: 'other',
-            ),
+            config: NAPI(classPolicy: ClassPolicy.value),
             members: [
               ExternalMember.field('value', config: NAPI(name: 'text')),
               ExternalMember.constructor('named', config: NAPI(exclude: true)),
@@ -197,7 +179,7 @@ TextBox text(TextBox value) => value;
       ).read(input.uri);
       for (final schema in validateValueClasses(module)) {
         expect(
-          schema.inputFields.single.field.name,
+          schema.inputFields.single.name,
           schema.binding.exportName == 'IntBox' ? 'number' : 'text',
         );
       }
@@ -217,11 +199,11 @@ TextBox text(TextBox value) => value;
       await input.writeAsString('''
 import 'package:napi/napi.dart';
 class Box<T> { T value; Box(this.value); }
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new') typedef IntBox = Box<int>;
+@NAPI(classPolicy: ClassPolicy.value) typedef IntBox = Box<int>;
 @NAPI() typedef NullableBox = Box<int?>;
 @NAPI() (IntBox, NullableBox) pair((IntBox, NullableBox) value) => value;
 class Marker<T> { Marker(); }
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new') typedef VoidMarker = Marker<void>;
+@NAPI(classPolicy: ClassPolicy.value) typedef VoidMarker = Marker<void>;
 @NAPI() typedef ObjectMarker = Marker<Object?>;
 ''');
       final module = await read();
@@ -287,7 +269,7 @@ class Marker<T> { Marker(); }
 import 'package:napi/napi.dart';
 @NAPI() class Leaf { Leaf(); }
 class Box<T> { T value; Box(this.value); }
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 typedef LeafBox = Box<Leaf>;
 @NAPI() LeafBox echo<Leaf>(LeafBox value, Leaf payload) => value;
 ''');
@@ -310,7 +292,7 @@ import 'package:napi/napi.dart';
   @override int compareTo(Ranked other) => 0;
 }
 class Box<T extends Comparable<T>> { final T value; Box(this.value); }
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 typedef RankedValue = Box<Ranked>;
 @NAPI() RankedValue echo(RankedValue value) => value;
 ''');

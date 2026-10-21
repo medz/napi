@@ -952,7 +952,51 @@ async function pureCopied(api) {
   assert.equal(api.pureCopiedPayload(source), source); assert.notEqual(source[0], source[1]);
   assert.equal(source[1][0], payload); assert.equal(source[1][1], undefined); assert.equal(source[1][2], null);
 }
-const cases = {copiedResources, copiedPayloads, direct, scalars, maps, accessors, admission, captures, futures, streams, retained, opaque, opaqueAsync, opaqueRetained, nested, nestedHandles, references, resourceCollections, resourceCollectionStreams, binaryCollections, sharedByteCollections, structuralCollections};
+async function valueClasses(api) {
+  const item = {value: 3}, key = {value: 4}, mapped = {value: 5};
+  const values = [item, {value: 6, tag: null}, null], map = new Map([[key, mapped]]), outputs = [null];
+  const owner = new api.ValueCollectionOwner(values, map, outputs);
+  assert.equal(owner.values(), values);
+  assert.deepEqual(owner.read(0), {value: 3, tag: 7});
+  assert.deepEqual(owner.read(1), {value: 6, tag: null});
+  assert.equal(owner.read(2), null); assert.equal(owner.read(100), null);
+  owner.copy(3); assert.notEqual(values[3], item); assert.deepEqual(values[3], {value: 3, tag: 7});
+  assert.deepEqual(item, {value: 3});
+  assert(owner.copiedKey()); assert.equal(map.size, 2); assert.equal(map.get(key), mapped);
+  assert.notEqual([...map.keys()][1], key); assert.deepEqual([...map][1], [{value: 4, tag: 7}, {value: 5, tag: 7}]);
+  assert.deepEqual(owner.readList([[{value: 8}]]), [{value: 8, tag: 7}]);
+  assert.throws(() => owner.readList([[{value: 'bad'}]]), TypeError);
+  assert.throws(() => owner.readMap([new Map([[{value: 1}, 1], [{value: 1, tag: 2}, 2]])]), TypeError);
+  const parsed = [{source: '17'}]; assert.equal(owner.parsed(parsed), 17);
+  owner.writeParsed(parsed); assert.deepEqual(parsed[0], {value: 19, doubled: 38});
+  assert.throws(() => owner.parsed(parsed), TypeError);
+  assert.equal(owner.readOutput(0), null); assert.equal(owner.readOutput(99), null);
+  owner.writeOutput(1); assert.deepEqual(outputs[1], {value: 17});
+  assert.throws(() => owner.readOutput(1), /input constructor/);
+  const circular = [], node = {value: 9, children: circular}; circular.push(node);
+  assert.equal(owner.nodeChildren(circular), circular);
+  owner.copyNode(circular); assert.notEqual(circular[1], node);
+  assert.equal(circular[1].children, circular); assert.equal(circular[1].value, 9);
+  const before = api.collectionValueConstructions();
+  assert.throws(() => owner.envelope([{child: {value: 10}, tail: 'bad'}]), TypeError);
+  assert.equal(api.collectionValueConstructions(), before);
+  assert.equal(owner.envelope([{child: {value: 10}}]), 10);
+  assert.equal(api.collectionValueConstructions(), before + 1);
+  const escaped = [{value: 23}], failing = [{node: {value: 22, children: escaped}, fail: true}];
+  assert.throws(() => owner.escape(failing), /collection constructor failed/);
+  failing.length = 0; assert.equal(owner.escapedChild(), 23);
+  const cleanups = api.collectionValueCleanups(), resource = new api.CollectionResource(31);
+  owner.remember(resource);
+  let closed;
+  const target = [];
+  owner.writeResource(target, () => {
+    closed = resource.close();
+    assert.equal(api.collectionValueCleanups(), cleanups);
+  });
+  assert.equal(target[0].resource, resource); assert.equal(target[0].value, 31);
+  await closed; assert.equal(api.collectionValueCleanups(), cleanups + 1);
+}
+const cases = {valueClasses, copiedResources, copiedPayloads, direct, scalars, maps, accessors, admission, captures, futures, streams, retained, opaque, opaqueAsync, opaqueRetained, nested, nestedHandles, references, resourceCollections, resourceCollectionStreams, binaryCollections, sharedByteCollections, structuralCollections};
 async function worker(held) {
   const thread = new Worker(new URL(import.meta.url), {workerData: {held}});
   await new Promise((resolve, reject) => {

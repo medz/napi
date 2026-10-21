@@ -21,7 +21,7 @@ const _source = '''
 import 'package:napi/napi.dart';
 int constructions = 0;
 int reads = 0;
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 class Point {
   Point(this.x, {this.y = 7, this.child}) { constructions++; if (x == -1) throw StateError('domain'); }
   final int x;
@@ -30,7 +30,7 @@ class Point {
   int get sum { reads++; return x + y; }
   int ignored() => 42;
 }
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'parse', valueFields: {'source': 'value'})
+@NAPI(classPolicy: ClassPolicy.value, valueFields: {'source': 'value'})
 class Normalized {
   Normalized.parse(String source) : value = int.parse(source);
   @NAPI(name: 'answer') final int value;
@@ -39,7 +39,7 @@ class Normalized {
   int get x;
 }
 @NAPI() class Ref { Ref(this.value); int value; }
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 class Envelope { Envelope(this.point, this.ref); final Point point; final Ref ref; }
 @NAPI() Point echo(Point value) => value;
 @NAPI() List<Point> many(List<Point> value) => value;
@@ -65,6 +65,100 @@ void main() {
   Future<BindingModule> read() =>
       AnnotationFrontend(packagesPath: packages).read(input.uri);
   Future<ModulePlan> plan() async => lower(validate(await read()));
+
+  test(
+    'constructors and independent input properties follow Dart declarations',
+    () async {
+      await input.writeAsString('''
+import 'package:napi/napi.dart';
+@NAPI(classPolicy: ClassPolicy.value)
+class DefaultValue { final int value = 1; }
+@NAPI(classPolicy: ClassPolicy.value)
+class Preferred {
+  Preferred(this.value, {this.tag = 4});
+  Preferred.named(this.value) : tag = 8;
+  final int value;
+  final int tag;
+}
+@NAPI(classPolicy: ClassPolicy.value)
+class Parsed {
+  Parsed.parse(String source) : value = int.parse(source);
+  final int value;
+}
+@NAPI(classPolicy: ClassPolicy.value)
+abstract class FactoryValue {
+  factory FactoryValue.make(int source) = _FactoryValue;
+  int get value;
+}
+class _FactoryValue implements FactoryValue {
+  _FactoryValue(int source) : value = source;
+  final int value;
+}
+@NAPI(classPolicy: ClassPolicy.value)
+class Excluded {
+  @NAPI(exclude: true) Excluded(this.value);
+  Excluded.named(this.value);
+  final int value;
+}
+@NAPI(classPolicy: ClassPolicy.value)
+class Ambiguous {
+  Ambiguous.first(this.value);
+  Ambiguous.second(this.value);
+  final int value;
+}
+@NAPI(classPolicy: ClassPolicy.value)
+class PrivateValue { PrivateValue._(this.value); final int value; }
+@NAPI(classPolicy: ClassPolicy.value)
+class Independent {
+  Independent(this._value, int arguments) : second = arguments;
+  final int _value;
+  final int second;
+  int get value => _value;
+}
+@NAPI() Parsed parse(Parsed value) => value;
+''');
+      final module = await read();
+      for (final schemas in [
+        validate(module).valueSchemas,
+        validateNative(module).valueSchemas,
+      ]) {
+        final byName = {
+          for (final schema in schemas) schema.binding.exportName: schema,
+        };
+        expect(byName['DefaultValue']!.constructor!.declaration.name, 'new');
+        expect(byName['DefaultValue']!.inputFields, isEmpty);
+        expect(byName['Preferred']!.constructor!.declaration.name, 'new');
+        expect(byName['Preferred']!.inputFields.map((f) => f.name), [
+          'value',
+          'tag',
+        ]);
+        expect(
+          byName['Preferred']!.inputFields.last.parameter.defaultValue,
+          isNotNull,
+        );
+        expect(byName['Parsed']!.constructor!.declaration.name, 'parse');
+        expect(byName['Parsed']!.inputFields.single.name, 'source');
+        expect(byName['Parsed']!.inputFields.single.field, isNull);
+        expect(byName['FactoryValue']!.constructor!.declaration.name, 'make');
+        expect(byName['FactoryValue']!.inputFields.single.name, 'source');
+        expect(byName['Excluded']!.constructor!.declaration.name, 'named');
+        expect(byName['Ambiguous']!.constructor, isNull);
+        expect(byName['PrivateValue']!.constructor, isNull);
+        expect(byName['Independent']!.inputFields.map((f) => f.name), [
+          '_value',
+          'arguments',
+        ]);
+      }
+      final wasm = lower(validate(module));
+      final constructor =
+          (wasm.functions.single.inputs.single as ValueClassConversion)
+              .fields
+              .single;
+      expect(constructor.name, 'source');
+      expect(constructor.binding, isNull);
+      expect(emitDeclarations(wasm), contains('"source": string'));
+    },
+  );
 
   test('finite recursive schemas, strict mappings, direction and reference-only numbering', () async {
     final module = await read();
@@ -118,16 +212,12 @@ void main() {
           const ExternalLibrary([
             ExternalClass(
               'Point',
-              config: NAPI(
-                classPolicy: ClassPolicy.value,
-                valueConstructor: 'new',
-              ),
+              config: NAPI(classPolicy: ClassPolicy.value),
             ),
             ExternalClass(
               'Normalized',
               config: NAPI(
                 classPolicy: ClassPolicy.value,
-                valueConstructor: 'parse',
                 valueFields: {'source': 'value'},
               ),
               members: [
@@ -141,10 +231,7 @@ void main() {
             ExternalClass('Ref'),
             ExternalClass(
               'Envelope',
-              config: NAPI(
-                classPolicy: ClassPolicy.value,
-                valueConstructor: 'new',
-              ),
+              config: NAPI(classPolicy: ClassPolicy.value),
             ),
             ExternalFunction('echo'),
             ExternalFunction('many'),
@@ -177,8 +264,8 @@ void main() {
       ]) {
         await input.writeAsString('''
 import 'package:napi/napi.dart';
-@NAPI(classPolicy: ClassPolicy.value) class Projection { final int x = 1; }
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new') class Envelope { Envelope(this.value); final Projection value; }
+@NAPI(classPolicy: ClassPolicy.value) class Projection { Projection._(); final int x = 1; }
+@NAPI(classPolicy: ClassPolicy.value) class Envelope { Envelope(this.value); final Projection value; }
 @NAPI() int bad($type value) => 1;
 ''');
         await expectLater(
@@ -201,7 +288,7 @@ import 'package:napi/napi.dart';
       for (final getter in [false, true]) {
         await input.writeAsString('''
 import 'package:napi/napi.dart';
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 class Value {
   Value(int source) : _source = source;
   int _source;
@@ -213,10 +300,7 @@ class Value {
         final selection = ExternalLibrary([
           ExternalClass(
             'Value',
-            config: const NAPI(
-              classPolicy: ClassPolicy.value,
-              valueConstructor: 'new',
-            ),
+            config: const NAPI(classPolicy: ClassPolicy.value),
             members: [
               if (getter)
                 const ExternalMember.getter(
@@ -242,7 +326,7 @@ class Value {
           final wasm = lower(validate(bindings));
           final schema = wasm.valueSchemas.single;
           expect(schema.outputFields.map((f) => f.name), ['compute']);
-          expect(schema.inputFields.map((f) => f.field.name), ['compute']);
+          expect(schema.inputFields.map((f) => f.name), ['compute']);
           expect(
             validateNative(bindings)
                 .valueSchemas
@@ -261,7 +345,7 @@ class Value {
     for (final valuePolicy in [true, false]) {
       await input.writeAsString('''
 import 'package:napi/napi.dart';
-@NAPI(${valuePolicy ? "classPolicy: ClassPolicy.value, valueConstructor: 'new'" : ''})
+@NAPI(${valuePolicy ? "classPolicy: ClassPolicy.value" : ''})
 class Value {
   Value(this.source);
   @NAPI(name: 'compute') final int source;
@@ -273,10 +357,7 @@ class Value {
         ExternalClass(
           'Value',
           config: valuePolicy
-              ? const NAPI(
-                  classPolicy: ClassPolicy.value,
-                  valueConstructor: 'new',
-                )
+              ? const NAPI(classPolicy: ClassPolicy.value)
               : const NAPI(),
           members: [
             const ExternalMember.field('source', config: NAPI(name: 'compute')),
@@ -331,13 +412,10 @@ class Value {
 
   test('invalid configuration diagnoses source instead of silently dropping selections', () async {
     for (final body in [
-      "@NAPI(classPolicy: ClassPolicy.value, valueConstructor: '_hidden') class Bad { Bad._hidden(this.x); int x; }",
-      "@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new') class Bad { Bad(int x); int y = 0; }",
-      "@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new', valueFields: {'unknown': 'x'}) class Bad { Bad(this.x); int x; }",
+      "@NAPI(classPolicy: ClassPolicy.value, valueFields: {'unknown': 'x'}) class Bad { Bad(this.x); int x; }",
       "@NAPI(classPolicy: ClassPolicy.value) class Bad { @NAPI() int method() => 1; }",
       "@NAPI(classPolicy: ClassPolicy.value) class Bad { @NAPI() static int x = 0; }",
-      "@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new') class Bad { Bad(this.x); @NAPI(exclude: true) int x; }",
-      "@NAPI(valueConstructor: 'new') class Bad { Bad(); }",
+      "@NAPI(classPolicy: ClassPolicy.value, valueFields: {'x': 'x'}) class Bad { Bad._hidden(this.x); int x; }",
     ]) {
       await input.writeAsString("import 'package:napi/napi.dart'; $body");
       await expectLater(

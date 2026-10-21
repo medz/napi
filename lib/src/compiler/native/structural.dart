@@ -32,12 +32,16 @@ String nativeJsCollectionRead(
 }) {
   final hasResources = structures.hasResources;
   final method = conversion.isMap ? 'jsMap' : 'jsArray';
-  final elements = [?conversion.key, conversion.value];
+  final elements = [
+    if (conversion.key case final key?) (key, conversion.inputKey!),
+    (conversion.value, conversion.inputValue),
+  ];
   final policies = elements
-      .map((c) {
+      .map((element) {
+        final (c, input) = element;
         if (c is JsCollectionConversion) {
           return 'NativeJsElement<${c.dartType}>(\'handle\', nullable: ${c.nullable}, '
-              'readHandle: (api, env, value, path) => ${nativeJsCollectionRead(c, 'env', 'value', 'path', structures: structures, api: 'api')}, '
+              'readHandle: (api, env, value, path) => ${nativeJsCollectionRead(input as JsCollectionConversion, 'env', 'value', 'path', structures: structures, api: 'api')}, '
               'writeHandle: (api, env, value, path) => api.jsCollectionResult(env, value${c.nullable ? '!' : ''}, ${_quote(c.signatureKey)}, path))';
         }
         if (c is ReferenceConversion) {
@@ -65,10 +69,11 @@ String nativeJsCollectionRead(
         if (c is ListConversion ||
             c is MapConversion ||
             c is DictionaryConversion ||
-            c is RecordConversion) {
-          final read = structures.read(c, forceNormalize: true);
+            c is RecordConversion ||
+            c is ValueClassConversion) {
+          final read = structures.read(input, forceNormalize: true);
           final write = structures.write(c, retainResources: true);
-          final tracksOpaque = conversionGraph([c])
+          final tracksOpaque = conversionGraph([input])
               .any((leaf) => leaf is OpaqueConversion);
           final hasReferences = conversionGraph([c])
               .any((leaf) => leaf is ReferenceConversion);
@@ -141,10 +146,13 @@ final class NativeStructuralEmitter {
     final normalize = _normalize(conversion);
     final materialize = _materialize(conversion);
     final name = '_readNativeValueRoot${_next++}';
+    final transfersOwned =
+        containsValueClass(conversion) &&
+        conversionGraph([conversion]).any((value) => value is OpaqueConversion);
     _code.writeln(
       '''${conversion.dartType} $name(Pointer<Void> env, Pointer<Void> value, _NativeReadState state, String path, int depth) {
   final normalized = $normalize(env, value, state, path, depth);
-  return $materialize(normalized, path);
+${transfersOwned ? '  state.owned?.clear();\n' : ''}  return $materialize(normalized, path);
 }''',
     );
     return name;
@@ -484,19 +492,33 @@ final class NativeStructuralEmitter {
       case ValueClassConversion():
         _code.writeln('''  state.enter(value, path, depth);
   try {''');
-        for (final (index, field) in conversion.fields.indexed) {
-          final member =
-              field.binding.callPath ?? field.binding.declaration.name;
-          _code.writeln('    final raw$index = value.$member;');
-        }
-        _code.writeln('    return <Object?>[');
-        for (final (index, field) in conversion.fields.indexed) {
+        if (retainResources) {
           _code.writeln(
-            '      ${functions[index]}(raw$index, state, path + ${_quote('.${field.name}')}, depth + 1),',
+            '    final result = List<Object?>.filled(${conversion.fields.length}, null);',
           );
+          for (final (index, field) in conversion.fields.indexed) {
+            final binding = field.binding!;
+            final member = binding.callPath ?? binding.declaration.name;
+            _code.writeln(
+              '    result[$index] = ${functions[index]}(value.$member, state, path + ${_quote('.${field.name}')}, depth + 1);',
+            );
+          }
+          _code.writeln('    return result;');
+        } else {
+          for (final (index, field) in conversion.fields.indexed) {
+            final binding = field.binding!;
+            final member = binding.callPath ?? binding.declaration.name;
+            _code.writeln('    final raw$index = value.$member;');
+          }
+          _code.writeln('    return <Object?>[');
+          for (final (index, field) in conversion.fields.indexed) {
+            _code.writeln(
+              '      ${functions[index]}(raw$index, state, path + ${_quote('.${field.name}')}, depth + 1),',
+            );
+          }
+          _code.writeln('    ];');
         }
-        _code.writeln('''    ];
-  } finally { state.leave(value); }''');
+        _code.writeln('  } finally { state.leave(value); }');
       case RecordConversion():
         _code.writeln('''  state.enter(value, path, depth);
   try {
@@ -738,6 +760,12 @@ final class NativeStructuralEmitter {
           '    return result;\n  } finally { state.active.removeLast(); }',
         );
       case ValueClassConversion():
+        if (conversion.constructor == null) {
+          _code.writeln(
+            "  throw NapiTypeError('\$path: value class has no input constructor');",
+          );
+          break;
+        }
         final fields = conversion.fields;
         _code.writeln(
           '  _api.inspectShape(env, value, false, const [${fields.map((f) => _quote(f.name)).join(', ')}], path, 10000 - state.work, depth, state.contains(env, value));',
@@ -853,6 +881,12 @@ final class NativeStructuralEmitter {
             : '';
         _code.writeln('  return (${entries.join(', ')}$trailing);');
       case ValueClassConversion():
+        if (conversion.constructor == null) {
+          _code.writeln(
+            "  throw NapiTypeError('\$path: value class has no input constructor');",
+          );
+          break;
+        }
         for (final (index, field) in conversion.fields.indexed) {
           final materialized =
               '${functions[index]}(items[${2 * index + 1}], path + ${_quote('.${field.name}')} )';

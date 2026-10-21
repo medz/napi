@@ -99,7 +99,7 @@ typedef Buffer = data.ByteBuffer;
 @NAPI() Map<data.Uint8List, data.ByteBuffer?> maps(Map<data.Uint8List, data.ByteBuffer?> value) => value;
 @NAPI() Dictionary<data.ByteBuffer> dictionaries(Dictionary<data.ByteBuffer> value) => value;
 @NAPI() (data.Uint8List, {data.ByteBuffer? buffer}) records((data.Uint8List, {data.ByteBuffer? buffer}) value) => value;
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 class Packet {
   final data.Uint8List bytes;
   final data.ByteBuffer? buffer;

@@ -59,7 +59,7 @@ class Token {
           final point = source('point.dart', '''
 import 'package:napi/napi.dart';
 import 'token.dart';
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 class Point {
   final int x;
   final String label;
@@ -87,10 +87,7 @@ export 'origin.dart' show run;
                 ? const ExternalLibrary([
                     ExternalClass(
                       'Point',
-                      config: NAPI(
-                        classPolicy: ClassPolicy.value,
-                        valueConstructor: 'new',
-                      ),
+                      config: NAPI(classPolicy: ClassPolicy.value),
                       members: [
                         ExternalMember.constructor(
                           'tagged',
@@ -341,7 +338,7 @@ $declaration
   for (final (name, declaration) in [
     (
       'value constructors',
-      '''@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+      '''@NAPI(classPolicy: ClassPolicy.value)
 class Holder {
   final Point point;
   const Holder({this.point = const Point()});

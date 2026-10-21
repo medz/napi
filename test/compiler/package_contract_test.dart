@@ -161,9 +161,9 @@ void main() {
           'class Box { Box(); Future<void> close() async {} Future<void> stop() async {} }',
     ),
     'value constructor default': (
-      '@NAPI(classPolicy: ClassPolicy.value, valueConstructor: "new") class Value { final int n; Value({this.n = 1}); } '
+      '@NAPI(classPolicy: ClassPolicy.value) class Value { final int n; Value({this.n = 1}); } '
           '@NAPI() int run(Value value) => value.n;',
-      '@NAPI(classPolicy: ClassPolicy.value, valueConstructor: "new") class Value { final int n; Value({this.n = 2}); } '
+      '@NAPI(classPolicy: ClassPolicy.value) class Value { final int n; Value({this.n = 2}); } '
           '@NAPI() int run(Value value) => value.n;',
     ),
     'exported value scalar policy without a call': (
@@ -197,7 +197,7 @@ void main() {
 
   test('recursive value conversions compare finitely', () async {
     const source =
-        '@NAPI(classPolicy: ClassPolicy.value, valueConstructor: "new") '
+        '@NAPI(classPolicy: ClassPolicy.value) '
         'class Node { final int value; final Node? next; Node(this.value, [this.next]); } '
         '@NAPI() Node run(Node node) => node;';
     expect(await compare(source, source), contains('export type Node'));

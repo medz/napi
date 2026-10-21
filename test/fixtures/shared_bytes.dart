@@ -91,7 +91,7 @@ Dictionary<Bytes> dictionary(Dictionary<Bytes> value) => value;
 @NAPI()
 (Bytes, {Bytes? other}) record((Bytes, {Bytes? other}) value) => value;
 
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 class SharedPacket {
   final Bytes bytes;
   SharedPacket(this.bytes) {

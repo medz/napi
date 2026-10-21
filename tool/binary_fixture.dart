@@ -68,7 +68,7 @@ Future<void> main() async {
           ExternalMember.getter('hashCode', config: NAPI(exclude: true)),
         ]),
         ExternalClass('BinaryBox'),
-        ExternalClass('Packet', config: NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')),
+        ExternalClass('Packet', config: NAPI(classPolicy: ClassPolicy.value)),
         ExternalClass('BinaryOwner', config: NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')),
       ]) : null,
       ${native ? 'target: BuildTarget.native,\n      nativeRuntime: Directory(${jsonEncode(nativeRuntime.absolute.path)}),' : ''}

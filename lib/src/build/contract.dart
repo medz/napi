@@ -152,7 +152,7 @@ Map<String, Object?> _contract(
       'value ${schema.binding.exportName}': [
         schema.constructor != null,
         for (final field in schema.inputFields)
-          [field.field.name, _parameter(field.parameter)],
+          [field.name, _parameter(field.parameter)],
         _Values().encodeAll([
           for (final direction in [
             ValueDirection.output,
@@ -244,6 +244,8 @@ final class _Values {
           value.isMap,
           encode(value.key),
           encode(value.value),
+          encode(value.inputKey),
+          encode(value.inputValue),
         ],
         AbortSignalConversion() => ['abortSignal'],
         OpaqueConversion() => ['opaque', value.parameter.name],
@@ -267,6 +269,7 @@ final class _Values {
           'value',
           value.classBinding.exportName,
           value.direction.name,
+          value.constructor != null,
           for (final field in value.fields)
             [
               field.name,

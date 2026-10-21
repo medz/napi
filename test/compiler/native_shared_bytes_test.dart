@@ -39,7 +39,7 @@ List<int> pressure = [];
 @NAPI() int drop() { saved = null; return 0; }
 @NAPI() bool alive() => weak?.target != null;
 @NAPI() int gc(int seed) { pressure = List.generate(500000, (i) => i + seed); return pressure.last; }
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 class Payload { Payload(this.bytes); final Bytes bytes; }
 @NAPI() Payload payload(Payload value) => value;
 @NAPI() class Holder { Holder(this.bytes); Bytes bytes; }

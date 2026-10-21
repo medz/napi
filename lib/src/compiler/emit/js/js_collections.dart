@@ -18,7 +18,8 @@ bool _copiedStructure(ValueConversion c) =>
     c is ListConversion ||
     c is MapConversion ||
     c is DictionaryConversion ||
-    c is RecordConversion;
+    c is RecordConversion ||
+    c is ValueClassConversion;
 
 String jsCollectionPolicies(Iterable<JsCollectionConversion> conversions) {
   Map<String, Object?> element(ValueConversion c) => switch (c) {
@@ -52,7 +53,8 @@ String jsCollectionPolicies(Iterable<JsCollectionConversion> conversions) {
     ListConversion() ||
     MapConversion() ||
     DictionaryConversion() ||
-    RecordConversion() => {
+    RecordConversion() ||
+    ValueClassConversion() => {
       'opaque': false,
       'structure': true,
       'nullable': c.nullable,
@@ -79,20 +81,31 @@ String jsCollectionStructurePolicies(
   final source = StringBuffer();
   var next = 0;
   for (final c in _collectionPolicies(conversions)) {
-    for (final (field, child) in [('key', c.key), ('value', c.value)]) {
+    for (final (field, child, input) in [
+      ('key', c.key, c.inputKey),
+      ('value', c.value, c.inputValue),
+    ]) {
       if (child == null || !_copiedStructure(child)) continue;
-      final structure = emitStructuralBoundary(
-        child,
+      final reader = emitStructuralBoundary(
+        input!,
         prefix: '\$jcStructure${next++}',
         leafAdapter: BoundaryLeafAdapter(
           bigintText: true,
           resources: resources,
         ),
+        generateWrite: false,
       );
-      source.writeln(structure.source);
+      final writer = emitStructuralBoundary(
+        child,
+        prefix: '\$jcStructure${next++}',
+        leafAdapter: BoundaryLeafAdapter(resources: resources),
+        generateRead: false,
+      );
+      source.writeln(reader.source);
+      source.writeln(writer.source);
       final policy = '\$jcPolicies[${jsonEncode(c.signatureKey)}].$field';
-      source.writeln('$policy.read = ${structure.read};');
-      source.writeln('$policy.write = ${structure.write};');
+      source.writeln('$policy.read = ${reader.read};');
+      source.writeln('$policy.write = ${writer.write};');
     }
   }
   return source.toString();

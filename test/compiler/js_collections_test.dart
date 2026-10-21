@@ -29,6 +29,134 @@ $source
     return AnnotationFrontend(packagesPath: packages).read(file.uri);
   }
 
+  test('value element policies carry finite input and output graphs', () async {
+    final module = await read('''
+@NAPI(classPolicy: ClassPolicy.value)
+class Node { Node(this.id, {this.children}); final int id; final JsArray<Node>? children; }
+@NAPI(classPolicy: ClassPolicy.value)
+class Parsed { Parsed.parse(String source) : value = int.parse(source); final int value; }
+@NAPI(classPolicy: ClassPolicy.value)
+class Only { Only._(this.value); final int value; }
+@NAPI() JsArray<Node> nodes(JsArray<Node> source) => source;
+@NAPI() JsArray<List<Parsed>> values(JsArray<List<Parsed>> source) => source;
+@NAPI() JsMap<Parsed, Only?> keys(JsMap<Parsed, Only?> source) => source;
+@NAPI(bigint: true) JsArray<Node> wide(JsArray<Node> source) => source;
+''');
+    final wasm = lower(validate(module));
+    final native = validateNative(module);
+    for (final roots in [
+      wasm.functions.map((f) => f.inputs.single),
+      native.functions.map((f) => f.inputs.single),
+    ]) {
+      final node = roots.first as JsCollectionConversion;
+      final output = node.value as ValueClassConversion;
+      final input = node.inputValue as ValueClassConversion;
+      expect(output.direction, ValueDirection.output);
+      expect(input.direction, ValueDirection.input);
+      expect(input.schemaId, output.schemaId);
+      final inner = output.fields.last.conversion as JsCollectionConversion;
+      expect(inner.value, same(output));
+      expect(inner.inputValue, same(input));
+      expect(node.signatureKey, contains('value'));
+      expect(node.signatureKey.length, lessThan(100));
+      expect(
+        node.signatureKey,
+        isNot((roots.last as JsCollectionConversion).signatureKey),
+      );
+      expect(conversionGraph([node]), hasLength(1));
+      expect(
+        conversionDependencies([node]).whereType<ValueClassConversion>(),
+        hasLength(2),
+      );
+      final map = roots.elementAt(2) as JsCollectionConversion;
+      expect(map.inputValue.typescriptType, 'null');
+      expect(
+        (map.inputKey as ValueClassConversion).fields.single.name,
+        'source',
+      );
+      expect((map.key as ValueClassConversion).fields.single.name, 'value');
+    }
+    final types = emitDeclarations(wasm);
+    expect(types, emitNativeDeclarations(native));
+    expect(types, contains('"source": string'));
+    expect(types, contains('"value": number'));
+    expect(types, contains(' | '));
+  });
+
+  test('lazy output-only nodes do not grant ordinary value inputs', () async {
+    for (final type in [
+      '(JsArray<Only>, Only)',
+      'List<Only>',
+      '(JsArray<Only>, List<Only>)',
+    ]) {
+      final module = await read('''
+@NAPI(classPolicy: ClassPolicy.value) class Only { Only._(); int get value => 1; }
+@NAPI() void bad($type value) {}
+''');
+      for (final check in [validate, validateNative]) {
+        expect(() => check(module), throwsA(isA<BindingDiagnostic>()));
+      }
+    }
+  });
+
+  test(
+    'value handles build with recursive, asymmetric and output-only elements',
+    () async {
+      final input = await File('${directory.path}/values.dart')
+          .writeAsString('''
+import 'package:napi/napi.dart';
+@NAPI(classPolicy: ClassPolicy.value)
+class Node { Node(this.id, {this.children}); final int id; final JsArray<Node>? children; }
+@NAPI(classPolicy: ClassPolicy.value)
+class Parsed { Parsed.parse(String source) : value = int.parse(source); final int value; }
+@NAPI(classPolicy: ClassPolicy.value)
+class Only { Only._(this.value); final int value; }
+class Box<T> { Box(this.value); final T value; }
+@NAPI(classPolicy: ClassPolicy.value) typedef IntBox = Box<int>;
+@NAPI(classPolicy: ClassPolicy.value) class Seed { const Seed(this.n); final int n; }
+@NAPI(classPolicy: ClassPolicy.value) class Defaulted { Defaulted({this.seed = const Seed(3)}); final Seed seed; }
+@NAPI() JsArray<IntBox> boxes(JsArray<IntBox> source) { source.set(1, source.get(0)!); return source; }
+@NAPI() JsArray<Defaulted> defaults(JsArray<Defaulted> source) { source.set(1, source.get(0)!); return source; }
+@NAPI() JsArray<Node> nodes(JsArray<Node> source) { source.set(1, source.get(0)!); return source; }
+@NAPI() int deep(JsArray<Node> source) => source.get(0)!.children!.get(0)!.id;
+@NAPI() JsArray<Parsed> parsed(JsArray<Parsed> source) { source.set(1, source.get(0)!); return source; }
+@NAPI() int readParsed(JsArray<Parsed> source) => source.get(1)!.value;
+@NAPI() JsArray<Only?> writeOnly(JsArray<Only?> source) { source.set(0, Only._(9)); return source; }
+@NAPI() int readOnly(JsArray<Only?> source) => source.get(0)?.value ?? -1;
+@NAPI() JsArray<(Node, JsArray<T>)> pair<T>(JsArray<(Node, JsArray<T>)> source) { source.set(1, source.get(0)!); return source; }
+''');
+      await buildLibrary(
+        library: input.uri,
+        output: Directory('${directory.path}/values'),
+        packagesPath: packages,
+      );
+      await File('${directory.path}/values.mjs').writeAsString('''
+import assert from 'node:assert/strict';
+import * as api from './values/module.wasm';
+const child = [{id: 7}], source = [{id: 1, children: child}];
+assert.equal(api.nodes(source), source); assert.notEqual(source[1], source[0]);
+assert.equal(source[1].children, child); assert.equal(api.deep(source), 7);
+assert.throws(() => api.nodes([{id: 'bad'}]), TypeError);
+const parsed = [{source: '19'}]; assert.equal(api.parsed(parsed), parsed);
+assert.deepEqual(parsed[1], {value: 19}); assert.throws(() => api.readParsed(parsed), TypeError);
+const only = []; assert.equal(api.writeOnly(only), only); assert.deepEqual(only[0], {value: 9});
+assert.throws(() => api.readOnly(only), TypeError);
+assert.equal(api.readOnly([]), -1); assert.equal(api.readOnly([null]), -1);
+const boxes = [{value: 5}]; assert.equal(api.boxes(boxes), boxes); assert.deepEqual(boxes[1], {value: 5});
+assert.notEqual(boxes[1], boxes[0]); assert.throws(() => api.boxes([{value: 'bad'}]), TypeError);
+const defaults = [{}]; assert.equal(api.defaults(defaults), defaults); assert.deepEqual(defaults[1], {seed: {n: 3}});
+const opaque = [undefined, null, Symbol('value')], pair = [{\$1: {id: 2}, \$2: opaque}];
+assert.equal(api.pair(pair), pair); assert.notEqual(pair[1], pair[0]);
+assert.equal(pair[1].\$1.id, 2); assert.equal(pair[1].\$2, opaque);
+''');
+      final result = await Process.run('node', [
+        'values.mjs',
+      ], workingDirectory: directory.path);
+      expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
+    },
+    timeout: const Timeout(Duration(minutes: 2)),
+  );
+
   test('canonical handles retain scalar policy and native TS shape', () async {
     final module = await read('''
 typedef Numbers = JsArray<int>;
@@ -74,7 +202,7 @@ typedef Numbers = JsArray<int>;
 @NAPI() Map<String, JsMap<String, int?>> maps(Map<String, JsMap<String, int?>> value) => value;
 @NAPI() Dictionary<JsArray<int>?> dictionary(Dictionary<JsArray<int>?> value) => value;
 @NAPI() (JsArray<T>, JsMap<String, T?>) record<T>((JsArray<T>, JsMap<String, T?>) value) => value;
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 class Packet { Packet(this.items); final JsArray<int> items; }
 @NAPI() Packet packet(Packet value) => value;
 ''');
@@ -821,12 +949,11 @@ for (const value of [null, undefined, object]) {
     '@NAPI() class Ref { Ref(); } @NAPI() void bad(List<Ref> Function() callback) {}',
     '@NAPI() JsArray<Set<int>> bad(JsArray<Set<int>> value) => value;',
     "import 'dart:typed_data'; @NAPI() JsArray<List<Uint16List>> bad(JsArray<List<Uint16List>> value) => value;",
-    '@NAPI(classPolicy: ClassPolicy.value, valueConstructor: "new") class Value { Value(this.n); final int n; } @NAPI() JsArray<List<Value>> bad(JsArray<List<Value>> value) => value;',
-    '@NAPI(classPolicy: ClassPolicy.value) class Value { int n = 1; } @NAPI() JsArray<Value> bad(JsArray<Value> value) => value;',
+    '@NAPI(classPolicy: ClassPolicy.value) class Value<T> { Value(this.n); final T n; } @NAPI() JsArray<Value<int>> bad(JsArray<Value<int>> value) => value;',
     '@NAPI() JsArray<Future<T>> bad<T>(JsArray<Future<T>> value) => value;',
     '@NAPI() JsArray<Stream<T>> bad<T>(JsArray<Stream<T>> value) => value;',
-    '@NAPI(classPolicy: ClassPolicy.value, valueConstructor: "new") class Packet { Packet(this.items); final JsArray<int> items; } @NAPI() Map<Packet,int> bad(Map<Packet,int> value) => value;',
-    '@NAPI(classPolicy: ClassPolicy.value, valueConstructor: "new") class Packet { Packet(this.items); final JsArray<int> items; } @NAPI() (Packet, Map<Packet,int>) bad((Packet, Map<Packet,int>) value) => value;',
+    '@NAPI(classPolicy: ClassPolicy.value) class Packet { Packet(this.items); final JsArray<int> items; } @NAPI() Map<Packet,int> bad(Map<Packet,int> value) => value;',
+    '@NAPI(classPolicy: ClassPolicy.value) class Packet { Packet(this.items); final JsArray<int> items; } @NAPI() (Packet, Map<Packet,int>) bad((Packet, Map<Packet,int>) value) => value;',
   ]) {
     test('unsupported payload is diagnostic: $source', () async {
       final module = await read(source);

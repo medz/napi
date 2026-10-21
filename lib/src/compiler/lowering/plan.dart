@@ -75,37 +75,28 @@ final class JsCollectionConversion extends ValueConversion {
   final bool isMap;
   final ValueConversion? key;
   final ValueConversion value;
-  JsCollectionConversion(
+  final ValueConversion? inputKey;
+  final ValueConversion inputValue;
+  JsCollectionConversion._(
     DeclaredType super.type,
     super.context, {
-    required bool bigint,
-    required Set<DeclarationId> opaqueParameters,
-    List<ClassBinding> classes = const [],
-  }) : isMap = type.declaration == jsMapDeclaration,
-       key = type.declaration == jsMapDeclaration
-           ? conversionFor(
-               type.typeArguments.first,
-               'JsMap key',
-               bigint: bigint,
-               classes: classes,
-               direction: ValueDirection.output,
-               opaqueParameters: opaqueParameters,
-             )
-           : null,
-       value = conversionFor(
-         type.typeArguments.last,
-         type.declaration == jsMapDeclaration ? 'JsMap value' : 'JsArray value',
-         bigint: bigint,
-         classes: classes,
-         direction: ValueDirection.output,
-         opaqueParameters: opaqueParameters,
-       );
+    required this.key,
+    required this.value,
+    required this.inputKey,
+    required this.inputValue,
+  }) : isMap = type.declaration == jsMapDeclaration;
   static Object _signature(ValueConversion value) => switch (value) {
     ScalarConversion() => [value.kind.name, value.bigint, value.nullable],
     OpaqueConversion() => ['opaque', value.nullable],
     ReferenceConversion() => ['reference', value.classId, value.nullable],
     BinaryConversion() => ['binary', value.kind.name, value.nullable],
     SharedBytesConversion() => ['sharedBytes', value.nullable],
+    ValueClassConversion() => [
+      'value',
+      value.schemaId,
+      value.bigint,
+      value.nullable,
+    ],
     ListConversion() => ['list', value.nullable, _signature(value.element)],
     MapConversion() => [
       'map',
@@ -143,9 +134,20 @@ final class JsCollectionConversion extends ValueConversion {
       'napi.${isMap ? 'JsMap<${key!.dartType}, ${value.dartType}>' : 'JsArray<${value.dartType}>'}${nullable ? '?' : ''}';
   @override
   String get jsType => 'object';
+  static String _storedType(ValueConversion input, ValueConversion output) {
+    if (!containsValueClass(input) && !containsValueClass(output)) {
+      return output.typescriptType;
+    }
+    final read = input.typescriptType;
+    final write = output.typescriptType;
+    return read == write || read == 'never' || read == 'null' && output.nullable
+        ? write
+        : '$read | $write';
+  }
+
   @override
   String get typescriptType =>
-      'globalThis.${isMap ? 'Map<${key!.typescriptType}, ${value.typescriptType}>' : 'Array<${value.typescriptType}>'}${nullable ? ' | null' : ''}';
+      'globalThis.${isMap ? 'Map<${_storedType(inputKey!, key!)}, ${_storedType(inputValue, value)}>' : 'Array<${_storedType(inputValue, value)}>'}${nullable ? ' | null' : ''}';
 }
 
 /// Lazy references may expose a resource through an ordinary selected view.
@@ -445,7 +447,7 @@ final class MapConversion extends ValueConversion {
 }
 
 final class ValueClassField {
-  final MemberBinding binding;
+  final MemberBinding? binding;
   final String name;
   final ParameterBinding? parameter;
   final ValueConversion conversion;
@@ -455,11 +457,14 @@ final class ValueClassField {
     this.conversion, {
     this.parameter,
   });
+  String? get documentation =>
+      binding?.documentation ?? parameter?.documentation;
   bool get optional => parameter?.presence == ParameterPresence.optional;
 }
 
 final class ValueClassConversion extends ValueConversion {
   final ValueClassSchema schema;
+  final int schemaId;
   final ValueDirection direction;
   final bool bigint;
   late final List<ValueClassField> fields;
@@ -468,6 +473,7 @@ final class ValueClassConversion extends ValueConversion {
     DeclaredType super.type,
     super.context,
     this.schema,
+    this.schemaId,
     this.direction,
     this.bigint,
     this.typescriptName,
@@ -480,7 +486,12 @@ final class ValueClassConversion extends ValueConversion {
   @override
   String get jsType => 'object';
   @override
-  String get typescriptType => '$typescriptName${nullable ? ' | null' : ''}';
+  String get typescriptType =>
+      direction == ValueDirection.input && constructor == null
+      ? nullable
+            ? 'null'
+            : 'never'
+      : '$typescriptName${nullable ? ' | null' : ''}';
 }
 
 Iterable<ValueConversion> conversionGraph(
@@ -523,7 +534,14 @@ Iterable<ValueConversion> conversionDependencies(
     if (!seen.add(node)) continue;
     yield node;
     if (node is JsCollectionConversion) {
-      pending.addAll(conversionGraph([?node.key, node.value]));
+      pending.addAll(
+        conversionGraph([
+          ?node.key,
+          node.value,
+          ?node.inputKey,
+          node.inputValue,
+        ]),
+      );
     }
   }
 }
@@ -656,7 +674,8 @@ final class _ConversionBuilder {
   final bool bigint;
   final ValueDirection direction;
   final Set<DeclarationId> opaqueParameters;
-  final _nodes = <(ClassBinding, TypeNullability), ValueClassConversion>{};
+  final _nodes =
+      <(ClassBinding, TypeNullability, ValueDirection), ValueClassConversion>{};
   _ConversionBuilder(
     this.classes,
     this.values,
@@ -668,14 +687,48 @@ final class _ConversionBuilder {
       opaqueParameters.any((p) => p.name == name) ||
       classes.any((binding) => binding.exportName == name);
 
-  ValueConversion convert(BindingType type, String context) {
+  ValueConversion convert(
+    BindingType type,
+    String context, {
+    ValueDirection? valueDirection,
+    bool lazy = false,
+  }) {
+    final direction = valueDirection ?? this.direction;
     if (isJsCollectionType(type)) {
-      return JsCollectionConversion(
-        type as DeclaredType,
+      final declared = type as DeclaredType;
+      final map = declared.declaration == jsMapDeclaration;
+      ValueConversion element(
+        BindingType type,
+        String path,
+        ValueDirection direction,
+      ) => convert(type, path, valueDirection: direction, lazy: true);
+      return JsCollectionConversion._(
+        declared,
         context,
-        bigint: bigint,
-        classes: classes,
-        opaqueParameters: opaqueParameters,
+        key: map
+            ? element(
+                declared.typeArguments.first,
+                'JsMap key',
+                ValueDirection.output,
+              )
+            : null,
+        value: element(
+          declared.typeArguments.last,
+          map ? 'JsMap value' : 'JsArray value',
+          ValueDirection.output,
+        ),
+        inputKey: map
+            ? element(
+                declared.typeArguments.first,
+                'JsMap key',
+                ValueDirection.input,
+              )
+            : null,
+        inputValue: element(
+          declared.typeArguments.last,
+          map ? 'JsMap value' : 'JsArray value',
+          ValueDirection.input,
+        ),
       );
     }
     if (isSharedBytesType(type)) return SharedBytesConversion(type, context);
@@ -694,15 +747,7 @@ final class _ConversionBuilder {
         BindingType value,
         String path,
         ValueDirection direction,
-      ) => conversionFor(
-        value,
-        path,
-        bigint: bigint,
-        classes: classes,
-        valueSchemas: values,
-        direction: direction,
-        opaqueParameters: opaqueParameters,
-      );
+      ) => convert(value, path, valueDirection: direction, lazy: lazy);
       return CallbackConversion._(
         type,
         context,
@@ -719,7 +764,8 @@ final class _ConversionBuilder {
             : callbackValue(payload, 'callback result', ValueDirection.input),
       );
     }
-    ValueConversion child(BindingType value) => convert(value, context);
+    ValueConversion child(BindingType value) =>
+        convert(value, context, valueDirection: direction, lazy: lazy);
     if (type is RecordTypeBinding) {
       return RecordConversion._(
         type,
@@ -751,15 +797,18 @@ final class _ConversionBuilder {
       );
       if (index < 0) throw StateError('A validated value schema is required.');
       final schema = values[index];
-      final key = (schema.binding, declared.nullability);
-      if (_nodes[key] case final existing?) return existing;
-      if (direction == ValueDirection.input && schema.constructor == null) {
+      final key = (schema.binding, declared.nullability, direction);
+      if (!lazy &&
+          direction == ValueDirection.input &&
+          schema.constructor == null) {
         throw StateError('Output-only value used as input.');
       }
+      if (_nodes[key] case final existing?) return existing;
       final node = ValueClassConversion._(
         declared,
         context,
         schema,
+        index,
         direction,
         bigint,
         '\$value${index}_${direction.name}_${bigint ? 1 : 0}',
@@ -770,8 +819,8 @@ final class _ConversionBuilder {
             ? [
                 for (final f in schema.inputFields)
                   ValueClassField(
-                    f.field.binding,
-                    f.field.name,
+                    f.field?.binding,
+                    f.name,
                     child(f.parameter.type),
                     parameter: f.parameter,
                   ),

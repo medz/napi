@@ -58,7 +58,7 @@ Future<void> main() async {
         ExternalClass('WorkOwner', config: NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')),
         ExternalClass('CleanupSignal', config: NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')),
         ExternalClass('SavedSignal'),
-        ExternalClass('GuardValue', config: NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')),
+        ExternalClass('GuardValue', config: NAPI(classPolicy: ClassPolicy.value)),
         ExternalClass('SignalFeed', config: NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')),
       ]) : null,
       ${native ? 'target: BuildTarget.native,\n      nativeRuntime: Directory(${jsonEncode(nativeRuntime.absolute.path)}),' : ''}

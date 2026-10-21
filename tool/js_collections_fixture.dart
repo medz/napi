@@ -23,6 +23,8 @@ dependencies:
 ''');
   await File('test/fixtures/js_collections.dart')
       .copy('${project.path}/business.dart');
+  await File('test/fixtures/js_value_collections.dart')
+      .copy('${project.path}/js_value_collections.dart');
   const nestedFunctions = [
     'nested',
     'nestedAccess',
@@ -114,6 +116,8 @@ dependencies:
     'structuralWideBigints',
     'mixedResourceEntries',
     'pureCopiedPayload',
+    'collectionValueConstructions',
+    'collectionValueCleanups',
   ];
   const bigints = [
     'bigBooleans',
@@ -162,6 +166,17 @@ Future<void> main() async {
           ExternalClass('StructuralCollections'),
           ExternalClass('CopiedPayloads'),
           ExternalClass('CopiedResources'),
+          ExternalClass('CollectionValue', config: NAPI(classPolicy: ClassPolicy.value), members: [
+            ExternalMember.getter('hashCode', config: NAPI(exclude: true)),
+          ]),
+          ExternalClass('CollectionParsed', config: NAPI(classPolicy: ClassPolicy.value)),
+          ExternalClass('CollectionNode', config: NAPI(classPolicy: ClassPolicy.value)),
+          ExternalClass('CollectionOutput', config: NAPI(classPolicy: ClassPolicy.value)),
+          ExternalClass('CollectionEnvelope', config: NAPI(classPolicy: ClassPolicy.value)),
+          ExternalClass('CollectionEscaping', config: NAPI(classPolicy: ClassPolicy.value)),
+          ExternalClass('CollectionResource', config: NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')),
+          ExternalClass('CollectionResourceValue', config: NAPI(classPolicy: ClassPolicy.value)),
+          ExternalClass('ValueCollectionOwner'),
           ExternalClass('Owner', config: NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')),
         ] else ...const [
           ExternalFunction('read'),
@@ -170,8 +185,8 @@ Future<void> main() async {
         ],
         ${nestedFunctions.map((name) => "const ExternalFunction('$name'),").join('\n        ')}
         const ExternalFunction('nestedWrongPolicy', config: NAPI(bigint: true)),
-        const ExternalClass('NestedValue', config: NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')),
-        const ExternalClass('NestedCapture', config: NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')),
+        const ExternalClass('NestedValue', config: NAPI(classPolicy: ClassPolicy.value)),
+        const ExternalClass('NestedCapture', config: NAPI(classPolicy: ClassPolicy.value)),
         const ExternalClass('NestedOutput', config: NAPI(classPolicy: ClassPolicy.value)),
       ]) : null,
       ${native ? 'target: BuildTarget.native,\n      nativeRuntime: Directory(${jsonEncode(nativeRuntime.absolute.path)}),' : ''}

@@ -206,7 +206,7 @@ typedef DoubleSession = Session<double>;
 @NAPI(classPolicy: ClassPolicy.resource, cleanup: 'shutdown')
 typedef NullableSession = Session<int?>;
 
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 typedef TextSessionValue = Session<String>;
 
 @NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
@@ -301,21 +301,21 @@ class ValueBox<T> {
   bool get isDouble => T == double;
 }
 
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 typedef IntValue = ValueBox<int>;
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 typedef TextValue = ValueBox<String>;
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 typedef DoubleValue = ValueBox<double>;
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 typedef NullableValue = ValueBox<String?>;
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 typedef NestedValue = ValueBox<IntValue>;
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 typedef LeafValue = ValueBox<Leaf>;
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 typedef BytesValue = ValueBox<Uint8List>;
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 typedef SharedValue = ValueBox<SharedBytes>;
 @NAPI()
 typedef ValueHandle = ValueBox<int?>;
@@ -323,17 +323,17 @@ typedef ValueHandle = ValueBox<int?>;
 class ParsedValue<T extends num> {
   final T value;
   ParsedValue(this.value);
-  ParsedValue.parse(String source)
+}
+
+class ParsedTextValue<T extends num> {
+  final T value;
+  ParsedTextValue.parse(String source)
     : value = (T == int ? int.parse(source) : double.parse(source)) as T;
 }
 
-@NAPI(
-  classPolicy: ClassPolicy.value,
-  valueConstructor: 'parse',
-  valueFields: {'source': 'value'},
-)
-typedef ParsedInteger = ParsedValue<int>;
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value, valueFields: {'source': 'value'})
+typedef ParsedInteger = ParsedTextValue<int>;
+@NAPI(classPolicy: ClassPolicy.value)
 typedef ParsedDouble = ParsedValue<double>;
 
 abstract class Projected<T> {
@@ -347,7 +347,7 @@ class _Projected<T> implements Projected<T> {
   _Projected(this.value);
 }
 
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 typedef TextProjection = Projected<String>;
 
 typedef _NullableObject = Object?;
@@ -357,9 +357,9 @@ class ValueMarker<T> {
   bool get isObject => T == _NullableObject;
 }
 
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 typedef VoidValue = ValueMarker<void>;
-@NAPI(classPolicy: ClassPolicy.value, valueConstructor: 'new')
+@NAPI(classPolicy: ClassPolicy.value)
 typedef ObjectValue = ValueMarker<Object?>;
 
 @NAPI()

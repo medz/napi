@@ -12,7 +12,7 @@ Both targets use these mappings:
 | `List<T>` | `Array<T>` | Independent container on each conversion |
 | `Map<K, V>` | `Map<K, V>` | Independent container on each conversion |
 | `Dictionary<V>` | String-keyed object | Independent container on each conversion |
-| `JsArray<T>` / `JsMap<K, V>` | Original JS Array or Map | Retains the existing JS container; scalar, reference, binary, copied structure, nested handle and direct opaque elements |
+| `JsArray<T>` / `JsMap<K, V>` | Original JS Array or Map | Retains the existing JS container; scalar, reference, binary, value class, copied structure, nested handle and direct opaque elements |
 | Exported Dart reference class | Bound class instance | Dart owns its state; methods expose supported operations |
 
 See [structural conversion](structural.md) for strict input validation, element
@@ -57,7 +57,7 @@ Uint8Array identity and observing its live bytes. Both policies validate storage
 on access and support nullable elements and nested handles.
 
 List, Map, Dictionary and record elements support nested trees of supported
-leaves, including selected references, opaque values and JS handles. Each read or
+leaves, including value classes, selected references, opaque values and JS handles. Each read or
 write copies the ordinary containers and binary leaves. References, opaque values,
 handles and SharedBytes retain their respective identity and ownership contracts.
 A saved Dart value is independent of later changes to its source containers. Strict
@@ -70,6 +70,22 @@ Copied structural and binary Map keys become new JavaScript objects on every con
 Passing a copied key back to `has`, `get` or `delete` does not address the original
 key; `set` inserts a new object key. Use reference, handle, SharedBytes or opaque
 keys when lookup requires the original object's identity.
+
+[Value-class](values.md) elements use their Dart constructor schema when read and
+their selected fields/getters when written. Each access converts independently;
+a constructor that accepts a different shape from its output does not make that
+output valid for a later read. TypeScript describes the stored element as the
+union of its input and output shapes. The constructor is inferred from the Dart
+declaration, including concrete aliases. A class without an unambiguous public
+input constructor can still be written; reading a present non-null element throws
+TypeError. Missing elements and nullable null values retain their usual behavior.
+Recursive values may contain handles back to their source container because
+admitting those handles does not walk their elements.
+
+When writing value classes, each getter result is converted and retained before
+the next getter runs. Resource leaves therefore acquire their operation lease
+before a later getter can request cleanup. Conversion completes before assigning
+the target slot; constructor, getter and setter side effects are not rolled back.
 
 Direct opaque type parameters also work, for example `JsArray<T>`, `JsArray<T?>`,
 `JsMap<String, T>` and `JsMap<K, V>` on an exported generic declaration. They use
@@ -171,8 +187,7 @@ while closing, but new operations reject it. See [resource lifecycle](resources.
 Resource access from detached work after its exported call finishes is rejected;
 for example, return a Future that includes a Timer's resource work rather than
 starting that Timer from a void export. Keeping a handle or extracted Dart object
-alive does not give it a permanent resource lease. Value classes remain
-unsupported as typed handle elements.
+alive does not give it a permanent resource lease.
 
 Handles remain usable when saved by Dart or across await/Timer callbacks in their
 owner. Existing Future/Stream retention and resource operation leases apply;
