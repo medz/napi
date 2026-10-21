@@ -39,6 +39,7 @@ String emitBoundary(ModulePlan plan) {
   final collectionStructures = jsCollectionStructurePolicies(
     jsCollectionLeaves,
     resources: resources,
+    functionContracts: functionContracts,
   );
   final binaries = {
     for (final (index, conversion) in conversions.indexed)

@@ -162,6 +162,36 @@ assert.equal(api.invoke([value => value + 3]), 7);
 assert.throws(() => api.invoke([() => '7']), TypeError);
 ''',
       ),
+      (
+        name: 'function-array',
+        source: '''
+typedef Unary = int Function(int);
+@NAPI() JsArray<Unary> echo(JsArray<Unary> values) => values;
+@NAPI() int invoke(JsArray<Unary> values, int value) => values.get(0)!(value);
+@NAPI() bool same(JsArray<Unary> values) => identical(values.get(0), values.get(0));
+@NAPI() void copy(JsArray<Unary> values) => values.set(1, values.get(0)!);
+@NAPI() void install(JsArray<Unary> values, int delta) => values.set(0, (value) => value + delta);
+''',
+        check: '''
+const original = value => value + 3;
+const values = [original];
+assert.equal(api.echo(values), values);
+assert.equal(api.invoke(values, 4), 7);
+assert.equal(api.same(values), true);
+api.copy(values);
+assert.equal(values[1], original);
+api.install(values, 5);
+const dart = values[0];
+assert.equal(dart(4), 9);
+assert.equal(api.invoke(values, 4), 9);
+api.copy(values);
+assert.equal(values[1], dart);
+assert.throws(() => dart('4'), TypeError);
+for (const invalid of [3, undefined, null]) {
+  assert.throws(() => api.invoke([invalid], 4), TypeError);
+}
+''',
+      ),
     ];
     for (final testCase in cases) {
       final directory = await Directory('${temporary.path}/${testCase.name}')
@@ -189,4 +219,96 @@ ${testCase.check}
       );
     }
   }, timeout: const Timeout(Duration(minutes: 2)));
+
+  test(
+    'Wasm lazy function values compose with containers and value fields',
+    () async {
+      final temporary = await Directory.systemTemp.createTemp(
+        'napi-wasm-function-collections-',
+      );
+      addTearDown(() => temporary.delete(recursive: true));
+      final source = await File('${temporary.path}/business.dart')
+          .writeAsString('''
+import 'package:napi/napi.dart';
+typedef Unary = int Function(int);
+@NAPI(classPolicy: ClassPolicy.value)
+class FunctionValue { final Unary callback; FunctionValue(this.callback); }
+typedef Elements = (List<Unary?>, {Map<String, Unary> map, Dictionary<Unary> dictionary, FunctionValue value});
+@NAPI() int cycleNested(JsArray<Elements> values) {
+  final value = values.get(0)!;
+  values.set(1, value);
+  return value.\$1.first!(4) + value.value.callback(4);
+}
+@NAPI() int? invokeNullable(JsArray<Unary?> values) => values.get(0)?.call(4);
+@NAPI() void clearNullable(JsArray<Unary?> values) => values.set(0, null);
+@NAPI() int? cycleMap(JsMap<String, Unary?> values) {
+  final callback = values.get('source'); values.set('copy', callback);
+  return callback?.call(4);
+}
+@NAPI() int scanMap(JsMap<String, Unary?> values) {
+  var result = 0;
+  for (final (_, callback) in values.entries) { result += callback?.call(1) ?? 0; }
+  return result;
+}
+@NAPI(classPolicy: ClassPolicy.value)
+class Parsed { Parsed(String source) : value = int.parse(source); final int value; }
+typedef Normalize = Parsed Function(Parsed);
+@NAPI() void copyNormalized(JsArray<Normalize> values) => values.set(1, values.get(0)!);
+int closed = 0;
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+class Resource { Resource(); void close() { closed++; } }
+@NAPI() int closedCount() => closed;
+@NAPI() void startFunctionOnly(JsArray<Future<void> Function(Resource Function(Resource))> callbacks, Resource resource) {
+  callbacks.get(0)!((value) => value);
+}
+''');
+      await buildLibrary(
+        library: source.uri,
+        output: Directory('${temporary.path}/module'),
+        packagesPath: File('.dart_tool/package_config.json').absolute.path,
+      );
+      await File('${temporary.path}/check.mjs').writeAsString(r'''
+import assert from 'node:assert/strict';
+import * as api from './module/module.wasm';
+const original = value => value + 3;
+const nested = [{$1: [original, null], map: new Map([['f', original]]),
+  dictionary: {f: original}, value: {callback: original}}];
+assert.equal(api.cycleNested(nested), 14);
+assert.equal(nested[1].$1[0], original); assert.equal(nested[1].$1[1], null);
+assert.equal(nested[1].map.get('f'), original);
+assert.equal(nested[1].dictionary.f, original);
+assert.equal(nested[1].value.callback, original);
+assert.throws(() => api.cycleNested([{$1: [original], map: new Map(), dictionary: {}, value: {callback: 1}}]), TypeError);
+const nullable = [original];
+assert.equal(api.invokeNullable(nullable), 7);
+api.clearNullable(nullable); assert.equal(nullable[0], null);
+assert.equal(api.invokeNullable(nullable), null);
+assert.throws(() => api.invokeNullable([undefined]), TypeError);
+const map = new Map([['source', original]]);
+assert.equal(api.cycleMap(map), 7); assert.equal(map.get('copy'), original);
+assert.equal(api.scanMap(map), 8);
+assert.equal(api.cycleMap(new Map([['source', null]])), null);
+assert.throws(() => api.cycleMap(new Map([['source', 3]])), TypeError);
+const normalized = [value => ({source: String(value.value + 1)})];
+api.copyNormalized(normalized);
+const facade = normalized[1];
+assert.notEqual(facade, normalized[0]);
+assert.deepEqual(facade({source: '7'}), {value: 8});
+api.copyNormalized(normalized); assert.equal(normalized[1], facade);
+const resource = new api.Resource();
+let finish;
+const pending = new Promise(resolve => { finish = resolve; });
+api.startFunctionOnly([callback => { assert.equal(typeof callback, 'function'); return pending; }], resource);
+try {
+  await resource.close();
+  assert.equal(api.closedCount(), 1);
+} finally { finish(); }
+''');
+      final result = await Process.run('node', [
+        'check.mjs',
+      ], workingDirectory: temporary.path);
+      expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
+    },
+    timeout: const Timeout(Duration(minutes: 2)),
+  );
 }
