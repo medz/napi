@@ -2332,23 +2332,30 @@ void _validateCallback(
   if (type.nullability == TypeNullability.legacy) {
     reject('Legacy callback nullability is not supported.');
   }
+  void validatePayload(BindingType payload, ValueDirection direction) {
+    try {
+      validateValueType(
+        payload,
+        source,
+        referenceClasses: classes,
+        direction: direction,
+        opaqueParameters: opaqueParameters,
+      );
+    } on BindingDiagnostic catch (error) {
+      if (error.code != 'NAPI_TYPE' && error.code != 'NAPI_BINARY') rethrow;
+      reject(
+        'Unsupported callback ${direction == ValueDirection.output ? 'argument' : 'result'} type.',
+      );
+    }
+  }
+
   for (final parameter in type.parameters) {
     if (parameter.kind != ParameterKind.requiredPositional) {
       reject(
         'Callback signatures require positional parameters without defaults.',
       );
     }
-    validateOpaqueReferenceNames(
-      parameter.type,
-      source,
-      classes,
-      opaqueParameters,
-    );
-    if (!_isCallbackValue(parameter.type, classes, opaqueParameters)) {
-      reject(
-        'Callback arguments support scalars, binary values, SharedBytes, JS collection handles, Lists and records; references, bare opaque payloads and nested callbacks are not supported.',
-      );
-    }
+    validatePayload(parameter.type, ValueDirection.output);
   }
   final result = type.result;
   if (isStreamType(result)) {
@@ -2363,48 +2370,7 @@ void _validateCallback(
   }
   final payload = resultPayload(result);
   if (payload == null) return;
-  validateOpaqueReferenceNames(payload, source, classes, opaqueParameters);
-  if (!_isCallbackValue(payload, classes, opaqueParameters)) {
-    reject(
-      'Callback results support scalars, binary values, SharedBytes, JS collection handles, Lists, records or void, synchronously or inside Future; FutureOr, references, bare opaque payloads and nested callbacks are not supported.',
-    );
-  }
-}
-
-bool _isCallbackValue(
-  BindingType type,
-  List<ClassBinding> classes,
-  Set<DeclarationId> opaqueParameters,
-) {
-  if (_isBackendScalar(type) || isBinaryType(type) || isSharedBytesType(type)) {
-    return true;
-  }
-  if (type.nullability == TypeNullability.legacy) return false;
-  if (isJsCollectionType(type)) {
-    return _supportedJsCollectionElements(
-      type as DeclaredType,
-      classes,
-      opaqueParameters,
-    );
-  }
-  if (type is RecordTypeBinding) {
-    return type.positional.every(
-          (t) => _isCallbackValue(t, classes, opaqueParameters),
-        ) &&
-        type.named.values.every(
-          (t) => _isCallbackValue(t, classes, opaqueParameters),
-        );
-  }
-  return type is DeclaredType &&
-      type.semantics == ValueSemantics.structural &&
-      type.declaration ==
-          DeclarationId(
-            Uri.parse('dart:core'),
-            'List',
-            kind: DeclarationKind.classType,
-          ) &&
-      type.typeArguments.length == 1 &&
-      _isCallbackValue(type.typeArguments.single, classes, opaqueParameters);
+  validatePayload(payload, ValueDirection.input);
 }
 
 /// Export renames may collide even when the original Dart names are distinct.

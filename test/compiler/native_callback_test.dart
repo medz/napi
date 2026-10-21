@@ -141,4 +141,64 @@ typedef Packet = (Uint8List?, {ByteBuffer? buffer, SharedBytes? shared});
       );
     }, timeout: const Timeout(Duration(minutes: 2)));
   }
+
+  test(
+    'copied, reference and opaque callbacks compile with and without resources',
+    () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'napi-value-callback-',
+      );
+      addTearDown(() => directory.delete(recursive: true));
+      const source = '''
+import 'package:napi/napi.dart';
+@NAPI() class Ref { Ref(this.id); final int id; }
+@NAPI(classPolicy: ClassPolicy.value)
+class Value { Value(this.id, {this.extra = 2}); final int id; final int extra; }
+@NAPI(classPolicy: ClassPolicy.value)
+class Output { Output._(this.id); final int id; }
+@NAPI() int maps(Map<Ref, List<Ref?>> Function(Map<Ref, List<Ref?>>) callback, Ref value) => callback({value: [value, null]}).length;
+@NAPI() int dictionaries<T>(Dictionary<T?> Function(Dictionary<T?>) callback, T value) => callback(Dictionary({'key': value})).length;
+@NAPI() Value values(Value Function(Output) callback) => callback(Output._(1));
+@NAPI() Ref? reference(Ref? Function(Ref?) callback, Ref? value) => callback(value);
+@NAPI() Future<Ref> later(Future<Ref> Function(Ref) callback, Ref value) => callback(value);
+@NAPI() T opaque<T>(T Function(T) callback, T value) => callback(value);
+@NAPI() Future<T?> laterOpaque<T>(Future<T?> Function(T?) callback, T? value) => callback(value);
+@NAPI() (T, Value) result<T>((T, Value) Function() callback) => callback();
+''';
+      for (final resources in [false, true]) {
+        final business = await File('${directory.path}/business.dart')
+            .writeAsString(
+              source +
+                  (resources
+                      ? '''
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+class Resource extends Ref { Resource(super.id); void close() {} }
+@NAPI() int resource(int Function(Ref) callback) => callback(Resource(1));
+'''
+                      : ''),
+            );
+        final plan = validateNative(
+          await AnnotationFrontend(
+            packagesPath: packages,
+            native: true,
+          ).read(business.uri),
+        );
+        final entry = await File('${directory.path}/entry.dart')
+            .writeAsString(emitNativeDart(plan));
+        final compiled = await Process.run(Platform.resolvedExecutable, [
+          'compile',
+          'aot-snapshot',
+          '--packages=$packages',
+          entry.path,
+          '--output=${directory.path}/module.aot',
+        ]);
+        expect(
+          compiled.exitCode,
+          0,
+          reason: '${compiled.stdout}${compiled.stderr}',
+        );
+      }
+    },
+    timeout: const Timeout(Duration(minutes: 2)),
+  );
 }

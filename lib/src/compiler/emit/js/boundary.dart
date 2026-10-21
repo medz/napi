@@ -121,13 +121,16 @@ ${plan.calls.any((call) => call.returnsFuture) || streams ? '${emitFuturePolicy(
       : structuralPolicy}
 ${conversionDependencies(conversions).any((c) => c is MapConversion) ? mapStructuralPolicy : ''}
 ${conversionDependencies(conversions).any((c) => c is DictionaryConversion) ? dictionaryStructuralPolicy : ''}
-$collectionStructures${structures.values.map((s) => s.source).join('\n')}${callbacks.isEmpty ? '' : '\n${_emitCallbacks(callbacks)}'}
+$collectionStructures${structures.values.map((s) => s.source).join('\n')}${callbacks.isEmpty ? '' : '\n${_emitCallbacks(callbacks, resources: resources)}'}
 ${_emitCallbackErrors(futures: plan.calls.any((call) => call.returnsFuture) || streams)}
 ${plan.classes.isNotEmpty || plan.functions.any((f) => f.representation == ExportRepresentation.callableGlobal) ? argumentPolicy : ''}
 ''';
 }
 
-String _emitCallbacks(Map<int, CallbackConversion> callbacks) {
+String _emitCallbacks(
+  Map<int, CallbackConversion> callbacks, {
+  required bool resources,
+}) {
   final asynchronous = callbacks.values.any(
     (callback) => callback.returnsFuture,
   );
@@ -165,6 +168,14 @@ export function callbackStructureError(path, message, range) {
   return {threw: true, value: range ? new RangeError(path + ': ' + message) : new TypeError(path + ': ' + message)};
 }
 ''');
+  if (resources) {
+    source.writeln(r'''
+function writeCallbackReference(value, classId, path, state) {
+  state.operation.retain(value);
+  return writeReference(value, classId, path, state.pending ??= new Set());
+}
+''');
+  }
   if (asynchronous) {
     source.writeln(callbackPromisePolicy);
     source.writeln(r'''
@@ -197,11 +208,12 @@ function settleCallback(record, envelope) {
       final boundary = emitStructuralBoundary(
         conversion,
         prefix: 'callback${id}Argument$index',
+        leafAdapter: _CallbackLeafAdapter(resources),
         generateRead: false,
       );
       source.writeln(boundary.source);
       arguments.add(
-        '${boundary.write}(values[$index], ${jsonEncode(conversion.context)}, {work: 0, active: new Set(), pending: null}, 0)',
+        '${boundary.write}(values[$index], ${jsonEncode(conversion.context)}, state, 0)',
       );
     }
     var read = 'undefined';
@@ -209,16 +221,26 @@ function settleCallback(record, envelope) {
       final boundary = emitStructuralBoundary(
         output,
         prefix: 'callback${id}Result',
-        leafAdapter: const BoundaryLeafAdapter(bigintText: true),
+        leafAdapter: BoundaryLeafAdapter(
+          resources: resources,
+          bigintText: true,
+        ),
         generateWrite: false,
       );
       source.writeln(boundary.source);
       read =
-          '${boundary.read}(value, ${jsonEncode(output.context)}, {work: 0, active: new Set()}, 0)';
+          '${boundary.read}(value, ${jsonEncode(output.context)}, {work: 0, active: new Set()${resources ? ', operation' : ''}}, 0)';
     }
     final cases = callback.returnsFuture ? asynchronousCases : synchronousCases;
     cases.writeln('      case $id: {');
-    cases.writeln('        const args = [${arguments.join(', ')}];');
+    for (final (index, argument) in arguments.indexed) {
+      if (index != 0) cases.writeln('        state.work = 0;');
+      cases.writeln('        const arg$index = $argument;');
+    }
+    cases.writeln(
+      '        const args = [${[for (var index = 0; index < arguments.length; index++) 'arg$index'].join(', ')}];',
+    );
+    cases.writeln('        state.pending = null;');
     cases.writeln(
       '        const value = callbackApply(callback, undefined, args);',
     );
@@ -237,29 +259,52 @@ function settleCallback(record, envelope) {
     cases.writeln('      }');
   }
   source.writeln('''
-export function invokeCallback(callback, values, context) {
+export function invokeCallback(callback, values, context${resources ? ', retain' : ''}) {
+${resources ? '  const operation = {retain};\n' : ''}  const state = {work: 0, active: null, pending: null${resources ? ', operation' : ''}};
   try {
+    state.active = new Set();
     switch (context) {
 $synchronousCases      default: throw new Error('Unknown callback conversion context');
     }
-  } catch (value) { return {threw: true, value}; }
+  } catch (value) {
+    if (state.pending !== null) { for (const undo of state.pending) undo(); }
+    return {threw: true, value};
+  }
 }''');
   if (asynchronous) {
     source.writeln('''
-export function startCallback(callback, values, context, deliver, roots) {
+export function startCallback(callback, values, context, deliver, roots${resources ? ', retain' : ''}) {
+${resources ? '  const operation = {retain};\n' : ''}  const state = {work: 0, active: null, pending: null${resources ? ', operation' : ''}};
   const record = {callback, promise: null, deliver, roots, done: false};
   callbackApply(pendingCallbackAdd, pendingCallbacks, [record]);
   try {
+    state.active = new Set();
     switch (context) {
 $asynchronousCases      default: throw new Error('Unknown async callback conversion context');
     }
   } catch (value) {
+    if (state.pending !== null) { for (const undo of state.pending) undo(); }
     releaseCallback(record);
     return {threw: true, value};
   }
 }''');
   }
   return source.toString();
+}
+
+final class _CallbackLeafAdapter implements StructuralLeafAdapter {
+  final bool resources;
+  const _CallbackLeafAdapter(this.resources);
+
+  @override
+  String read(ValueConversion leaf, String value, String path) =>
+      const BoundaryLeafAdapter().read(leaf, value, path);
+
+  @override
+  String write(ValueConversion leaf, String value, String path) =>
+      resources && leaf is ReferenceConversion
+      ? 'writeCallbackReference($value, ${leaf.classId}, $path, state)'
+      : const BoundaryLeafAdapter().write(leaf, value, path);
 }
 
 String _emitCallbackErrors({required bool futures}) =>

@@ -63,10 +63,7 @@ class Resource {
       expect(calls, contains('finally { finishResourceCall(capability); }'));
       final boundary = emitBoundary(module);
       expect(boundary, contains('const callbackApply = Reflect.apply;'));
-      expect(
-        boundary,
-        contains('catch (value) { return {threw: true, value}; }'),
-      );
+      expect(boundary, contains('return {threw: true, value};'));
       final entry = File('${directory.path}/entrypoint.dart');
       await entry.writeAsString(code);
       final compiled = await DartSdkAdapter().compile(

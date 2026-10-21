@@ -504,6 +504,62 @@ void main() {
   });
 
   test(
+    'accepted callback scopes outlive their caller without reopening it',
+    () async {
+      final operation = ResourceOperation();
+      final first = ResourceControl.forObject(Object());
+      final second = ResourceControl.forObject(Object());
+      operation.retain(first);
+      final callback = operation.fork();
+      callback.retain(second);
+      final cleaned = <String>[];
+      final firstDone = first.dispose(() => cleaned.add('first'));
+      final secondDone = second.dispose(() => cleaned.add('second'));
+      // Both scopes share prior admissions, including aliases now closing.
+      operation.retain(second);
+      operation.release();
+      expect(cleaned, isEmpty);
+      expect(() => operation.retain(first), throwsStateError);
+      expect(() => operation.fork(), throwsStateError);
+      expect(() => operation.run(() {}), throwsStateError);
+      callback.run(() {
+        expect(ResourceOperation.current, same(callback));
+        callback.retain(first);
+        callback.retain(second);
+      });
+      final nested = callback.fork();
+      callback.release();
+      expect(cleaned, isEmpty);
+      nested.release();
+      nested.release();
+      await Future.wait([firstDone, secondDone]);
+      expect(cleaned, ['second', 'first']);
+    },
+  );
+
+  test('stream cancellation waits for accepted callback scopes', () async {
+    final operation = ResourceOperation();
+    final callback = operation.fork();
+    final control = ResourceControl.forObject(Object());
+    var cancelled = false;
+    var cleaned = false;
+    final target = Object();
+    operation.attachStream(target, (_) async {
+      cancelled = true;
+      operation.release();
+    });
+    callback.retain(control);
+    final done = control.dispose(() => cleaned = true);
+    expect(cancelled, isTrue);
+    expect(operation.isReleased, isTrue);
+    expect(cleaned, isFalse);
+    callback.retain(control);
+    callback.release();
+    await done;
+    expect(cleaned, isTrue);
+  });
+
+  test(
     'stream cancellation registers resources acquired after attachment',
     () async {
       final first = ResourceControl.forObject(Object());

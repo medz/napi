@@ -956,8 +956,6 @@ for (const value of [null, undefined, object]) {
     '@NAPI() JsArray<Map<({JsMap<String, int> key}), int>> bad(JsArray<Map<({JsMap<String, int> key}), int>> value) => value;',
     '@NAPI() void bad<T>(JsArray<Map<T, int>> Function() callback) {}',
     '@NAPI() void bad(JsArray<Map<JsArray<int>, int>> Function() callback) {}',
-    '@NAPI() void bad<T>(List<T> Function() callback) {}',
-    '@NAPI() class Ref { Ref(); } @NAPI() void bad(List<Ref> Function() callback) {}',
     '@NAPI() JsArray<Set<int>> bad(JsArray<Set<int>> value) => value;',
     "import 'dart:typed_data'; @NAPI() JsArray<List<Uint16List>> bad(JsArray<List<Uint16List>> value) => value;",
     '@NAPI(classPolicy: ClassPolicy.value) class Value<T> { Value(this.n); final T n; } @NAPI() JsArray<Value<int>> bad(JsArray<Value<int>> value) => value;',

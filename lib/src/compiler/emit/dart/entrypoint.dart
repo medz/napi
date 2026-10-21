@@ -78,6 +78,7 @@ String emitDart(ModulePlan plan) {
   if (asyncCallbacks) result.writeln(asyncCallbackEntrypointPrelude);
   if (resources) {
     result.writeln(resourceEntrypointPrelude);
+    if (callbacks.isNotEmpty) result.writeln(callbackResourceEntrypointPrelude);
     _emitResourceControl(result, plan);
     if (jsCollections) result.writeln(jsCollectionsResourceEntrypointPrelude);
   }
@@ -140,7 +141,13 @@ ${tests.declarations}  return externRefForJSAny(<JSAny?>[
       );
   if (hasStructural) result.writeln(dartStructuralPrelude);
   for (final entry in callbacks.entries) {
-    _emitCallbackAdapter(result, structural, entry.value, entry.key);
+    _emitCallbackAdapter(
+      result,
+      structural,
+      entry.value,
+      entry.key,
+      resources: resources,
+    );
   }
   for (final (index, call) in plan.calls.indexed) {
     final parameters = call.parameters;
@@ -188,7 +195,7 @@ ${emitDartDefaultResourceRetains(call.inputs[i], value, indent: '    ')}  } catc
         call,
         index,
         errorContext,
-        scopedCollections: plan.hasResourceCollections,
+        scopedCollections: plan.hasScopedResourceAccess,
       );
       continue;
     }
@@ -431,9 +438,16 @@ void _emitCallbackAdapter(
   StringBuffer result,
   DartStructuralEmitter structural,
   CallbackConversion callback,
-  int context,
-) {
+  int context, {
+  required bool resources,
+}) {
+  final resourceValues =
+      resources &&
+      conversionDependencies([...callback.inputs, ?callback.output])
+          .any((value) => value is ReferenceConversion);
   String quote(String value) => jsonEncode(value).replaceAll(r'$', r'\$');
+  const structureFailure =
+      '_CallbackThrown(_callbackStructureError(externRefForJSAny(error.path.toJS)!, externRefForJSAny(error.message.toJS)!, WasmI32.fromInt(error.range ? 1 : 0)))';
   final adapterType = callback.nullable
       ? callback.dartType.substring(0, callback.dartType.length - 1)
       : callback.dartType;
@@ -456,46 +470,82 @@ void _emitCallbackAdapter(
   late final $adapterType adapter;
   adapter = ($parameters) {''',
   );
-  result.writeln('''    final JSArray<JSAny?> arguments;
+  if (resourceValues) {
+    result.writeln(
+      '''    final currentOperation = ResourceOperation.current;
+    final operation = currentOperation != null && !currentOperation.isReleased ? currentOperation${callback.returnsFuture ? '.fork()' : ''} : null;''',
+    );
+  }
+  result.writeln(
+    '''    final JSArray<JSAny?> arguments;
     try {
       arguments = <JSAny?>[$arguments].toJS;
     } on _StructureViolation catch (error) {
-      throw _CallbackThrown(_callbackStructureError(externRefForJSAny(error.path.toJS)!, externRefForJSAny(error.message.toJS)!, WasmI32.fromInt(error.range ? 1 : 0)));
-    }''');
+${resourceValues && callback.returnsFuture ? '      operation?.release();\n' : ''}      throw $structureFailure;
+${resourceValues && callback.returnsFuture ? '    } catch (_) {\n      operation?.release();\n      rethrow;\n' : ''}    }''',
+  );
+  if (resourceValues) {
+    result.writeln(
+      '    final retainer = _callbackResourceRetainer(operation);',
+    );
+  }
   if (callback.returnsFuture) {
     result.writeln(
       '''    final completer = Completer<${callback.output?.dartType ?? 'void'}>();
-    void deliver(JSAny result) {
+    void complete(JSAny result) {
       try {
         final envelope = externRefForJSAny(result)!;
         if (_callbackThrew(envelope).toIntSigned() != 0) throw _CallbackThrown(envelope);''',
     );
   } else {
     result.writeln(
-      '''    final envelope = _invokeCallback(callback, externRefForJSAny(arguments)!, WasmI32.fromInt($context));
+      '''    final envelope = _invokeCallback(callback, externRefForJSAny(arguments)!, WasmI32.fromInt($context), ${resourceValues ? 'retainer' : 'WasmExternRef.nullRef'});
     if (_callbackThrew(envelope).toIntSigned() != 0) throw _CallbackThrown(envelope);''',
     );
   }
   if (callback.output case final output?) {
     final read = structural.read(output, bigintText: true);
-    final converted =
+    var converted =
         '$read(value.isNull ? null : value!.toJS, ${quote(output.context)})';
+    if (resourceValues && !callback.returnsFuture) {
+      converted =
+          'operation == null ? $converted : operation.run(() => $converted)';
+    }
     result.writeln('    final value = _callbackValue(envelope);');
+    if (!callback.returnsFuture) result.writeln('    try {');
     result.writeln(
       callback.returnsFuture
           ? '    completer.complete($converted);'
           : '    return $converted;',
     );
+    if (!callback.returnsFuture) {
+      result.writeln('''    } on _StructureViolation catch (error) {
+      throw $structureFailure;
+    }''');
+    }
   } else if (callback.returnsFuture) {
     result.writeln('    completer.complete();');
   }
   if (callback.returnsFuture) {
+    result.writeln('''      } on _StructureViolation catch (error, stack) {
+        completer.completeError($structureFailure, stack);
+      } catch (error, stack) { completer.completeError(error, stack); }
+    }''');
     result.writeln(
-      '''      } catch (error, stack) { completer.completeError(error, stack); }
-    }
-    final failure = _startCallback(callback, externRefForJSAny(arguments)!, WasmI32.fromInt($context), externRefForJSAny(deliver.toJS)!,
-        WasmAnyRef.fromObject(adapter).externalize());
-    if (!failure.isNull) throw _CallbackThrown(failure!);
+      resourceValues
+          ? '''    void deliver(JSAny result) {
+      try {
+        if (operation == null) { complete(result); }
+        else { operation.run(() => complete(result)); }
+      } catch (error, stack) { completer.completeError(error, stack); }
+      finally { operation?.release(); }
+    }'''
+          : '''    void deliver(JSAny result) { complete(result); }''',
+    );
+    result.writeln(
+      '''    final failure = _startCallback(callback, externRefForJSAny(arguments)!, WasmI32.fromInt($context), externRefForJSAny(deliver.toJS)!,
+        WasmAnyRef.fromObject(adapter).externalize(), ${resourceValues ? 'retainer' : 'WasmExternRef.nullRef'});
+    if (!failure.isNull) { ${resourceValues ? 'operation?.release(); ' : ''}throw _CallbackThrown(failure!); }
     return completer.future;''',
     );
   }

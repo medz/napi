@@ -373,6 +373,126 @@ typedef Bytes = Uint8List;
     },
   );
 
+  test(
+    'callback values share ordinary conversions and finite cache keys',
+    () async {
+      final module = await read('''
+@NAPI() class Box { Box(); }
+@NAPI() class Other { Other(); }
+@NAPI(classPolicy: ClassPolicy.value) class Value {
+  Value(this.n, {this.next, this.step = 7});
+  final int n;
+  final Value? next;
+  final int step;
+}
+@NAPI(classPolicy: ClassPolicy.value) class Projection {
+  Projection._();
+  final int n = 1;
+}
+@NAPI() int value(Value Function(Value) callback) => 1;
+@NAPI() int valueAlias(Value Function(Value other) renamed) => 1;
+@NAPI(bigint: true) int wide(Value Function(Value) callback) => 1;
+@NAPI() int nullable(Value? Function(Value?) callback) => 1;
+@NAPI() int reference(Box Function(Box) callback) => 1;
+@NAPI() int other(Other Function(Other) callback) => 1;
+@NAPI() int map(Map<Box, List<Value?>> Function(Map<Box, List<Value?>>) callback) => 1;
+@NAPI() int dictionary(Dictionary<Value> Function(Dictionary<Value>) callback) => 1;
+@NAPI() int opaque<T>(T Function(T) callback) => 1;
+@NAPI() int renamed<U>(U Function(U) callback) => 1;
+@NAPI() int nullableOpaque<T>(T? Function(T?) callback) => 1;
+@NAPI() int nestedOpaque<T>(Future<Map<String, T?>> Function(Dictionary<T?>) callback) => 1;
+@NAPI() int outputOnly(int Function(Projection) callback) => 1;
+@NAPI() int handle(Map<String, JsArray<int>> Function() callback) => 1;
+''');
+      final wasm = lower(validate(module));
+      final native = validateNative(module);
+      List<String>? signatures;
+      for (final conversions in [
+        wasm.functions.map((f) => f.inputs.single),
+        native.functions.map((f) => f.inputs.single),
+      ]) {
+        final callbacks = conversions.cast<CallbackConversion>().toList();
+        final keys = callbacks
+            .map((callback) => callback.signatureKey)
+            .toList();
+        expect(keys[0], keys[1]);
+        expect(keys[8], keys[9]);
+        expect(keys.toSet(), hasLength(12));
+        final argument = callbacks[0].inputs.single as ValueClassConversion;
+        final result = callbacks[0].output! as ValueClassConversion;
+        expect(argument.direction, ValueDirection.output);
+        expect(result.direction, ValueDirection.input);
+        expect(argument.schemaId, result.schemaId);
+        expect(callbacks[6].inputs.single, isA<MapConversion>());
+        expect(callbacks[7].output, isA<DictionaryConversion>());
+        expect(callbacks[8].output, isA<OpaqueConversion>());
+        expect(callbacks[11].returnsFuture, isTrue);
+        expect(callbacks[12].inputs.single, isA<ValueClassConversion>());
+        if (signatures == null) {
+          signatures = keys;
+        } else {
+          expect(keys, signatures);
+        }
+      }
+      expect(emitDeclarations(wasm), emitNativeDeclarations(native));
+      expect(emitDeclarations(wasm), contains('"step"?: number'));
+    },
+  );
+
+  test('stored resource callbacks scope later scalar exports', () async {
+    final module = await read('''
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close') class Resource {
+  Resource();
+  void close() {}
+}
+@NAPI() void save(Future<Resource> Function(Resource) callback) {}
+@NAPI() int invoke() => 1;
+''');
+    final wasm = lower(validate(module));
+    expect(wasm.hasResourceCollections, isFalse);
+    expect(wasm.hasResourceCallbacks, isTrue);
+    expect(wasm.hasScopedResourceAccess, isTrue);
+    expect(
+      wasm.functions.last.representation,
+      ExportRepresentation.callableGlobal,
+    );
+    expect(wasm.needsResourceOperation(wasm.functions.last), isTrue);
+  });
+
+  for (final entry in {
+    'output-only result': (
+      '''@NAPI(classPolicy: ClassPolicy.value) class Projection {
+  Projection._(); final int value = 1;
+} @NAPI() int run(Projection Function() callback) => 1;''',
+      'NAPI_VALUE_INPUT',
+    ),
+    'opaque Map key': (
+      '@NAPI() int run<T>(Map<T,int> Function() callback) => 1;',
+      'NAPI_OPAQUE_KEY',
+    ),
+    'handle Map key': (
+      '@NAPI() int run(Map<JsArray<int>,int> Function() callback) => 1;',
+      'NAPI_JS_COLLECTION',
+    ),
+    'dynamic handle element': (
+      '@NAPI() int run(JsArray<List<dynamic>> Function() callback) => 1;',
+      'NAPI_JS_COLLECTION',
+    ),
+  }.entries) {
+    test('callback preserves ${entry.key} diagnostic', () async {
+      final module = await read(entry.value.$1);
+      final diagnostic = throwsA(
+        isA<BindingDiagnostic>().having(
+          (error) => error.code,
+          'code',
+          entry.value.$2,
+        ),
+      );
+      expect(() => validate(module), diagnostic);
+      expect(() => validateNative(module), diagnostic);
+    });
+  }
+
   test('actual TypeScript consumers enforce callback payload contracts', () async {
     final module = await read('''
 @NAPI() int run(int Function(int, String) callback) => callback(1, 'x');
@@ -526,28 +646,12 @@ void [value, big, asynchronous, empty, wide, record, syncInFuture, globalName, l
     'callback FutureOr argument': "import 'dart:async'; @NAPI() int run(int Function(FutureOr<int>) callback) => 1;",
     'Future nested callback result':
         '@NAPI() int run(Future<int Function()> Function() callback) => 1;',
-    'Future reference callback result': '@NAPI() class Box { Box(); } @NAPI() int run(Future<Box> Function() callback) => 1;',
     'Future dynamic callback result':
         '@NAPI() int run(Future<dynamic> Function() callback) => 1;',
     'Future List dynamic callback result':
         '@NAPI() int run(Future<List<dynamic>> Function() callback) => 1;',
-    'Future Map callback result':
-        '@NAPI() int run(Future<Map<String, int>> Function() callback) => 1;',
-    'Map callback parameter':
-        '@NAPI() int run(int Function(Map<String, int>) callback) => 1;',
-    'Dictionary callback result':
-        '@NAPI() int run(Dictionary<int> Function() callback) => 1;',
-    'reference callback parameter': '@NAPI() class Box { Box(); } @NAPI() int run(int Function(Box) callback) => 1;',
-    'reference callback result': '@NAPI() class Box { Box(); } @NAPI() int run(Box Function() callback) => 1;',
-    'value callback result': '@NAPI(classPolicy: ClassPolicy.value) class Box { int value = 1; } @NAPI() int run(Box Function() callback) => 1;',
     'generic handle callback':
         '@NAPI() int run(JsArray<T> Function<T>(JsArray<T>) callback) => 1;',
-    'nested dynamic handle element':
-        '@NAPI() int run(JsArray<List<dynamic>> Function() callback) => 1;',
-    'bare enclosing opaque':
-        '@NAPI() int run<T>(T Function(JsArray<T>) callback) => 1;',
-    'structural Map with handle':
-        '@NAPI() int run(Map<String,JsArray<int>> Function() callback) => 1;',
     'dynamic callback payload':
         '@NAPI() int run(dynamic Function(dynamic) callback) => 1;',
   };
@@ -562,7 +666,7 @@ void [value, big, asynchronous, empty, wide, record, syncInFuture, globalName, l
     });
   }
 
-  test('opaque logical payloads are not callable signature payloads', () {
+  test('enclosing opaque parameters are callback payloads', () {
     final source = SourceLocation(Uri.file('/callbacks.dart'), 0, 1);
     final parameter = DeclarationId(
       source.uri,
@@ -581,9 +685,7 @@ void [value, big, asynchronous, empty, wide, record, syncInFuture, globalName, l
         opaqueParameters: {parameter},
         allowCallback: true,
       ),
-      throwsA(
-        isA<BindingDiagnostic>().having((e) => e.code, 'code', 'NAPI_CALLBACK'),
-      ),
+      returnsNormally,
     );
   });
 }

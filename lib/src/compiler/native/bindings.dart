@@ -612,11 +612,13 @@ final class NativeCallback {
     Function adapter,
     int argc,
     void Function(Pointer<Void>, Pointer<Pointer<Void>>) write,
-    T Function(Pointer<Void>, Pointer<Void>) read,
-  ) {
+    T Function(Pointer<Void>, Pointer<Void>) read, {
+    OperationLease? lease,
+  }) {
     final completion = Completer<T>();
     final token = _api._nextCallback++;
     if (token > 9007199254740991) {
+      lease?.release();
       throw StateError('Native callback token space exhausted');
     }
     _api._pendingCallbacks[token] = _NativeCallbackPending(adapter, (
@@ -629,6 +631,8 @@ final class NativeCallback {
         completion.complete(read(env, value));
       } catch (error, stack) {
         completion.completeError(_api._callbackError(env, error), stack);
+      } finally {
+        lease?.release();
       }
     });
     try {
@@ -642,6 +646,7 @@ final class NativeCallback {
       }, (_, _) {});
     } catch (_) {
       _api._pendingCallbacks.remove(token);
+      lease?.release();
       rethrow;
     }
     return completion.future;

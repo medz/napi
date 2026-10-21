@@ -239,6 +239,19 @@ Object? _callbackValueSignature(ValueConversion? conversion) =>
         nullable,
       ],
       SharedBytesConversion(:final nullable) => ['sharedBytes', nullable],
+      OpaqueConversion(:final nullable) => ['opaque', nullable],
+      ReferenceConversion(:final classId, :final nullable) => [
+        'reference',
+        classId,
+        nullable,
+      ],
+      ValueClassConversion() => [
+        'value',
+        conversion.schemaId,
+        conversion.direction.name,
+        conversion.bigint,
+        conversion.nullable,
+      ],
       JsCollectionConversion() => [
         'jsCollection',
         conversion.nullable,
@@ -248,6 +261,17 @@ Object? _callbackValueSignature(ValueConversion? conversion) =>
         'list',
         nullable,
         _callbackValueSignature(element),
+      ],
+      MapConversion(:final key, :final value, :final nullable) => [
+        'map',
+        nullable,
+        _callbackValueSignature(key),
+        _callbackValueSignature(value),
+      ],
+      DictionaryConversion(:final value, :final nullable) => [
+        'dictionary',
+        nullable,
+        _callbackValueSignature(value),
       ],
       RecordConversion(:final positional, :final named, :final nullable) => [
         'record',
@@ -896,12 +920,12 @@ abstract interface class CallPlan {
 final class FunctionPlan implements CallPlan {
   final FunctionBinding binding;
   final bool _hasResources;
-  late final bool _hasResourceCollections;
+  late final bool _hasScopedResourceAccess;
   final int _index;
   late final ExportRepresentation representation =
       returnsFuture ||
           returnsStream ||
-          _hasResourceCollections ||
+          _hasScopedResourceAccess ||
           inputs.any((c) => c is OpaqueConversion) ||
           inputs.any((c) => c is CallbackConversion) ||
           inputs.any((c) => c is AbortSignalConversion) ||
@@ -1076,10 +1100,19 @@ final class ModulePlan {
   late final bool hasResourceCollections =
       resourcePolicies.isNotEmpty &&
       conversionGraph(conversions).any(containsJsCollectionReference);
+  late final bool hasResourceCallbacks =
+      resourcePolicies.isNotEmpty &&
+      conversionGraph(conversions).whereType<CallbackConversion>().any(
+        (callback) =>
+            conversionDependencies([...callback.inputs, ?callback.output])
+                .any((conversion) => conversion is ReferenceConversion),
+      );
+  bool get hasScopedResourceAccess =>
+      hasResourceCollections || hasResourceCallbacks;
 
   bool needsResourceOperation(CallPlan call) =>
       resourcePolicies.isNotEmpty &&
-      (hasResourceCollections ||
+      (hasScopedResourceAccess ||
           (call is MemberCallPlan && !call.isStatic) ||
           conversionGraph(call.inputs).any((c) => c is ReferenceConversion));
   ModulePlan._(
@@ -1159,7 +1192,7 @@ ModulePlan lower(ValidatedModule module) {
     referenceClassOrder(module.classes),
   );
   for (final function in functions) {
-    function._hasResourceCollections = plan.hasResourceCollections;
+    function._hasScopedResourceAccess = plan.hasScopedResourceAccess;
   }
   return plan;
 }

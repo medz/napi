@@ -186,20 +186,30 @@ final class _ResourceLease implements OperationLease {
 /// can reenter. They release after the final use, even if later conversion
 /// fails. Cleanup exempts its own control to avoid waiting on its own lease.
 final class ResourceOperation implements OperationLease {
-  ResourceOperation({this._exempt});
+  ResourceOperation({ResourceControl? exempt})
+    : _group = _ResourceOperationGroup(exempt);
+
+  ResourceOperation._(this._group) {
+    _group.scopes++;
+  }
 
   static final _zoneKey = Object();
   static ResourceOperation? get current =>
       Zone.current[_zoneKey] as ResourceOperation?;
 
-  ResourceControl? _exempt;
-  final _leases = Map<ResourceControl, OperationLease>.identity();
-  _ResourceStreamNotice? _stream;
+  final _ResourceOperationGroup _group;
   bool _released = false;
 
-  bool get isEmpty => _leases.isEmpty;
+  bool get isEmpty => _released || _group.leases.isEmpty;
   @override
   bool get isReleased => _released;
+
+  /// Keeps an accepted asynchronous invocation alive independently of its caller.
+  /// Releasing either scope invalidates it without ending the other scope.
+  ResourceOperation fork() {
+    if (_released) throw StateError('Resource operation is released.');
+    return ResourceOperation._(_group);
+  }
 
   /// Runs a call and its asynchronous continuations in this operation's scope.
   R run<R>(R Function() body) {
@@ -211,12 +221,12 @@ final class ResourceOperation implements OperationLease {
   void retain(ResourceControl? control) {
     if (_released) throw StateError('Resource operation is released.');
     if (control == null ||
-        identical(control, _exempt) ||
-        _leases.containsKey(control)) {
+        identical(control, _group.exempt) ||
+        _group.leases.containsKey(control)) {
       return;
     }
-    _leases[control] = control.retainOperation();
-    final notice = _stream;
+    _group.leases[control] = control.retainOperation();
+    final notice = _group.stream;
     if (notice == null) return;
     notice.attach(control);
     if (!_released && control.state != ResourceState.open) {
@@ -229,12 +239,12 @@ final class ResourceOperation implements OperationLease {
   /// [cancel] must be an unbound function: the notice keeps only a weak target,
   /// but retains this operation so an abandoned target cannot strand leases.
   void attachStream(Object target, Future<void> Function(Object) cancel) {
-    if (_released || _stream != null) {
+    if (_released || _group.stream != null) {
       throw StateError('Resource operation cannot attach another stream.');
     }
     final notice = _ResourceStreamNotice(this, target, cancel);
-    _stream = notice;
-    for (final control in _leases.keys.toList(growable: false)) {
+    _group.stream = notice;
+    for (final control in _group.leases.keys.toList(growable: false)) {
       notice.attach(control);
       if (_released) return;
     }
@@ -249,17 +259,30 @@ final class ResourceOperation implements OperationLease {
   void release() {
     if (_released) return;
     _released = true;
-    _stream?.detach();
-    _stream = null;
-    final leases = _leases.values.toList(growable: false);
-    _leases.clear();
-    _exempt = null;
+    final notice = _group.stream;
+    if (identical(notice?.operation, this)) {
+      notice!.detach();
+      _group.stream = null;
+    }
+    if (--_group.scopes != 0) return;
+    final leases = _group.leases.values.toList(growable: false);
+    _group.leases.clear();
+    _group.exempt = null;
     // Cleanup may reenter disposal or other operations. This group is already
     // detached, so reentrant release cannot release any accepted use twice.
     for (final lease in leases.reversed) {
       lease.release();
     }
   }
+}
+
+final class _ResourceOperationGroup {
+  _ResourceOperationGroup(this.exempt);
+
+  ResourceControl? exempt;
+  final leases = Map<ResourceControl, OperationLease>.identity();
+  _ResourceStreamNotice? stream;
+  int scopes = 1;
 }
 
 final class _ResourceStreamNotice {
