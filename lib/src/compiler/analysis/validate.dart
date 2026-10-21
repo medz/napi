@@ -2935,19 +2935,52 @@ bool _isBackendValue(
 /// share one policy. Generated classifiers reject actual composite objects whose
 /// selected views match different policy IDs before exposing or using them.
 Map<int, int> resourcePolicies(List<ReferenceClassShape> classes) {
+  final payload = DeclarationId(
+    Uri.parse('napi:resource-policy'),
+    'payload',
+    kind: DeclarationKind.typeParameter,
+  );
+  ReferenceMemberShape contract(ReferenceClassShape shape) {
+    final cleanup = shape.cleanup!;
+    final parameters = {
+      for (final parameter in shape.binding.typeParameters)
+        if (parameter.opaque) parameter.declaration: payload,
+    };
+    if (parameters.isEmpty) return cleanup;
+    // Every class payload is the same runtime carrier, independently of its
+    // declaration, parameter order, unused slots or class arity.
+    return ReferenceMemberShape._(
+      cleanup.binding,
+      cleanup.kind,
+      cleanup.parameters.map((p) => _projectParameter(p, parameters)),
+      cleanup.result == null ? null : _projectType(cleanup.result!, parameters),
+      isCleanup: true,
+    );
+  }
+
   final representatives = <ReferenceClassShape>[];
   final policies = <int, int>{};
   for (final shape in classes) {
-    final cleanup = shape.cleanup;
-    if (cleanup == null) continue;
+    if (shape.cleanup == null) continue;
+    final cleanup = contract(shape);
     bool compatible(ReferenceClassShape previous) {
-      final other = previous.cleanup!;
+      final other = contract(previous);
       return cleanup.binding.declaration.name ==
               other.binding.declaration.name &&
           (cleanup.binding.callPath ?? cleanup.binding.declaration.name) ==
               (other.binding.callPath ?? other.binding.declaration.name) &&
-          referenceMemberAccepts(cleanup, other, classes) &&
-          referenceMemberAccepts(other, cleanup, classes) &&
+          referenceMemberAccepts(
+            cleanup,
+            other,
+            classes,
+            opaqueInheritance: true,
+          ) &&
+          referenceMemberAccepts(
+            other,
+            cleanup,
+            classes,
+            opaqueInheritance: true,
+          ) &&
           referenceMemberDefaultsAccept(cleanup, other) &&
           referenceMemberDefaultsAccept(other, cleanup);
     }

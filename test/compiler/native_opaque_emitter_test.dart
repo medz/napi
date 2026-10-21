@@ -45,6 +45,7 @@ import 'package:napi/napi.dart';
 final _closed = <int, int>{};
 final _reasons = <int, Object?>{};
 final _nullReasons = <int, bool>{};
+final _secondReasons = <int, Object?>{};
 @NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
 class Resource<T> {
   Resource(this.id, this.value);
@@ -69,6 +70,47 @@ class Resource<T> {
 @NAPI() int closed(int id) => _closed[id] ?? 0;
 @NAPI() T? reason<T>(int id) => _reasons[id] as T?;
 @NAPI() bool nullReason(int id) => _nullReasons[id] ?? false;
+@NAPI() T? secondReason<T>(int id) => _secondReasons[id] as T?;
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+abstract class First<T> { First._(); Future<void> close(T reason); }
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+abstract class Second<U> { Second._(); Future<void> close(U reason); }
+class Both<V> implements First<V>, Second<V> {
+  Both(this.id);
+  final int id;
+  Future<void> close(V reason) async {
+    _closed[id] = (_closed[id] ?? 0) + 1;
+    _reasons[id] = reason;
+  }
+}
+@NAPI() First<V> both<V>(int id) => Both<V>(id);
+@NAPI() Second<V> secondView<V>(First<V> value) => value as Second<V>;
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+abstract class PairFirst<A, B> {
+  PairFirst._();
+  void close(A first, B second);
+}
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+abstract class PairSecond<X, Unused, Z> {
+  PairSecond._();
+  void close(Z first, X second);
+}
+class BothPair<A, B> implements PairFirst<A, B>, PairSecond<B, A, A> {
+  BothPair(this.id);
+  final int id;
+  void close(A first, B second) {
+    _closed[id] = (_closed[id] ?? 0) + 1;
+    _reasons[id] = first;
+    _secondReasons[id] = second;
+  }
+}
+@NAPI() PairFirst<A, B> pair<A, B>(int id) => BothPair<A, B>(id);
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+abstract class ScalarCleanup { ScalarCleanup._(); void close(int value); }
+class Incompatible<V> implements First<V>, ScalarCleanup {
+  Future<void> close(Object? value) async {}
+}
+@NAPI() First<V> incompatible<V>() => Incompatible<V>();
 ''';
 
 const _resourceChecks = r'''
@@ -132,6 +174,25 @@ for (let attempt = 0; attempt < 40; attempt++) {
 assert.equal(weak.deref(), undefined);
 await resource.close();
 assert.equal(api.closed(30), 1);
+
+const payload = {};
+const composite = api.both(40);
+assert.equal(api.secondView(composite), composite);
+await assert.rejects(composite.close(), TypeError);
+await composite.close(payload);
+await api.Second.prototype.close.call(composite, payload);
+assert.equal(api.closed(40), 1);
+assert.equal(api.reason(40), payload);
+
+const first = {};
+const second = Symbol('second');
+const pair = api.pair(41);
+await pair.close(first, second);
+await api.PairSecond.prototype.close.call(pair, first, second);
+assert.equal(api.closed(41), 1);
+assert.equal(api.reason(41), first);
+assert.equal(api.secondReason(41), second);
+assert.throws(() => api.incompatible(), /incompatible cleanup policies/);
 ''';
 
 void main() {
