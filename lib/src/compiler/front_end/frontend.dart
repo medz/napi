@@ -150,6 +150,7 @@ final class ExternalFrontend implements BindingFrontend {
 
 typedef _DefaultAccess = ({
   ConstantDefault expression,
+  bool expressionNullable,
   a.DartType type,
   List<String> fieldPath,
 });
@@ -1214,7 +1215,13 @@ final class _Reader {
       };
       return expression == null || type == null
           ? null
-          : (expression: expression, type: type, fieldPath: const []);
+          : (
+              expression: expression,
+              expressionNullable:
+                  type.nullabilitySuffix == NullabilitySuffix.question,
+              type: type,
+              fieldPath: const [],
+            );
     }
 
     _DefaultAccess? fieldAccess(
@@ -1225,9 +1232,7 @@ final class _Reader {
       if (parent == null ||
           field == null ||
           field.isPrivate ||
-          parent.type is! a.InterfaceType ||
-          parent.fieldPath.isEmpty &&
-              parent.type.nullabilitySuffix == NullabilitySuffix.question) {
+          parent.type is! a.InterfaceType) {
         return null;
       }
       final name = field.name!;
@@ -1248,6 +1253,7 @@ final class _Reader {
       }
       return (
         expression: parent.expression,
+        expressionNullable: parent.expressionNullable,
         type: exposed.returnType,
         fieldPath: [
           ...parent.fieldPath,
@@ -1378,6 +1384,7 @@ final class _Reader {
           type: _type(actual) as DeclaredType,
           supertypes: actual.allSupertypes.map((t) => _type(t) as DeclaredType),
           expression: access?.expression,
+          expressionNullable: access?.expressionNullable ?? false,
           fieldPath: access?.fieldPath ?? const [],
         );
         if (index == null) {

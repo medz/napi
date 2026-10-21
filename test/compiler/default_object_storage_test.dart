@@ -165,8 +165,22 @@ class Value {
   const Value({this.owner = defaultResource});
   final Resource? owner;
 }
+class _PrivateResource extends Resource { const _PrivateResource() : super._(); }
+@NAPI(classPolicy: ClassPolicy.value)
+class Root {
+  const Root(this.held);
+  final Resource? held;
+}
+const Root? publicRoot = Root(_PrivateResource());
+@NAPI(classPolicy: ClassPolicy.value)
+class NestedValue {
+  const NestedValue({this.root = publicRoot});
+  final Root? root;
+}
 @NAPI() bool take(Value value) => value.owner != null;
 @NAPI() bool optional([Resource? value = defaultResource]) => value != null;
+@NAPI() bool nested(NestedValue value) => value.root?.held != null;
+@NAPI() bool optionalRoot([Root? value = publicRoot]) => value?.held != null;
 ''');
       for (final native in [false, true]) {
         final module = await AnnotationFrontend(
@@ -181,7 +195,21 @@ class Value {
         expect(leaf.type.nullability, TypeNullability.nonNullable);
         expect(source(leaf), 'defaultResource');
         expect(leaf.expression, isA<NamedObjectDefault>());
+        expect(leaf.expressionNullable, isTrue);
         expect(leaf.fieldPath, isEmpty);
+        final nested = module.classes
+            .singleWhere((binding) => binding.exportName == 'NestedValue')
+            .members
+            .singleWhere((member) => member.kind == MemberKind.constructor)
+            .parameters
+            .single
+            .defaultObjects!
+            .singleWhere(
+              (object) => object.type.declaration.name == '_PrivateResource',
+            );
+        expect(source(nested), 'publicRoot');
+        expect(nested.expressionNullable, isTrue);
+        expect(nested.fieldPath, ['held!']);
         final generated = native
             ? emitNativeDart(validateNative(module))
             : emitDart(lower(validate(module)));
@@ -278,18 +306,6 @@ const Value origin = _Value(_Handle(8));
 @NAPI() int take([Value value = origin]) => 1;
 ''',
     ),
-    (
-      'nullable const root',
-      '''
-@NAPI(classPolicy: ClassPolicy.value) abstract class Value { Handle get held; }
-class _Value implements Value {
-  const _Value(this.held);
-  final Handle held;
-}
-const Value? origin = _Value(_Handle(9));
-@NAPI() int take([Value? value = origin]) => 1;
-''',
-    ),
   ]) {
     test('$name retains an inaccessible leaf instead of dropping it', () async {
       final parameter = await read('$_resource\n$body');
@@ -297,6 +313,26 @@ const Value? origin = _Value(_Handle(9));
       expect(handle(parameter).expression, isNull);
     });
   }
+
+  test(
+    'nullable public const roots expose their known non-null storage',
+    () async {
+      final parameter = await read('''
+$_resource
+@NAPI(classPolicy: ClassPolicy.value) abstract class Value { Handle get held; }
+class _Value implements Value {
+  const _Value(this.held);
+  final Handle held;
+}
+const Value? origin = _Value(_Handle(9));
+@NAPI() int take([Value? value = origin]) => 1;
+''');
+      final leaf = handle(parameter);
+      expect(source(leaf), 'origin');
+      expect(leaf.expressionNullable, isTrue);
+      expect(leaf.fieldPath, ['held']);
+    },
+  );
 
   test('scalar defaults distinguish a completed scan from no default', () async {
     final scalar = await read(

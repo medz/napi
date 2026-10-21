@@ -297,11 +297,13 @@ final class DefaultObjectBinding {
   final DeclaredType type;
   final List<DeclaredType> supertypes;
   final ConstantDefault? expression;
+  final bool expressionNullable;
   final List<String> fieldPath;
   DefaultObjectBinding({
     required this.type,
     Iterable<DeclaredType> supertypes = const [],
     this.expression,
+    this.expressionNullable = false,
     Iterable<String> fieldPath = const [],
   }) : supertypes = List.unmodifiable(supertypes),
        fieldPath = List.unmodifiable(fieldPath);

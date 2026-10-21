@@ -150,7 +150,7 @@ String _defaultObjectSource(
   DefaultObjectBinding object,
   String Function(DeclarationId)? declarationSource,
 ) =>
-    '((${constantDefaultSource(object.expression!, declarationSource: declarationSource)})${object.fieldPath.map((field) => '.$field').join()} as Object)';
+    '((${constantDefaultSource(object.expression!, declarationSource: declarationSource)})${object.expressionNullable ? '!' : ''}${object.fieldPath.map((field) => '.$field').join()} as Object)';
 
 String emitDartValueDefaultReferences(
   Iterable<ValueConversion> conversions, {
