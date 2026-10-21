@@ -962,6 +962,22 @@ functionHandleValues(
 }
 
 @NAPI()
+JsArray<void Function(List<int>)> callListFunctionHandle(
+  JsArray<void Function(List<int>)> values,
+) {
+  values.get(0)!([1]);
+  return values;
+}
+
+@NAPI()
+JsArray<List<void Function(List<int>)>> callNestedListFunctionHandle(
+  JsArray<List<void Function(List<int>)>> values,
+) {
+  values.get(0)!.single([1]);
+  return values;
+}
+
+@NAPI()
 (Unary?, Unary?) nullableFunctionHandles(
   JsArray<Unary?> array,
   JsMap<String, Unary?> map,

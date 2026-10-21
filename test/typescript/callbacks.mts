@@ -278,6 +278,13 @@ const externalAdder: (value: number) => number = externalHandles.makeAdder(2);
 const directAdder: (value: number) => number = direct.makeAdder(2);
 const functionHandles: {array: Array<(value: number) => number>; map: Map<string, (value: number) => number>; result: number} =
   api.functionHandleValues([adder], new Map([['add', adder]]), adder);
+const mutableListCallback = (values: Array<number>) => {values.push(2);};
+const listFunctionHandle = api.callListFunctionHandle([mutableListCallback]);
+externalHandles.callListFunctionHandle([mutableListCallback]);
+direct.callListFunctionHandle([mutableListCallback]);
+const nestedListFunctionHandle = api.callNestedListFunctionHandle([[mutableListCallback]]);
+externalHandles.callNestedListFunctionHandle([[mutableListCallback]]);
+direct.callNestedListFunctionHandle([[mutableListCallback]]);
 const nullableFunctionHandles: {$1: ((value: number) => number) | null; $2: ((value: number) => number) | null} =
   api.nullableFunctionHandles([null], new Map([['add', adder]]), 0, null);
 const asyncFunctionHandle: Promise<{values: Array<(value: number) => Promise<number>>; before: number; after: number}> =
@@ -346,7 +353,7 @@ void [sum, namedAdder, futureAdder, asyncAdder, consumedFunctions, transformed, 
   canonical, composer, normalizedOutput, echoedNormalized, positionalDefaults, capturedPayload,
   capturedFunction, rejectedFunction, resourceFunction, asyncResourceFunction, resourceStreamFunction,
   externalAdder, directAdder, externalStream, directStream, promisedStream];
-void [functionHandles, nullableFunctionHandles, asyncFunctionHandle, opaqueFunctionHandles,
+void [functionHandles, listFunctionHandle, nestedListFunctionHandle, nullableFunctionHandles, asyncFunctionHandle, opaqueFunctionHandles,
   copiedFunctionResult, normalizedFunctions];
 
 // @ts-expect-error Future callback results require a Promise, not a plain scalar.

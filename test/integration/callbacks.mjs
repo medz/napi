@@ -187,6 +187,17 @@ function functionCollectionValues(api, add, javascript, normalize, normalized) {
   assert.equal(direct.array, array); assert.equal(direct.map, map); assert.equal(direct.result, 15);
   assert.equal(array[0], add); assert.equal(map.get('add'), add);
   assert.equal(array[1], 3); assert.equal(map.get('unused'), null);
+  let copiedList;
+  const mutateList = values => {copiedList = values; values.push(2);};
+  const listCallbacks = [mutateList];
+  assert.equal(api.callListFunctionHandle(listCallbacks), listCallbacks);
+  assert.equal(listCallbacks[0], mutateList);
+  assert.deepEqual(copiedList, [1, 2]);
+  copiedList = undefined;
+  const nestedCallbacks = [[mutateList]];
+  assert.equal(api.callNestedListFunctionHandle(nestedCallbacks), nestedCallbacks);
+  assert.equal(nestedCallbacks[0][0], mutateList);
+  assert.deepEqual(copiedList, [1, 2]);
   for (const invalid of [null, undefined, 3]) {
     assert.throws(() => api.functionHandleValues([invalid], new Map([['add', javascript]]), add), TypeError);
     assert.throws(() => api.functionHandleValues([javascript], new Map([['add', invalid]]), add), TypeError);
@@ -1404,7 +1415,8 @@ async function scenario(name) {
         'isCanonicalFunction', 'capturePayload', 'rejectFunctionResult',
         'resourceFunction', 'asyncResourceFunction', 'resourceStreamFunction',
         'startFunctionOnlyCallback',
-        'functionHandleValues', 'nullableFunctionHandles', 'asyncFunctionHandle',
+        'functionHandleValues', 'callListFunctionHandle', 'nullableFunctionHandles', 'asyncFunctionHandle',
+        'callNestedListFunctionHandle',
         'opaqueFunctionHandles', 'copiedFunctionHandle', 'normalizedFunctionHandle',
       ].sort());
       assert.equal(external.plainCallback(n => n + 1, 3), 4);

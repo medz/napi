@@ -112,6 +112,8 @@ Future<void> main() async {
         ExternalFunction('resourceStreamFunction'),
         ExternalFunction('startFunctionOnlyCallback'),
         ExternalFunction('functionHandleValues'),
+        ExternalFunction('callListFunctionHandle'),
+        ExternalFunction('callNestedListFunctionHandle'),
         ExternalFunction('nullableFunctionHandles'),
         ExternalFunction('asyncFunctionHandle'),
         ExternalFunction('opaqueFunctionHandles'),

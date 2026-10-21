@@ -140,7 +140,9 @@ final class JsCollectionConversion extends ValueConversion {
   @override
   String get jsType => 'object';
   static String _storedType(ValueConversion input, ValueConversion output) {
-    if (!containsValueClass(input) && !containsValueClass(output)) {
+    if (!conversionDependencies([input, output]).any(
+      (value) => value is ValueClassConversion || value is CallbackConversion,
+    )) {
       return output.typescriptType;
     }
     final read = input.typescriptType;
