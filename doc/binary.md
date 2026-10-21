@@ -45,8 +45,10 @@ classes. Aliases and reexports resolve to the same Dart type. `Future` and
 their existing identity semantics: a `T` containing a JavaScript typed array is
 still an opaque value, rather than an inferred binary snapshot.
 
-Other typed-data declarations and binary typed-callback signatures currently
-produce build diagnostics. A `ByteBuffer` obtained from another Dart typed list
+Typed [callbacks](callbacks.md) accept both types directly and inside Lists and
+records, including Future results, with the same independent snapshot policy.
+Other typed-data declarations produce build diagnostics.
+A `ByteBuffer` obtained from another Dart typed list
 is supported; its bytes retain their original layout without numeric conversion.
 
 ## Snapshot timing and ownership

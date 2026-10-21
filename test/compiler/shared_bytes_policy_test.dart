@@ -83,25 +83,49 @@ class SharedBytes {}
     'Future<SharedBytes> Function()',
     'void Function(List<SharedBytes>)',
   ]) {
-    test('shared callback signature remains diagnosed: $signature', () async {
-      final input = await File('${directory.path}/business.dart')
-          .writeAsString('''
+    test(
+      'shared callback signature uses shared conversions: $signature',
+      () async {
+        final input = await File('${directory.path}/business.dart')
+            .writeAsString('''
 import 'package:napi/napi.dart';
 @NAPI() int value($signature callback) => 0;
 ''');
-      final module = await AnnotationFrontend(packagesPath: packages)
-          .read(input.uri);
-      expect(
-        () => validate(module),
-        throwsA(
-          isA<BindingDiagnostic>().having(
-            (error) => error.code,
-            'code',
-            'NAPI_CALLBACK',
-          ),
-        ),
-      );
-      expect(() => validateNative(module), throwsA(isA<BindingDiagnostic>()));
-    });
+        final module = await AnnotationFrontend(packagesPath: packages)
+            .read(input.uri);
+        final wasm = lower(validate(module));
+        final native = validateNative(module);
+        final callbacks = [
+          wasm.functions.single.inputs.single as CallbackConversion,
+          native.functions.single.inputs.single as CallbackConversion,
+        ];
+        for (final callback in callbacks) {
+          expect(callback.returnsFuture, signature.startsWith('Future<'));
+          if (callback.inputs.isEmpty) {
+            expect(callback.output, isA<SharedBytesConversion>());
+          } else {
+            expect(callback.output, isNull);
+            final input = callback.inputs.single;
+            if (signature.contains('List<')) {
+              expect(input, isA<ListConversion>());
+              expect(
+                (input as ListConversion).element,
+                isA<SharedBytesConversion>(),
+              );
+            } else {
+              expect(input, isA<SharedBytesConversion>());
+            }
+          }
+          expect(
+            conversionDependencies([callback])
+                .whereType<SharedBytesConversion>(),
+            hasLength(1),
+          );
+        }
+        expect(native.hasSharedBytesTypes, isTrue);
+        expect(callbacks.first.signatureKey, callbacks.last.signatureKey);
+        expect(emitDeclarations(wasm), emitNativeDeclarations(native));
+      },
+    );
   }
 }

@@ -117,8 +117,11 @@ view's custom properties and a Dart owner must be broken by application code.
 Automatic collection of arbitrary cross-heap cycles is not promised. Garbage
 collection does not invoke business cancellation or resource cleanup.
 
-Typed callback signatures containing `SharedBytes` remain unsupported. This
-type is a checked host adapter, not a `Uint8List` subclass; arbitrary ordinary
+Typed [callbacks](callbacks.md) accept `SharedBytes` directly and inside Lists
+and records, including Future results. They retain the original JS view and
+observe live bytes; later access still checks detachment and bounds.
+
+This type is a checked host adapter, not a `Uint8List` subclass; arbitrary ordinary
 Dart storage cannot be reinterpreted as shared host backing. Allocator support
 is included in generated modules even when their exported signatures contain
 no `SharedBytes`. See [native requirements](native.md) and

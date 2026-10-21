@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:collection';
+import 'dart:typed_data';
 
 import 'package:napi/napi.dart';
 
@@ -64,6 +65,103 @@ List<List<int?>>? callNested(
   List<List<int?>>? Function(List<List<int?>>?) callback,
   List<List<int?>>? value,
 ) => callback(value);
+
+@NAPI()
+Uint8List callBytes(Uint8List Function(Uint8List) callback, Uint8List value) {
+  final result = callback(value);
+  if (value.isNotEmpty) value[0] = 90;
+  if (result.isNotEmpty) result[0]++;
+  return result;
+}
+
+@NAPI()
+ByteBuffer callBuffer(
+  ByteBuffer Function(ByteBuffer) callback,
+  ByteBuffer value,
+) {
+  final result = callback(value);
+  final source = value.asUint8List();
+  final bytes = result.asUint8List();
+  if (source.isNotEmpty) source[0] = 90;
+  if (bytes.isNotEmpty) bytes[0]++;
+  return result;
+}
+
+@NAPI()
+SharedBytes? callShared(
+  SharedBytes? Function(SharedBytes?) callback,
+  SharedBytes? value,
+) {
+  final result = callback(value);
+  if (value != null && value.length > 0) value[0]++;
+  return result;
+}
+
+typedef CallbackBinary = ({
+  List<Uint8List?> bytes,
+  ByteBuffer? buffer,
+  SharedBytes? shared,
+});
+
+CallbackBinary Function(CallbackBinary)? _binaryCallback;
+
+@NAPI()
+CallbackBinary callBinaryRecord(
+  CallbackBinary Function(CallbackBinary) callback,
+  CallbackBinary value,
+) {
+  _binaryCallback = callback;
+  return callback(value);
+}
+
+@NAPI()
+CallbackBinary invokeBinaryRecord(CallbackBinary value) =>
+    _binaryCallback!(value);
+
+@NAPI()
+int clearBinaryCallback() {
+  _binaryCallback = null;
+  return 0;
+}
+
+@NAPI()
+Future<Uint8List?> callAsyncBytes(
+  Future<Uint8List?> Function(Uint8List?) callback,
+  Uint8List? value,
+) async {
+  final result = await callback(value);
+  if (value != null && value.isNotEmpty) value[0] = 90;
+  if (result != null && result.isNotEmpty) result[0]++;
+  return result;
+}
+
+@NAPI()
+Future<SharedBytes?> callAsyncShared(
+  Future<SharedBytes?> Function(SharedBytes?) callback,
+  SharedBytes? value,
+) async {
+  final result = await callback(value);
+  if (value != null && value.length > 0) value[0]++;
+  if (result != null && result.length > 0) result[0]++;
+  return result;
+}
+
+@NAPI()
+Future<CallbackBinary> callAsyncBinaryRecord(
+  Future<CallbackBinary> Function(CallbackBinary) callback,
+  CallbackBinary value,
+) => callback(value);
+
+@NAPI()
+bool binaryCallbackPolicies(
+  Uint8List Function(Uint8List) first,
+  Uint8List Function(Uint8List) again,
+  ByteBuffer Function(ByteBuffer) buffer,
+  SharedBytes Function(SharedBytes) shared,
+) =>
+    identical(first, again) &&
+    !identical(first, buffer) &&
+    !identical(first, shared);
 
 @NAPI()
 int callbackUnsafeArgument(int Function(int) callback) =>

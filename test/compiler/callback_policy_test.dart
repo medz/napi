@@ -192,6 +192,52 @@ typedef Transform = Later<List<(int, String?)>?> Function((bool, List<int?>) sou
   );
 
   test(
+    'binary callback signatures preserve copy and sharing policies',
+    () async {
+      final module = await read('''
+import 'dart:typed_data';
+typedef Bytes = Uint8List;
+@NAPI() int bytes(Uint8List Function(Uint8List) callback) => 1;
+@NAPI(bigint: true) int alias(Bytes Function(Bytes other) renamed) => 1;
+@NAPI() int optional([Uint8List Function(Uint8List)? callback]) => 1;
+@NAPI() int nullableInput(Uint8List Function(Uint8List?) callback) => 1;
+@NAPI() int nullableOutput(Uint8List? Function(Uint8List) callback) => 1;
+@NAPI() int buffer(ByteBuffer Function(ByteBuffer) callback) => 1;
+@NAPI() int shared(SharedBytes Function(SharedBytes) callback) => 1;
+@NAPI() int nullableShared(SharedBytes? Function(SharedBytes?) callback) => 1;
+@NAPI() int future(Future<Uint8List?> Function(List<(ByteBuffer?, SharedBytes?)>) callback) => 1;
+''');
+      final wasm = lower(validate(module));
+      final native = validateNative(module);
+      List<String>? signatures;
+      for (final inputs in [
+        wasm.functions.map((function) => function.inputs.single),
+        native.functions.map((function) => function.inputs.single),
+      ]) {
+        final callbacks = inputs.cast<CallbackConversion>().toList();
+        final keys = callbacks
+            .map((callback) => callback.signatureKey)
+            .toList();
+        expect(keys[0], keys[1]);
+        expect(keys[0], keys[2]);
+        expect(keys.toSet(), hasLength(7));
+        expect(callbacks[0].inputs.single, isA<BinaryConversion>());
+        expect(callbacks[5].inputs.single, isA<BinaryConversion>());
+        expect(callbacks[6].inputs.single, isA<SharedBytesConversion>());
+        expect(callbacks.last.inputs.single, isA<ListConversion>());
+        expect(callbacks.last.returnsFuture, isTrue);
+        expect(callbacks.last.output!.nullable, isTrue);
+        if (signatures == null) {
+          signatures = keys;
+        } else {
+          expect(keys, signatures);
+        }
+      }
+      expect(emitDeclarations(wasm), emitNativeDeclarations(native));
+    },
+  );
+
+  test(
     'callback handles preserve element policies and enclosing opaque types',
     () async {
       final module = await read('''
@@ -449,6 +495,10 @@ void [value, big, asynchronous, empty, wide, record, syncInFuture, globalName, l
   });
 
   final rejected = <String, String>{
+    for (final type in ['Int8List', 'Float64List', 'Uint8ClampedList'])
+      'unsupported $type callback argument':
+          "import 'dart:typed_data'; @NAPI() int run(int Function($type) callback) => 1;",
+    'unsupported typed callback result': "import 'dart:typed_data'; @NAPI() int run(Future<Int32List> Function() callback) => 1;",
     'callback output': '@NAPI() int Function(int) output() => (n) => n;',
     'callback getter': '@NAPI() class Bad { Bad(); int Function(int) get callback => (n) => n; }',
     'callback field':
