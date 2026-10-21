@@ -43,7 +43,7 @@ String emitDart(ModulePlan plan) {
     "import 'dart:typed_data' as typed_data;\n"
     "import 'package:napi/runtime.dart';\n"
     "import 'package:napi/napi.dart' as napi;\n"
-    "${plan.conversions.any(containsDictionary) ? "import 'dart:convert' show jsonEncode;\n" : ''}"
+    "${conversionDependencies(plan.conversions).any((c) => c is DictionaryConversion) ? "import 'dart:convert' show jsonEncode;\n" : ''}"
     '$prelude\n',
   );
   if (jsCollections ||

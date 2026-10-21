@@ -854,3 +854,122 @@ bool binarySharedPolicy(
   JsArray<Uint8List?> copied,
   JsArray<SharedBytes?> shared,
 ) => identical(copied, shared);
+
+typedef StructuralElement = ({
+  String text,
+  List<int?> values,
+  Map<String, Uint8List?> bytes,
+  Dictionary<SharedBytes?> shared,
+});
+
+@NAPI()
+class StructuralCollections {
+  final JsArray<StructuralElement?> _array;
+  final JsMap<String, StructuralElement?> _map;
+  StructuralElement? _saved;
+  StructuralCollections(this._array, this._map);
+  JsArray<StructuralElement?> array() => _array;
+  JsMap<String, StructuralElement?> map() => _map;
+  StructuralElement? read(int index) => _array.get(index);
+  StructuralElement? get(String key) => _map.get(key);
+  StructuralElement? first() => _map.entries.first.$2;
+  void save(int index) => _saved = _array.get(index);
+  StructuralElement? saved() => _saved;
+  void change(int value) {
+    _saved!.values[0] = value;
+    _saved!.bytes['key']![0] = value;
+  }
+
+  void writeSaved(int index) => _array.set(index, _saved);
+  void putSaved(String key) => _map.set(key, _saved);
+  void unsafe() => _saved!.values[0] = 9007199254740992;
+  bool catchesWrite(int index) {
+    try {
+      _array.set(index, _saved);
+      return false;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  bool independentReads() =>
+      !identical(_array.get(0)!.values, _array.get(0)!.values);
+  bool catches(int index) {
+    try {
+      _array.get(index);
+      return false;
+    } catch (_) {
+      return true;
+    }
+  }
+}
+
+@NAPI()
+bool structuralKeys(JsMap<List<int>, Dictionary<int>> value) {
+  final (key, item) = value.entries.first;
+  if (value.has(key) || value.get(key) != null || value.delete(key)) {
+    return false;
+  }
+  value.set(key, item);
+  key[0] = 9;
+  item['value'] = 10;
+  return true;
+}
+
+@NAPI()
+List<int>? recordKey(JsMap<({int id}), List<int>> value) =>
+    value.entries.first.$2;
+
+@NAPI()
+bool containerKeys(
+  JsMap<Map<String, int>, Dictionary<int>> maps,
+  JsMap<Dictionary<int>, List<int>> dictionaries,
+) {
+  final (mapKey, mapValue) = maps.entries.first;
+  final (dictKey, dictValue) = dictionaries.entries.first;
+  if (maps.has(mapKey) || dictionaries.has(dictKey)) {
+    return false;
+  }
+  maps.set(mapKey, mapValue);
+  dictionaries.set(dictKey, dictValue);
+  mapKey['key'] = 9;
+  mapValue['value'] = 9;
+  dictKey['key'] = 9;
+  dictValue[0] = 9;
+  return true;
+}
+
+@NAPI()
+bool recordMapCollision(JsArray<Map<({int id}), int>> value, bool catchError) {
+  try {
+    value.get(0);
+    return false;
+  } catch (_) {
+    if (catchError) return true;
+    rethrow;
+  }
+}
+
+@NAPI(bigint: true)
+JsArray<List<int>> structuralBigints(JsArray<List<int>> value) {
+  value.set(0, value.get(0)!);
+  return value;
+}
+
+@NAPI()
+JsArray<List<BigInt>> structuralWideBigints(JsArray<List<BigInt>> value) {
+  value.set(0, value.get(0)!);
+  return value;
+}
+
+@NAPI()
+int mixedResourceEntries(JsMap<ResourceItem, List<int>> value) {
+  final (key, item) = value.entries.first;
+  return key.value + item.first;
+}
+
+@NAPI()
+List<int>? structuralCallback(
+  JsArray<List<int>> Function(JsArray<List<int>>) callback,
+  JsArray<List<int>> value,
+) => callback(value).get(0);

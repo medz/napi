@@ -1,9 +1,32 @@
 import 'dart:convert';
 
 import '../../lowering/plan.dart';
+import 'structural.dart';
+
+Iterable<JsCollectionConversion> _collectionPolicies(
+  Iterable<JsCollectionConversion> conversions,
+) {
+  final policies = <String, JsCollectionConversion>{};
+  void add(JsCollectionConversion c) {
+    if (policies.containsKey(c.signatureKey)) return;
+    policies[c.signatureKey] = c;
+    for (final child in [?c.key, c.value]) {
+      if (child is JsCollectionConversion) add(child);
+    }
+  }
+
+  conversions.forEach(add);
+  return policies.values;
+}
+
+bool _copiedStructure(ValueConversion c) =>
+    c is ListConversion ||
+    c is MapConversion ||
+    c is DictionaryConversion ||
+    c is RecordConversion;
 
 String jsCollectionPolicies(Iterable<JsCollectionConversion> conversions) {
-  Map<String, Object> element(ValueConversion c) => switch (c) {
+  Map<String, Object?> element(ValueConversion c) => switch (c) {
     ScalarConversion() => {
       'opaque': false,
       'type': c.jsType,
@@ -31,25 +54,49 @@ String jsCollectionPolicies(Iterable<JsCollectionConversion> conversions) {
       'collection': c.isMap ? 'map' : 'array',
       'nullable': c.nullable,
     },
+    ListConversion() ||
+    MapConversion() ||
+    DictionaryConversion() ||
+    RecordConversion() => {
+      'opaque': false,
+      'structure': true,
+      'nullable': c.nullable,
+      'read': null,
+      'write': null,
+    },
     _ => throw StateError('Unsupported JS collection element'),
   };
-  final policies = <String, Object>{};
-  void add(JsCollectionConversion c) {
-    if (policies.containsKey(c.signatureKey)) return;
-    policies[c.signatureKey] = {
-      'map': c.isMap,
-      'key': c.key == null ? null : element(c.key!),
-      'value': element(c.value),
-    };
-    for (final child in [?c.key, c.value]) {
-      if (child is JsCollectionConversion) add(child);
+  return jsonEncode({
+    for (final c in _collectionPolicies(conversions))
+      c.signatureKey: {
+        'map': c.isMap,
+        'key': c.key == null ? null : element(c.key!),
+        'value': element(c.value),
+      },
+  });
+}
+
+/// Copied elements use the ordinary structural boundary for each lazy access.
+String jsCollectionStructurePolicies(
+  Iterable<JsCollectionConversion> conversions,
+) {
+  final source = StringBuffer();
+  var next = 0;
+  for (final c in _collectionPolicies(conversions)) {
+    for (final (field, child) in [('key', c.key), ('value', c.value)]) {
+      if (child == null || !_copiedStructure(child)) continue;
+      final structure = emitStructuralBoundary(
+        child,
+        prefix: '\$jcStructure${next++}',
+        leafAdapter: const BoundaryLeafAdapter(bigintText: true),
+      );
+      source.writeln(structure.source);
+      final policy = '\$jcPolicies[${jsonEncode(c.signatureKey)}].$field';
+      source.writeln('$policy.read = ${structure.read};');
+      source.writeln('$policy.write = ${structure.write};');
     }
   }
-
-  for (final c in conversions) {
-    add(c);
-  }
-  return jsonEncode(policies);
+  return source.toString();
 }
 
 /// Operations act on the original container. Admission does not read elements.
@@ -88,6 +135,7 @@ function $jcIndex(index) {
 // BigInt text is private Wasm transport only, never the public JS value.
 function $jcInput(value, policy, path, text) {
   if (policy.opaque) return value;
+  if ($jcOwn(policy, 'structure')) return text ? policy.write(value, path, {work: 0, active: new Set(), pending: null}, 0) : value;
   if ($jcOwn(policy, 'binary')) return text ? $napiAdoptBinary(value, policy.binary, policy.nullable, path) : value;
   if ($jcOwn(policy, 'sharedBytes')) return text ? $napiReadSharedBytes(value, policy.nullable, path) : value;
   if ($jcOwn(policy, 'reference')) {
@@ -99,6 +147,10 @@ function $jcInput(value, policy, path, text) {
 }
 function $jcOutput(value, policy, path, text) {
   if (policy.opaque) return value;
+  if ($jcOwn(policy, 'structure')) {
+    if (value === null && !policy.nullable) throw new $jcTypeError(path + ': expected a copied structure');
+    return text ? policy.read(value, path, {work: 0, active: new Set()}, 0) : value;
+  }
   if ($jcOwn(policy, 'binary')) {
     if (value === null && !policy.nullable) throw new $jcTypeError(path + ': expected binary storage');
     return text ? $napiCopyBinary(value, policy.binary, policy.nullable, path, true) : value;
@@ -147,9 +199,9 @@ function $jcCall(source, policy, op, a, b, text = false) {
     case 7: return $jcApply($jcEntries, source, []);
     case 8: {
       const step = $jcApply($jcNext, a, []);
-      if (step.done) return null;
-      return [$jcOutput(step.value[0], policy.key, 'JsMap key', text), $jcOutput(step.value[1], policy.value, valuePath, text)];
+      return step.done ? null : step.value;
     }
+    case 9: return $jcOutput(a[b], b === 0 ? policy.key : policy.value, b === 0 ? 'JsMap key' : valuePath, text);
     default: throw new $jcTypeError('Unknown JS collection operation');
   }
 }

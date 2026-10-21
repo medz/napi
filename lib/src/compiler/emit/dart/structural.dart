@@ -30,14 +30,22 @@ final class DartStructuralEmitter {
         return '_JsElement<$type>(true, null, null)';
       case ScalarConversion():
         return '_JsElement<$type>(false, (value) => $nullable${_readScalar(conversion, bigintText: true)}, (value) => $nullable${_writeScalar(conversion)})';
-      case BinaryConversion():
-        final reader = read(conversion);
+      case BinaryConversion() ||
+          ListConversion() ||
+          MapConversion() ||
+          DictionaryConversion() ||
+          RecordConversion():
+        final reader = read(conversion, bigintText: true);
         final writer = write(conversion);
         final path = jsonEncode(conversion.context).replaceAll(r'$', r'\$');
-        return '_JsElement<$type>(false, (value) => $reader(value, $path), (value) { '
+        final failure =
+            'throw _CallbackThrown(_jcTypeError(externRefForJSAny((error.path + ": " + error.message).toJS), WasmI32.fromInt(error.range ? 1 : 0)));';
+        return '_JsElement<$type>(false, (value) { '
+            'try { return $reader(value, $path); } '
+            'on _StructureViolation catch (error) { $failure } }, (value) { '
             'try { return $writer(value, _StructureState(), $path, 0); } '
             'on _StructureViolation catch (error) { '
-            "throw _CallbackThrown(_jcTypeError(externRefForJSAny((error.path + ': ' + error.message).toJS), WasmI32.fromInt(error.range ? 1 : 0))); } })";
+            '$failure } })';
       case SharedBytesConversion():
         return '_JsElement<$type>(false, (value) => $nullable'
             '_sharedBytes(externRefForJSAny(value!)!), (value) => $nullable'
@@ -307,8 +315,9 @@ final class DartStructuralEmitter {
           }
           for (final (i, field) in conversion.named.keys.indexed) {
             final index = i + conversion.positional.length;
+            final pathField = field.replaceAll(r'$', r'\$');
             entries.add(
-              "$field: ${functions[index]}(fields[$index], '\$path.$field')",
+              "$field: ${functions[index]}(fields[$index], '\$path.$pathField')",
             );
           }
           final trailing = entries.length == 1 && conversion.named.isEmpty

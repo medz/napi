@@ -21,10 +21,10 @@ import '../lowering/plan.dart'
         JsCollectionConversion,
         ValueClassConversion,
         ValueConversion,
-        containsDictionary,
         containsDefaultReference,
         containsJsCollectionReference,
         containsValueClass,
+        conversionDependencies,
         conversionGraph,
         dartOpaqueTypeArguments,
         dartReferenceClassType,
@@ -83,12 +83,9 @@ String emitNativeDart(NativeModulePlan plan) {
                   value is ValueClassConversion,
             ),
   );
-  final hasDictionary = plan.calls.any(
-    (call) => [
-      ...call.inputs,
-      if (call.output != null) call.output!,
-    ].any(containsDictionary),
-  );
+  final hasDictionary = conversionDependencies(
+    plan.calls.expand((call) => [...call.inputs, ?call.output]),
+  ).any((value) => value is DictionaryConversion);
   bool hasNestedOpaque(Iterable<ValueConversion> values) => values.any(
     (root) =>
         root is! OpaqueConversion &&
@@ -503,7 +500,7 @@ ${tests.declarations}  int? canonical;''');
         );
       } else if (conversion is JsCollectionConversion) {
         code.writeln(
-          '    a$index = ${conversion.nullable ? '_api.isNull(call.env, raw$index) ? null : ' : ''}${nativeJsCollectionRead(conversion, 'call.env', 'raw$index', path, hasResources: hasResources)};',
+          '    a$index = ${conversion.nullable ? '_api.isNull(call.env, raw$index) ? null : ' : ''}${nativeJsCollectionRead(conversion, 'call.env', 'raw$index', path, structures: structures)};',
         );
       } else if (conversion is ScalarConversion) {
         final converted =

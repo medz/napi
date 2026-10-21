@@ -106,6 +106,13 @@ dependencies:
     'copiedBinaryKey',
     'nullableBinaryKey',
     'binarySharedPolicy',
+    'structuralKeys',
+    'recordKey',
+    'containerKeys',
+    'recordMapCollision',
+    'structuralCallback',
+    'structuralWideBigints',
+    'mixedResourceEntries',
   ];
   const bigints = [
     'bigBooleans',
@@ -114,6 +121,7 @@ dependencies:
     'wrongPolicy',
     'nestedInt64',
     'nestedWriteWrongPolicy',
+    'structuralBigints',
   ];
   await File('${project.path}/build.dart').writeAsString('''
 import 'dart:io';
@@ -148,6 +156,7 @@ Future<void> main() async {
           ExternalClass('ResourceCollections'),
           ExternalClass('BinaryCollections'),
           ExternalClass('SharedByteCollections'),
+          ExternalClass('StructuralCollections'),
           ExternalClass('Owner', config: NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')),
         ] else ...const [
           ExternalFunction('read'),

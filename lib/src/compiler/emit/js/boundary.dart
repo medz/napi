@@ -32,6 +32,9 @@ String emitBoundary(ModulePlan plan) {
   final jsCollectionLeaves = conversionGraph(conversions)
       .whereType<JsCollectionConversion>()
       .toList();
+  final collectionStructures = jsCollectionStructurePolicies(
+    jsCollectionLeaves,
+  );
   final binaries = {
     for (final (index, conversion) in conversions.indexed)
       if (conversion is BinaryConversion) index: conversion,
@@ -70,6 +73,7 @@ ${nestedOpaque ? '$opaqueStructuralPolicy\n' : ''}${signals ? '$cancellationPoli
 ${hasBinary ? '$binaryPolicy\n$wasmBinaryPolicy' : ''}
 ${resources ? '$settlementObserver\n' : ''}const policies = ${jsonEncode(policies)};
 const scalarIsSafeInteger = Number.isSafeInteger;
+const scalarBigInt = BigInt, scalarBigIntText = BigInt.prototype.toString, scalarApply = Reflect.apply;
 function checkedScalar(value, policy, path) {
   if (value === null && policy.nullable) return null;
   if (typeof value !== policy.type) {
@@ -106,17 +110,17 @@ ${[for (final e in structures.entries)
 }
 // Called only after checked() has established a primitive bigint. Decimal
 // text avoids any precision-losing conversion through a JavaScript number.
-export function readBigInt(value) { return value.toString(); }
-export function writeBigInt(value, context) { return checked(BigInt(value), context); }
+export function readBigInt(value) { return scalarApply(scalarBigIntText, value, []); }
+export function writeBigInt(value, context) { return checked(scalarBigInt(value), context); }
 export function throwDartError(message) { throw new Error(message); }
-${plan.calls.any((call) => call.returnsFuture) || streams ? '${emitFuturePolicy(resources: resources, streams: streams)}\n' : ''}${resources ? resourcePolicy : ''}${streams ? streamBoundaryPolicy(references: plan.classes.isNotEmpty) : ''}${structures.isEmpty && callbacks.isEmpty
+${plan.calls.any((call) => call.returnsFuture) || streams ? '${emitFuturePolicy(resources: resources, streams: streams)}\n' : ''}${resources ? resourcePolicy : ''}${streams ? streamBoundaryPolicy(references: plan.classes.isNotEmpty) : ''}${structures.isEmpty && callbacks.isEmpty && collectionStructures.isEmpty
       ? hasBinary || sharedBytes.isNotEmpty || jsCollections.isNotEmpty
             ? structuralErrorPolicy
             : ''
       : structuralPolicy}
-${conversions.any(_containsMap) ? mapStructuralPolicy : ''}
-${conversions.any(containsDictionary) ? dictionaryStructuralPolicy : ''}
-${structures.values.map((s) => s.source).join('\n')}${callbacks.isEmpty ? '' : '\n${_emitCallbacks(callbacks)}'}
+${conversionDependencies(conversions).any((c) => c is MapConversion) ? mapStructuralPolicy : ''}
+${conversionDependencies(conversions).any((c) => c is DictionaryConversion) ? dictionaryStructuralPolicy : ''}
+$collectionStructures${structures.values.map((s) => s.source).join('\n')}${callbacks.isEmpty ? '' : '\n${_emitCallbacks(callbacks)}'}
 ${_emitCallbackErrors(futures: plan.calls.any((call) => call.returnsFuture) || streams)}
 ${plan.classes.isNotEmpty || plan.functions.any((f) => f.representation == ExportRepresentation.callableGlobal) ? argumentPolicy : ''}
 ''';
@@ -368,6 +372,3 @@ export function bindCleanup(capability, control) {
   return 1;
 }
 ''';
-
-bool _containsMap(ValueConversion value) =>
-    conversionGraph([value]).any((c) => c is MapConversion);

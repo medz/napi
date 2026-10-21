@@ -50,7 +50,7 @@ final class BoundaryLeafAdapter implements StructuralLeafAdapter {
       return 'writeReference($value, ${leaf.classId}, $path, state.pending ??= new Set())';
     }
     final scalar = leaf as ScalarConversion;
-    return 'checkedScalar(${scalar.usesBigInt ? 'BigInt($value)' : value}, ${jsonEncode(scalarPolicy(scalar))}, $path)';
+    return 'checkedScalar(${scalar.usesBigInt ? 'scalarBigInt($value)' : value}, ${jsonEncode(scalarPolicy(scalar))}, $path)';
   }
 }
 

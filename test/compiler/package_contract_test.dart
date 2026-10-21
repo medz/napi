@@ -121,6 +121,14 @@ void main() {
       "import 'dart:typed_data'; @NAPI() JsArray<Uint8List> run(JsArray<Uint8List> value) => value;",
       '@NAPI() JsArray<SharedBytes> run(JsArray<SharedBytes> value) => value;',
     ),
+    'copied collection integer policy despite equal TS declarations': (
+      '@NAPI() JsArray<List<int>> run(JsArray<List<int>> value) => value;',
+      '@NAPI() JsArray<List<double>> run(JsArray<List<double>> value) => value;',
+    ),
+    'copied collection deep sharing despite equal TS declarations': (
+      "import 'dart:typed_data'; @NAPI() JsMap<List<int>, Dictionary<Uint8List>> run(JsMap<List<int>, Dictionary<Uint8List>> value) => value;",
+      '@NAPI() JsMap<List<int>, Dictionary<SharedBytes>> run(JsMap<List<int>, Dictionary<SharedBytes>> value) => value;',
+    ),
     'opaque collection leaf nullability': (
       '@NAPI() JsArray<T> run<T>(JsArray<T> value) => value;',
       '@NAPI() JsArray<T?> run<T>(JsArray<T?> value) => value;',
@@ -191,6 +199,17 @@ void main() {
         await compare(source, source, external: external),
         contains('globalThis.Map<string, number | null> | null'),
       );
+    }
+  });
+
+  test('copied handle elements share writable declarations in both directions', () async {
+    const source =
+        '@NAPI() JsMap<List<int>, Dictionary<({int n, bool? flag})>> run('
+        'JsMap<List<int>, Dictionary<({int n, bool? flag})>> value) => value;';
+    for (final external in [false, true]) {
+      final declarations = await compare(source, source, external: external);
+      expect(declarations, contains('globalThis.Map<Array<number>,'));
+      expect(declarations, isNot(contains('ReadonlyArray')));
     }
   });
 

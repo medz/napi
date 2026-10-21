@@ -492,8 +492,8 @@ void [value, big, asynchronous, empty, wide, record, syncInFuture, globalName, l
     'value callback result': '@NAPI(classPolicy: ClassPolicy.value) class Box { int value = 1; } @NAPI() int run(Box Function() callback) => 1;',
     'generic handle callback':
         '@NAPI() int run(JsArray<T> Function<T>(JsArray<T>) callback) => 1;',
-    'nested handle element':
-        '@NAPI() int run(JsArray<List<int>> Function() callback) => 1;',
+    'nested dynamic handle element':
+        '@NAPI() int run(JsArray<List<dynamic>> Function() callback) => 1;',
     'bare enclosing opaque':
         '@NAPI() int run<T>(T Function(JsArray<T>) callback) => 1;',
     'structural Map with handle':

@@ -179,3 +179,24 @@ new api.SharedByteCollections([], new Map([[new ArrayBuffer(1), sharedBytes]]));
 // @ts-expect-error Nullable shared elements permit null, not undefined.
 new api.SharedByteCollections([undefined], new Map());
 void [sharedByteArray, sharedByteMap, sharedByteValue, sharedByteKey, distinctPolicies];
+
+const structuralItem: {text: string; values: Array<number | null>; bytes: Map<string, Uint8Array<ArrayBuffer> | null>; shared: {[key: string]: Uint8Array<ArrayBuffer> | null}} = {text: 'x', values: [1, null], bytes: new Map([['key', new Uint8Array([2])]]), shared: {key: sharedBytes}};
+const structuralCollections = new api.StructuralCollections([structuralItem, null], new Map([['key', structuralItem]]));
+const structuralArray: Array<typeof structuralItem | null> = structuralCollections.array();
+const structuralMap: Map<string, typeof structuralItem | null> = structuralCollections.map();
+const structuralRead = structuralCollections.read(0);
+const structuralCopiedKeys: boolean = api.structuralKeys(new Map([[[1], {value: 2}]]));
+const structuralRecordKey: number[] | null = api.recordKey(new Map([[{id: 1}, [2]]]));
+const structuralContainerKeys: boolean = api.containerKeys(new Map([[new Map([['key', 1]]), {value: 2}]]), new Map([[{key: 1}, [2]]]));
+const structuralCollision: boolean = api.recordMapCollision([new Map([[{id: 1}, 1]])], true);
+const structuralWide: bigint[][] = api.structuralBigints([[1n]]);
+const structuralArbitrary: bigint[][] = api.structuralWideBigints([[1n << 130n]]);
+const structuralResourceEntry: number = api.mixedResourceEntries(new Map([[resourceItem, [1]]]));
+const structuralCallbackValue: number[] | null = api.structuralCallback(value => value, [[1]]);
+// @ts-expect-error Deep copied elements preserve scalar precision policy types.
+api.structuralBigints([[1]]);
+// @ts-expect-error Nested record fields remain required.
+new api.StructuralCollections([{values: []}], new Map());
+// @ts-expect-error Copy keys retain their declared List element type.
+api.structuralKeys(new Map([[['wrong'], {value: 1}]]));
+void [structuralArray, structuralMap, structuralRead, structuralCopiedKeys, structuralRecordKey, structuralContainerKeys, structuralCollision, structuralWide, structuralArbitrary, structuralResourceEntry, structuralCallbackValue];
