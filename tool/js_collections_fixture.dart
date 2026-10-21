@@ -118,6 +118,7 @@ dependencies:
     'pureCopiedPayload',
     'collectionValueConstructions',
     'collectionValueCleanups',
+    'collectionReject',
   ];
   const bigints = [
     'bigBooleans',
@@ -174,6 +175,7 @@ Future<void> main() async {
           ExternalClass('CollectionOutput', config: NAPI(classPolicy: ClassPolicy.value)),
           ExternalClass('CollectionEnvelope', config: NAPI(classPolicy: ClassPolicy.value)),
           ExternalClass('CollectionEscaping', config: NAPI(classPolicy: ClassPolicy.value)),
+          ExternalClass('CollectionRejecting', config: NAPI(classPolicy: ClassPolicy.value)),
           ExternalClass('CollectionResource', config: NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')),
           ExternalClass('CollectionResourceValue', config: NAPI(classPolicy: ClassPolicy.value)),
           ExternalClass('ValueCollectionOwner'),

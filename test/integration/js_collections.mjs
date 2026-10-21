@@ -985,6 +985,16 @@ async function valueClasses(api) {
   const escaped = [{value: 23}], failing = [{node: {value: 22, children: escaped}, fail: true}];
   assert.throws(() => owner.escape(failing), /collection constructor failed/);
   failing.length = 0; assert.equal(owner.escapedChild(), 23);
+  function failedPayload() {
+    const payload = {}, weak = new WeakRef(payload);
+    const source = [{$1: {}, $2: payload}];
+    assert.throws(() => api.collectionReject(source), /value constructor rejected/);
+    source.length = 0;
+    return weak;
+  }
+  const weak = failedPayload();
+  for (let i = 0; i < 4; i++) {await tick(); global.gc();}
+  assert.equal(weak.deref(), undefined, 'failed conversion retained its opaque sibling');
   const cleanups = api.collectionValueCleanups(), resource = new api.CollectionResource(31);
   owner.remember(resource);
   let closed;

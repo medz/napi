@@ -11,6 +11,19 @@ int collectionValueConstructions() => _constructions;
 int collectionValueCleanups() => _cleanups;
 
 @NAPI(classPolicy: ClassPolicy.value)
+class CollectionRejecting {
+  CollectionRejecting() {
+    throw StateError('value constructor rejected');
+  }
+
+  int get value => 1;
+}
+
+@NAPI()
+void collectionReject<T>(JsArray<(CollectionRejecting, T)> values) =>
+    values.get(0);
+
+@NAPI(classPolicy: ClassPolicy.value)
 class CollectionValue {
   final int value;
   final int? tag;

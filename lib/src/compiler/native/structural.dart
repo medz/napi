@@ -146,13 +146,10 @@ final class NativeStructuralEmitter {
     final normalize = _normalize(conversion);
     final materialize = _materialize(conversion);
     final name = '_readNativeValueRoot${_next++}';
-    final transfersOwned =
-        containsValueClass(conversion) &&
-        conversionGraph([conversion]).any((value) => value is OpaqueConversion);
     _code.writeln(
       '''${conversion.dartType} $name(Pointer<Void> env, Pointer<Void> value, _NativeReadState state, String path, int depth) {
   final normalized = $normalize(env, value, state, path, depth);
-${transfersOwned ? '  state.owned?.clear();\n' : ''}  return $materialize(normalized, path);
+  return $materialize(normalized, path);
 }''',
     );
     return name;
