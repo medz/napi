@@ -138,6 +138,57 @@ class ResourceEnvelope {
   ResourceEnvelope(this.owner, {this.peers});
 }
 
+const _valueOwner = ValueDefaultResource(300);
+const _valuePeer = ValueDefaultResource(301);
+
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+class ValueDefaultResource {
+  final int id;
+  const ValueDefaultResource(this.id);
+  void close() => _cleanup(id, 41);
+}
+
+@NAPI(classPolicy: ClassPolicy.value)
+class ResourceDefaultValue {
+  final ValueDefaultResource? owner;
+  final List<ValueDefaultResource?> peers;
+  final Map<String, ValueDefaultResource> mapping;
+  final Dictionary<ValueDefaultResource?> labels;
+  final (ValueDefaultResource, {ValueDefaultResource? other}) pair;
+  final int marker;
+
+  ResourceDefaultValue({
+    this.owner = _valueOwner,
+    this.peers = const [_valuePeer, null],
+    this.mapping = const {'one': _valuePeer},
+    this.labels = const Dictionary({'one': _valuePeer, 'empty': null}),
+    this.pair = (_valuePeer, other: null),
+    this.marker = 7,
+  }) {
+    _events.add('value-default-constructor');
+    if (marker < 0) throw StateError('resource-default-constructor-error');
+  }
+}
+
+@NAPI()
+ResourceDefaultValue resourceDefaultEcho(ResourceDefaultValue value) {
+  _events.add('value-default-business');
+  return value;
+}
+
+@NAPI()
+Future<int> resourceDefaultHold(
+  ResourceDefaultValue value,
+  void Function() later,
+  int token,
+) {
+  _events.add('value-default-business');
+  later();
+  final gate = Completer<int>();
+  _gates[token] = gate;
+  return gate.future;
+}
+
 // The declarations are unrelated; only runtime membership reveals that one
 // raw object has two incompatible cleanup contracts.
 @NAPI(classPolicy: ClassPolicy.resource, cleanup: 'closeLeft')

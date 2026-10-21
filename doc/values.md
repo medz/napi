@@ -89,7 +89,11 @@ TypeScript shapes. Numeric policies compose through fields and recursion,
 including an enclosing `@NAPI(bigint: true)` function.
 Defaults may include [const objects](arguments.md),
 directly or inside supported containers; they remain Dart constants.
-Resource defaults in value-class input fields remain unsupported.
+Input properties may also default to resources, directly or inside built-in
+containers. Omission and undefined select the canonical Dart constant, while an
+explicit nullable null remains null. The current [resource operation](resources.md)
+retains those defaults before later fields or callbacks run; failed conversion
+releases its leases. Already closed defaults fail before construction.
 When a library exports resources, const value-object defaults may contain only
 scalar fields or built-in containers of scalars. Supply objects with reference or
 nested value-class fields explicitly instead.

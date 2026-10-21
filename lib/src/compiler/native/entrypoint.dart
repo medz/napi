@@ -744,7 +744,14 @@ ${tests.declarations}  int? canonical;''');
         'final class _NativeReadState {',
         'final class _NativeReadState {\n'
             '  _NativeReadState(${hasResources ? 'this.operation' : ''}${needsOpaqueReadState ? '${hasResources ? ', ' : ''}{this.owned}' : ''});\n'
-            '${hasResources ? '  final ResourceOperation? operation;\n' : ''}'
+            '${hasResources ? '''  final ResourceOperation? operation;
+  void retain(ResourceControl? control) {
+    if (control == null) return;
+    final operation = this.operation;
+    if (operation == null) throw NapiTypeError('resource default access requires an active bound call');
+    operation.retain(control);
+  }
+''' : ''}'
             '${needsOpaqueReadState ? '  final List<NativeHostValue>? owned;\n' : ''}',
       );
     }

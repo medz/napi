@@ -66,6 +66,7 @@ String emitDartDefaultResourceRetains(
   String value, {
   String operation = 'operation',
   String indent = '  ',
+  String Function(String value)? retainReference,
 }) {
   if (!containsDefaultReference(conversion)) return '';
   final result = StringBuffer('$indent{\n');
@@ -80,7 +81,9 @@ String emitDartDefaultResourceRetains(
     }
     switch (conversion) {
       case ReferenceConversion():
-        result.writeln('$indent$operation.retain(_resourceControl($local));');
+        result.writeln(
+          '$indent${retainReference?.call(local) ?? '$operation.retain(_resourceControl($local))'};',
+        );
       case ListConversion(:final element) ||
           DictionaryConversion(value: final element):
         final item = '_napiDefaultResource${next++}';
@@ -111,5 +114,52 @@ String emitDartDefaultResourceRetains(
 
   emit(conversion, value, '$indent  ');
   result.writeln('$indent}');
+  return result.toString();
+}
+
+String emitDartValueDefaultReferences(
+  Iterable<ValueConversion> conversions, {
+  required String Function(DeclarationId) declarationSource,
+}) {
+  final result = StringBuffer(
+    'void _visitValueDefaultReferences(String id, void Function(Object) retain) {\n'
+    '  switch (id) {\n',
+  );
+  final emitted = <String>{};
+  for (final conversion in conversionDependencies(
+    conversions,
+  ).whereType<ValueClassConversion>()) {
+    if (conversion.direction != ValueDirection.input) continue;
+    for (final (index, field) in conversion.fields.indexed) {
+      final parameter = field.parameter!;
+      final constant = parameter.defaultValue;
+      if (!field.optional ||
+          constant == null ||
+          constant is ScalarDefault ||
+          !containsDefaultReference(field.conversion)) {
+        continue;
+      }
+      final id = '${conversion.schemaId}:$index';
+      if (!emitted.add(id)) continue;
+      result.writeln('    case ${jsonEncode(id)}:');
+      result.write(
+        emitDartDefaultResourceRetains(
+          field.conversion,
+          renderDartDefault(
+            parameter,
+            field.conversion,
+            declarationSource: declarationSource,
+          ),
+          indent: '      ',
+          retainReference: (value) => 'retain($value)',
+        ),
+      );
+      result.writeln('      return;');
+    }
+  }
+  result.writeln(
+    "    default: throw StateError('Unknown value default resource graph');\n"
+    '  }\n}',
+  );
   return result.toString();
 }

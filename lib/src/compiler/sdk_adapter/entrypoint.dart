@@ -245,8 +245,8 @@ external WasmExternRef? _startCallback(WasmExternRef callback, WasmExternRef arg
 /// Callback conversion retains through its invoking operation, including host
 /// Promise settlement. Detached work can still exchange ordinary references.
 const callbackResourceEntrypointPrelude = r'''
-WasmExternRef _callbackResourceRetainer(ResourceOperation? operation) =>
-    externRefForJSAny(((JSAny? reference) {
+WasmExternRef _callbackResourceRetainer(ResourceOperation? operation) {
+  void retain(JSAny? reference) {
   if (reference == null) return;
   try {
     final control = _resourceControl(externRefForJSAny(reference)!.internalize().toObject());
@@ -263,7 +263,16 @@ WasmExternRef _callbackResourceRetainer(ResourceOperation? operation) =>
   } catch (error) {
     _normalizeResourceError(error);
   }
-}).toJS)!;
+  }
+  return externRefForJSAny(((JSAny? reference, [JSAny? defaultId]) {
+    if (defaultId == null) { retain(reference); }
+    else {
+      _visitValueDefaultReferences((defaultId as JSString).toDart, (value) {
+        retain(WasmAnyRef.fromObject(value).externalize().toJS);
+      });
+    }
+  }).toJS)!;
+}
 ''';
 
 /// Preserve exact host errors from callbacks, cancellation and shared bytes.
@@ -425,7 +434,13 @@ void _failResourceFuture(WasmExternRef capability, Object error, StackTrace stac
   _failFuture(capability, error, stack, context);
 }
 
-void _retainResourceReference(ResourceOperation operation, JSAny? reference) {
+void _retainResourceReference(ResourceOperation operation, JSAny? reference, [JSAny? defaultId]) {
+  if (defaultId != null) {
+    _visitValueDefaultReferences((defaultId as JSString).toDart, (value) {
+      _retainResourceReference(operation, WasmAnyRef.fromObject(value).externalize().toJS);
+    });
+    return;
+  }
   if (reference == null) return;
   try {
     operation.retain(_resourceControl(externRefForJSAny(reference)!.internalize().toObject()));
@@ -440,7 +455,7 @@ WasmExternRef? _beginResourceOperation(WasmExternRef capability, WasmExternRef? 
     final operation = ResourceOperation(exempt: exempt ? control : null);
     _attachResourceOperation(capability,
         externRefForJSAny((() { operation.release(); }).toJS)!,
-        externRefForJSAny(((JSAny? value) { _retainResourceReference(operation, value); }).toJS)!);
+        externRefForJSAny(((JSAny? value, [JSAny? defaultId]) { _retainResourceReference(operation, value, defaultId); }).toJS)!);
     if (!exempt) operation.retain(control);
     return WasmAnyRef.fromObject(operation).externalize();
   } catch (error) { return _normalizeResourceError(error); }

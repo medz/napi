@@ -79,9 +79,9 @@ still work independently when later arguments are supplied.
 
 Direct resource parameters and built-in List, Map, Dictionary and record
 defaults acquire the same operation leases as explicit inputs; see
-[resource defaults](resources.md#constant-defaults). Resource defaults in
-value-class input fields remain unsupported. When a library exports resources,
-value-object defaults may contain
+[resource defaults](resources.md#constant-defaults). Value-class input properties
+also support these resource defaults, with leases acquired before later fields or
+callbacks run. When a library exports resources, value-object defaults may contain
 only scalar fields or built-in containers of scalars. Supply objects with reference
 or nested value-class fields explicitly.
 Opaque defaults remain unsupported, including empty containers

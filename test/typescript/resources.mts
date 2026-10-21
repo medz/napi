@@ -1,5 +1,6 @@
 import * as api from '@napi/resources-fixture';
 import * as direct from '@napi/resources-fixture/BACKEND';
+import * as external from '@napi/resources-external';
 
 const resource = new api.ResourceCounter(1, 5);
 const view: api.ResourceView = api.resourceView(resource);
@@ -22,6 +23,25 @@ const map: Promise<number> = api.resourceHoldMap(new Map([['owner', view]]), 4);
 const dictionary: Promise<number> = api.resourceHoldDictionary({owner: view, empty: null}, 5);
 const record: Promise<number> = api.resourceHoldRecord({$1: view, other: null}, 6);
 const subpath: Promise<void> = new direct.ResourceCounter(4).release();
+const valueDefaults: api.ResourceDefaultValue = api.resourceDefaultEcho({});
+const valueDefaultsUndefined: api.ResourceDefaultValue = api.resourceDefaultEcho({
+  owner: undefined, peers: undefined, mapping: undefined, labels: undefined, pair: undefined,
+});
+const valueDefaultHold: Promise<number> = api.resourceDefaultHold({owner: null}, () => {}, 9);
+const defaultOwner: api.ValueDefaultResource | null = valueDefaults.owner;
+const defaultPeer: api.ValueDefaultResource | null = valueDefaults.peers[0];
+const defaultCleanup: Promise<void> = valueDefaults.pair.$1.close();
+const externalDefaults: external.ResourceDefaultValue = external.resourceDefaultEcho({});
+external.resourceDefaultHold({owner: null}, () => {}, 10);
+direct.resourceDefaultEcho({owner: null});
+// @ts-expect-error Non-null resource containers cannot default from null.
+api.resourceDefaultEcho({peers: null});
+// @ts-expect-error Explicit defaults retain their declared resource brand.
+api.resourceDefaultEcho({owner: resource});
+// @ts-expect-error Resource defaults inside containers retain their leaf brand.
+api.resourceDefaultEcho({mapping: new Map([['one', resource]])});
+// @ts-expect-error Required value properties are present in the output shape.
+const missingDefaultOwner: undefined = valueDefaults.owner;
 // @ts-expect-error synchronous Dart cleanup is still a public Promise<void>.
 const eager: void = resource.release();
 // @ts-expect-error cleanup outputs have no result payload.
@@ -39,4 +59,5 @@ resource.release('bad');
 // @ts-expect-error resource inputs retain their declared reference brands.
 api.resourceHold({}, 7);
 void [synchronous, named, directOrder, directOrderFuture, held, orphan, close, closed, asyncClose, required, dynamicCleanup, orphanCleanup, result, nested,
-  list, map, dictionary, record, subpath, eager, wrong];
+  list, map, dictionary, record, subpath, eager, wrong, valueDefaultsUndefined, valueDefaultHold,
+  defaultOwner, defaultPeer, defaultCleanup, externalDefaults, missingDefaultOwner];

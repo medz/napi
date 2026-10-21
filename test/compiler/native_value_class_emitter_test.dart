@@ -175,6 +175,53 @@ void main() {
   });
 
   test(
+    'value constructor resource defaults are retained during normalization',
+    () async {
+      final plan = await read('''
+import 'package:napi/napi.dart';
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+class Resource {
+  const Resource(this.id);
+  final int id;
+  void close() {}
+}
+@NAPI(classPolicy: ClassPolicy.value)
+class Defaults {
+  Defaults({
+    this.resource = const Resource(1),
+    this.values = const [Resource(2), null],
+    this.mapping = const {Resource(3): Resource(4)},
+    this.dictionary = const Dictionary({'value': Resource(5)}),
+    this.record = const (Resource(6), [Resource(7)]),
+    this.tail = 0,
+  });
+  final Resource resource;
+  final List<Resource?> values;
+  final Map<Resource, Resource> mapping;
+  final Dictionary<Resource> dictionary;
+  final (Resource, List<Resource>) record;
+  final int tail;
+}
+@NAPI() Defaults echo(Defaults value) => value;
+@NAPI() Future<Resource> later(Defaults value) async => value.resource;
+@NAPI() Resource lazy(JsArray<Defaults> values) => values.get(0)!.resource;
+''');
+      final code = emitNativeDart(plan);
+      final first = code.indexOf('readOptionalOwnValue(env, value, "resource"');
+      expect(first, greaterThanOrEqualTo(0));
+      final normalize = code.substring(first, code.indexOf('\n}', first));
+      final retain = normalize.indexOf('state.retain(_resourceControl(');
+      expect(retain, greaterThan(normalize.indexOf('if (default0)')));
+      expect(retain, lessThan(normalize.indexOf('"values"')));
+      expect(normalize, contains('"tail"'));
+      expect(normalize, isNot(contains('target.Defaults(')));
+      expect(code, contains('_api.attachOperation(token, operation)'));
+      await compile(code);
+    },
+    timeout: const Timeout(Duration(minutes: 2)),
+  );
+
+  test(
     'pure structural inputs retain the original direct typed traversal',
     () async {
       final plan = await read(

@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import '../../ir/model.dart';
 import '../../lowering/plan.dart';
 
 /// Leaf engines plug into generated structural traversal without owning or
@@ -267,13 +268,19 @@ StructuralBoundary emitStructuralBoundary(
       const property = Object.getOwnPropertyDescriptor(value, ${jsonEncode(output ? '$index' : field.name)});''',
           );
           if (!output && field.optional) {
+            final retainDefault =
+                leafAdapter is BoundaryLeafAdapter &&
+                leafAdapter.resources &&
+                field.parameter!.defaultValue != null &&
+                field.parameter!.defaultValue is! ScalarDefault &&
+                containsDefaultReference(field.conversion);
             code.writeln(
               '''      if (property && !Object.hasOwn(property, 'value')) {
         throw new TypeError(childPath + ': expected an own data property');
       }
       const defaulted = !property || property.value === undefined;
       let child;
-      if (defaulted) { visitStructure(state, childPath); child = null; }
+      if (defaulted) { visitStructure(state, childPath); ${retainDefault ? 'state.operation.retain(null, ${jsonEncode('${node.schemaId}:$index')}); ' : ''}child = null; }
       else { child = ${converters[index]}(property.value, childPath, state, depth + 1); }
       Object.defineProperty(result, ${jsonEncode('${2 * index}')}, {value: defaulted, enumerable: true, writable: true, configurable: true});
       Object.defineProperty(result, ${jsonEncode('${2 * index + 1}')}, {value: child, enumerable: true, writable: true, configurable: true});''',

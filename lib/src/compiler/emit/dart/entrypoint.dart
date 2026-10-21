@@ -85,6 +85,12 @@ String emitDart(ModulePlan plan) {
   if (asyncCallbacks) result.writeln(asyncCallbackEntrypointPrelude);
   if (resources) {
     result.writeln(resourceEntrypointPrelude);
+    result.writeln(
+      emitDartValueDefaultReferences(
+        plan.conversions,
+        declarationSource: declarationSource,
+      ),
+    );
     if (callbacks.isNotEmpty) result.writeln(callbackResourceEntrypointPrelude);
     _emitResourceControl(result, plan);
     if (jsCollections) result.writeln(jsCollectionsResourceEntrypointPrelude);

@@ -251,25 +251,31 @@ class Value {
 @NAPI() int take([Value value = const Value(_default)]) => value.resource.value;''',
     ),
   ]) {
-    test('resource $name defaults remain diagnosed', () async {
+    test('resource $name defaults follow the supported shape', () async {
       for (final native in [false, true]) {
-        await expectLater(
-          () async {
-            final module = await read(declaration, native: native);
-            if (native) {
-              validateNative(module);
-            } else {
-              validate(module);
-            }
-          },
-          throwsA(
-            isA<BindingDiagnostic>().having(
-              (error) => error.code,
-              'code',
-              'NAPI_DEFAULT',
+        Future<void> check() async {
+          final module = await read(declaration, native: native);
+          if (native) {
+            validateNative(module);
+          } else {
+            validate(module);
+          }
+        }
+
+        if (name == 'value constructor field') {
+          await check();
+        } else {
+          await expectLater(
+            check,
+            throwsA(
+              isA<BindingDiagnostic>().having(
+                (error) => error.code,
+                'code',
+                'NAPI_DEFAULT',
+              ),
             ),
-          ),
-        );
+          );
+        }
       }
     });
   }

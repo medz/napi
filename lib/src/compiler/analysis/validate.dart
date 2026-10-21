@@ -2603,8 +2603,8 @@ void validateParameterDefault(
       'Non-null defaults require a compatible const graph of scalars, selected '
           'reference/value objects, Lists, Maps, Dictionaries or records. '
           'Object defaults need accessible const constructors or bindings; resource '
-          'defaults require direct references or built-in containers. Resource '
-          'defaults in value constructors and opaque defaults remain unsupported. '
+          'defaults require direct references or built-in containers. Opaque '
+          'defaults remain unsupported. '
           'Value-object defaults containing class-valued fields are unsupported '
           'when the library exports resources.',
       parameter.source ?? source,
@@ -2696,7 +2696,7 @@ void _validateValueConstructorInputs(
     constructor.parameters,
     constructor.source,
     referenceClasses: classes,
-    allowResourceDefaults: false,
+    allowResourceDefaults: true,
     validateTypes: false,
   );
 }

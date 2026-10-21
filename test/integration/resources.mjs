@@ -154,6 +154,88 @@ async function leases(api) {
   assert.equal(api.resourceCleanupCode(17), 31, 'deferred cleanup uses the first accepted structural snapshot');
 }
 
+async function valueResourceDefaults(api) {
+  const initial = api.resourceDefaultEcho({});
+  const owner = initial.owner, peer = initial.peers[0];
+  assert.equal(owner.id, 300); assert.equal(peer.id, 301);
+  assert.equal(initial.peers[1], null);
+  assert.equal(initial.mapping.get('one'), peer);
+  assert.equal(initial.labels.one, peer); assert.equal(initial.labels.empty, null);
+  assert.equal(initial.pair.$1, peer); assert.equal(initial.pair.other, null);
+  assert.equal(initial.marker, 7);
+  const defaults = api.resourceDefaultEcho({
+    owner: undefined, peers: undefined, mapping: undefined,
+    labels: undefined, pair: undefined, marker: undefined,
+  });
+  assert.equal(defaults.owner, owner); assert.equal(defaults.peers[0], peer);
+  assert.equal(defaults.mapping.get('one'), peer); assert.equal(defaults.labels.one, peer);
+  assert.equal(defaults.pair.$1, peer); assert.equal(defaults.marker, 7);
+  assert.equal(api.resourceDefaultEcho({owner: null}).owner, null);
+  assert.throws(() => api.resourceDefaultEcho({peers: null}), TypeError);
+
+  let ownerClosing, peerClosing;
+  const input = new Proxy({marker: 7}, {
+    getOwnPropertyDescriptor(target, key) {
+      if (key === 'marker' && !ownerClosing) {
+        ownerClosing = promise(() => owner.close());
+        assert.equal(api.resourceCleanupCalls(300), 0, 'the default owner is retained before a later field is reflected');
+      }
+      return Reflect.getOwnPropertyDescriptor(target, key);
+    },
+  });
+  const pending = promise(() => api.resourceDefaultHold(input, () => {
+    peerClosing = promise(() => peer.close());
+    assert.equal(api.resourceCleanupCalls(301), 0, 'container defaults are retained before a later callback runs');
+  }, 340));
+  assert(ownerClosing instanceof Promise); assert(peerClosing instanceof Promise);
+  await turn();
+  assert.equal(api.resourceCleanupCalls(300), 0);
+  assert.equal(api.resourceCleanupCalls(301), 0);
+  api.resourceComplete(340, 19);
+  assert.equal(await pending, 19);
+  await Promise.all([ownerClosing, peerClosing]);
+  assert.equal(api.resourceCleanupCalls(300), 1);
+  assert.equal(api.resourceCleanupCalls(301), 1, 'repeated default aliases release one operation lease');
+  const before = api.resourceEvents();
+  assert.throws(() => api.resourceDefaultEcho({}));
+  assert.throws(() => api.resourceDefaultEcho({owner: null}), 'closed container defaults fail independently of the owner default');
+  await rejects(() => api.resourceDefaultHold({}, () => assert.fail('closed default reached business'), 341));
+  assert.deepEqual(api.resourceEvents(), before, 'closed defaults fail before constructors and business code');
+
+  const fresh = new api.ValueDefaultResource(302);
+  const explicit = api.resourceDefaultEcho({
+    owner: null, peers: [], mapping: new Map(), labels: {}, pair: {$1: fresh, other: null},
+  });
+  assert.equal(explicit.owner, null, 'null does not select the closed owner default');
+  assert.equal(explicit.pair.$1, fresh);
+  await promise(() => fresh.close());
+}
+
+async function valueResourceDefaultFailure(api) {
+  const initial = api.resourceDefaultEcho({});
+  const valueEvents = () => api.resourceEvents().filter(event => event.startsWith('value-default-'));
+  const before = valueEvents();
+  let closing;
+  const input = new Proxy({marker: 'invalid'}, {
+    getOwnPropertyDescriptor(target, key) {
+      if (key === 'marker' && !closing) {
+        closing = promise(() => initial.owner.close());
+        assert.equal(api.resourceCleanupCalls(300), 0);
+      }
+      return Reflect.getOwnPropertyDescriptor(target, key);
+    },
+  });
+  assert.throws(() => api.resourceDefaultEcho(input), TypeError);
+  assert(closing instanceof Promise);
+  assert.deepEqual(valueEvents(), before, 'invalid raw fields prevent construction');
+  await closing;
+  assert.equal(api.resourceCleanupCalls(300), 1, 'failed input validation releases its default lease');
+  assert.throws(() => api.resourceDefaultEcho({owner: null, marker: -1}), /resource-default-constructor-error/);
+  assert.deepEqual(valueEvents().slice(before.length), ['value-default-constructor']);
+  await promise(() => initial.peers[0].close());
+  assert.equal(api.resourceCleanupCalls(301), 1, 'constructor failures release container default leases');
+}
+
 async function failure(api) {
   const sync = new api.ResourceCounter(20);
   const first = promise(() => sync.release(-1));
@@ -519,11 +601,19 @@ async function scenario(name) {
       await basic(api);
       break;
     }
-    case 'leases': await leases(api); break;
+    case 'leases':
+      await leases(api);
+      await valueResourceDefaults(api);
+      await valueResourceDefaults(await import('@napi/resources-external'));
+      break;
     case 'nested': await nested(api); break;
     case 'input-reentry': await inputReentry(api); break;
     case 'receiver-reentry': await receiverReentry(api); break;
-    case 'failure': await failure(api); break;
+    case 'failure':
+      await failure(api);
+      await valueResourceDefaultFailure(api);
+      await valueResourceDefaultFailure(await import('@napi/resources-external'));
+      break;
     case 'dynamic-cleanup': await dynamicCleanup(api); break;
     case 'adoption': await adoption(api); break;
     case 'adoption-reject': await adoption(api, true); break;
@@ -637,6 +727,8 @@ async function scenario(name) {
 
 if (!isMainThread) {
   const api = await import(packageName);
+  await valueResourceDefaults(api);
+  await valueResourceDefaults(await import('@napi/resources-external'));
   if (workerData.hold) {
     const resource = new api.ResourceCounter(80);
     let adopted = false;

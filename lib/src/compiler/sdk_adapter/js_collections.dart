@@ -107,7 +107,8 @@ final class _JsMap<K,V> extends _JsCollection implements napi.JsMap<K,V> {
 
 /// Resource checks are independent of the operation active during a lazy read.
 const jsCollectionsResourceEntrypointPrelude = r'''
-WasmExternRef _jcCreateRetainer() => externRefForJSAny(((JSAny? reference) {
+WasmExternRef _jcCreateRetainer() {
+  void retain(JSAny? reference) {
   if (reference == null) return;
   try {
     _jcRetainResource(externRefForJSAny(reference)!.internalize().toObject(), 'JS collection element');
@@ -116,7 +117,16 @@ WasmExternRef _jcCreateRetainer() => externRefForJSAny(((JSAny? reference) {
   } catch (error) {
     _normalizeResourceError(error);
   }
-}).toJS)!;
+  }
+  return externRefForJSAny(((JSAny? reference, [JSAny? defaultId]) {
+    if (defaultId == null) { retain(reference); }
+    else {
+      _visitValueDefaultReferences((defaultId as JSString).toDart, (value) {
+        retain(WasmAnyRef.fromObject(value).externalize().toJS);
+      });
+    }
+  }).toJS)!;
+}
 
 void _jcRetainResource(Object? value, String path) {
   try {

@@ -55,8 +55,13 @@ or closed, another call using that default is rejected; callers may supply a
 different open resource explicitly. Built-in List, Map, Dictionary and record
 defaults may also contain resources. Their leaves, including Map keys and repeated
 aliases, are retained before callbacks, signal getters or value constructors run.
-The original Dart const containers and objects retain their identity. Resource
-defaults in value-class input fields remain unsupported.
+The original Dart const containers and objects retain their identity.
+[Value-class input properties](values.md) can also default to resources, directly
+or inside built-in containers. Their leases begin when conversion selects the
+default, before later input fields or callbacks run, and last through the exported
+operation. A closed default fails before the value constructor and business code
+run; conversion and constructor failures release any acquired leases. An explicit
+null selects no default when the property is nullable.
 
 ## State and cleanup
 

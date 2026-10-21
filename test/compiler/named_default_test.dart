@@ -298,10 +298,8 @@ const origin = Envelope._(ResourceChild());
     }
   });
 
-  test(
-    'a named const resource cannot become a value input field default',
-    () async {
-      final input = source('entry.dart', '''
+  test('a named const resource remains a value input field default', () async {
+    final input = source('entry.dart', '''
 import 'package:napi/napi.dart';
 @NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
 class Resource {
@@ -316,24 +314,21 @@ class Value {
 }
 @NAPI() int take(Value value) => 7;
 ''');
-      for (final native in [false, true]) {
-        await expectLater(() async {
-          final module = await read(input, native: native);
-          final value = module.classes
-              .singleWhere((binding) => binding.exportName == 'Value')
-              .members
-              .singleWhere((member) => member.kind == MemberKind.constructor)
-              .parameters
-              .single
-              .defaultValue;
-          expect(value, isA<NamedObjectDefault>());
-          if (native) {
-            validateNative(module);
-          } else {
-            validate(module);
-          }
-        }, rejectedDefault());
+    for (final native in [false, true]) {
+      final module = await read(input, native: native);
+      final value = module.classes
+          .singleWhere((binding) => binding.exportName == 'Value')
+          .members
+          .singleWhere((member) => member.kind == MemberKind.constructor)
+          .parameters
+          .single
+          .defaultValue;
+      expect(value, isA<NamedObjectDefault>());
+      if (native) {
+        validateNative(module);
+      } else {
+        validate(module);
       }
-    },
-  );
+    }
+  });
 }
