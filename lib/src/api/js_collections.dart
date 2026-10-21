@@ -1,16 +1,17 @@
 /// A retained handle to an existing JavaScript Array.
 ///
 /// Reads and writes use the original object. Ordinary Dart Lists remain copied
-/// bindings. Elements support scalars, nested JS collection handles and direct
-/// opaque type parameters, including nullable forms. Opaque values follow the
-/// storage-only contract.
+/// bindings. Elements support scalars, ordinary selected class references, nested
+/// JS collection handles and direct opaque type parameters, including nullable
+/// forms. Opaque values follow the storage-only contract. Resource objects are
+/// not supported as typed elements.
 abstract interface class JsArray<T> {
   int get length;
 
   /// Returns null beyond the current length. Within the Array, ordinary property
-  /// lookup includes inherited values and getters. Undefined fails scalar or
-  /// handle conversion, but is a value for an opaque element. Present opaque
-  /// null and undefined have non-null Dart carriers, distinct from absence.
+  /// lookup includes inherited values and getters. Undefined fails scalar,
+  /// reference or handle conversion, but is a value for an opaque element. Present
+  /// opaque null and undefined have non-null Dart carriers, distinct from absence.
   T? get(int index);
 
   /// Uses JavaScript property assignment, including setters and extension.
@@ -19,9 +20,10 @@ abstract interface class JsArray<T> {
 
 /// A retained handle to an existing JavaScript Map, using SameValueZero keys.
 ///
-/// Keys and values support scalars, nested JS collection handles and direct
-/// opaque type parameters, including nullable forms. Returning a handle preserves
-/// the original Map identity.
+/// Keys and values support scalars, ordinary selected class references, nested
+/// JS collection handles and direct opaque type parameters, including nullable
+/// forms. Returning a handle preserves the original Map identity. Resource
+/// objects are not supported as typed elements.
 abstract interface class JsMap<K, V> {
   int get size;
   bool has(K key);

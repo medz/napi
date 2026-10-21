@@ -482,7 +482,7 @@ ${tests.declarations}  int? canonical;''');
         );
       } else if (conversion is JsCollectionConversion) {
         code.writeln(
-          '    a$index = ${conversion.nullable ? '_api.isNull(call.env, raw$index) ? null : ' : ''}${nativeJsCollectionRead(conversion, 'call.env', 'raw$index', path)};',
+          '    a$index = ${conversion.nullable ? '_api.isNull(call.env, raw$index) ? null : ' : ''}${nativeJsCollectionRead(conversion, 'call.env', 'raw$index', path, hasResources: hasResources)};',
         );
       } else if (conversion is ScalarConversion) {
         final converted =

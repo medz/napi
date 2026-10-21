@@ -142,6 +142,78 @@ class Packet { Packet(this.items); final JsArray<int> items; }
     expect(emitDeclarations(wasm), emitNativeDeclarations(native));
   });
 
+  test(
+    'reference elements share class contracts and adapter identity policies',
+    () async {
+      final module = await read('''
+@NAPI() class Box<T> { Box(this.value); T value; }
+@NAPI() class Other { Other(); }
+@NAPI() JsArray<Box<T>> boxes<T>(JsArray<Box<T>> value) => value;
+@NAPI() JsArray<Box<U>> renamed<U>(JsArray<Box<U>> value) => value;
+@NAPI() JsArray<Box<T>?> nullable<T>(JsArray<Box<T>?> value) => value;
+@NAPI() JsMap<Box<T>, JsArray<Other?>> map<T>(JsMap<Box<T>, JsArray<Other?>> value) => value;
+@NAPI() JsArray<Other> other(JsArray<Other> value) => value;
+@NAPI() JsArray<Box<T>> callback<T>(JsArray<Box<T>> Function(JsArray<Box<T>>) f, JsArray<Box<T>> value) => f(value);
+''');
+      final wasm = lower(validate(module));
+      final native = validateNative(module);
+      for (final inputs in [
+        wasm.functions.take(5).map((f) => f.inputs.single),
+        native.functions.take(5).map((f) => f.inputs.single),
+      ]) {
+        final values = inputs.cast<JsCollectionConversion>().toList();
+        expect(values[0].value, isA<ReferenceConversion>());
+        expect(values[0].dartType, 'napi.JsArray<target.Box<_NapiHostValue>>');
+        expect(values[0].typescriptType, 'globalThis.Array<Box<T>>');
+        expect(values[0].signatureKey, values[1].signatureKey);
+        expect(values[0].signatureKey, isNot(values[2].signatureKey));
+        expect(values[0].signatureKey, isNot(values[4].signatureKey));
+        expect(values[3].key, isA<ReferenceConversion>());
+        expect(
+          conversionGraph([values[0]]).whereType<ReferenceConversion>(),
+          isEmpty,
+        );
+      }
+      expect(emitDeclarations(wasm), emitNativeDeclarations(native));
+      expect(emitBoundary(wasm), contains('"reference":0'));
+      expect(
+        emitNativeDart(native),
+        contains('api.ownerValue(env, value, path, 0)'),
+      );
+      expect(
+        emitDart(wasm),
+        contains('toObject() as target.Box<_NapiHostValue>'),
+      );
+    },
+  );
+
+  for (final signature in [
+    'JsArray<Box<T>> value',
+    'JsArray<Box<T>> Function() callback',
+  ]) {
+    test(
+      'reference handle names cannot shadow opaque parameters: $signature',
+      () async {
+        final module = await read('''
+@NAPI(name: 'T') class Box<T> { Box(); }
+@NAPI() int run<T>($signature) => 0;
+''');
+        for (final validateModule in [validate, validateNative]) {
+          expect(
+            () => validateModule(module),
+            throwsA(
+              isA<BindingDiagnostic>().having(
+                (e) => e.code,
+                'code',
+                'NAPI_NAME',
+              ),
+            ),
+          );
+        }
+      },
+    );
+  }
+
   test('direct opaque leaves retain raw values and logical TS types', () async {
     final module = await read('''
 @NAPI() JsArray<T> array<T>(JsArray<T> value) => value;
@@ -192,6 +264,8 @@ import 'package:napi/napi.dart';
 @NAPI() V first<K,V>(JsMap<K,V> map) => map.entries.first.\$2;
 @NAPI() T? get<T>(JsArray<T> array) => array.get(0);
 @NAPI() int scalar(JsMap<String,int> map) => map.entries.first.\$2;
+@NAPI() class Item { Item(this.value); int value; }
+@NAPI() Item? reference(JsArray<Item> items) => items.get(0);
 @NAPI() T deep<T>(JsArray<JsMap<String, JsArray<T>>> values) => values.get(0)!.get('items')!.get(0) as T;
 ''');
       await buildLibrary(
@@ -208,6 +282,9 @@ assert.equal(api.first(new Map([[undefined, object]])), object);
 assert.equal(api.get([undefined]), undefined);
 assert.equal(api.get([]), null);
 assert.equal(api.scalar(new Map([['a', 7]])), 7);
+const item = new api.Item(11);
+assert.equal(api.reference([item]), item);
+assert.throws(() => api.reference([null]), TypeError);
 for (const value of [null, undefined, object]) {
   assert.equal(api.deep([new Map([['items', [value]]])]), value);
 }
@@ -227,8 +304,9 @@ for (const value of [null, undefined, object]) {
     '@NAPI() Map<(JsMap<String,int>,), int> bad(Map<(JsMap<String,int>,), int> value) => value;',
     '@NAPI() List<JsArray<List<int>>> bad(List<JsArray<List<int>>> value) => value;',
     '@NAPI() JsArray<List<T>> bad<T>(JsArray<List<T>> value) => value;',
-    '@NAPI() class Value {} @NAPI() JsArray<Value> bad(JsArray<Value> value) => value;',
     '@NAPI(classPolicy: ClassPolicy.resource, cleanup: "close") class Resource { void close() {} } @NAPI() JsArray<Resource> bad(JsArray<Resource> value) => value;',
+    '@NAPI(classPolicy: ClassPolicy.resource, cleanup: "close") class Resource { void close() {} } @NAPI() class Child extends Resource {} @NAPI() JsArray<Child> bad(JsArray<Child> value) => value;',
+    '@NAPI(classPolicy: ClassPolicy.value) class Value { int n = 1; } @NAPI() JsArray<Value> bad(JsArray<Value> value) => value;',
     '@NAPI() JsArray<Future<T>> bad<T>(JsArray<Future<T>> value) => value;',
     '@NAPI() JsArray<Stream<T>> bad<T>(JsArray<Stream<T>> value) => value;',
     '@NAPI(classPolicy: ClassPolicy.value, valueConstructor: "new") class Packet { Packet(this.items); final JsArray<int> items; } @NAPI() Map<Packet,int> bad(Map<Packet,int> value) => value;',

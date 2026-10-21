@@ -104,3 +104,27 @@ new api.NestedMaps<Payload>(new Map([[['wrong'], new Map()]]));
 // @ts-expect-error Nested bigint policy requires bigint leaves.
 api.nestedInt64([[1]]);
 void [liveSource, liveInner, liveRead, liveMapKey, liveMapValue, liveNumbers, liveBigints, callbackInner, asyncCallbackInner];
+
+const ref = new api.RefItem(1), refChild = new api.RefChild(2);
+const references = new api.ReferenceCollections([ref, null], new Map([[ref, refChild]]));
+const refArray: Array<api.RefItem | null> = references.array();
+const refMap: Map<api.RefItem, api.RefItem | null> = references.map();
+const readRef: api.RefItem | null = references.read(0);
+references.write(0, refChild); references.write(1, null); references.put(ref, refChild);
+const refLater: Promise<api.RefItem | null> = references.delayedRead(0);
+const nestedRef: api.RefItem | null = api.nestedReference([[ref]]);
+const callbackRef: api.RefItem | null = api.referenceCallback(value => value, [ref, null]);
+const refBox: api.RefBox<Payload> | null = api.referenceBox<Payload>([new api.RefBox<Payload>(undefined)]);
+const intItem = new api.IntItem(7), textItem = new api.TextItem('seven');
+const concreteRef: api.TextItem | null = api.concreteReference(new Map([[intItem, textItem]]), intItem);
+// @ts-expect-error Reference elements do not permit undefined.
+new api.ReferenceCollections([undefined], new Map());
+// @ts-expect-error Map keys retain the reference class brand.
+new api.ReferenceCollections([], new Map([[new api.OtherItem(1), ref]]));
+// @ts-expect-error Structurally similar classes cannot replace a selected reference.
+references.write(0, new api.OtherItem(1));
+// @ts-expect-error The opaque parameter remains typed inside a reference element.
+api.referenceBox<Payload>([new api.RefBox('wrong')]);
+// @ts-expect-error Concrete specializations retain distinct class brands.
+api.concreteReference(new Map([[intItem, intItem]]), intItem);
+void [refArray, refMap, readRef, refLater, nestedRef, callbackRef, refBox, concreteRef];

@@ -431,12 +431,14 @@ String emitViewGetterResult(
   required bool returnsFuture,
   bool returnsStream = false,
 }) {
-  if (output != null &&
-      conversionGraph([output]).any(
-        (value) =>
-            value is OpaqueConversion ||
-            value is ReferenceConversion && value.typeArguments.isNotEmpty,
-      )) {
+  bool unscoped(ValueConversion value) => switch (value) {
+    OpaqueConversion() => true,
+    ReferenceConversion() => value.typeArguments.isNotEmpty,
+    JsCollectionConversion() =>
+      (value.key != null && unscoped(value.key!)) || unscoped(value.value),
+    _ => false,
+  };
+  if (output != null && conversionGraph([output]).any(unscoped)) {
     return returnsStream
         ? 'globalThis.AsyncIterableIterator<unknown, undefined, undefined>'
         : returnsFuture

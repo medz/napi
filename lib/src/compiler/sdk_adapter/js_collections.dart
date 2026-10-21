@@ -13,7 +13,7 @@ external WasmExternRef? _jcFind(WasmExternRef source, WasmExternRef signature);
 @pragma('wasm:import', 'napi.jsCollectionCache')
 external void _jcCache(WasmExternRef source, WasmExternRef signature, WasmExternRef adapter);
 @pragma('wasm:import', 'napi.jsCollectionTypeError')
-external WasmExternRef _jcTypeError();
+external WasmExternRef _jcTypeError(WasmExternRef? message);
 
 JSAny? _jcJS(WasmExternRef? value) => value.isNull ? null : value!.toJS;
 WasmExternRef? _jcRef(JSAny? value) => value == null ? WasmExternRef.nullRef : externRefForJSAny(value);
@@ -30,7 +30,7 @@ JSAny _writeJsCollection(Object value, String signature, {bool defer = false}) {
     // False cannot be a valid Array/Map handle. Nested host validation rejects
     // this private value only after all Dart snapshot getters have completed.
     if (defer) return false.toJS;
-    throw _CallbackThrown(_jcTypeError());
+    throw _CallbackThrown(_jcTypeError(WasmExternRef.nullRef));
   }
   return value.source!.toJS;
 }
@@ -100,5 +100,17 @@ final class _JsMap<K,V> extends _JsCollection implements napi.JsMap<K,V> {
       yield readEntry(entry);
     }
   }
+}
+''';
+
+/// Resource checks are independent of the operation active during a lazy read.
+const jsCollectionsResourceEntrypointPrelude = r'''
+void _jcRejectResource(Object? value, String path) {
+  try {
+    if (_resourceControl(value) == null) return;
+  } on _ResourcePolicyViolation {
+    // Incompatible resource views are also inadmissible collection elements.
+  }
+  throw _CallbackThrown(_jcTypeError(externRefForJSAny((path + ': resource elements are not supported').toJS)));
 }
 ''';

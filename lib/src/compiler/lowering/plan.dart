@@ -80,40 +80,28 @@ final class JsCollectionConversion extends ValueConversion {
     super.context, {
     required bool bigint,
     required Set<DeclarationId> opaqueParameters,
+    List<ClassBinding> classes = const [],
   }) : isMap = type.declaration == jsMapDeclaration,
        key = type.declaration == jsMapDeclaration
-           ? _element(
+           ? conversionFor(
                type.typeArguments.first,
                'JsMap key',
-               bigint,
-               opaqueParameters,
+               bigint: bigint,
+               classes: classes,
+               opaqueParameters: opaqueParameters,
              )
            : null,
-       value = _element(
+       value = conversionFor(
          type.typeArguments.last,
          type.declaration == jsMapDeclaration ? 'JsMap value' : 'JsArray value',
-         bigint,
-         opaqueParameters,
+         bigint: bigint,
+         classes: classes,
+         opaqueParameters: opaqueParameters,
        );
-  static ValueConversion _element(
-    BindingType type,
-    String context,
-    bool bigint,
-    Set<DeclarationId> opaqueParameters,
-  ) => isOpaqueType(type, opaqueParameters)
-      ? OpaqueConversion(type as TypeParameterType, context)
-      : isJsCollectionType(type)
-      ? JsCollectionConversion(
-          type as DeclaredType,
-          context,
-          bigint: bigint,
-          opaqueParameters: opaqueParameters,
-        )
-      : ScalarConversion(type, context, bigint: bigint);
-
   static Object _signature(ValueConversion value) => switch (value) {
     ScalarConversion() => [value.kind.name, value.bigint, value.nullable],
     OpaqueConversion() => ['opaque', value.nullable],
+    ReferenceConversion() => ['reference', value.classId, value.nullable],
     JsCollectionConversion() => [
       'collection',
       value.nullable,
@@ -641,6 +629,7 @@ final class _ConversionBuilder {
         type as DeclaredType,
         context,
         bigint: bigint,
+        classes: classes,
         opaqueParameters: opaqueParameters,
       );
     }

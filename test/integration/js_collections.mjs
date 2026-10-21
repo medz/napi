@@ -432,7 +432,106 @@ async function nestedHandles(api) {
     assert.equal(value, callbackSource); await tick(); return value;
   }, callbackSource), inner);
 }
-const cases = {direct, scalars, maps, accessors, admission, captures, futures, streams, retained, opaque, opaqueAsync, opaqueRetained, nested, nestedHandles};
+async function references(api) {
+  const first = new api.RefItem(1), child = new api.RefChild(2);
+  const array = [first, null], map = new Map([[first, child]]);
+  const refs = new api.ReferenceCollections(array, map);
+  assert.equal(refs.array(), array); assert.equal(refs.map(), map);
+  assert.equal(refs.read(0), first); assert.equal(refs.read(1), null);
+  assert.equal(refs.read(2), null); assert(refs.has(first));
+  assert(!refs.has(new api.RefItem(1))); assert.equal(refs.get(first), child);
+  assert.equal(refs.get(child), null);
+  refs.write(0, child); assert.equal(array[0], child);
+  child.value = 3; assert.equal(refs.read(0).value, 3);
+  refs.write(1, first); assert.equal(array[1], first);
+  refs.write(1, null); assert.equal(array[1], null);
+  refs.put(child, first); assert.equal(map.get(child), first);
+  refs.put(first, null); assert(map.has(first)); assert.equal(map.get(first), null);
+  refs.start(); assert(refs.next()); assert.equal(refs.key(), first); assert.equal(refs.value(), null);
+  assert(refs.next()); map.clear();
+  assert.equal(refs.key(), child); assert.equal(refs.value(), first);
+  refs.put(child, first); assert(refs.remove(child)); assert(!refs.remove(child));
+
+  let gets = 0;
+  const lazy = []; Object.defineProperty(lazy, '0', {get() {gets++; return first;}});
+  const lazyRefs = new api.ReferenceCollections(lazy, new Map());
+  assert.equal(gets, 0); assert.equal(lazyRefs.read(0), first); assert.equal(gets, 1);
+  const reason = Symbol('reference getter');
+  const throwing = []; Object.defineProperty(throwing, '0', {get() {throw reason;}});
+  exact(() => new api.ReferenceCollections(throwing, new Map()).read(0), reason);
+  const reentrant = [], nested = new api.ReferenceCollections(reentrant, new Map());
+  Object.defineProperty(reentrant, '0', {get() {assert.equal(nested.array(), reentrant); global.gc(); return child;}});
+  assert.equal(nested.read(0), child);
+  assert.equal(api.nestedReference([[first]]), first);
+  assert.equal(api.referenceCallback(value => {assert.equal(value, array); return value;}, array), child);
+  const payload = {id: 1}, box = new api.RefBox(payload);
+  assert.equal(api.referenceBox([box]), box); assert.equal(box.value, payload);
+  const intItem = new api.IntItem(7), textItem = new api.TextItem('seven');
+  assert.equal(api.concreteReference(new Map([[intItem, textItem]]), intItem), textItem);
+  assert.throws(() => api.concreteReference(new Map([[intItem, intItem]]), intItem), TypeError);
+  for (const [name, value] of [['opaque', true], ['reference', 0]]) {
+    const original = Object.getOwnPropertyDescriptor(Object.prototype, name);
+    try {
+      Object.defineProperty(Object.prototype, name, {configurable: true, value});
+      assert.equal(refs.read(0), child);
+      refs.write(0, child); assert.equal(array[0], child);
+      assert.equal(api.booleans([true])[0], true);
+      assert.equal(api.nestedNumbers([[1]])[0][0], 1);
+    } finally {
+      if (original) Object.defineProperty(Object.prototype, name, original);
+      else delete Object.prototype[name];
+    }
+  }
+
+  const delayed = refs.delayedRead(0); array[0] = first;
+  assert.equal(await delayed, first);
+  const captured = refs.captured(0); array.length = 0;
+  await tick(); api.pressure(1); global.gc();
+  assert.equal(await captured, first);
+  let retained = new api.RefItem(31); const weak = new WeakRef(retained);
+  array[0] = retained; refs.save(0); array.length = 0; retained = null;
+  await collect(api, () => weak.deref() === undefined);
+  const restored = refs.saved(); assert.equal(restored.value, 31);
+  refs.write(0, restored); assert.equal(array[0], restored);
+  map.set(restored, restored); assert(refs.has(restored)); assert.equal(refs.get(restored), restored);
+
+  let traps = 0;
+  const proxy = new Proxy(first, {get() {traps++; throw 'inspected reference';}, getPrototypeOf() {traps++; throw 'inspected reference';}});
+  const foreign = await import(api === await import('@napi/js-collections-fixture')
+    ? '@napi/js-collections-external' : '@napi/js-collections-fixture');
+  const badValues = [undefined, {}, new api.OtherItem(1), Object.create(api.RefItem.prototype), proxy, new foreign.RefItem(1)];
+  for (const bad of badValues) {
+    const invalid = new api.ReferenceCollections([bad], new Map());
+    assert.throws(() => invalid.read(0), TypeError);
+    const badKey = new api.ReferenceCollections([], new Map([[bad, first]]));
+    badKey.start(); assert.throws(() => badKey.next(), TypeError);
+    assert.throws(() => new api.ReferenceCollections([], new Map([[first, bad]])).get(first), TypeError);
+  }
+  assert.equal(traps, 0);
+  const nullKey = new api.ReferenceCollections([], new Map([[null, first]]));
+  nullKey.start(); assert.throws(() => nullKey.next(), TypeError);
+  assert.throws(() => api.referenceBox([first]), TypeError);
+  assert.throws(() => api.referenceBox([null]), TypeError);
+
+  // An ordinary static base cannot bypass resource lifetime admission.
+  const resource = new api.ResourceItem(41);
+  const resourceRefs = new api.ReferenceCollections([resource], new Map([[resource, first], [first, resource]]));
+  assert.throws(() => resourceRefs.read(0), TypeError);
+  await assert.rejects(resourceRefs.delayedRead(0), TypeError);
+  await assert.rejects(resourceRefs.captured(0), TypeError);
+  assert.throws(() => resourceRefs.has(resource), TypeError);
+  assert.throws(() => resourceRefs.get(first), TypeError);
+  resourceRefs.start(); assert.throws(() => resourceRefs.next(), TypeError);
+  assert.throws(() => refs.write(0, resource), TypeError); assert.equal(array[0], restored);
+  assert.throws(() => refs.writeResource(0), TypeError); assert.equal(array[0], restored);
+  assert.throws(() => refs.putResourceKey(), TypeError); assert.equal(map.size, 1);
+  assert.throws(() => refs.putResourceValue(restored), TypeError); assert.equal(map.get(restored), restored);
+  assert.throws(() => api.writeReferenceResource(array), TypeError); assert.equal(array[0], restored);
+  assert.throws(() => api.writeConflictingResource(array), TypeError); assert.equal(array[0], restored);
+  await resource.close();
+  assert.throws(() => resourceRefs.read(0), TypeError);
+}
+const cases = {direct, scalars, maps, accessors, admission, captures, futures, streams, retained, opaque, opaqueAsync, opaqueRetained, nested, nestedHandles, references};
 async function worker(held) {
   const thread = new Worker(new URL(import.meta.url), {workerData: {held}});
   await new Promise((resolve, reject) => {

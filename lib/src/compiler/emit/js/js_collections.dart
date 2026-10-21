@@ -11,7 +11,13 @@ String jsCollectionPolicies(Iterable<JsCollectionConversion> conversions) {
       'integer': c.kind == ScalarKind.integer,
     },
     OpaqueConversion() => {'opaque': true},
+    ReferenceConversion() => {
+      'opaque': false,
+      'reference': c.classId,
+      'nullable': c.nullable,
+    },
     JsCollectionConversion() => {
+      'opaque': false,
       'collection': c.isMap ? 'map' : 'array',
       'nullable': c.nullable,
     },
@@ -41,6 +47,7 @@ const jsCollectionsPolicy = r'''
 import {types as $jcTypes} from 'node:util';
 const $jcApply = Reflect.apply, $jcGet = Reflect.get, $jcSet = Reflect.set;
 const $jcArray = Array.isArray, $jcMap = $jcTypes.isMap, $jcProxy = $jcTypes.isProxy;
+const $jcOwn = Object.hasOwn;
 const $jcSize = Object.getOwnPropertyDescriptor(Map.prototype, 'size').get;
 const $jcHas = Map.prototype.has, $jcRead = Map.prototype.get;
 const $jcWrite = Map.prototype.set, $jcDelete = Map.prototype.delete;
@@ -71,12 +78,20 @@ function $jcIndex(index) {
 // BigInt text is private Wasm transport only, never the public JS value.
 function $jcInput(value, policy, path, text) {
   if (policy.opaque) return value;
-  if (policy.collection) return $jcAdmit(value, policy.collection === 'map', policy.nullable, path);
+  if ($jcOwn(policy, 'reference')) {
+    if (!text || value === null && policy.nullable) return value;
+    return writeReference(value, policy.reference, path);
+  }
+  if ($jcOwn(policy, 'collection')) return $jcAdmit(value, policy.collection === 'map', policy.nullable, path);
   return $jcScalar(text && value !== null && policy.type === 'bigint' ? $jcBigInt(value) : value, policy, path);
 }
 function $jcOutput(value, policy, path, text) {
   if (policy.opaque) return value;
-  if (policy.collection) return $jcAdmit(value, policy.collection === 'map', policy.nullable, path);
+  if ($jcOwn(policy, 'reference')) {
+    if (value === null && !policy.nullable) throw new $jcTypeError(path + ': expected a Dart class reference');
+    return text ? readReference(value, policy.reference, policy.nullable, path) : value;
+  }
+  if ($jcOwn(policy, 'collection')) return $jcAdmit(value, policy.collection === 'map', policy.nullable, path);
   value = $jcScalar(value, policy, path);
   return text && value !== null && policy.type === 'bigint' ? $jcApply($jcBigText, value, []) : value;
 }
@@ -145,7 +160,7 @@ export function jsCollectionCache(source, signature, adapter) {
   }
   entries[signature] = new $jcWeakRef(adapter);
 }
-export function jsCollectionTypeError() {
-  return {__proto__: null, threw: true, value: new $jcTypeError('Expected a JS collection handle with this module and element policy')};
+export function jsCollectionTypeError(message) {
+  return {__proto__: null, threw: true, value: new $jcTypeError(message ?? 'Expected a JS collection handle with this module and element policy')};
 }
 ''';

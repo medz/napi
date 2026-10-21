@@ -2122,7 +2122,12 @@ void validateValueType(
   bool allowAbortSignal = false,
 }) {
   if (isJsCollectionType(type)) {
-    _validateJsCollection(type as DeclaredType, source, opaqueParameters);
+    _validateJsCollection(
+      type as DeclaredType,
+      source,
+      referenceClasses,
+      opaqueParameters,
+    );
     return;
   }
   if (allowAbortSignal &&
@@ -2140,7 +2145,7 @@ void validateValueType(
   if (allowCallback &&
       direction == ValueDirection.input &&
       type is FunctionTypeBinding) {
-    _validateCallback(type, source, opaqueParameters);
+    _validateCallback(type, source, referenceClasses, opaqueParameters);
     return;
   }
   if (_containsCallback(type)) {
@@ -2207,12 +2212,14 @@ bool _containsAbortSignal(BindingType type) => switch (type) {
 void _validateJsCollection(
   DeclaredType collection,
   SourceLocation source,
+  List<ClassBinding> classes,
   Set<DeclarationId> opaqueParameters,
 ) {
-  if (!_supportedJsCollectionElements(collection, opaqueParameters)) {
+  validateOpaqueReferenceNames(collection, source, classes, opaqueParameters);
+  if (!_supportedJsCollectionElements(collection, classes, opaqueParameters)) {
     throw BindingDiagnostic(
       'NAPI_JS_COLLECTION',
-      'JsArray/JsMap support scalars, direct opaque elements and nested JS collection handles; reference and resource elements are not supported.',
+      'JsArray/JsMap support scalars, ordinary selected references, direct opaque elements and nested JS collection handles; resource elements are not supported.',
       source,
     );
   }
@@ -2220,6 +2227,7 @@ void _validateJsCollection(
 
 bool _supportedJsCollectionElements(
   DeclaredType collection,
+  List<ClassBinding> classes,
   Set<DeclarationId> opaqueParameters,
 ) =>
     collection.typeArguments.length ==
@@ -2228,9 +2236,21 @@ bool _supportedJsCollectionElements(
       (element) =>
           _isBackendScalar(element) ||
           isOpaqueType(element, opaqueParameters) ||
+          (isReferenceType(
+                element,
+                classes,
+                opaqueParameters: opaqueParameters,
+              ) &&
+              !_isResourceClass(
+                classes.firstWhere(
+                  (c) => referenceClassMatches(c, element as DeclaredType),
+                ),
+                classes,
+              )) ||
           (isJsCollectionType(element) &&
               _supportedJsCollectionElements(
                 element as DeclaredType,
+                classes,
                 opaqueParameters,
               )),
     );
@@ -2250,6 +2270,7 @@ bool _containsCallback(BindingType type) => switch (type) {
 void _validateCallback(
   FunctionTypeBinding type,
   SourceLocation source,
+  List<ClassBinding> classes,
   Set<DeclarationId> opaqueParameters,
 ) {
   Never reject(String message) =>
@@ -2269,7 +2290,13 @@ void _validateCallback(
         'Callback signatures require positional parameters without defaults.',
       );
     }
-    if (!_isCallbackValue(parameter.type, opaqueParameters)) {
+    validateOpaqueReferenceNames(
+      parameter.type,
+      source,
+      classes,
+      opaqueParameters,
+    );
+    if (!_isCallbackValue(parameter.type, classes, opaqueParameters)) {
       reject(
         'Callback arguments support scalars, JS collection handles, Lists and records; references, bare opaque payloads and nested callbacks are not supported.',
       );
@@ -2288,7 +2315,8 @@ void _validateCallback(
   }
   final payload = resultPayload(result);
   if (payload == null) return;
-  if (!_isCallbackValue(payload, opaqueParameters)) {
+  validateOpaqueReferenceNames(payload, source, classes, opaqueParameters);
+  if (!_isCallbackValue(payload, classes, opaqueParameters)) {
     reject(
       'Callback results support scalars, JS collection handles, Lists, records or void, synchronously or inside Future; FutureOr, references, bare opaque payloads and nested callbacks are not supported.',
     );
@@ -2308,20 +2336,27 @@ bool _containsTypedData(BindingType type) => switch (type) {
   _ => false,
 };
 
-bool _isCallbackValue(BindingType type, Set<DeclarationId> opaqueParameters) {
+bool _isCallbackValue(
+  BindingType type,
+  List<ClassBinding> classes,
+  Set<DeclarationId> opaqueParameters,
+) {
   if (_isBackendScalar(type)) return true;
   if (type.nullability == TypeNullability.legacy) return false;
   if (isJsCollectionType(type)) {
     return _supportedJsCollectionElements(
       type as DeclaredType,
+      classes,
       opaqueParameters,
     );
   }
   if (type is RecordTypeBinding) {
     return type.positional.every(
-          (t) => _isCallbackValue(t, opaqueParameters),
+          (t) => _isCallbackValue(t, classes, opaqueParameters),
         ) &&
-        type.named.values.every((t) => _isCallbackValue(t, opaqueParameters));
+        type.named.values.every(
+          (t) => _isCallbackValue(t, classes, opaqueParameters),
+        );
   }
   return type is DeclaredType &&
       type.semantics == ValueSemantics.structural &&
@@ -2332,7 +2367,7 @@ bool _isCallbackValue(BindingType type, Set<DeclarationId> opaqueParameters) {
             kind: DeclarationKind.classType,
           ) &&
       type.typeArguments.length == 1 &&
-      _isCallbackValue(type.typeArguments.single, opaqueParameters);
+      _isCallbackValue(type.typeArguments.single, classes, opaqueParameters);
 }
 
 /// Export renames may collide even when the original Dart names are distinct.
@@ -2672,7 +2707,12 @@ void _checkValueDirection(
         source,
       );
     }
-    _validateJsCollection(type as DeclaredType, source, opaqueParameters);
+    _validateJsCollection(
+      type as DeclaredType,
+      source,
+      classes,
+      opaqueParameters,
+    );
     return;
   }
   if (type is DeclaredType &&
@@ -2887,7 +2927,7 @@ bool _portableDefaultParameter(
   final binding = classes
       .where((c) => referenceClassMatches(c, type))
       .firstOrNull;
-  if (binding == null || _defaultResourceClass(binding, classes)) return false;
+  if (binding == null || _isResourceClass(binding, classes)) return false;
   // A class-valued field can hold a resource subtype or composite view,
   // even when its declared class uses value semantics.
   if (withinValueDefault &&
@@ -2908,7 +2948,7 @@ bool _portableDefaultParameter(
       _valueChildren(binding, ValueDirection.output).every(valueField);
 }
 
-bool _defaultResourceClass(ClassBinding binding, List<ClassBinding> classes) =>
+bool _isResourceClass(ClassBinding binding, List<ClassBinding> classes) =>
     binding.classPolicy == ClassPolicy.resource ||
     binding.cleanup != null ||
     classes.any(
@@ -2928,7 +2968,7 @@ bool _defaultGraphHasResource(
   bool resource(DeclaredType type, List<DeclaredType> supertypes) =>
       classes.any(
         (binding) =>
-            _defaultResourceClass(binding, classes) &&
+            _isResourceClass(binding, classes) &&
             [
               type,
               ...supertypes,
