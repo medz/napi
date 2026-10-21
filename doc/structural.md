@@ -154,8 +154,10 @@ equally inside containers. [SharedBytes](shared-bytes.md) leaves retain their li
 shared views inside structural values. Opaque leaves preserve the original JS
 value without inspecting it.
 
-Structural defaults containing opaque leaves, opaque
-Map keys and JS collection handles as Map keys are not supported.
+Compatible empty constants can supply defaults for containers with opaque
+elements. Nullable opaque elements can also use Dart null constants, for example
+`List<T?> values = const <Null>[null]`. Non-null opaque payload defaults,
+opaque Map keys and JS collection handles as Map keys remain unsupported.
 Open generic value classes can store opaque parameters in their converted fields;
 their JS containers are copied while payload identity is preserved. Optional opaque
 constructor fields select their Dart default only when absent, including inside
