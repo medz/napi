@@ -84,6 +84,52 @@ void main() {
   );
 
   test(
+    'composed collection getter views keep generic parameters in scope',
+    () async {
+      final backends = await declarations('''
+@NAPI() class CollectionBox<T> { CollectionBox(); }
+@NAPI() class CollectionReads<T> {
+  JsArray<T> get opaque => throw '';
+  JsArray<JsMap<String, JsArray<CollectionBox<T>>>> get nested => throw '';
+  JsMap<CollectionBox<T>, int> get keys => throw '';
+  JsArray<int> get scalar => throw '';
+}
+@NAPI() class CollectionWrites {
+  set opaque(JsArray<int> value) {}
+  set nested(JsArray<int> value) {}
+  set keys(JsArray<int> value) {}
+  set scalar(JsArray<int> value) {}
+}
+''');
+      for (final backend in backends.entries) {
+        await File('${directory.path}/${backend.key}.d.mts')
+            .writeAsString(backend.value);
+        await File('${directory.path}/${backend.key}-consumer.mts')
+            .writeAsString('''
+import * as api from './${backend.key}.mjs';
+type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
+type Assert<T extends true> = T;
+type Opaque = Assert<Equal<api.CollectionWrites['opaque'], unknown>>;
+type Nested = Assert<Equal<api.CollectionWrites['nested'], unknown>>;
+type Keys = Assert<Equal<api.CollectionWrites['keys'], unknown>>;
+type Scalar = Assert<Equal<api.CollectionWrites['scalar'], Array<number> | undefined>>;
+type Own = Assert<Equal<api.CollectionReads<string>['nested'], Array<Map<string, Array<api.CollectionBox<string>>>>>>;
+const writes = new api.CollectionWrites();
+writes.opaque = [1]; writes.nested = [2]; writes.keys = [3]; writes.scalar = [4];
+// @ts-expect-error Unknown composed reads do not become this setter's type.
+const nested: Array<number> = writes.nested;
+// @ts-expect-error Broadening a composed read does not broaden the setter.
+writes.opaque = ['wrong'];
+void [nested];
+''');
+      }
+      await checkTypes(
+        backends.keys.map((name) => '${directory.path}/$name-consumer.mts'),
+      );
+    },
+  );
+
+  test(
     'root Promise resolution is sound for generic and reference then unions',
     () async {
       final backends = await declarations('''

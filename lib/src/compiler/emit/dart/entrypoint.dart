@@ -74,6 +74,7 @@ String emitDart(ModulePlan plan) {
   if (resources) {
     result.writeln(resourceEntrypointPrelude);
     _emitResourceControl(result, plan);
+    if (jsCollections) result.writeln(jsCollectionsResourceEntrypointPrelude);
   }
   if (plan.classes.isNotEmpty) {
     final tests = DartReferenceClassTests(plan.classes.map((c) => c.binding));
@@ -117,6 +118,7 @@ ${tests.declarations}  return externRefForJSAny(<JSAny?>[
   }
   final structural = DartStructuralEmitter(
     defaultDeclarationSource: declarationSource,
+    resources: resources,
   );
   final hasStructural =
       callbacks.isNotEmpty ||

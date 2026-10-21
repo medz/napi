@@ -514,3 +514,129 @@ Future<JsArray<T>?> nestedAsyncCallback<T>(
   Future<JsArray<JsArray<T>?>> Function(JsArray<JsArray<T>?>) callback,
   JsArray<JsArray<T>?> value,
 ) async => (await callback(value)).get(0);
+
+@NAPI()
+class RefItem {
+  int value;
+  RefItem(this.value);
+}
+
+@NAPI()
+class RefChild extends RefItem {
+  RefChild(super.value);
+}
+
+@NAPI()
+class OtherItem {
+  int value;
+  OtherItem(this.value);
+}
+
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+class ResourceItem extends RefItem {
+  ResourceItem(super.value);
+  void close() {}
+}
+
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'release')
+class OtherResource {
+  OtherResource();
+  void release() {}
+}
+
+class _ConflictingResource extends RefItem
+    implements ResourceItem, OtherResource {
+  _ConflictingResource() : super(100);
+  @override
+  void close() {}
+  @override
+  void release() {}
+}
+
+@NAPI()
+void writeReferenceResource(JsArray<RefItem?> value) =>
+    value.set(0, ResourceItem(101));
+
+@NAPI()
+void writeConflictingResource(JsArray<RefItem?> value) =>
+    value.set(0, _ConflictingResource());
+
+@NAPI()
+class ReferenceCollections {
+  final JsArray<RefItem?> _array;
+  final JsMap<RefItem, RefItem?> _map;
+  RefItem? _saved;
+  Iterator<(RefItem, RefItem?)>? _iterator;
+  (RefItem, RefItem?)? _entry;
+  ReferenceCollections(this._array, this._map);
+  JsArray<RefItem?> array() => _array;
+  JsMap<RefItem, RefItem?> map() => _map;
+  RefItem? read(int index) => _array.get(index);
+  void write(int index, RefItem? value) => _array.set(index, value);
+  void save(int index) => _saved = _array.get(index);
+  RefItem? saved() => _saved;
+  bool has(RefItem key) => _map.has(key);
+  RefItem? get(RefItem key) => _map.get(key);
+  void put(RefItem key, RefItem? value) => _map.set(key, value);
+  bool remove(RefItem key) => _map.delete(key);
+  void start() => _iterator = _map.entries.iterator;
+  bool next() {
+    if (!_iterator!.moveNext()) {
+      _entry = null;
+      return false;
+    }
+    _entry = _iterator!.current;
+    return true;
+  }
+
+  RefItem? key() => _entry?.$1;
+  RefItem? value() => _entry?.$2;
+  Future<RefItem?> delayedRead(int index) async {
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+    return _array.get(index);
+  }
+
+  Future<RefItem?> captured(int index) async {
+    final value = _array.get(index);
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+    return value;
+  }
+
+  void writeResource(int index) => _array.set(index, ResourceItem(97));
+  void putResourceKey() => _map.set(ResourceItem(98), null);
+  void putResourceValue(RefItem key) => _map.set(key, ResourceItem(99));
+}
+
+@NAPI()
+RefItem? nestedReference(JsArray<JsArray<RefItem?>> value) =>
+    value.get(0)!.get(0);
+
+@NAPI()
+RefItem? referenceCallback(
+  JsArray<RefItem?> Function(JsArray<RefItem?>) callback,
+  JsArray<RefItem?> value,
+) => callback(value).get(0);
+
+@NAPI()
+class RefBox<T> {
+  final T value;
+  RefBox(this.value);
+}
+
+@NAPI()
+RefBox<T>? referenceBox<T>(JsArray<RefBox<T>> value) => value.get(0);
+
+class ConcreteItem<T> {
+  final T value;
+  ConcreteItem(this.value);
+}
+
+@NAPI()
+typedef IntItem = ConcreteItem<int>;
+
+@NAPI()
+typedef TextItem = ConcreteItem<String>;
+
+@NAPI()
+TextItem? concreteReference(JsMap<IntItem, TextItem> value, IntItem key) =>
+    value.get(key);

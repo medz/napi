@@ -88,6 +88,12 @@ dependencies:
     'nestedFakeWrite',
     'nestedCallback',
     'nestedAsyncCallback',
+    'nestedReference',
+    'referenceCallback',
+    'referenceBox',
+    'concreteReference',
+    'writeReferenceResource',
+    'writeConflictingResource',
   ];
   const bigints = [
     'bigBooleans',
@@ -118,6 +124,15 @@ Future<void> main() async {
           ExternalClass('MapPayloads'),
           ExternalClass('NestedArrays'),
           ExternalClass('NestedMaps'),
+          ExternalClass('RefItem'),
+          ExternalClass('RefChild'),
+          ExternalClass('OtherItem'),
+          ExternalClass('ReferenceCollections'),
+          ExternalClass('RefBox'),
+          ExternalClass('IntItem'),
+          ExternalClass('TextItem'),
+          ExternalClass('ResourceItem', config: NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')),
+          ExternalClass('OtherResource', config: NAPI(classPolicy: ClassPolicy.resource, cleanup: 'release')),
           ExternalClass('Owner', config: NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')),
         ] else ...const [
           ExternalFunction('read'),

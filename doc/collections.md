@@ -12,7 +12,7 @@ Both targets use these mappings:
 | `List<T>` | `Array<T>` | Independent container on each conversion |
 | `Map<K, V>` | `Map<K, V>` | Independent container on each conversion |
 | `Dictionary<V>` | String-keyed object | Independent container on each conversion |
-| `JsArray<T>` / `JsMap<K, V>` | Original JS Array or Map | Retains the existing JS container; scalar, nested handle and direct opaque elements |
+| `JsArray<T>` / `JsMap<K, V>` | Original JS Array or Map | Retains the existing JS container; scalar, ordinary reference, nested handle and direct opaque elements |
 | Exported Dart reference class | Bound class instance | Dart owns its state; methods expose supported operations |
 
 See [structural conversion](structural.md) for strict input validation, element
@@ -122,8 +122,20 @@ source slot, or dropping the container handle, does not invalidate a payload
 still saved by Dart. Clearing that saved field permits collection. Keeping only
 the original JS source alive does not pin an unused Dart handle. An opaque
 resource wrapper remains an uninterpreted JS value: retaining it does not acquire
-a permanent resource lease or prevent explicit cleanup. Typed reference/resource
-elements remain unsupported.
+a permanent resource lease or prevent explicit cleanup.
+
+Ordinary selected reference classes also work as elements and keys, including
+opaque generic references and concrete specializations. Reads and writes use the
+same module brand and most-specific class checks as direct class arguments;
+returning a stored object preserves its wrapper identity. A reference used as a
+Map key therefore addresses that exact JS wrapper. Removing a slot does not
+invalidate an object still retained by Dart.
+
+Resource objects are rejected on access or assignment, including resource
+subtypes viewed through an ordinary base class. A container is admitted without
+reading its contents, so merely accepting a handle does not validate all of its
+elements or acquire resource leases. Copied containers, value classes and binary
+values are not supported as typed handle elements.
 
 Handles remain usable when saved by Dart or across await/Timer callbacks in their
 owner. Existing Future/Stream retention and resource operation leases apply;

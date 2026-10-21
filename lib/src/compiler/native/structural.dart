@@ -28,17 +28,32 @@ String nativeJsCollectionRead(
   String value,
   String path, {
   String api = '_api',
+  bool hasResources = false,
 }) {
   final method = conversion.isMap ? 'jsMap' : 'jsArray';
   final elements = [?conversion.key, conversion.value];
   final policies = elements
-      .map(
-        (c) => c is JsCollectionConversion
-            ? 'NativeJsElement<${c.dartType}>(\'handle\', nullable: ${c.nullable}, '
-                  'readHandle: (api, env, value, path) => ${nativeJsCollectionRead(c, 'env', 'value', 'path', api: 'api')}, '
-                  'writeHandle: (api, env, value, path) => api.jsCollectionResult(env, value${c.nullable ? '!' : ''}, ${_quote(c.signatureKey)}, path))'
-            : 'const NativeJsElement<${c.dartType}>(${_quote(c is OpaqueConversion ? 'opaque' : (c as ScalarConversion).kind.name)}, nullable: ${c.nullable}, bigint: ${c is ScalarConversion && c.bigint})',
-      )
+      .map((c) {
+        if (c is JsCollectionConversion) {
+          return 'NativeJsElement<${c.dartType}>(\'handle\', nullable: ${c.nullable}, '
+              'readHandle: (api, env, value, path) => ${nativeJsCollectionRead(c, 'env', 'value', 'path', api: 'api', hasResources: hasResources)}, '
+              'writeHandle: (api, env, value, path) => api.jsCollectionResult(env, value${c.nullable ? '!' : ''}, ${_quote(c.signatureKey)}, path))';
+        }
+        if (c is ReferenceConversion) {
+          final object = 'value${c.nullable ? '!' : ''}';
+          String checkResource(String value) => hasResources
+              ? "if (_resourceControl($value) != null) throw NapiTypeError('\$path: resource objects are unsupported in JS collections'); "
+              : '';
+          return 'NativeJsElement<${c.dartType}>(\'reference\', nullable: ${c.nullable}, '
+              'readHandle: (api, env, value, path) { '
+              'final object = api.ownerValue(env, value, path, ${c.classId}); '
+              "if (object is! ${dartReferenceClassType(c.classBinding)}) throw NapiTypeError('\$path: expected ${c.classBinding.exportName}'); "
+              '${checkResource('object')}return object; }, '
+              'writeHandle: (api, env, value, path) { '
+              '${checkResource(object)}return api.referenceResult(env, $object, ${c.classId}, path); })';
+        }
+        return 'const NativeJsElement<${c.dartType}>(${_quote(c is OpaqueConversion ? 'opaque' : (c as ScalarConversion).kind.name)}, nullable: ${c.nullable}, bigint: ${c is ScalarConversion && c.bigint})';
+      })
       .join(', ');
   return '$api.$method($env, $value, ${_quote(conversion.signatureKey)}, $path, $policies)';
 }
@@ -129,7 +144,7 @@ final class NativeStructuralEmitter {
         // The adapter owns its source, including cache hits and constructor
         // escapes. It must not join the opaque input rollback list.
         _code.writeln(
-          '  return ${nativeJsCollectionRead(conversion, 'env', 'value', 'path')};',
+          '  return ${nativeJsCollectionRead(conversion, 'env', 'value', 'path', hasResources: hasResources)};',
         );
       case OpaqueConversion():
         _code.writeln(

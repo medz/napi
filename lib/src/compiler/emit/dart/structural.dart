@@ -8,7 +8,11 @@ import '../../lowering/plan.dart';
 /// run. Records use declaration field order; Maps use flat key/value arrays.
 final class DartStructuralEmitter {
   final String Function(DeclarationId)? defaultDeclarationSource;
-  DartStructuralEmitter({this.defaultDeclarationSource});
+  final bool resources;
+  DartStructuralEmitter({
+    this.defaultDeclarationSource,
+    this.resources = false,
+  });
   final _code = StringBuffer();
   var _next = 0;
   final _memo = <(ValueConversion, bool, bool), String>{};
@@ -26,6 +30,15 @@ final class DartStructuralEmitter {
         return '_JsElement<$type>(true, null, null)';
       case ScalarConversion():
         return '_JsElement<$type>(false, (value) => $nullable${_readScalar(conversion, bigintText: true)}, (value) => $nullable${_writeScalar(conversion)})';
+      case ReferenceConversion():
+        final path = jsonEncode(conversion.context).replaceAll(r'$', r'\$');
+        final guard = resources ? '_jcRejectResource(object, $path); ' : '';
+        return '_JsElement<$type>(false, (value) { '
+            '${conversion.nullable ? 'if (value == null) return null; ' : ''}'
+            'final object = externRefForJSAny(value!)!.internalize().toObject() as $type; '
+            '${guard}return object; }, (value) { '
+            '${conversion.nullable ? 'if (value == null) return null; ' : ''}'
+            'final object = value; ${guard}return WasmAnyRef.fromObject(object).externalize().toJS; })';
       case JsCollectionConversion():
         final reader = read(conversion);
         final signature = jsonEncode(conversion.signatureKey)
