@@ -278,6 +278,10 @@ function settleCallback(record, envelope) {
         for (final (index, _) in callback.parameters.indexed)
           if (callback.isNamedParameter(index)) index,
       ];
+      named.sort(
+        (a, b) =>
+            callback.parameters[a].name.compareTo(callback.parameters[b].name),
+      );
       if (named.isNotEmpty) {
         final anyNamed = named.any((index) => !optional.contains(index))
             ? 'true'

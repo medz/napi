@@ -20,6 +20,15 @@ import 'package:napi/napi.dart';
     [callback(1), callback(1, count: null), callback(1, text: 'x'), callback(1, count: 3, text: 'y')];
 @NAPI() List<int> requiredNamed(int Function(int, {required int count, int? other}) callback) =>
     [callback(1, count: 2), callback(1, count: 3, other: null)];
+final retainedNamed = <int Function({int? a, int? b})>[];
+@NAPI() List<int> orderAB(int Function({int? a, int? b}) callback) {
+  retainedNamed.add(callback);
+  return [callback(a: 1, b: 2), callback(b: 2), callback()];
+}
+@NAPI() List<int> orderBA(int Function({int? b, int? a}) callback) {
+  retainedNamed.add(callback);
+  return [callback(a: 1, b: 2), callback(b: 2), callback()];
+}
 @NAPI() int names(int Function({required int arguments, int? callback,
   int? operation, int? adapter, int? result, int? c0, int? constructor}) callback) =>
     callback(arguments: 1, callback: 2, operation: 3, adapter: 4, result: 5, c0: 6, constructor: 7);
@@ -57,6 +66,24 @@ seen = [];
 assert.deepEqual(api.requiredNamed(function(...args) { seen.push(args); return args.length; }), [2, 2]);
 assert.deepEqual({...seen[0][1]}, {count: 2});
 assert.deepEqual({...seen[1][1]}, {count: 3, other: null});
+const keyOrders = [];
+function checkOrder(...args) {
+  assert.equal(args.length <= 1, true);
+  if (args.length === 0) {
+    keyOrders.push(null);
+  } else {
+    keyOrders.push(Object.keys(args[0]));
+    assert.equal(args[0].b, 2);
+    if (Object.hasOwn(args[0], 'a')) assert.equal(args[0].a, 1);
+  }
+  return args.length;
+}
+for (const [first, second] of [[api.orderBA, api.orderAB], [api.orderAB, api.orderBA]]) {
+  const callback = (...args) => checkOrder(...args);
+  assert.deepEqual(first(callback), [1, 1, 0]);
+  assert.deepEqual(second(callback), [1, 1, 0]);
+}
+assert.deepEqual(keyOrders, Array(4).fill([['a', 'b'], ['b'], null]).flat());
 assert.equal(api.names(options => {
   assert.equal(Object.getPrototypeOf(options), null);
   assert.deepEqual({...options}, {arguments: 1, callback: 2, operation: 3,

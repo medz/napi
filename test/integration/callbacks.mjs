@@ -448,6 +448,23 @@ function optionalArguments(api) {
   const same = () => 0;
   assert.equal(api.callbackParameterPolicies(same, same, same, same, same), true,
     'positional names share adapters; parameter kinds and named keys do not');
+  const named = () => function(options) {
+    if (arguments.length === 0) {
+      assert.equal(options, undefined); return 0;
+    }
+    assert.equal(arguments.length, 1);
+    if (Object.hasOwn(options, 'a')) {
+      assert.deepEqual(Object.keys(options), ['a', 'b']);
+      assert.equal(options.a, 1); assert.equal(options.b, 2); return 12;
+    }
+    assert.deepEqual(Object.keys(options), ['b']);
+    assert.equal(options.b, 3); return 3;
+  };
+  for (const exports of [[api.callNamesAB, api.callNamesBA], [api.callNamesBA, api.callNamesAB]]) {
+    const shared = named();
+    for (const call of exports) assert.deepEqual(call(shared), [12, 3, 0]);
+    for (const call of exports) assert.deepEqual(call(named()), [12, 3, 0]);
+  }
   assert.throws(() => api.callOptionalPositionals(() => null), TypeError);
 }
 
@@ -1163,7 +1180,7 @@ async function scenario(name) {
         'callAsyncNewResource', 'callPayload', 'callAsyncPayload', 'rejectCallbackPayload', 'callbackCleanups',
         'startResourceCallback',
         'callOptionalPositionals', 'callNullablePositionals', 'callOpaquePositionals',
-        'callOptionalNames', 'callMixedNames', 'callRequiredNames',
+        'callOptionalNames', 'callNamesAB', 'callNamesBA', 'callMixedNames', 'callRequiredNames',
         'callAsyncOptionalPositionals', 'callAsyncOptionalNames',
         'callOptionalModels', 'callbackParameterPolicies',
       ].sort());

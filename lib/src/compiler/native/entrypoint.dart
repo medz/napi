@@ -809,6 +809,10 @@ void _readCallback(
       '        final snapshot$i = ${shaped && conversion.isOptionalParameter(i) ? 'present$i ? ' : ''}${structures.snapshotOutput(input)}($argument, _NativeWriteState(), ${_quote(input.context)}, 0)${shaped && conversion.isOptionalParameter(i) ? ' : null' : ''};',
     );
   }
+  final namedParameters = [
+    for (final (i, parameter) in conversion.parameters.indexed)
+      if (shaped && conversion.isNamedParameter(i)) (i, parameter),
+  ]..sort((a, b) => a.$2.name.compareTo(b.$2.name));
   var optionsStarted = false;
   for (final (i, input) in conversion.inputs.indexed) {
     final named = shaped && conversion.isNamedParameter(i);
@@ -821,6 +825,9 @@ void _readCallback(
       code.writeln('''        if (hasOptions) {
         final options = _api.createDictionary(env);
         argv[$positionalCount] = Pointer<Void>.fromAddress(options);''');
+      for (final (index, _) in namedParameters) {
+        code.writeln('        late final int option$index;');
+      }
     }
     if (optional) code.writeln('        if (present$i) {');
     final String value;
@@ -842,15 +849,20 @@ void _readCallback(
           '${structures.writeSnapshot(input)}(env, snapshot$i, ${inputReferences ? 'state' : '_NativeWriteState()'}, ${_quote(input.context)})';
     }
     if (named) {
-      code.writeln(
-        '        _api.defineOwnValue(env, options, ${_quote(conversion.parameters[i].name)}, $value);',
-      );
+      code.writeln('        option$i = $value;');
     } else {
       code.writeln('        argv[$i] = Pointer<Void>.fromAddress($value);');
     }
     if (optional) code.writeln('        }');
   }
-  if (optionsStarted) code.writeln('        }');
+  if (optionsStarted) {
+    for (final (i, parameter) in namedParameters) {
+      code.writeln(
+        '        ${conversion.isOptionalParameter(i) ? 'if (present$i) ' : ''}_api.defineOwnValue(env, options, ${_quote(parameter.name)}, option$i);',
+      );
+    }
+    code.writeln('        }');
+  }
   if (inputReferences) {
     code.writeln('''        } catch (_) {
           _api.rollbackReferences(state.pending);

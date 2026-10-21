@@ -187,6 +187,10 @@ const opaquePositionals: Array<OptionalPayload | null> = api.callOpaquePositiona
 const optionalNames: number[] = api.callOptionalNames(options =>
   (options?.callback ?? 0) + (options?.operation ?? 0) + (options?.arguments ?? 0) +
   (options?.value ?? 0) + (options?.env ?? 0) + (options?.adapter ?? 0) + (options?.state ?? 0));
+const namedPair = (options?: {a?: number; b?: number}): number => (options?.a ?? 0) + (options?.b ?? 0);
+const namesAB: number[] = api.callNamesAB(namedPair);
+const namesBA: number[] = api.callNamesBA(namedPair);
+externalHandles.callNamesBA(namedPair); direct.callNamesAB(namedPair);
 const mixedNames: number[] = api.callMixedNames((value, options) =>
   value + options.operation + options.constructor + (options.callback ?? 0));
 const requiredNames: number = api.callRequiredNames(options => options.constructor);
@@ -213,7 +217,7 @@ api.callAsyncOptionalPositionals((value = 7) => value);
 api.callNullablePositionals(() => undefined);
 // @ts-expect-error Opaque Future results still require an outer Promise.
 api.callAsyncOptionalNames<OptionalPayload>(() => defaultPayload, undefined);
-void [optionalPositionals, nullablePositionals, opaquePositionals, optionalNames, mixedNames,
+void [optionalPositionals, nullablePositionals, opaquePositionals, optionalNames, namesAB, namesBA, mixedNames,
   requiredNames, optionalModels, asyncOptionalPositionals, asyncOptionalNames,
   optionalDirect, optionalExternal, parameterPolicies];
 

@@ -723,6 +723,20 @@ List<int> callOptionalNames(
 ];
 
 @NAPI()
+List<int> callNamesBA(int Function({int b, int a}) callback) => [
+  callback(b: 2, a: 1),
+  callback(b: 3),
+  callback(),
+];
+
+@NAPI()
+List<int> callNamesAB(int Function({int a, int b}) callback) => [
+  callback(a: 1, b: 2),
+  callback(b: 3),
+  callback(),
+];
+
+@NAPI()
 List<int> callMixedNames(
   int Function(
     int value, {

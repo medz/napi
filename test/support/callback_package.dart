@@ -73,6 +73,8 @@ Future<void> main() async {
         ExternalFunction('callNullablePositionals'),
         ExternalFunction('callOpaquePositionals'),
         ExternalFunction('callOptionalNames'),
+        ExternalFunction('callNamesBA'),
+        ExternalFunction('callNamesAB'),
         ExternalFunction('callMixedNames'),
         ExternalFunction('callRequiredNames'),
         ExternalFunction('callAsyncOptionalPositionals'),
