@@ -137,6 +137,18 @@ void main() {
       '@NAPI() JsMap<K,V> run<K,V>(JsMap<K,V> value) => value;',
       '@NAPI() JsMap<V,K> run<K,V>(JsMap<V,K> value) => value;',
     ),
+    'copied opaque collection leaf nullability': (
+      '@NAPI() JsArray<Dictionary<List<T>>> run<T>(JsArray<Dictionary<List<T>>> value) => value;',
+      '@NAPI() JsArray<Dictionary<List<T?>>> run<T>(JsArray<Dictionary<List<T?>>> value) => value;',
+    ),
+    'copied opaque collection logical parameter order': (
+      '@NAPI() JsArray<(List<K>, JsMap<String, V>)> run<K,V>(JsArray<(List<K>, JsMap<String, V>)> value) => value;',
+      '@NAPI() JsArray<(List<V>, JsMap<String, K>)> run<K,V>(JsArray<(List<V>, JsMap<String, K>)> value) => value;',
+    ),
+    'copied reference leaf nullability': (
+      '@NAPI() class Item { Item(); } @NAPI() JsArray<List<Item>> run(JsArray<List<Item>> value) => value;',
+      '@NAPI() class Item { Item(); } @NAPI() JsArray<List<Item?>> run(JsArray<List<Item?>> value) => value;',
+    ),
     'cleanup ownership despite equal Promise declarations': (
       "@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close') "
           'class Box { Box(); Future<void> close() async {} }',
@@ -250,6 +262,18 @@ void main() {
         await compare(source, source, external: external),
         contains('globalThis.Map<string, T>'),
       );
+    }
+  });
+
+  test('copied opaque and nested handle contracts agree across targets', () async {
+    const source =
+        '@NAPI() JsArray<List<({T payload, JsMap<String,T?> handle})>> run<T>('
+        'JsArray<List<({T payload, JsMap<String,T?> handle})>> value) => value;';
+    for (final external in [false, true]) {
+      final declarations = await compare(source, source, external: external);
+      expect(declarations, contains('payload: T'));
+      expect(declarations, contains('globalThis.Map<string, T | null>'));
+      expect(declarations, isNot(contains('ReadonlyArray')));
     }
   });
 

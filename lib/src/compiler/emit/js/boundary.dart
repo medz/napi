@@ -14,7 +14,7 @@ import 'streams.dart';
 String emitBoundary(ModulePlan plan) {
   final conversions = plan.conversions;
   final resources = plan.resourcePolicies.isNotEmpty;
-  final nestedOpaque = plan.conversions.any(
+  final nestedOpaque = conversionDependencies(plan.conversions).any(
     (root) =>
         root is! OpaqueConversion &&
         conversionGraph([root]).any((leaf) => leaf is OpaqueConversion),
@@ -34,6 +34,7 @@ String emitBoundary(ModulePlan plan) {
       .toList();
   final collectionStructures = jsCollectionStructurePolicies(
     jsCollectionLeaves,
+    resources: resources,
   );
   final binaries = {
     for (final (index, conversion) in conversions.indexed)

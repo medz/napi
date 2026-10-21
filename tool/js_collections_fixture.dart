@@ -113,6 +113,7 @@ dependencies:
     'structuralCallback',
     'structuralWideBigints',
     'mixedResourceEntries',
+    'pureCopiedPayload',
   ];
   const bigints = [
     'bigBooleans',
@@ -128,14 +129,16 @@ import 'dart:io';
 import 'package:napi/build.dart';
 import 'package:napi/napi.dart';
 Future<void> main() async {
-  for (final directory in ['package', 'external', 'nested']) {
+  for (final directory in ['package', 'external', 'nested', 'copied']) {
     final external = directory != 'package';
     await buildPackage(
       library: File('business.dart').absolute.uri,
       output: Directory(directory),
       metadata: {'name': '@napi/js-collections-\${directory == 'package' ? 'fixture' : directory}', 'version': '0.0.0'},
       packagesPath: File('.dart_tool/package_config.json').absolute.path,
-      external: external ? ExternalLibrary([
+      external: directory == 'copied' ? const ExternalLibrary([
+        ExternalFunction('pureCopiedPayload'),
+      ]) : external ? ExternalLibrary([
         if (directory == 'external') ...const [
           ${functions.map((name) => "ExternalFunction('$name'),").join('\n          ')}
           ${bigints.map((name) => "ExternalFunction('$name', config: NAPI(bigint: true)),").join('\n          ')}
@@ -157,6 +160,8 @@ Future<void> main() async {
           ExternalClass('BinaryCollections'),
           ExternalClass('SharedByteCollections'),
           ExternalClass('StructuralCollections'),
+          ExternalClass('CopiedPayloads'),
+          ExternalClass('CopiedResources'),
           ExternalClass('Owner', config: NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')),
         ] else ...const [
           ExternalFunction('read'),
@@ -195,6 +200,7 @@ Future<void> main() async {
     ('package', 'fixture'),
     ('external', 'external'),
     ('nested', 'nested'),
+    ('copied', 'copied'),
   ]) {
     final package = '${project.path}/$directory';
     await run('npm', ['pack', '--ignore-scripts', '--silent'], cwd: package);

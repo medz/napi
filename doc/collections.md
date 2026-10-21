@@ -56,12 +56,15 @@ the [shared byte view](shared-bytes.md) contract instead, preserving the origina
 Uint8Array identity and observing its live bytes. Both policies validate storage
 on access and support nullable elements and nested handles.
 
-List, Map, Dictionary and record elements support nested trees of scalars,
-binary values and SharedBytes. Each read or write copies the ordinary containers
-and binary leaves; SharedBytes leaves retain their shared view identity. A saved
-Dart value is independent of later changes to its source containers. Strict
+List, Map, Dictionary and record elements support nested trees of supported
+leaves, including selected references, opaque values and JS handles. Each read or
+write copies the ordinary containers and binary leaves. References, opaque values,
+handles and SharedBytes retain their respective identity and ownership contracts.
+A saved Dart value is independent of later changes to its source containers. Strict
 structural validation and traversal limits apply separately to each accessed
-element, while admitting the outer handle remains lazy.
+element, while admitting the outer handle remains lazy. As with ordinary copied
+Map bindings, keys inside a copied Dart Map cannot contain opaque values or JS
+handles; this restriction does not apply to the outer JsMap's keys.
 
 Copied structural and binary Map keys become new JavaScript objects on every conversion.
 Passing a copied key back to `has`, `get` or `delete` does not address the original
@@ -152,9 +155,10 @@ returning a stored object preserves its wrapper identity. A reference used as a
 Map key therefore addresses that exact JS wrapper. Removing a slot does not
 invalidate an object still retained by Dart.
 
-Resource classes are supported as typed elements and keys, including resource
-subtypes viewed through an ordinary base class. The current exported call retains
-each resource when Dart reads or writes it, including Map key and entry access.
+Resource classes are supported as typed elements and keys, including copied
+structures and resource subtypes viewed through an ordinary base class. The current
+exported call retains each resource when Dart reads or writes it, including Map
+key and entry access.
 Admitting a container does not inspect its elements or acquire resource leases.
 Saving a handle for a later call uses that later call's operation.
 
@@ -167,9 +171,8 @@ while closing, but new operations reject it. See [resource lifecycle](resources.
 Resource access from detached work after its exported call finishes is rejected;
 for example, return a Future that includes a Timer's resource work rather than
 starting that Timer from a void export. Keeping a handle or extracted Dart object
-alive does not give it a permanent resource lease. Value classes and copied
-subtrees containing references, opaque values or handles remain unsupported as
-typed handle elements.
+alive does not give it a permanent resource lease. Value classes remain
+unsupported as typed handle elements.
 
 Handles remain usable when saved by Dart or across await/Timer callbacks in their
 owner. Existing Future/Stream retention and resource operation leases apply;

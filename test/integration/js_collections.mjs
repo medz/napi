@@ -860,7 +860,99 @@ async function structuralCollections(api) {
   const callbackOutput = api.structuralCallback(value => {assert.equal(value, callbackInput); return value;}, callbackInput);
   callbackInput[0][0] = 12; assert.deepEqual(callbackOutput, [11]);
 }
-const cases = {direct, scalars, maps, accessors, admission, captures, futures, streams, retained, opaque, opaqueAsync, opaqueRetained, nested, nestedHandles, references, resourceCollections, resourceCollectionStreams, binaryCollections, sharedByteCollections, structuralCollections};
+async function copiedPayloads(api) {
+  const reference = new api.RefItem(31), handle = [undefined];
+  for (const payload of [null, undefined, Symbol('copied')]) {
+    const source = [{reference, payload, handle}], box = new api.CopiedPayloads(source);
+    assert.equal(box.source(), source); assert(box.load(0));
+    const output = box.saved(); assert.notEqual(output, source[0]);
+    assert.equal(output.reference, reference); assert.equal(output.payload, payload); assert.equal(output.handle, handle);
+    box.write(1); assert.notEqual(source[0], source[1]); assert.equal(source[1].handle, handle);
+    assert.equal(box.payload(), payload); assert.equal(box.reference(), reference); assert.equal(box.handle(), handle);
+  }
+  let payload = {kept: true}; const weak = new WeakRef(payload);
+  const source = [{reference, payload, handle}], box = new api.CopiedPayloads(source);
+  assert(box.load(0)); source.length = 0; payload = null;
+  for (let i = 0; i < 4; i++) {await tick(); api.pressure(i); global.gc();}
+  assert.equal(box.payload(), weak.deref()); assert(weak.deref());
+  assert.equal(box.handle(), handle); assert.equal(box.readInner(0), undefined);
+  let failed = {failed: true}; const failedWeak = new WeakRef(failed);
+  source[0] = {reference: {}, payload: failed, handle};
+  assert.throws(() => box.load(0), TypeError); source.length = 0; failed = null;
+  await collect(api, () => failedWeak.deref() === undefined);
+  assert.equal(box.handle(), handle); assert.equal(box.readInner(0), undefined);
+  box.clear(); await collect(api, () => weak.deref() === undefined);
+  source[0] = {reference, payload: undefined, handle}; assert(box.load(0)); assert.equal(box.handle(), handle);
+}
+
+async function copiedResources(api) {
+  const resource = new api.ResourceItem(401); let closing, during;
+  const values = new Proxy([1], {ownKeys(target) {
+    closing = resource.close(); during = api.collectionCleanups(401); return Reflect.ownKeys(target);
+  }});
+  const holder = new api.CopiedResources([{resource, values}]), pending = holder.hold(41);
+  await until(() => api.collectionWaiting(41), 'expected copied resource Future gate');
+  assert.equal(during, 0); assert.equal(api.collectionCleanups(401), 0);
+  api.collectionComplete(41); assert.equal(await pending, 401); await closing;
+
+  const saved = new api.ResourceItem(402), source = [{resource: saved, values: [1]}];
+  const retained = new api.CopiedResources(source); retained.load();
+  let setterClose, setterCount = 0;
+  Object.defineProperty(source, '0', {set(value) {
+    setterCount++; assert.equal(value.resource, saved);
+    setterClose = saved.close(); assert.equal(api.collectionCleanups(402), 0);
+  }});
+  retained.write(); await setterClose; assert.equal(api.collectionCleanups(402), 1);
+  assert.throws(() => retained.write(), /clos/i); assert.equal(setterCount, 1);
+
+  for (const kind of [0, 1, 2]) {
+    const id = 410 + kind, item = new api.ResourceItem(id);
+    const outputHolder = new api.CopiedResources([{resource: item, values: [1]}]); outputHolder.load();
+    const target = []; let cleanup;
+    outputHolder.output(target, kind, () => {
+      cleanup = item.close(); assert.equal(api.collectionCleanups(id), 0, 'reference retained before later Dart container getter');
+    });
+    assert.equal(target[0].$1, item); await cleanup; assert.equal(api.collectionCleanups(id), 1);
+  }
+  for (const dictionary of [false, true]) {
+    const id = dictionary ? 414 : 413, item = new api.ResourceItem(id);
+    const outputHolder = new api.CopiedResources([{resource: item, values: [1]}]); outputHolder.load();
+    const maps = [], dictionaries = []; let cleanup;
+    outputHolder.outputEntries(maps, dictionaries, dictionary, () => {
+      cleanup = item.close(); assert.equal(api.collectionCleanups(id), 0, 'earlier Map/Dictionary entry already retains its resource');
+    });
+    if (dictionary) assert.equal(dictionaries[0].first, item);
+    else assert.equal(maps[0].get(item), item);
+    await cleanup; assert.equal(api.collectionCleanups(id), 1);
+  }
+
+  const timed = new api.ResourceItem(420), timers = new api.CopiedResources([{resource: timed, values: [1]}]);
+  timers.load();
+  for (const write of [false, true]) {
+    timers.timer(write); await new Promise(resolve => setTimeout(resolve, 5));
+    await until(() => api.collectionTimerResult().length === 1, 'expected detached copied resource access');
+    assert.deepEqual(api.collectionTimerResult(), [1]);
+  }
+  await timed.close();
+
+  const streamed = new api.ResourceItem(430); let streamClose, streamDuring;
+  const streamValues = new Proxy([1], {ownKeys(target) {
+    streamClose = streamed.close(); streamDuring = api.collectionCleanups(430); return Reflect.ownKeys(target);
+  }});
+  const streamHolder = new api.CopiedResources([{resource: streamed, values: streamValues}]);
+  const stream = streamHolder.watch(44), read = stream.next();
+  await until(() => api.collectionWaiting(44), 'expected copied stream read gate'); api.collectionComplete(44);
+  await until(() => api.collectionWaiting(-44), 'expected copied resource stream cancellation');
+  assert.equal(streamDuring, 0); assert.equal(api.collectionCleanups(430), 0);
+  api.collectionComplete(-44); await streamClose; assert.equal((await read).done, true); await stream.return();
+}
+
+async function pureCopied(api) {
+  const payload = {pure: true}, source = [[payload, undefined, null]];
+  assert.equal(api.pureCopiedPayload(source), source); assert.notEqual(source[0], source[1]);
+  assert.equal(source[1][0], payload); assert.equal(source[1][1], undefined); assert.equal(source[1][2], null);
+}
+const cases = {copiedResources, copiedPayloads, direct, scalars, maps, accessors, admission, captures, futures, streams, retained, opaque, opaqueAsync, opaqueRetained, nested, nestedHandles, references, resourceCollections, resourceCollectionStreams, binaryCollections, sharedByteCollections, structuralCollections};
 async function worker(held) {
   const thread = new Worker(new URL(import.meta.url), {workerData: {held}});
   await new Promise((resolve, reject) => {
@@ -881,6 +973,7 @@ if (!isMainThread) {
   const name = process.argv[2];
   if (name === 'worker-only') {await worker(false); await worker(true);}
   else if (name === 'nested-only') {await nested(await import('@napi/js-collections-nested'));}
+  else if (name === 'pure-only') {await pureCopied(await import('@napi/js-collections-copied'));}
   else {
     const api = await import('@napi/js-collections-fixture');
     if (name === 'external') {const other = await import('@napi/js-collections-external'); for (const test of Object.values(cases)) await test(other);}
@@ -888,7 +981,7 @@ if (!isMainThread) {
     else await cases[name](api);
   }
 } else {
-  for (const name of [...Object.keys(cases), 'external', 'nested-only', 'worker-only', 'workers-with-main']) {
+  for (const name of [...Object.keys(cases), 'external', 'nested-only', 'pure-only', 'worker-only', 'workers-with-main']) {
     const result = spawnSync(process.execPath, ['--expose-gc', fileURLToPath(import.meta.url), name], {encoding: 'utf8', timeout: 30000});
     assert.ifError(result.error); assert.equal(result.status, 0, `${name}: ${result.stdout}\n${result.stderr}`);
     console.log(`JS collection handles: ${name} passed`);

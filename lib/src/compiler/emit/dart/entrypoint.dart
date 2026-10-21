@@ -16,7 +16,7 @@ String emitDart(ModulePlan plan) {
   String declarationSource(DeclarationId declaration) =>
       defaultDeclarationSource(declaration, defaultImports);
   final resources = plan.resourcePolicies.isNotEmpty;
-  final nestedOpaque = plan.conversions.any(
+  final nestedOpaque = conversionDependencies(plan.conversions).any(
     (root) =>
         root is! OpaqueConversion &&
         conversionGraph([root]).any((leaf) => leaf is OpaqueConversion),
@@ -63,7 +63,12 @@ String emitDart(ModulePlan plan) {
   if (nestedOpaque) result.writeln(opaqueStructuralEntrypointPrelude);
   if (streams) result.writeln(streamEntrypointPrelude);
   if (binary) result.writeln(binaryEntrypointPrelude);
-  if (jsCollections) result.writeln(jsCollectionsEntrypointPrelude);
+  if (jsCollections) {
+    result.writeln(jsCollectionsEntrypointPrelude);
+    result.writeln(
+      'final WasmExternRef? _jcRetainer = ${resources ? '_jcCreateRetainer()' : 'null'};',
+    );
+  }
   if (callbacks.isNotEmpty) result.writeln(callbackEntrypointPrelude);
   if (callbacks.isEmpty) result.writeln(callbackErrorEntrypointPrelude);
   result.writeln(sharedBytesEntrypointPrelude);

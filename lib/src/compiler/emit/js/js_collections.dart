@@ -6,17 +6,12 @@ import 'structural.dart';
 Iterable<JsCollectionConversion> _collectionPolicies(
   Iterable<JsCollectionConversion> conversions,
 ) {
-  final policies = <String, JsCollectionConversion>{};
-  void add(JsCollectionConversion c) {
-    if (policies.containsKey(c.signatureKey)) return;
-    policies[c.signatureKey] = c;
-    for (final child in [?c.key, c.value]) {
-      if (child is JsCollectionConversion) add(child);
-    }
-  }
-
-  conversions.forEach(add);
-  return policies.values;
+  return {
+    for (final c in conversionDependencies(
+      conversions,
+    ).whereType<JsCollectionConversion>())
+      c.signatureKey: c,
+  }.values;
 }
 
 bool _copiedStructure(ValueConversion c) =>
@@ -78,8 +73,9 @@ String jsCollectionPolicies(Iterable<JsCollectionConversion> conversions) {
 
 /// Copied elements use the ordinary structural boundary for each lazy access.
 String jsCollectionStructurePolicies(
-  Iterable<JsCollectionConversion> conversions,
-) {
+  Iterable<JsCollectionConversion> conversions, {
+  bool resources = false,
+}) {
   final source = StringBuffer();
   var next = 0;
   for (final c in _collectionPolicies(conversions)) {
@@ -88,7 +84,10 @@ String jsCollectionStructurePolicies(
       final structure = emitStructuralBoundary(
         child,
         prefix: '\$jcStructure${next++}',
-        leafAdapter: const BoundaryLeafAdapter(bigintText: true),
+        leafAdapter: BoundaryLeafAdapter(
+          bigintText: true,
+          resources: resources,
+        ),
       );
       source.writeln(structure.source);
       final policy = '\$jcPolicies[${jsonEncode(c.signatureKey)}].$field';
@@ -135,7 +134,12 @@ function $jcIndex(index) {
 // BigInt text is private Wasm transport only, never the public JS value.
 function $jcInput(value, policy, path, text) {
   if (policy.opaque) return value;
-  if ($jcOwn(policy, 'structure')) return text ? policy.write(value, path, {work: 0, active: new Set(), pending: null}, 0) : value;
+  if ($jcOwn(policy, 'structure')) {
+    if (!text) return value;
+    const state = {work: 0, active: new Set(), pending: null};
+    try { return policy.write(value, path, state, 0); }
+    catch (error) { if (state.pending !== null) { for (const undo of state.pending) undo(); } throw error; }
+  }
   if ($jcOwn(policy, 'binary')) return text ? $napiAdoptBinary(value, policy.binary, policy.nullable, path) : value;
   if ($jcOwn(policy, 'sharedBytes')) return text ? $napiReadSharedBytes(value, policy.nullable, path) : value;
   if ($jcOwn(policy, 'reference')) {
@@ -145,11 +149,11 @@ function $jcInput(value, policy, path, text) {
   if ($jcOwn(policy, 'collection')) return $jcAdmit(value, policy.collection === 'map', policy.nullable, path);
   return $jcScalar(text && value !== null && policy.type === 'bigint' ? $jcBigInt(value) : value, policy, path);
 }
-function $jcOutput(value, policy, path, text) {
+function $jcOutput(value, policy, path, text, retain = null) {
   if (policy.opaque) return value;
   if ($jcOwn(policy, 'structure')) {
     if (value === null && !policy.nullable) throw new $jcTypeError(path + ': expected a copied structure');
-    return text ? policy.read(value, path, {work: 0, active: new Set()}, 0) : value;
+    return text ? policy.read(value, path, {work: 0, active: new Set(), operation: retain === null ? null : {retain}}, 0) : value;
   }
   if ($jcOwn(policy, 'binary')) {
     if (value === null && !policy.nullable) throw new $jcTypeError(path + ': expected binary storage');
@@ -167,7 +171,7 @@ function $jcOutput(value, policy, path, text) {
   value = $jcScalar(value, policy, path);
   return text && value !== null && policy.type === 'bigint' ? $jcApply($jcBigText, value, []) : value;
 }
-function $jcCall(source, policy, op, a, b, text = false) {
+function $jcCall(source, policy, op, a, b, text = false, retain = null) {
   const valuePath = policy.map ? 'JsMap value' : 'JsArray value';
   switch (op) {
     case 0: return $jcAdmit(source, policy.map, false, a);
@@ -183,7 +187,7 @@ function $jcCall(source, policy, op, a, b, text = false) {
         if (+a >= source.length) return null;
         value = $jcGet(source, a);
       }
-      value = $jcOutput(value, policy.value, valuePath, text);
+      value = $jcOutput(value, policy.value, valuePath, text, retain);
       // The private tuple separates absence from any opaque nullish payload.
       return policy.value.opaque ? [value] : value;
     }
@@ -201,7 +205,7 @@ function $jcCall(source, policy, op, a, b, text = false) {
       const step = $jcApply($jcNext, a, []);
       return step.done ? null : step.value;
     }
-    case 9: return $jcOutput(a[b], b === 0 ? policy.key : policy.value, b === 0 ? 'JsMap key' : valuePath, text);
+    case 9: return $jcOutput(a[b], b === 0 ? policy.key : policy.value, b === 0 ? 'JsMap key' : valuePath, text, retain);
     default: throw new $jcTypeError('Unknown JS collection operation');
   }
 }
@@ -212,8 +216,8 @@ const $jcWeakMap = WeakMap, $jcWeakRef = WeakRef;
 const $jcWeakGet = WeakMap.prototype.get, $jcWeakSet = WeakMap.prototype.set;
 const $jcDeref = WeakRef.prototype.deref, $jcCreate = Object.create;
 const $jcAdapters = new $jcWeakMap();
-export function jsCollectionCall(source, signature, op, a, b) {
-  try { return {__proto__: null, threw: false, value: $jcCall(source, $jcPolicies[signature], op, a, b, true)}; }
+export function jsCollectionCall(source, signature, op, a, b, retain) {
+  try { return {__proto__: null, threw: false, value: $jcCall(source, $jcPolicies[signature], op, a, b, true, retain)}; }
   catch (value) { return {__proto__: null, threw: true, value}; }
 }
 export function jsCollectionThrew(envelope) { return envelope.threw ? 1 : 0; }

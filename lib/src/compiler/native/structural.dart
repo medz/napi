@@ -67,10 +67,41 @@ String nativeJsCollectionRead(
             c is DictionaryConversion ||
             c is RecordConversion) {
           final read = structures.read(c, forceNormalize: true);
-          final write = structures.write(c);
+          final write = structures.write(c, retainResources: true);
+          final tracksOpaque = conversionGraph([c])
+              .any((leaf) => leaf is OpaqueConversion);
+          final hasReferences = conversionGraph([c])
+              .any((leaf) => leaf is ReferenceConversion);
+          final state =
+              '_NativeReadState('
+              '${hasResources ? 'ResourceOperation.current' : ''}'
+              '${tracksOpaque ? '${hasResources ? ', ' : ''}owned: owned' : ''})';
+          final readHandle = tracksOpaque
+              ? '''(api, env, value, path) {
+  final owned = <NativeHostValue>[];
+  try {
+    final result = $read(env, value, $state, path, 0);
+    owned.clear();
+    return result;
+  } catch (_) {
+    for (final value in owned) { value.release(); }
+    rethrow;
+  }
+}'''
+              : '(api, env, value, path) => $read(env, value, $state, path, 0)';
+          final writeHandle = hasReferences
+              ? '''(api, env, value, path) {
+  final state = _NativeWriteState();
+  try {
+    return $write(env, value, state, path, 0);
+  } catch (_) {
+    api.rollbackReferences(state.pending);
+    rethrow;
+  }
+}'''
+              : '(api, env, value, path) => $write(env, value, _NativeWriteState(), path, 0)';
           return 'NativeJsElement<${c.dartType}>(\'structure\', nullable: ${c.nullable}, '
-              'readHandle: (api, env, value, path) => $read(env, value, _NativeReadState(${hasResources ? 'null' : ''}), path, 0), '
-              'writeHandle: (api, env, value, path) => $write(env, value, _NativeWriteState(), path, 0))';
+              'readHandle: $readHandle, writeHandle: $writeHandle)';
         }
         return 'const NativeJsElement<${c.dartType}>(${_quote(c is OpaqueConversion ? 'opaque' : (c as ScalarConversion).kind.name)}, nullable: ${c.nullable}, bigint: ${c is ScalarConversion && c.bigint})';
       })
@@ -89,10 +120,10 @@ final class NativeStructuralEmitter {
   final _code = StringBuffer();
   var _next = 0;
   final _reads = Map<ValueConversion, String>.identity();
-  final _writes = Map<ValueConversion, String>.identity();
+  final _writes = <(ValueConversion, bool), String>{};
   final _normalizers = Map<ValueConversion, String>.identity();
   final _materializers = Map<ValueConversion, String>.identity();
-  final _outputSnapshots = Map<ValueConversion, String>.identity();
+  final _outputSnapshots = <(ValueConversion, bool), String>{};
   final _snapshotWriters = Map<ValueConversion, String>.identity();
 
   String read(ValueConversion conversion, {bool forceNormalize = false}) {
@@ -119,12 +150,17 @@ final class NativeStructuralEmitter {
     return name;
   }
 
-  String write(ValueConversion conversion) {
-    if (_writes[conversion] case final previous?) return previous;
-    final snapshot = _snapshotOutput(conversion);
+  String write(ValueConversion conversion, {bool retainResources = false}) {
+    retainResources = retainResources && hasResources;
+    final key = (conversion, retainResources);
+    if (_writes[key] case final previous?) return previous;
+    final snapshot = _snapshotOutput(
+      conversion,
+      retainResources: retainResources,
+    );
     final hostWrite = _writeSnapshot(conversion);
     final name = '_writeNativeOutput${_next++}';
-    _writes[conversion] = name;
+    _writes[key] = name;
     _code.writeln(
       '''int $name(Pointer<Void> env, ${conversion.dartType} value, _NativeWriteState state, String path, int depth) {
   final snapshot = $snapshot(value, _NativeWriteState(), path, depth);
@@ -192,7 +228,12 @@ final class NativeStructuralEmitter {
           "  if (object is! ${dartReferenceClassType(conversion.classBinding)}) throw NapiTypeError('\$path: expected ${conversion.classBinding.exportName}');",
         );
         if (hasResources) {
-          _code.writeln('  state.operation?.retain(_resourceControl(object));');
+          _code.writeln('''  final control = _resourceControl(object);
+  if (control != null) {
+    final operation = state.operation;
+    if (operation == null) throw NapiTypeError('\$path: resource access requires an active bound call');
+    operation.retain(control);
+  }''');
         }
         _code.writeln('  return object;');
       case ScalarConversion():
@@ -284,12 +325,22 @@ final class NativeStructuralEmitter {
   // Match the Wasm Dart serialization phase before any host scalar checks,
   // reference identity claims or JavaScript Map insertion. Snapshots contain only
   // plain Dart lists and typed leaves; no business getter runs in the host pass.
-  String _snapshotOutput(ValueConversion conversion) {
-    if (_outputSnapshots[conversion] case final previous?) return previous;
+  String _snapshotOutput(
+    ValueConversion conversion, {
+    bool retainResources = false,
+  }) {
+    retainResources =
+        retainResources &&
+        hasResources &&
+        conversionGraph([conversion])
+            .any((value) => value is ReferenceConversion);
+    final key = (conversion, retainResources);
+    if (_outputSnapshots[key] case final previous?) return previous;
     final name = '_snapshotNativeOutput${_next++}';
-    _outputSnapshots[conversion] = name;
+    _outputSnapshots[key] = name;
     final functions = [
-      for (final child in _children(conversion)) _snapshotOutput(child),
+      for (final child in _children(conversion))
+        _snapshotOutput(child, retainResources: retainResources),
     ];
     _code.writeln(
       'Object? $name(${conversion.dartType} value, _NativeWriteState state, String path, int depth) {',
@@ -312,9 +363,13 @@ final class NativeStructuralEmitter {
           '  final snapshot = typed_data.Uint8List.fromList(bytes);\n'
           '  return snapshot${conversion.kind == BinaryKind.byteBuffer ? '.buffer' : ''};',
         );
+      case ReferenceConversion():
+        if (retainResources) {
+          _code.writeln('  _retainJsCollectionResource(value, path);');
+        }
+        _code.writeln('  return value;');
       case OpaqueConversion() ||
           ScalarConversion() ||
-          ReferenceConversion() ||
           JsCollectionConversion() ||
           SharedBytesConversion():
         _code.writeln('  return value;');
@@ -326,7 +381,8 @@ final class NativeStructuralEmitter {
     if (length < 0 || length > 0xffffffff) throw NapiTypeError('\$path.length: expected an Array length');
     if (length > 10000 - state.work) throw NapiRangeError('\$path: structural work limit (10000) exceeded');''',
         );
-        if (element is ScalarConversion || element is ReferenceConversion) {
+        if (element is ScalarConversion ||
+            (element is ReferenceConversion && !retainResources)) {
           _code.writeln(
             '''    final result = List<Object?>.filled(length, null);
     for (var i = 0; i < length; i++) result[i] = value[i];
@@ -341,8 +397,7 @@ final class NativeStructuralEmitter {
         }
         _code.writeln('  } finally { state.leave(value); }');
       case MapConversion(:final key, :final value):
-        _code.writeln(
-          '''  state.enter(value, path, depth);
+        _code.writeln('''  state.enter(value, path, depth);
   try {
     final length = value.length;
     if (length < 0 || length > 0xffffffff) throw NapiTypeError('\$path.length: expected a Map length');
@@ -352,17 +407,28 @@ final class NativeStructuralEmitter {
     for (var i = 0; i < length; i++) {
       if (!iterator.moveNext()) throw NapiTypeError('\$path: Map length changed during iteration');
       final entry = iterator.current;
-      final ${key.dartType} key = entry.key;
+      final ${key.dartType} key = entry.key;''');
+        if (retainResources) {
+          _code.writeln(
+            '''      entries[2 * i] = ${functions[0]}(key, state, '\$path[\$i].key', depth + 1);
       final ${value.dartType} child = entry.value;
+      entries[2 * i + 1] = ${functions[1]}(child, state, '\$path[\$i].value', depth + 1);''',
+          );
+        } else {
+          _code.writeln('''      final ${value.dartType} child = entry.value;
       entries[2 * i] = key;
-      entries[2 * i + 1] = child;
+      entries[2 * i + 1] = child;''');
+        }
+        _code.writeln(
+          '''
     }
     if (iterator.moveNext()) throw NapiTypeError('\$path: Map length changed during iteration');''',
         );
-        if ((key is ScalarConversion || key is ReferenceConversion) &&
+        if (!retainResources &&
+            (key is ScalarConversion || key is ReferenceConversion) &&
             (value is ScalarConversion || value is ReferenceConversion)) {
           _code.writeln('    state.work += length * 2;');
-        } else {
+        } else if (!retainResources) {
           _code.writeln('''    for (var i = 0; i < length; i++) {
       entries[2 * i] = ${functions[0]}(entries[2 * i] as ${key.dartType}, state, '\$path[\$i].key', depth + 1);
       entries[2 * i + 1] = ${functions[1]}(entries[2 * i + 1] as ${value.dartType}, state, '\$path[\$i].value', depth + 1);
@@ -372,8 +438,7 @@ final class NativeStructuralEmitter {
           '    return entries;\n  } finally { state.leave(value); }',
         );
       case DictionaryConversion(:final value):
-        _code.writeln(
-          '''  state.enter(value, path, depth);
+        _code.writeln('''  state.enter(value, path, depth);
   try {
     final length = value.length;
     if (length < 0 || length > 0xffffffff) throw NapiTypeError('\$path.length: expected a Dictionary length');
@@ -384,17 +449,30 @@ final class NativeStructuralEmitter {
     for (var i = 0; i < length; i++) {
       if (!iterator.moveNext()) throw NapiTypeError('\$path: Dictionary length changed during iteration');
       final entry = iterator.current;
-      final String key = entry.key;
-      final ${value.dartType} child = entry.value;
+      final String key = entry.key;''');
+        if (!retainResources) {
+          _code.writeln('      final ${value.dartType} child = entry.value;');
+        }
+        _code.writeln('''
       if (!keys.add(key)) throw NapiTypeError('\$path[\${jsonEncode(key)}]: duplicate Dictionary key');
-      entries[2 * i] = key;
-      entries[2 * i + 1] = child;
+      entries[2 * i] = key;''');
+        if (retainResources) {
+          _code.writeln(
+            '''      final ${value.dartType} child = entry.value;
+      entries[2 * i + 1] = ${functions.single}(child, state, '\$path[\${jsonEncode(key)}]', depth + 1);''',
+          );
+        } else {
+          _code.writeln('      entries[2 * i + 1] = child;');
+        }
+        _code.writeln(
+          '''
     }
     if (iterator.moveNext()) throw NapiTypeError('\$path: Dictionary length changed during iteration');''',
         );
-        if (value is ScalarConversion || value is ReferenceConversion) {
+        if (!retainResources &&
+            (value is ScalarConversion || value is ReferenceConversion)) {
           _code.writeln('    state.work += length;');
-        } else {
+        } else if (!retainResources) {
           _code.writeln('''    for (var i = 0; i < length; i++) {
       final key = entries[2 * i] as String;
       entries[2 * i + 1] = ${functions.single}(entries[2 * i + 1] as ${value.dartType}, state, '\$path[\${jsonEncode(key)}]', depth + 1);
@@ -425,7 +503,8 @@ final class NativeStructuralEmitter {
     final result = List<Object?>.filled(${conversion.fields.length}, null);''');
         for (final (index, field) in conversion.fields.entries.indexed) {
           final child = field.value;
-          if (child is ScalarConversion || child is ReferenceConversion) {
+          if (child is ScalarConversion ||
+              (child is ReferenceConversion && !retainResources)) {
             _code.writeln('''    final raw$index = value.${field.key};
     if (++state.work > 10000) throw NapiRangeError('\$path.${field.key.replaceAll(r'$', r'\$')}: structural work limit (10000) exceeded');
     result[$index] = raw$index;''');
