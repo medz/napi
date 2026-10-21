@@ -1,7 +1,8 @@
 import 'dart:convert';
 
-import '../emit/dart/defaults.dart' show renderDartDefault;
-import '../ir/model.dart' show DeclarationId, ParameterKind;
+import '../emit/dart/defaults.dart'
+    show emitDartDefaultResourceRetains, renderDartDefault;
+import '../ir/model.dart' show DeclarationId, ParameterKind, ScalarDefault;
 import '../lowering/plan.dart';
 
 String _quote(String value) => jsonEncode(value).replaceAll(r'$', r'\$');
@@ -804,12 +805,28 @@ final class NativeStructuralEmitter {
             '    final raw$index = _api.$reader(env, value, ${_quote(field.name)}, $path);',
           );
           if (field.optional) {
+            final defaultValue = field.parameter!.defaultValue;
+            final retains =
+                hasResources &&
+                    defaultValue != null &&
+                    defaultValue is! ScalarDefault
+                ? emitDartDefaultResourceRetains(
+                    field.conversion,
+                    renderDartDefault(
+                      field.parameter!,
+                      field.conversion,
+                      declarationSource: defaultDeclarationSource,
+                    ),
+                    operation: 'state',
+                    indent: '      ',
+                  )
+                : '';
             _code.writeln(
               '''    final default$index = raw$index == nullptr || _api.isUndefined(env, raw$index);
     result.add(default$index);
     if (default$index) {
       state.visit($path);
-      result.add(null);
+$retains      result.add(null);
     } else {
       result.add(${functions[index]}(env, raw$index, state, $path, depth + 1));
     }''',

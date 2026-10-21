@@ -345,7 +345,7 @@ class Holder {
 }''',
     ),
   ]) {
-    test('resource defaults remain unsupported in $name', () async {
+    test('resource defaults are admitted in $name', () async {
       final input = source('entry.dart', '''
 import 'package:napi/napi.dart';
 @NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
@@ -358,10 +358,11 @@ $declaration
 ''');
       for (final native in [false, true]) {
         final module = await read(input, native: native);
-        expect(
-          () => native ? validateNative(module) : validate(module),
-          throwsA(defaultDiagnostic()),
-        );
+        if (native) {
+          validateNative(module);
+        } else {
+          validate(module);
+        }
       }
     });
   }

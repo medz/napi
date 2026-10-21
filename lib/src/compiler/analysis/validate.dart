@@ -2584,7 +2584,8 @@ void validateParameterDefault(
     }
     final admittedResourceDefault =
         allowResourceDefaults &&
-        (isReferenceType(type, referenceClasses) ||
+        (isReferenceType(type, referenceClasses) &&
+                !isValueClassType(type, referenceClasses) ||
             _resourceContainerDefault(type, referenceClasses));
     if ((admittedResourceDefault ||
             _portableDefaultParameter(type, referenceClasses)) &&
@@ -2603,8 +2604,8 @@ void validateParameterDefault(
       'Non-null defaults require a compatible const graph of scalars, selected '
           'reference/value objects, Lists, Maps, Dictionaries or records. '
           'Object defaults need accessible const constructors or bindings; resource '
-          'defaults require direct references or built-in containers. Resource '
-          'defaults in value constructors and opaque defaults remain unsupported. '
+          'defaults require direct references or built-in containers. Opaque '
+          'defaults remain unsupported. '
           'Value-object defaults containing class-valued fields are unsupported '
           'when the library exports resources.',
       parameter.source ?? source,
@@ -2696,7 +2697,7 @@ void _validateValueConstructorInputs(
     constructor.parameters,
     constructor.source,
     referenceClasses: classes,
-    allowResourceDefaults: false,
+    allowResourceDefaults: true,
     validateTypes: false,
   );
 }
@@ -3001,7 +3002,7 @@ bool _resourceContainerDefault(BindingType type, List<ClassBinding> classes) {
   if (type.nullability == TypeNullability.legacy) return false;
   bool child(BindingType type) =>
       _isBackendScalar(type) ||
-      isReferenceType(type, classes) ||
+      isReferenceType(type, classes) && !isValueClassType(type, classes) ||
       _resourceContainerDefault(type, classes);
   if (type is RecordTypeBinding) {
     return type.positional.every(child) && type.named.values.every(child);
