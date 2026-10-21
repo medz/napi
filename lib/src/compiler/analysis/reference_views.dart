@@ -17,11 +17,16 @@ final class ReferenceViewContracts {
 ReferenceViewContracts referenceViewContracts(
   List<ReferenceClassShape> classes,
 ) {
+  final policies = resourcePolicies(classes);
   ReferenceMemberShape member(ReferenceMemberRef ref) =>
       classes[ref.classId].members[ref.memberIndex];
   bool accepts(ReferenceMemberRef actual, ReferenceMemberRef expected) {
     final owner = classes[actual.classId];
     final other = classes[expected.classId];
+    if (member(actual).isCleanup && member(expected).isCleanup) {
+      final policy = policies[owner.classId];
+      return policy != null && policy == policies[other.classId];
+    }
     final scope = owner.memberships.contains(other.classId) ? owner : other;
     return referenceMemberAccepts(
           referenceMemberInScope(member(actual), owner, scope) ??

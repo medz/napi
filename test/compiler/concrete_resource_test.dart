@@ -214,16 +214,109 @@ typedef Completion = Finish<void>;
     });
   }
 
-  test('open resource generics stay diagnosed', () async {
-    for (final body in [
-      "@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close') "
-          'class Session<T> { T value; Session(this.value); void close() {} }',
-    ]) {
+  test(
+    'open resource parameters retain carrier and cleanup contracts',
+    () async {
+      final file = source('''
+import 'package:napi/napi.dart';
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+class Session<T> {
+  T value;
+  Session(this.value);
+  Session.named(T source) : value = source;
+  T? optional([T? value]) => value;
+  T invoke(T Function(T) callback) => callback(value);
+  U echo<U>(U value) => value;
+  Future<T> later() async => value;
+  Stream<T> events() async* { yield value; }
+  Session<T> self() => this;
+  void close() {}
+}
+@NAPI() Session<T> forward<T>(Session<T> value) => value;
+''');
+      final annotated = await read(file);
+      final external = await ExternalFrontend(
+        const ExternalLibrary([
+          ExternalClass(
+            'Session',
+            config: NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close'),
+          ),
+          ExternalFunction('forward'),
+        ]),
+        packagesPath: packages,
+      ).read(file.uri);
+      for (final module in [annotated, external]) {
+        final wasm = lower(validate(module));
+        final native = validateNative(module);
+        final resource = wasm.classes.single;
+        expect(resource.binding.typeParameters.single.opaque, isTrue);
+        expect(wasm.resourcePolicies, {0: 0});
+        expect(
+          resource.members.singleWhere((m) => m.isCleanup).returnsFuture,
+          isTrue,
+        );
+        expect(
+          native.classes.single.members
+              .singleWhere((m) => m.isCleanup)
+              .returnsFuture,
+          isTrue,
+        );
+        expect(resource.constructor!.inputs.single, isA<OpaqueConversion>());
+        expect(
+          resource.members
+              .singleWhere((m) => m.exportName == 'optional')
+              .parameters
+              .single
+              .presence,
+          ParameterPresence.opaqueOptional,
+        );
+        expect(
+          wasm.functions.single.inputs.single.dartType,
+          'target.Session<_NapiHostValue>',
+        );
+        final declarations = emitDeclarations(wasm);
+        expect(declarations, emitNativeDeclarations(native));
+        expect(declarations, contains('class Session<in out T = unknown>'));
+        expect(
+          declarations,
+          contains(r'private readonly $napiOpaque: (types: [T]) => [T];'),
+        );
+        expect(
+          declarations,
+          contains('static named<T = unknown>(source: T): Session<T>;'),
+        );
+        expect(declarations, contains('close(): globalThis.Promise<void>;'));
+        expect(declarations, contains('echo<U = unknown>(value: U): U;'));
+        for (final emitted in [emitDart(wasm), emitNativeDart(native)]) {
+          expect(emitted, contains('target.Session<_NapiHostValue>'));
+          expect(emitted, isNot(contains('target.Session<dynamic>')));
+        }
+      }
+      expect(
+        emitDeclarations(lower(validate(annotated))),
+        emitDeclarations(lower(validate(external))),
+      );
+    },
+  );
+
+  for (final (name, body) in [
+    ('generic cleanup', 'class Session<T> { Session(); void close<U>() {} }'),
+    (
+      'resource ancestry',
+      'class Session<T> { Session(); void close() {} } '
+          '@NAPI() class Child<U> extends Session<U> { Child(); }',
+    ),
+  ]) {
+    test('open resource still diagnoses $name', () async {
       final module = await read(
-        source("import 'package:napi/napi.dart';\n$body"),
+        source('''
+import 'package:napi/napi.dart';
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+$body
+'''),
       );
       expect(() => validate(module), throwsA(diagnostic('NAPI_GENERIC')));
       expect(() => validateNative(module), throwsA(diagnostic('NAPI_GENERIC')));
-    }
-  });
+    });
+  }
 }

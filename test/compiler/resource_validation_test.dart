@@ -137,6 +137,75 @@ abstract class Third { Third._(); void finish({int code = 1}); }
   );
 
   test(
+    'cleanup payload policies ignore class binder identity and slots',
+    () async {
+      final module = await read('''
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+abstract class First<T> { First._(); void close(T value); T echo(T value); }
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+abstract class Second<U> { Second._(); void close(U value); U echo(U value); }
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+abstract class Extra<Unused, V> { Extra._(); void close(V value); }
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+abstract class Pair<A, B> { Pair._(); void close(A first, B second); }
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+abstract class Reordered<X, Unused, Z> { Reordered._(); void close(Z first, X second); }
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+abstract class Repeated<V> { Repeated._(); void close(V first, V second); }
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+abstract class Nullable<T> { Nullable._(); void close(T? value); }
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+abstract class Optional<T> { Optional._(); void close([T? value]); }
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+abstract class Named<T> { Named._(); void close({required T value}); }
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+abstract class Structural<T> { Structural._(); void close(List<T> value); }
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+abstract class Scalar { Scalar._(); void close(int value); }
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+abstract class DefaultOne<T> { DefaultOne._(); void close(T value, {int code = 1}); }
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+abstract class DefaultTwo<U> { DefaultTwo._(); void close(U value, {int code = 2}); }
+''');
+      final policies = resourcePolicies(module.classes);
+      int policy(String name) =>
+          policies[module.classes
+              .singleWhere((shape) => shape.binding.exportName == name)
+              .classId]!;
+      expect(policy('First'), policy('Second'));
+      expect(policy('First'), policy('Extra'));
+      expect(policy('Pair'), policy('Reordered'));
+      expect(policy('Pair'), policy('Repeated'));
+      expect({
+        for (final name in [
+          'First',
+          'Pair',
+          'Nullable',
+          'Optional',
+          'Named',
+          'Structural',
+          'Scalar',
+          'DefaultOne',
+          'DefaultTwo',
+        ])
+          policy(name),
+      }, hasLength(9));
+      final ordinary = module.classes
+          .take(2)
+          .map(
+            (shape) => shape.members.singleWhere(
+              (member) => member.exportName == 'echo',
+            ),
+          )
+          .toList();
+      expect(
+        referenceMemberAccepts(ordinary[0], ordinary[1], module.classes),
+        isFalse,
+      );
+    },
+  );
+
+  test(
     'cleanup can become asynchronous through a selected derived resource',
     () async {
       final module = await read('''

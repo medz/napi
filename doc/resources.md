@@ -38,8 +38,12 @@ unsupported result or unsupported generic signature produces a build diagnostic.
 
 [Concrete class aliases](concrete-generics.md#resource-aliases) may use the same
 resource policy. The alias fixes the real Dart type arguments before cleanup and
-other member signatures are checked. Open opaque generic resource classes remain
-unsupported.
+other member signatures are checked. Independent generic resource classes also
+support [opaque payloads](opaque.md): fields, callbacks, Future and Stream results
+preserve the declared payload mapping and normal resource leases. Cleanup
+parameters may use the class's type parameters; the cleanup method cannot declare
+its own generic parameters. Selected inheritance involving generic resource
+classes remains unsupported.
 
 ## Constant defaults
 

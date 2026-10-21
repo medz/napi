@@ -36,10 +36,12 @@ Future<void> main() async {
     external: external ? const ExternalLibrary([
       ExternalClass('ValueDefaultResource', config: NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')),
       ExternalClass('ResourceDefaultValue', config: NAPI(classPolicy: ClassPolicy.value)),
+      ExternalClass('GenericResource', config: NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')),
       ExternalFunction('resourceDefaultEcho'),
       ExternalFunction('resourceDefaultHold'),
       ExternalFunction('resourceEvents'),
       ExternalFunction('resourceCleanupCalls'),
+      ExternalFunction('resourceCleanupCode'),
       ExternalFunction('resourceComplete'),
     ]) : null,
     ${native ? 'target: BuildTarget.native,\n    nativeRuntime: Directory(${jsonEncode(nativeRuntime.absolute.path)}),' : ''}

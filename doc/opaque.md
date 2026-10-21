@@ -146,7 +146,8 @@ An object implementing unrelated selected interfaces can expose an equivalent
 generic method through both views. Incompatible method arity, presence, bounds or
 conversion contracts are rejected; conflicting composite defaults also remain an
 error. Actual inherited implementations still undergo Dart subtype validation.
-Generic cleanup methods and bare opaque callback payloads remain unsupported.
+Cleanup methods may use their resource class's opaque parameters, but cannot
+declare independent generic parameters.
 Callbacks can use JS collection handles whose elements are enclosing opaque
 parameters; see [typed callbacks](callbacks.md).
 
@@ -179,8 +180,8 @@ without nesting or nullable arguments, and have the same parameter count.
 This applies through unselected intermediate classes and to selected interfaces.
 Own and inherited overrides retain their declaring defaults and argument presence.
 Fixed, repeated, omitted, extra or nullable ancestor arguments still receive build
-diagnostics. Generic resource/value classes and generic inheritance from a
-selected non-generic resource remain unsupported. Use a closed concrete alias for
+diagnostics. Generic value classes and selected inheritance involving generic
+resource classes remain unsupported. Use a closed concrete alias for
 supported semantic specializations; opaque inheritance does not interpret payloads.
 
 ## Ownership
@@ -200,7 +201,8 @@ contract. Environment teardown releases remaining native references.
 
 ## Supported shapes and limits
 
-Generated bindings support ordinary generic reference classes, top-level generic
+Generated bindings support ordinary generic reference classes, independent generic
+resource classes, top-level generic
 functions and instance/static generic methods, including inherited instance
 methods; direct opaque inputs/results/fields, required and optional named inputs,
 optional positional inputs and matching selected generic class references.
@@ -226,7 +228,7 @@ of their source slots; opaque Map keys keep JS identity. These handles do not co
 or interpret their payloads. See [collection ownership](collections.md).
 
 Opaque keys in converted Dart Maps, non-bijective open hierarchies and generic
-resource/value classes remain unsupported. Concrete or erased specializations
+value classes remain unsupported. Concrete or erased specializations
 such as `Router<String>` or raw `Router` are not interchangeable with
 `Router<T>` under this carrier policy. They receive build diagnostics.
 
