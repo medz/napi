@@ -125,27 +125,38 @@ void checkPackageRebuildFilesystem(Directory directory) {
   }
 }
 
+typedef PackageAccessTime = ({int seconds, int nanoseconds});
+
+PackageAccessTime? packageAccessTime(FileSystemEntity entity) =>
+    Platform.isLinux ? _linuxMetadata.accessTime(entity.path) : null;
+
 /// Linux File.copy does not preserve ACLs and xattrs. Retained files need a
 /// metadata pass after writes, including the rewritten package.json.
 void copyPackageFileMetadata(
   File source,
   File destination, {
   bool preserveTimes = true,
+  PackageAccessTime? accessTime,
 }) {
   if (Platform.isLinux) {
     _linuxMetadata.copy(
       source.path,
       destination.path,
       preserveTimes: preserveTimes,
+      accessTime: accessTime,
     );
   }
 }
 
 /// Directories receive their metadata after creating their new children.
 /// macOS File.copy already handles file metadata through COPYFILE_ALL.
-void copyPackageDirectoryMetadata(Directory source, Directory destination) {
+void copyPackageDirectoryMetadata(
+  Directory source,
+  Directory destination, {
+  PackageAccessTime? accessTime,
+}) {
   if (Platform.isLinux) {
-    _linuxMetadata.copy(source.path, destination.path);
+    _linuxMetadata.copy(source.path, destination.path, accessTime: accessTime);
     return;
   }
   if (!Platform.isMacOS) {

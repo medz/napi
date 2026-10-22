@@ -259,7 +259,17 @@ final class PackageOwnership {
   Future<void> checkUnchanged() async {
     final current = await _scan(directory);
     if (_entries.length != current.length ||
-        _entries.entries.any((entry) => current[entry.key] != entry.value)) {
+        _entries.entries.any((entry) {
+          final before = entry.value;
+          final after = current[entry.key];
+          // Our own hashing and directory traversal can advance access times.
+          return after == null ||
+              before.hash != after.hash ||
+              before.mode != after.mode ||
+              before.size != after.size ||
+              before.modified != after.modified ||
+              before.changed != after.changed;
+        })) {
       throw FileSystemException(
         'Package output changed during rebuild.',
         directory.path,
@@ -274,6 +284,7 @@ final class PackageOwnership {
         copyPackageDirectoryMetadata(
           Directory(path.join(directory.path, entry.key)),
           Directory(path.join(staging.path, entry.key)),
+          accessTime: entry.value.accessed,
         );
       } else if (!artifacts.contains(entry.key) &&
           entry.key != packageOwnershipFile &&
@@ -282,6 +293,7 @@ final class PackageOwnership {
           File(path.join(directory.path, entry.key)),
           File(path.join(staging.path, entry.key)),
           preserveTimes: entry.key != 'package.json',
+          accessTime: entry.value.accessed,
         );
       }
     }
@@ -369,15 +381,12 @@ typedef _Entry = ({
   int size,
   DateTime modified,
   DateTime changed,
+  PackageAccessTime? accessed,
 });
 
 Future<Map<String, _Entry>> _scan(Directory directory) async {
-  final paths = [
-    directory,
-    ...await directory.list(recursive: true, followLinks: false).toList(),
-  ]..sort((left, right) => left.path.compareTo(right.path));
   final result = <String, _Entry>{};
-  for (final entity in paths) {
+  Future<void> visit(FileSystemEntity entity) async {
     final type = await FileSystemEntity.type(entity.path, followLinks: false);
     if (type != FileSystemEntityType.file &&
         type != FileSystemEntityType.directory) {
@@ -385,6 +394,8 @@ Future<Map<String, _Entry>> _scan(Directory directory) async {
         'Managed packages cannot contain links or special files: ${entity.path}',
       );
     }
+    // Capture before reading a file or listing this directory's children.
+    final accessed = packageAccessTime(entity);
     final stat = await entity.stat();
     final name = path.equals(entity.path, directory.path)
         ? ''
@@ -397,8 +408,18 @@ Future<Map<String, _Entry>> _scan(Directory directory) async {
       size: stat.size,
       modified: stat.modified,
       changed: stat.changed,
+      accessed: accessed,
     );
+    if (type == FileSystemEntityType.directory) {
+      await for (final child in Directory(
+        entity.path,
+      ).list(followLinks: false)) {
+        await visit(child);
+      }
+    }
   }
+
+  await visit(directory);
   return result;
 }
 

@@ -71,7 +71,29 @@ final class _LinuxMetadata {
     }
   }
 
-  void copy(String source, String destination, {bool preserveTimes = true}) {
+  PackageAccessTime accessTime(String path) {
+    _checkHost();
+    final fd = _open(path);
+    Pointer<Void> data = nullptr;
+    try {
+      data = _allocate(256);
+      _stat(fd, data, path);
+      return (
+        seconds: data.cast<Int64>()[8],
+        nanoseconds: data.cast<Uint32>()[18],
+      );
+    } finally {
+      if (data != nullptr) _publisher.free(data);
+      _publisher.close(fd);
+    }
+  }
+
+  void copy(
+    String source,
+    String destination, {
+    bool preserveTimes = true,
+    PackageAccessTime? accessTime,
+  }) {
     _checkHost();
     final from = _open(source);
     var to = -1;
@@ -91,13 +113,15 @@ final class _LinuxMetadata {
           source,
         );
       }
-      final accessSeconds = data.cast<Int64>()[8];
-      final accessNanos = data.cast<Uint32>()[18];
+      final accessSeconds = accessTime?.seconds ?? data.cast<Int64>()[8];
+      final accessNanos = accessTime?.nanoseconds ?? data.cast<Uint32>()[18];
       final modifiedSeconds = data.cast<Int64>()[14];
       final modifiedNanos = data.cast<Uint32>()[30];
       // Ownership changes can clear set-ID bits and security.capability.
       // Restore ownership before xattrs and the final permission mode.
       _check(_chown(to, uid, gid) == 0, 'fchown', destination);
+      // Retained read-only files still need write permission for user xattrs.
+      _check(_chmod(to, (mode & 0xfff) | 0x80) == 0, 'fchmod', destination);
       _copyAttributes(from, to, source, destination);
       _check(_chmod(to, mode & 0xfff) == 0, 'fchmod', destination);
       final times = data.cast<Int64>() + 32;
@@ -113,7 +137,9 @@ final class _LinuxMetadata {
           data.cast<Uint32>()[6] != gid ||
           data.cast<Uint16>()[14] != mode ||
           preserveTimes &&
-              (data.cast<Int64>()[14] != modifiedSeconds ||
+              (data.cast<Int64>()[8] != accessSeconds ||
+                  data.cast<Uint32>()[18] != accessNanos ||
+                  data.cast<Int64>()[14] != modifiedSeconds ||
                   data.cast<Uint32>()[30] != modifiedNanos)) {
         throw FileSystemException(
           'Package file metadata was not preserved.',
@@ -136,7 +162,12 @@ final class _LinuxMetadata {
         });
       }
     }
-    for (final name in names) {
+    // An access ACL can remove owner-write permission; apply it after xattrs.
+    const accessAcl = 'system.posix_acl_access';
+    for (final name in [
+      ...names.where((name) => name != accessAcl),
+      if (names.contains(accessAcl)) accessAcl,
+    ]) {
       _publisher.withBytes(name.codeUnits, (key) {
         final length = _size(_get(from, key, nullptr, 0), source);
         final value = _allocate(length == 0 ? 1 : length);

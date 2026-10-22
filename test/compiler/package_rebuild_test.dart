@@ -28,6 +28,8 @@ if action in ['init', 'init-acl']:
                 raise
         os.setxattr(path, b'user.napi.binary\xff', b'\0kept\xff')
         os.setxattr(path, 'user.napi.empty', b'')
+        if os.path.basename(path) == 'read-only':
+            os.chmod(path, 0o444)
         os.utime(path, ns=(1700000000123456789, 1700000000123456789))
 result = []
 for path in paths:
@@ -36,6 +38,7 @@ for path in paths:
             'attrs': {os.fsencode(name).hex(): os.getxattr(path, name).hex()
                       for name in os.listxattr(path)}}
     if os.path.basename(path) != 'package.json':
+        item['accessed'] = info.st_atime_ns
         item['modified'] = info.st_mtime_ns
     result.append(item)
 print(json.dumps(result))
@@ -146,8 +149,11 @@ void main() {
           final directory = await Directory('${output.path}/author').create();
           final file = await File('${directory.path}/data')
               .writeAsString('metadata');
+          final readOnly = await File('${directory.path}/read-only')
+              .writeAsString('read-only metadata');
           final entities = [
             file,
+            readOnly,
             directory,
             File('${output.path}/package.json'),
             output,

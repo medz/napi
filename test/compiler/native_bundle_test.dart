@@ -315,7 +315,7 @@ import 'package:napi/napi.dart';
         output: output,
         metadata: {'name': '@napi/fixture', 'version': '0.0.0'},
       );
-      if (Platform.isMacOS) {
+      if (Platform.isMacOS || Platform.isLinux) {
         await rebuild;
       } else {
         await expectLater(rebuild, throwsUnsupportedError);
@@ -378,7 +378,7 @@ import 'package:napi/napi.dart';
         );
         await PackageOwnership.read(output);
       },
-      skip: !Platform.isMacOS,
+      skip: !Platform.isMacOS && !Platform.isLinux,
     );
   }
 }
