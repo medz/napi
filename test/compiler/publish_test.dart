@@ -1,5 +1,7 @@
+import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:mirrors';
 
 import 'package:napi/src/build/publish.dart';
 import 'package:path/path.dart' as path;
@@ -251,6 +253,44 @@ void main() {
     },
     skip: Platform.isWindows,
   );
+
+  test('release unlocks a retained duplicate descriptor', () {
+    final library = DynamicLibrary.process();
+    final duplicate = library
+        .lookupFunction<Int32 Function(Int32), int Function(int)>('dup');
+    final close = library
+        .lookupFunction<Int32 Function(Int32), int Function(int)>('close');
+    final lock = PackageLock.acquire(target);
+    var retained = -1;
+    try {
+      final owner = reflectClass(PackageLock).owner as LibraryMirror;
+      final field = MirrorSystem.getSymbol('_descriptor', owner);
+      final descriptor = reflect(lock).getField(field).reflectee as int;
+      // dup shares the open file description, as a child inherited across fork
+      // does before exec closes its O_CLOEXEC descriptor.
+      retained = duplicate(descriptor);
+      expect(retained, greaterThanOrEqualTo(0));
+      expect(
+        () => PackageLock.acquire(target),
+        throwsA(isA<FileSystemException>()),
+      );
+      lock.release();
+      final next = PackageLock.acquire(target);
+      try {
+        lock.release();
+        expect(
+          () => PackageLock.acquire(target),
+          throwsA(isA<FileSystemException>()),
+        );
+      } finally {
+        next.release();
+      }
+      expect(lock.file.existsSync(), isTrue);
+    } finally {
+      lock.release();
+      if (retained >= 0) close(retained);
+    }
+  }, skip: Platform.isWindows);
 
   test('process exit releases a lock without deleting the inode', () async {
     final script = File('${root.path}/lock.dart');

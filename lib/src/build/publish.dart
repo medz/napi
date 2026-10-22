@@ -219,6 +219,9 @@ final class PackageLock {
     final descriptor = _descriptor;
     if (descriptor == null) return;
     _descriptor = null;
+    // A concurrent fork can retain this open file description until exec.
+    // Unlock before closing so its inherited descriptor cannot retain the lock.
+    _publisher.flock(descriptor, 8); // LOCK_UN.
     _publisher.close(descriptor);
   }
 }
