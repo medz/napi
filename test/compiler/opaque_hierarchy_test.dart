@@ -147,6 +147,71 @@ void main() {
     );
   }
 
+  for (final native in [false, true]) {
+    test(
+      'generic resource ancestors share a mapped cleanup policy ($native)',
+      () async {
+        final module = await read('''
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+class Base<A, B> {
+  Base(this.first, this.second);
+  A first;
+  B second;
+  Base<A, B> self() => this;
+  void close() {}
+}
+class Middle<C, D> extends Base<D, C> { Middle(super.first, super.second); }
+@NAPI()
+class Child<X, Y> extends Middle<Y, X> {
+  Child(super.first, super.second);
+  @override void close() => super.close();
+}
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+class Leaf<P, Q> extends Child<Q, P> {
+  Leaf(super.first, super.second);
+  @override void close() => super.close();
+}
+''', native: native);
+        final plan = lower(validate(module));
+        final vm = validateNative(module);
+        final shapes = plan.classes.map((c) => c.shape).toList();
+        final base = shapes[0], child = shapes[1], leaf = shapes[2];
+        expect(child.ancestorArguments[base.classId], [0, 1]);
+        expect(leaf.ancestorArguments[base.classId], [1, 0]);
+        expect(leaf.ancestorArguments[child.classId], [1, 0]);
+        final policies = resourcePolicies(shapes);
+        expect(policies.keys.toSet(), {
+          base.classId,
+          child.classId,
+          leaf.classId,
+        });
+        expect(policies.values.toSet(), hasLength(1));
+        expect(emitDeclarations(plan), emitNativeDeclarations(vm));
+        expect(emitDeclarations(plan), contains('extends Base<X, Y>'));
+        expect(emitDeclarations(plan), contains('extends Child<Q, P>'));
+        expect(
+          emitDeclarations(plan),
+          contains('close(): globalThis.Promise<void>'),
+        );
+      },
+    );
+  }
+
+  test('generic resource overrides retain cleanup defaults', () async {
+    final module = await read('''
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+class Base<T> { Base(); void close([int code = 7]) {} }
+@NAPI()
+class Child<U> extends Base<U> {
+  Child();
+  @override void close([int code = 8]) {}
+}
+''');
+    for (final check in [validate, validateNative]) {
+      expect(() => check(module), throwsA(diagnostic('NAPI_RESOURCE')));
+    }
+  });
+
   final rejected = {
     'fixed':
         '@NAPI() class Base<T> {} @NAPI() class Child extends Base<String> {}',

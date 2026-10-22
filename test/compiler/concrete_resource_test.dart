@@ -302,9 +302,9 @@ class Session<T> {
   for (final (name, body) in [
     ('generic cleanup', 'class Session<T> { Session(); void close<U>() {} }'),
     (
-      'resource ancestry',
+      'non-bijective resource ancestry',
       'class Session<T> { Session(); void close() {} } '
-          '@NAPI() class Child<U> extends Session<U> { Child(); }',
+          '@NAPI() class Child<U> extends Session<List<U>> { Child(); }',
     ),
   ]) {
     test('open resource still diagnoses $name', () async {

@@ -1409,15 +1409,13 @@ List<ReferenceClassShape> _referenceHierarchy(
                   ? parameters.indexOf(argument.declaration)
                   : -1,
           ];
-          if (binding.classPolicy != ClassPolicy.reference ||
-              parentBinding.classPolicy != ClassPolicy.reference ||
-              parameters.length != parentBinding.typeParameters.length ||
+          if (parameters.length != parentBinding.typeParameters.length ||
               slots.length != parameters.length ||
               slots.contains(-1) ||
               slots.toSet().length != parameters.length) {
             throw BindingDiagnostic(
               'NAPI_GENERIC',
-              'Selected open reference ancestors require a full bijection of non-null opaque parameters and ordinary reference policies.',
+              'Selected open ancestors require a full bijection of non-null opaque parameters.',
               binding.source,
             );
           }

@@ -750,6 +750,31 @@ typedef TextPair<T> = PartialPair<String, T>;
 @NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
 typedef ResourcePair<T> = PartialPair<bool, T>;
 
+int _genericChildCloses = 0, _genericLeafCloses = 0;
+@NAPI()
+({int child, int leaf}) genericResourceCloses() =>
+    (child: _genericChildCloses, leaf: _genericLeafCloses);
+
+@NAPI()
+class GenericResourceChild<T> extends PartialPair<bool, T> {
+  GenericResourceChild(T value) : super(true, value);
+  @override
+  void close() {
+    _genericChildCloses++;
+    super.close();
+  }
+}
+
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+class GenericResourceLeaf<U> extends GenericResourceChild<U> {
+  GenericResourceLeaf(super.value);
+  @override
+  void close() {
+    _genericLeafCloses++;
+    super.close();
+  }
+}
+
 @NAPI()
 class PartialChild<T> extends PartialPair<int, T> {
   PartialChild(super.first, super.second);

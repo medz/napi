@@ -230,6 +230,13 @@ const partialIndependent: symbol = partial.echo(Symbol('independent'));
 const partialNamed: api.IntPair<undefined> = api.IntPair.named(2, undefined);
 const partialValue: api.TextPair<{id: number}> = api.echoPartialValue({first: 'fixed', second: {id: 3}});
 const partialResource: api.ResourcePair<{id: number}> = new api.ResourcePair(true, {id: 4});
+const inheritedResource = new api.GenericResourceChild<symbol>(Symbol('resource'));
+const inheritedResourceBase: api.ResourcePair<symbol> = inheritedResource.self();
+const inheritedResourceLeaf: api.GenericResourceChild<symbol> = new api.GenericResourceLeaf<symbol>(Symbol('leaf'));
+const inheritedResourceClose: Promise<void> = inheritedResourceLeaf.close();
+const externalResourceChild: external.ResourcePair<undefined> = new external.GenericResourceChild<undefined>(undefined).self();
+// @ts-expect-error Inherited resource payloads retain their declared type.
+const wrongResourceChild: api.ResourcePair<string> = inheritedResourceBase;
 const partialFuture: Promise<{id: number}> = partialResource.later();
 const flippedPair: api.FlippedPair<string, symbol> = new api.FlippedPair(Symbol('first'), 1, 'last');
 const flippedSelf: api.FlippedPair<string, symbol> = api.echoFlipped(flippedPair.self());
@@ -279,3 +286,4 @@ api.echoPartialValue({first: 1, second: {}});
 const wrongFlipped: api.FlippedPair<symbol, string> = flippedPair;
 void [partialSelf, partialEcho, partialFixed, partialPayload, partialIndependent, partialNamed, partialValue, partialFuture, flippedSelf, flippedFirst, flippedLast, externalPartial, wrongPartial, wrongFlipped, nullableSelf, nullablePayload, nullablePairValue, nullableFuture, externalNullable, nonNullablePayload];
 void [nestedOpaqueSelf, nestedOpaqueValue, nestedOpaqueChild, nestedRecordValue, nestedCallbackResult, nestedResourceResult, externalNestedPair, wrongNestedPair];
+void [inheritedResourceClose, inheritedResourceBase, externalResourceChild, wrongResourceChild];

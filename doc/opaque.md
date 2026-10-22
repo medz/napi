@@ -132,7 +132,7 @@ static methods use only their own parameters. Same-spelled method parameters
 shadow the class parameter by Dart declaration scope. Required/optional/named
 presence, structural payloads, JS collection handles and Future/Stream results
 follow the contracts below. Selected class aliases and non-cleanup methods on
-non-generic resource classes also support method parameters; resource operations
+resource classes also support method parameters; resource operations
 keep their existing settlement/cancellation leases.
 
 Selected instance methods also work through inheritance, overrides and full-bijection
@@ -181,9 +181,12 @@ without nesting or nullable arguments, and have the same parameter count.
 This applies through unselected intermediate classes and to selected interfaces.
 Own and inherited overrides retain their declaring defaults and argument presence.
 Fixed, repeated, omitted, extra or nullable ancestor arguments still receive build
-diagnostics. Selected inheritance involving generic resource classes remains
-unsupported. Use a closed concrete alias for
-supported semantic specializations; opaque inheritance does not interpret payloads.
+diagnostics. Resource classes support the same bijective parameter mappings.
+An ordinary selected subclass inherits its ancestor's resource contract; all
+selected views must agree on the cleanup method's call shape and defaults.
+Closing through any view waits for active operations and releases the object once.
+Use a selected class alias for supported semantic specializations; opaque
+inheritance does not interpret payloads.
 
 ## Ownership
 
