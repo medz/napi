@@ -211,7 +211,11 @@ Lists, Dictionaries, records and Map values can recursively contain opaque
 `T`/`T?` leaves. Structural containers are independently converted; their opaque
 leaves preserve the original JS values. `List<Box<T>>` also preserves selected
 reference identity, including supported parameter-renaming/permutation inheritance.
-`Box<List<T>>` and `Box<T?>` remain unsupported generic specializations.
+An ordinary open `Box<T>` selection does not accept `Box<List<T>>` or
+`Box<T?>` as another specialization. A separate
+[class alias](concrete-generics.md#partially-open-class-aliases) can select the
+nullable shape, for example `typedef MaybeBox<T> = Box<T?>`. Nested opaque
+arguments remain unsupported.
 Future results may also carry direct opaque payloads, including nullable payloads,
 with standard Promise resolution. Future calls retain opaque inputs until the
 Dart Future completes and its result is handed to the JS resolver. Waiting

@@ -258,6 +258,60 @@ class Pair<A, B> {
     },
   );
 
+  test('nullable alias parameters preserve their logical projection', () async {
+    final input = await source('''
+import 'package:napi/napi.dart';
+class Cell<T> {
+  Cell(this.value);
+  T value;
+  Cell<T> self() => this;
+}
+@NAPI() typedef MaybeCell<T> = Cell<T?>;
+@NAPI() MaybeCell<U> echo<U>(Cell<U?> value) => value;
+''');
+    final module = await read(input);
+    final wasm = lower(validate(module));
+    final native = validateNative(module);
+    final declarations = emitDeclarations(wasm);
+    expect(declarations, emitNativeDeclarations(native));
+    expect(declarations, contains('constructor(value: T | null)'));
+    expect(declarations, contains('self(): MaybeCell<T>'));
+    expect(
+      declarations,
+      contains('<U = unknown>(value: MaybeCell<U>) => MaybeCell<U>'),
+    );
+    expect(
+      wasm.functions.single.inputs.single.dartType,
+      'target.MaybeCell<_NapiHostValue>',
+    );
+    expect(
+      referenceTypeArguments(
+        module.classes.single,
+        module.functions.single.parameters.single.type as DeclaredType,
+      )!.single.nullability,
+      TypeNullability.nonNullable,
+    );
+  });
+
+  test('mixed nullable alias slots require one consistent parameter', () async {
+    for (final arguments in ['U, U?', 'U, V?', 'U?, U?']) {
+      final input = await source('''
+import 'package:napi/napi.dart';
+class Pair<A, B> { Pair(this.a, this.b); A a; B b; }
+@NAPI() typedef Mixed<T> = Pair<T, T?>;
+@NAPI() Pair<$arguments> echo<U, V>(Pair<$arguments> value) => value;
+''');
+      final module = await read(input);
+      for (final check in [validate, validateNative]) {
+        if (arguments == 'U, U?') {
+          expect(() => check(module), returnsNormally);
+        } else {
+          expect(() => check(module), throwsA(diagnostic('NAPI_TYPE')));
+        }
+      }
+    }
+  });
+
   test(
     'partial aliases infer declared order and repeated parameters',
     () async {
@@ -324,7 +378,6 @@ class Pair<A, B> { Pair(this.a, this.b); A a; B b; }
 
   for (final alias in [
     'typedef Selected<T> = Cell<List<T>>;',
-    'typedef Selected<T> = Cell<T?>;',
     'typedef Selected<T> = Cell<int>;',
   ]) {
     test('unsupported alias projection remains diagnostic: $alias', () async {

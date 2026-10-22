@@ -236,6 +236,21 @@ const flippedSelf: api.FlippedPair<string, symbol> = api.echoFlipped(flippedPair
 const flippedFirst: symbol = flippedPair.first;
 const flippedLast: string = flippedPair.last;
 const externalPartial: external.IntPair<number> = external.echoPartial(new external.IntPair(2, 3));
+const nullablePair = new api.NullableIntPair<symbol>(1, null);
+const nullableSelf: api.NullableIntPair<symbol> = api.echoNullablePair(nullablePair.self());
+const nullablePayload: symbol | null = nullablePair.second;
+nullablePair.second = Symbol('updated');
+nullablePair.second = null;
+const nullablePairValue: api.NullableTextPair<undefined> = api.echoNullableValue<undefined>({first: null, second: undefined});
+const nullableResource = new api.NullableResourcePair<symbol>(null, Symbol('resource'));
+const nullableFuture: Promise<symbol | null> = nullableResource.later();
+const externalNullable: external.NullableIntPair<undefined> = new external.NullableIntPair<undefined>(1, undefined);
+// @ts-expect-error Nullable fields cannot be treated as always present payloads.
+const nonNullablePayload: symbol = nullablePair.second;
+// @ts-expect-error Adding null to a selected argument does not grant a wider writable view.
+api.echoNullablePair(new api.IntPair(1, Symbol('narrow')));
+// @ts-expect-error A nullable payload remains required.
+new api.NullableIntPair(1);
 // @ts-expect-error A fixed integer argument remains numeric.
 new api.IntPair('1', {});
 // @ts-expect-error A required opaque payload cannot be omitted.
@@ -246,4 +261,4 @@ const wrongPartial: api.IntPair<number> = partial;
 api.echoPartialValue({first: 1, second: {}});
 // @ts-expect-error Parameter order follows the alias declaration.
 const wrongFlipped: api.FlippedPair<symbol, string> = flippedPair;
-void [partialSelf, partialEcho, partialFixed, partialPayload, partialIndependent, partialNamed, partialValue, partialFuture, flippedSelf, flippedFirst, flippedLast, externalPartial, wrongPartial, wrongFlipped];
+void [partialSelf, partialEcho, partialFixed, partialPayload, partialIndependent, partialNamed, partialValue, partialFuture, flippedSelf, flippedFirst, flippedLast, externalPartial, wrongPartial, wrongFlipped, nullableSelf, nullablePayload, nullablePairValue, nullableFuture, externalNullable, nonNullablePayload];

@@ -726,6 +726,25 @@ class PartialPair<A, B> {
 typedef IntPair<T> = PartialPair<int, T>;
 @NAPI()
 typedef MaybeIntPair<T> = PartialPair<int?, T>;
+@NAPI()
+typedef NullableIntPair<T> = PartialPair<int, T?>;
+@NAPI(classPolicy: ClassPolicy.value)
+typedef NullableTextPair<T> = PartialPair<String?, T?>;
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+typedef NullableResourcePair<T> = PartialPair<bool?, T?>;
+@NAPI()
+NullableIntPair<U> echoNullablePair<U>(PartialPair<int, U?> value) => value;
+@NAPI()
+NullableIntPair<U> widenNullablePair<U>(IntPair<U> value) => value;
+@NAPI()
+void clearNullablePair<T>(NullableIntPair<T> value) => value.second = null;
+@NAPI()
+NullableTextPair<U> echoNullableValue<U>(NullableTextPair<U> value) => value;
+@NAPI()
+void clearNullableResource<T>(NullableResourcePair<T> value) =>
+    value.second = null;
+@NAPI()
+NullableIntPair<U> nullableAliasArgument<U>(NullableIntPair<U?> value) => value;
 @NAPI(classPolicy: ClassPolicy.value)
 typedef TextPair<T> = PartialPair<String, T>;
 @NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
