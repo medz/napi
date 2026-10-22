@@ -563,6 +563,36 @@ async function values(api) {
 
 
 async function partialAliases(api) {
+  for (const payload of [undefined, null, {}, Symbol('nullable'), () => 8]) {
+    const pair = new api.NullableIntPair(1, payload);
+    assert.equal(pair.second, payload);
+    assert.equal(pair.self(), pair);
+    assert.equal(api.echoNullablePair(pair), pair);
+    assert.equal(api.nullableAliasArgument(pair), pair);
+    pair.second = undefined;
+    assert.equal(pair.second, undefined);
+    api.clearNullablePair(pair);
+    assert.equal(pair.second, null);
+    pair.second = payload;
+    assert.equal(pair.second, payload);
+    const narrow = new api.IntPair(1, payload);
+    assert(!(narrow instanceof api.NullableIntPair));
+    assert.throws(() => api.echoNullablePair(narrow), TypeError);
+    assert.throws(() => api.widenNullablePair(narrow), TypeError);
+    assert(!(pair instanceof api.IntPair));
+    const value = api.echoNullableValue({first: null, second: payload});
+    assert.equal(value.first, null);
+    assert.equal(value.second, payload);
+  }
+  assert.throws(() => new api.NullableIntPair(1), TypeError);
+  assert.throws(() => new api.NullableIntPair('1', null), TypeError);
+  const nullableResource = new api.NullableResourcePair(null, undefined);
+  api.clearNullableResource(nullableResource);
+  const nullResult = nullableResource.later();
+  const nullClose = nullableResource.close();
+  assert.equal(await nullResult, null);
+  await nullClose;
+  assert.throws(() => nullableResource.second);
   for (const payload of [undefined, null, {}, Symbol('partial'), () => 7]) {
     const pair = new api.IntPair(3, payload);
     assert.equal(pair.first, 3);

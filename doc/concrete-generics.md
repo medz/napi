@@ -62,8 +62,13 @@ conversion rules.
 
 Parameters may be reordered or repeated, for example
 `typedef Flipped<X, Y> = Triple<Y, int, X>`. Every alias parameter must appear as
-a direct, non-null argument of the selected class. Nested or nullable uses such
-as `List<T>` and `T?`, and unused parameters, remain diagnosed. Remaining
+a direct argument of the selected class, optionally nullable. For example,
+`typedef NullablePair<T> = Pair<int, T?>` exposes a `T | null` payload field;
+omitting a required payload still fails, and explicit `undefined` remains an
+opaque value. The nullable shape belongs to this selected alias: an ordinary
+`Pair<int, T>` handle cannot acquire its wider writable view.
+
+Nested uses such as `List<T>`, and unused parameters, remain diagnosed. Remaining
 parameters accept the ordinary opaque bounds. A selected ancestor alias must
 retain the existing bijective mapping between its remaining opaque parameters
 and the child's parameters.

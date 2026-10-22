@@ -1010,12 +1010,11 @@ void _validateAliasSelections(BindingModule module) {
         type.typeArguments.any(
           (argument) =>
               !isClosedConcreteType(argument) &&
-              !(argument.nullability == TypeNullability.nonNullable &&
-                  isOpaqueType(argument, opaque)),
+              !isOpaqueType(argument, opaque),
         )) {
       throw BindingDiagnostic(
         'NAPI_GENERIC',
-        'Class aliases require closed arguments or direct non-null opaque parameters, with every alias parameter represented.',
+        'Class aliases require closed arguments or direct opaque parameters, with every alias parameter represented.',
         binding.source,
       );
     }
@@ -2119,16 +2118,18 @@ List<BindingType>? referenceTypeArguments(
   for (final (index, pattern) in concrete.typeArguments.indexed) {
     final argument = type.typeArguments[index];
     if (pattern is TypeParameterType &&
-        pattern.nullability == TypeNullability.nonNullable &&
+        pattern.nullability != TypeNullability.legacy &&
         parameters.contains(pattern.declaration)) {
       if (argument is! TypeParameterType ||
-          argument.nullability != TypeNullability.nonNullable) {
+          argument.nullability != pattern.nullability) {
         return null;
       }
+      // The nullable marker belongs to the alias shape, not its logical slot.
+      final projectedArgument = TypeParameterType(argument.declaration);
       if (projected[pattern.declaration] case final previous?) {
-        if (!_sameCanonicalType(previous, argument)) return null;
+        if (!_sameCanonicalType(previous, projectedArgument)) return null;
       }
-      projected[pattern.declaration] = argument;
+      projected[pattern.declaration] = projectedArgument;
     } else if (!_sameCanonicalType(pattern, argument)) {
       return null;
     }
