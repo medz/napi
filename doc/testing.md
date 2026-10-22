@@ -36,6 +36,11 @@ git diff --check
 runs the other consumer fixtures. The `--platform node --compiler dart2wasm` command runs the shared runtime
 suites compiled to Wasm.
 
+Linux managed-rebuild tests use Python 3 to prepare and inspect ACLs and extended
+attributes. The ownership-failure fixture uses passwordless `sudo chown`; it is
+optional for local unprivileged runs and required in CI. These tools are test
+dependencies; building npm packages uses Dart and libc.
+
 ## Native consumers
 
 On macOS arm64, run all native consumers, dual-target packages and callbacks with

@@ -3,7 +3,8 @@
 `buildPackage` from `package:napi/build.dart` validates npm metadata before source
 analysis or compilation, then builds and assembles a package. New output uses
 atomic no-replace publication. A package created by this builder can also be
-rebuilt on local macOS APFS; see the managed rebuild rules below. The default Wasm
+rebuilt on local macOS APFS and supported 64-bit Linux filesystems; see the managed
+rebuild rules below. The default Wasm
 target exports `module.wasm` from both the package root and `./module.wasm`, with
 the same generated TypeScript declarations.
 
@@ -89,8 +90,9 @@ builder runs would split the lock. Output paths inside `.napi-locks`, or a
 symlink/non-directory at that private path, are rejected without replacing it.
 Fresh POSIX package builds also use this lock; raw module publication uses an exclusive rename without this lock.
 
-The new package is committed with one `renamex_np(RENAME_SWAP)` directory exchange.
-Compilation or merge failures leave the old output intact. After a successful
+The new package is committed with one directory exchange:
+`renamex_np(RENAME_SWAP)` on macOS or `renameat2(RENAME_EXCHANGE)` on Linux.
+Compilation or merge failures do not replace the old package. After a successful
 exchange, failure to remove old output or build scratch reports the retained path
 and still returns success; it never rolls the package back. An exchange error
 retains both names for inspection, without attempting two renames. This is atomic
@@ -101,14 +103,22 @@ serialize non-cooperating writers.
 
 Copies preserve author file metadata through the pinned macOS Dart SDK's
 `File.copy` (`COPYFILE_ALL`), and directory metadata through `copyfile` with
-`COPYFILE_METADATA`, including ACLs and extended attributes. Preservation errors
+`COPYFILE_METADATA`, including ACLs and extended attributes. On Linux, retained
+files and directories restore their ownership, permissions, ACLs and extended
+attributes through libc after writes finish. Unchanged author files also retain
+their timestamps; the rewritten `package.json` keeps its new modification time.
+Validation and copying use normal reads, so a failed rebuild can still advance
+access times on the old output.
+The builder needs permission to preserve the original ownership and attributes.
+Preservation errors
 fail before publication. Symlinks and special files anywhere in an existing
 package are rejected rather than dropped. Copying and verification cost scales
 with the retained contents; an installed `node_modules` tree receives no special
 exemption. No hard links are used as snapshots.
 
-Existing-output replacement is currently limited to local macOS APFS. Linux,
-Windows, network/other filesystems, legacy package adoption and raw module
+Existing-output replacement supports local macOS APFS and 64-bit Linux ext-family
+filesystems with directory-exchange support or tmpfs. Linux requires `statx` and
+extended-attribute support. Windows, network/other filesystems, legacy package adoption and raw module
 replacement are not supported. New-output publication retains its existing
 platform support. No extra flags, install scripts or external copy tools are
 required.

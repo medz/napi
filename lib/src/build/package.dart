@@ -296,7 +296,7 @@ Future<Directory> _assemblePackage({
       await previous.copyAuthors(staging, {
         ...artifactNames,
         ...assets.keys.where((name) => !previous.assets.contains(name)),
-      });
+      }, replacedAssets: assets.keys.toSet());
     }
     for (final entry in files.entries) {
       final destination = File('${staging.path}/${entry.key}');
@@ -321,7 +321,7 @@ Future<Directory> _assemblePackage({
       assets: selectedAssets,
       autoPlatform: autoPlatform,
     );
-    previous?.copyDirectoryMetadata(staging);
+    previous?.copyMetadata(staging, replacedFiles: files.keys.toSet());
     await previous?.checkUnchanged();
     if (previous == null) {
       publishDirectory(staging, target);

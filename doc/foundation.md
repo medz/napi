@@ -126,7 +126,8 @@ generated Dart or shipped in the Wasm artifacts. Publication primitive support
 does not establish compiler/runtime support on the same host. Package-name validation,
 explicit assets/licenses and consumer metadata assembly are implemented by
 [buildPackage](packaging.md). Managed npm packages can be atomically rebuilt on
-local macOS APFS, preserving author content and metadata. Raw module replacement,
+local macOS APFS and supported 64-bit Linux ext-family filesystems or tmpfs,
+preserving author content and metadata. Raw module replacement,
 legacy output adoption and replacement on other platforms are not supported.
 
 The compiler is tested on the Node versions in [the test guide](testing.md).

@@ -4,6 +4,8 @@ import 'dart:io';
 
 import 'package:path/path.dart' as path;
 
+part 'linux_metadata.dart';
+
 /// Publish a completed directory in one operation, never replacing a name that
 /// another process owns. Both directories must be on the same filesystem.
 ///
@@ -78,9 +80,14 @@ Future<void> cleanPackageStaging(
 /// Rebuild support is narrower than fresh publication. In particular, a local
 /// filesystem is required: a remote rename error need not mean no commit.
 void checkPackageRebuildFilesystem(Directory directory) {
+  if (Platform.isLinux) {
+    _linuxMetadata.checkFilesystem(directory);
+    return;
+  }
   if (!Platform.isMacOS) {
     throw UnsupportedError(
-      'Managed package replacement is currently qualified only on macOS.',
+      'Managed package replacement requires macOS or 64-bit Linux '
+      'on a supported local filesystem.',
     );
   }
   final publisher = _publisher;
@@ -118,9 +125,40 @@ void checkPackageRebuildFilesystem(Directory directory) {
   }
 }
 
-/// dart:io File.copy uses COPYFILE_ALL on the pinned macOS SDK. Directories
-/// need a separate metadata-only copy, after creating their new children.
-void copyPackageDirectoryMetadata(Directory source, Directory destination) {
+typedef PackageAccessTime = ({int seconds, int nanoseconds});
+
+PackageAccessTime? packageAccessTime(FileSystemEntity entity) =>
+    Platform.isLinux ? _linuxMetadata.accessTime(entity.path) : null;
+
+/// Linux File.copy does not preserve ACLs and xattrs. Retained files need a
+/// metadata pass after writes, including the rewritten package.json.
+void copyPackageFileMetadata(
+  File source,
+  File destination, {
+  bool preserveTimes = true,
+  PackageAccessTime? accessTime,
+}) {
+  if (Platform.isLinux) {
+    _linuxMetadata.copy(
+      source.path,
+      destination.path,
+      preserveTimes: preserveTimes,
+      accessTime: accessTime,
+    );
+  }
+}
+
+/// Directories receive their metadata after creating their new children.
+/// macOS File.copy already handles file metadata through COPYFILE_ALL.
+void copyPackageDirectoryMetadata(
+  Directory source,
+  Directory destination, {
+  PackageAccessTime? accessTime,
+}) {
+  if (Platform.isLinux) {
+    _linuxMetadata.copy(source.path, destination.path, accessTime: accessTime);
+    return;
+  }
   if (!Platform.isMacOS) {
     throw UnsupportedError(
       'Directory metadata preservation is unavailable on this host.',
@@ -201,7 +239,7 @@ final class PackageLock {
     publisher.withPath(name, (pointer) {
       descriptor = publisher.open(
         pointer.cast(),
-        2 | (Platform.isMacOS ? 0x1000100 : 0xa0000),
+        2 | (Platform.isMacOS ? 0x1000100 : 0x80000 | _linuxNoFollowFlag),
       ); // O_RDWR | O_CLOEXEC | O_NOFOLLOW.
     });
     if (descriptor < 0) {
@@ -227,6 +265,11 @@ final class PackageLock {
 }
 
 final _publisher = _Publisher.load();
+
+int get _linuxNoFollowFlag => switch (Abi.current()) {
+  Abi.linuxArm || Abi.linuxArm64 => 0x8000,
+  _ => 0x20000,
+};
 
 typedef _AllocateNative = Pointer<Void> Function(Size);
 typedef _Allocate = Pointer<Void> Function(int);
@@ -336,7 +379,10 @@ final class _Publisher {
     if (path.contains('\x00')) {
       throw ArgumentError('Publication paths must not contain NUL.');
     }
-    final units = utf8.encode(path);
+    withBytes(utf8.encode(path), action);
+  }
+
+  void withBytes(List<int> units, void Function(Pointer<Void>) action) {
     final pointer = allocate(units.length + 1);
     if (pointer == nullptr) {
       throw StateError('Cannot allocate publication path.');

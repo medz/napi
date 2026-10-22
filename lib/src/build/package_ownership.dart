@@ -207,7 +207,11 @@ final class PackageOwnership {
     return PackageOwnership._(directory, entries, artifacts, assets, package);
   }
 
-  Future<void> copyAuthors(Directory staging, Set<String> newArtifacts) async {
+  Future<void> copyAuthors(
+    Directory staging,
+    Set<String> newArtifacts, {
+    Set<String> replacedAssets = const {},
+  }) async {
     for (final entry in _entries.entries) {
       final name = entry.key;
       if (name.isEmpty ||
@@ -219,9 +223,14 @@ final class PackageOwnership {
       if (entry.value.hash == null) {
         await Directory(destination).create(recursive: true);
       } else {
+        // Linux restores package.json metadata after rewriting its contents.
+        // Explicitly replaced assets should receive a fresh destination inode.
+        if ((name == 'package.json' && Platform.isLinux) ||
+            (assets.contains(name) && replacedAssets.contains(name))) {
+          continue;
+        }
         await File(destination).parent.create(recursive: true);
-        // package.json is rewritten below, but first copy its author-owned
-        // mode/ACL/xattrs along with the other retained files.
+        // macOS File.copy preserves metadata of the rewritten package.json.
         await File(path.join(directory.path, name)).copy(destination);
       }
     }
@@ -259,7 +268,17 @@ final class PackageOwnership {
   Future<void> checkUnchanged() async {
     final current = await _scan(directory);
     if (_entries.length != current.length ||
-        _entries.entries.any((entry) => current[entry.key] != entry.value)) {
+        _entries.entries.any((entry) {
+          final before = entry.value;
+          final after = current[entry.key];
+          // Our own hashing and directory traversal can advance access times.
+          return after == null ||
+              before.hash != after.hash ||
+              before.mode != after.mode ||
+              before.size != after.size ||
+              before.modified != after.modified ||
+              before.changed != after.changed;
+        })) {
       throw FileSystemException(
         'Package output changed during rebuild.',
         directory.path,
@@ -267,13 +286,23 @@ final class PackageOwnership {
     }
   }
 
-  /// Apply directory metadata after all child writes, including the root.
-  void copyDirectoryMetadata(Directory staging) {
+  /// Restore retained metadata after writes, with directories after children.
+  void copyMetadata(Directory staging, {required Set<String> replacedFiles}) {
     for (final entry in _entries.entries.toList().reversed) {
       if (entry.value.hash == null) {
         copyPackageDirectoryMetadata(
           Directory(path.join(directory.path, entry.key)),
           Directory(path.join(staging.path, entry.key)),
+          accessTime: entry.value.accessed,
+        );
+      } else if (!artifacts.contains(entry.key) &&
+          entry.key != packageOwnershipFile &&
+          !replacedFiles.contains(entry.key)) {
+        copyPackageFileMetadata(
+          File(path.join(directory.path, entry.key)),
+          File(path.join(staging.path, entry.key)),
+          preserveTimes: entry.key != 'package.json',
+          accessTime: entry.value.accessed,
         );
       }
     }
@@ -361,15 +390,12 @@ typedef _Entry = ({
   int size,
   DateTime modified,
   DateTime changed,
+  PackageAccessTime? accessed,
 });
 
 Future<Map<String, _Entry>> _scan(Directory directory) async {
-  final paths = [
-    directory,
-    ...await directory.list(recursive: true, followLinks: false).toList(),
-  ]..sort((left, right) => left.path.compareTo(right.path));
   final result = <String, _Entry>{};
-  for (final entity in paths) {
+  Future<void> visit(FileSystemEntity entity) async {
     final type = await FileSystemEntity.type(entity.path, followLinks: false);
     if (type != FileSystemEntityType.file &&
         type != FileSystemEntityType.directory) {
@@ -377,6 +403,8 @@ Future<Map<String, _Entry>> _scan(Directory directory) async {
         'Managed packages cannot contain links or special files: ${entity.path}',
       );
     }
+    // Capture before reading a file or listing this directory's children.
+    final accessed = packageAccessTime(entity);
     final stat = await entity.stat();
     final name = path.equals(entity.path, directory.path)
         ? ''
@@ -389,8 +417,18 @@ Future<Map<String, _Entry>> _scan(Directory directory) async {
       size: stat.size,
       modified: stat.modified,
       changed: stat.changed,
+      accessed: accessed,
     );
+    if (type == FileSystemEntityType.directory) {
+      await for (final child in Directory(
+        entity.path,
+      ).list(followLinks: false)) {
+        await visit(child);
+      }
+    }
   }
+
+  await visit(directory);
   return result;
 }
 

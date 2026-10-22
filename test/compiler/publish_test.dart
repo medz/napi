@@ -26,6 +26,36 @@ void main() {
     expect(await File('${target.path}/marker').readAsString(), 'artifact');
   });
 
+  test(
+    'Linux metadata copying does not follow either symlink endpoint',
+    () async {
+      final original = File('${source.path}/marker');
+      final destination = await File('${root.path}/destination')
+          .writeAsString('keep');
+      final from = await Link('${root.path}/source-link').create(original.path);
+      final to = await Link('${root.path}/target-link')
+          .create(destination.path);
+      expect(
+        () => copyPackageFileMetadata(File(from.path), destination),
+        throwsA(isA<FileSystemException>()),
+      );
+      expect(
+        () => copyPackageFileMetadata(original, File(to.path)),
+        throwsA(isA<FileSystemException>()),
+      );
+      expect(await destination.readAsString(), 'keep');
+      expect(await original.readAsString(), 'artifact');
+    },
+    skip: !Platform.isLinux,
+  );
+
+  test('Linux managed rebuild rejects procfs', () {
+    expect(
+      () => checkPackageRebuildFilesystem(Directory('/proc')),
+      throwsUnsupportedError,
+    );
+  }, skip: !Platform.isLinux);
+
   for (final kind in ['empty directory', 'populated directory', 'file']) {
     test('never replaces an existing $kind', () async {
       if (kind == 'file') {
@@ -201,14 +231,19 @@ void main() {
   test(
     'one exchange swaps populated directories without a missing name',
     () async {
+      try {
+        checkPackageRebuildFilesystem(root);
+      } on UnsupportedError catch (error) {
+        markTestSkipped(error.toString());
+        return;
+      }
       await target.create();
       await File('${target.path}/marker').writeAsString('old');
-      checkPackageRebuildFilesystem(root);
       exchangeDirectories(source, target);
       expect(await File('${target.path}/marker').readAsString(), 'artifact');
       expect(await File('${source.path}/marker').readAsString(), 'old');
     },
-    skip: !Platform.isMacOS,
+    skip: !Platform.isMacOS && !Platform.isLinux,
   );
 
   test(

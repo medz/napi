@@ -6,7 +6,51 @@ import 'package:napi/src/build/package_ownership.dart';
 import 'package:napi/src/build/publish.dart';
 import 'package:test/test.dart';
 
+const _linuxMetadataScript = r'''
+import errno, json, os, stat, struct, sys
+action, paths = sys.argv[1], sys.argv[2:]
+if action in ['init', 'init-acl']:
+    for path in paths:
+        directory = os.path.isdir(path)
+        os.chmod(path, 0o750 if directory else 0o640)
+        entries = [(1, 7 if directory else 6, 0xffffffff),
+                   (2, 4, 65534), (4, 5 if directory else 4, 0xffffffff),
+                   (16, 5 if directory else 4, 0xffffffff), (32, 0, 0xffffffff)]
+        acl = struct.pack('<I', 2) + b''.join(struct.pack('<HHI', *entry) for entry in entries)
+        if action == 'init-acl':
+            try:
+                os.setxattr(path, 'system.posix_acl_access', acl)
+                if directory:
+                    os.setxattr(path, 'system.posix_acl_default', acl)
+            except OSError as error:
+                if error.errno == errno.ENOTSUP:
+                    sys.exit(77)
+                raise
+        os.setxattr(path, b'user.napi.binary\xff', b'\0kept\xff')
+        os.setxattr(path, 'user.napi.empty', b'')
+        if os.path.basename(path) in ['read-only', 'package.json']:
+            os.chmod(path, 0o444)
+        os.utime(path, ns=(1700000000123456789, 1700000000123456789))
+result = []
+for path in paths:
+    info = os.stat(path)
+    item = {'mode': stat.S_IMODE(info.st_mode), 'uid': info.st_uid, 'gid': info.st_gid,
+            'attrs': {os.fsencode(name).hex(): os.getxattr(path, name).hex()
+                      for name in os.listxattr(path)}}
+    if os.path.basename(path) != 'package.json':
+        item['accessed'] = info.st_atime_ns
+        item['modified'] = info.st_mtime_ns
+    result.append(item)
+print(json.dumps(result))
+''';
+
 void main() {
+  String? unsupportedRebuild;
+  try {
+    checkPackageRebuildFilesystem(Directory.systemTemp);
+  } on UnsupportedError catch (error) {
+    unsupportedRebuild = error.toString();
+  }
   late Directory root;
   late Directory source;
   late Directory output;
@@ -41,6 +85,24 @@ void main() {
     await File('${output.path}/package.json').writeAsString(jsonEncode(value));
   }
 
+  Future<Object?> linuxMetadata(
+    String action,
+    List<FileSystemEntity> entities,
+  ) async {
+    final result = await Process.run('python3', [
+      '-c',
+      _linuxMetadataScript,
+      action,
+      ...entities.map((e) => e.path),
+    ]);
+    if (result.exitCode == 77) {
+      markTestSkipped('This filesystem cannot hold POSIX ACLs.');
+      return null;
+    }
+    expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
+    return jsonDecode(result.stdout as String);
+  }
+
   test(
     'fresh packages carry private ownership outside the npm file list',
     () async {
@@ -54,19 +116,15 @@ void main() {
     },
   );
 
-  test(
-    'unsupported hosts retain managed output without attempting replacement',
-    () async {
-      await assemble();
-      await File('${source.path}/module.wasm').writeAsString('second');
-      await expectLater(assemble(), throwsUnsupportedError);
-      expect(
-        await File('${output.path}/module.wasm').readAsString(),
-        'first module.wasm',
-      );
-    },
-    skip: Platform.isMacOS,
-  );
+  test('unsupported rebuild environments retain managed output without replacement', () async {
+    await assemble();
+    await File('${source.path}/module.wasm').writeAsString('second');
+    await expectLater(assemble(), throwsUnsupportedError);
+    expect(
+      await File('${output.path}/module.wasm').readAsString(),
+      'first module.wasm',
+    );
+  }, skip: unsupportedRebuild == null);
 
   test(
     'external package URI reaches frontend diagnostics without a file-URI cast',
@@ -84,7 +142,125 @@ void main() {
     },
   );
 
-  group('managed macOS replacement', () {
+  group('Linux metadata', () {
+    for (final acl in [false, true]) {
+      test(
+        'retains ${acl ? 'ACLs, ' : ''}binary xattrs, modes, ownership and unchanged-file timestamps',
+        () async {
+          await assemble();
+          final directory = await Directory('${output.path}/author').create();
+          final file = await File('${directory.path}/data')
+              .writeAsString('metadata');
+          final readOnly = await File('${directory.path}/read-only')
+              .writeAsString('read-only metadata');
+          final entities = [
+            file,
+            readOnly,
+            directory,
+            File('${output.path}/package.json'),
+            output,
+          ];
+          final before = await linuxMetadata(
+            acl ? 'init-acl' : 'init',
+            entities,
+          );
+          if (before == null) return;
+          final jsonTime = (await File(
+            '${output.path}/package.json',
+          ).stat()).modified;
+          await File('${source.path}/module.wasm').writeAsString('second');
+          await assemble(overrides: {'version': '1.0.1'});
+          expect(await linuxMetadata('inspect', entities), before);
+          expect(await file.readAsString(), 'metadata');
+          expect(
+            await File('${output.path}/module.wasm').readAsString(),
+            'second',
+          );
+          expect((await package())['version'], '1.0.1');
+          expect(
+            (await File('${output.path}/package.json').stat()).modified,
+            isNot(jsonTime),
+          );
+
+          final copy = await file.copy('${root.path}/metadata-copy');
+          final stale = await Process.run('python3', [
+            '-c',
+            "import os,sys; os.setxattr(sys.argv[1], 'user.napi.stale', b'drop')",
+            copy.path,
+          ]);
+          expect(stale.exitCode, 0, reason: '${stale.stdout}${stale.stderr}');
+          copyPackageFileMetadata(file, copy);
+          expect(
+            await linuxMetadata('inspect', [copy]),
+            await linuxMetadata('inspect', [file]),
+          );
+        },
+      );
+    }
+    test('an ownership-copy failure retains the old generation', () async {
+      final uid = await Process.run('python3', [
+        '-c',
+        'import os; print(os.getuid())',
+      ]);
+      expect(uid.exitCode, 0);
+      if ((uid.stdout as String).trim() == '0') {
+        markTestSkipped(
+          'Ownership rejection requires an unprivileged builder.',
+        );
+        return;
+      }
+      await assemble();
+      final author = await File('${output.path}/author.txt')
+          .writeAsString('keep');
+      final marker = await File('${output.path}/$packageOwnershipFile')
+          .readAsString();
+      final ProcessResult changed;
+      try {
+        changed = await Process.run('sudo', [
+          '-n',
+          '/usr/bin/chown',
+          '65534:65534',
+          author.path,
+        ]);
+      } on ProcessException {
+        if (Platform.environment['CI'] == 'true') rethrow;
+        markTestSkipped(
+          'Passwordless sudo is unavailable for the ownership fixture.',
+        );
+        return;
+      }
+      if (changed.exitCode != 0 && Platform.environment['CI'] != 'true') {
+        markTestSkipped(
+          'Passwordless sudo is unavailable for the ownership fixture.',
+        );
+        return;
+      }
+      expect(changed.exitCode, 0, reason: '${changed.stdout}${changed.stderr}');
+      await File('${source.path}/module.wasm').writeAsString('second');
+      await expectLater(
+        assemble(overrides: {'version': '1.0.1'}),
+        throwsA(
+          isA<FileSystemException>().having(
+            (e) => e.message,
+            'metadata failure',
+            contains('fchown'),
+          ),
+        ),
+      );
+      expect(await author.readAsString(), 'keep');
+      expect(
+        await File('${output.path}/module.wasm').readAsString(),
+        'first module.wasm',
+      );
+      expect(
+        await File('${output.path}/$packageOwnershipFile').readAsString(),
+        marker,
+      );
+      expect((await package())['version'], '1.0.0');
+    });
+  }, skip: Platform.isLinux ? unsupportedRebuild ?? false : true);
+
+  group('managed replacement', () {
     test(
       'a legal 255-byte basename supports fresh publication and rebuilding',
       () async {
@@ -214,6 +390,14 @@ void main() {
             .writeAsString('first selection');
         await assemble(assets: {name: replacement});
         await File('${output.path}/$name').writeAsString('author edit');
+        if (Platform.isLinux) {
+          final permissions = await Process.run('python3', [
+            '-c',
+            'import os,sys; os.chmod(sys.argv[1], 0o444)',
+            '${output.path}/$name',
+          ]);
+          expect(permissions.exitCode, 0, reason: '${permissions.stderr}');
+        }
         await replacement.writeAsString('explicit replacement');
         await assemble(assets: {name: replacement});
         expect(
@@ -598,6 +782,7 @@ void main() {
           expect(acl.stdout, contains('everyone deny delete'));
         }
       },
+      skip: !Platform.isMacOS,
     );
-  }, skip: !Platform.isMacOS);
+  }, skip: unsupportedRebuild ?? false);
 }

@@ -7,6 +7,7 @@ import 'package:napi/src/build/build.dart' as builder;
 import 'package:napi/src/build/native_bundle.dart';
 import 'package:napi/src/build/metadata.dart';
 import 'package:napi/src/build/package_ownership.dart';
+import 'package:napi/src/build/publish.dart' show checkPackageRebuildFilesystem;
 import 'package:napi/build.dart';
 import 'package:napi/src/compiler/native/loader.dart';
 import 'package:napi/src/compiler/sdk_adapter/dart_aot_adapter.dart';
@@ -14,6 +15,12 @@ import 'package:napi/src/compiler/sdk_adapter/dart_sdk_adapter.dart';
 import 'package:test/test.dart';
 
 void main() {
+  String? unsupportedRebuild;
+  try {
+    checkPackageRebuildFilesystem(Directory.systemTemp);
+  } on UnsupportedError catch (error) {
+    unsupportedRebuild = error.toString();
+  }
   late Directory root;
   late Map<String, Object?> manifest;
   const identity = 'dart-3.13.5-product-macos-arm64-abi15-fixture';
@@ -315,7 +322,7 @@ import 'package:napi/napi.dart';
         output: output,
         metadata: {'name': '@napi/fixture', 'version': '0.0.0'},
       );
-      if (Platform.isMacOS) {
+      if (unsupportedRebuild == null) {
         await rebuild;
       } else {
         await expectLater(rebuild, throwsUnsupportedError);
@@ -378,7 +385,7 @@ import 'package:napi/napi.dart';
         );
         await PackageOwnership.read(output);
       },
-      skip: !Platform.isMacOS,
+      skip: unsupportedRebuild ?? false,
     );
   }
 }
