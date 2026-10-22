@@ -483,13 +483,14 @@ final class InheritedInstanceMember {
 }
 
 final class ClassBinding {
-  /// Original class identity, including for a selected concrete type alias.
+  /// Original class identity, including for a selected class type alias.
   final DeclarationId declaration;
 
   /// The public alias selected for this binding, when it differs from the class.
   final DeclarationId? selectionDeclaration;
 
-  /// Resolved concrete class type. Alias spelling is not runtime type identity.
+  /// Resolved class type with fixed and/or opaque arguments. Alias spelling is
+  /// not runtime type identity.
   /// A descriptive instance does not imply executable backend support.
   final DeclaredType? instantiatedType;
 

@@ -91,7 +91,7 @@ ReferenceViewContracts referenceViewContracts(
   );
 }
 
-/// Concrete aliases remain invariant handles even when Dart's type arguments
+/// Selected class aliases remain invariant handles even when Dart's type arguments
 /// overlap. The runtime may compose unrelated interface views, but cannot
 /// combine two instantiations of the same original class.
 List<List<int>> concreteReferenceGroups(List<ReferenceClassShape> classes) {

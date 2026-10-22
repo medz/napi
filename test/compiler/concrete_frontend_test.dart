@@ -4,7 +4,10 @@ import 'package:napi/napi.dart';
 import 'package:napi/src/compiler/analysis/validate.dart';
 import 'package:napi/src/compiler/front_end/external.dart';
 import 'package:napi/src/compiler/front_end/frontend.dart';
+import 'package:napi/src/compiler/emit/typescript/declarations.dart';
 import 'package:napi/src/compiler/ir/model.dart';
+import 'package:napi/src/compiler/lowering/plan.dart';
+import 'package:napi/src/compiler/native/declarations.dart';
 import 'package:napi/src/compiler/native/plan.dart';
 import 'package:test/test.dart';
 
@@ -160,6 +163,51 @@ class Cell<T> { T value; Cell(this.value); }
   });
 
   test(
+    'partial aliases retain fixed and opaque arguments in both planners',
+    () async {
+      final input = await source('''
+import 'package:napi/napi.dart';
+class Pair<A, B> {
+  Pair(this.first, this.second);
+  A first;
+  B second;
+  Pair<A, B> self() => this;
+}
+@NAPI() typedef IntPair<T> = Pair<int, T>;
+@NAPI() IntPair<U> roundtrip<U>(Pair<int, U> value) => value;
+''');
+      final module = await read(input);
+      final binding = module.classes.single;
+      expect(binding.typeParameters.single.declaration.name, 'T');
+      expect(binding.instantiatedType!.typeArguments.first, isA<SafeIntType>());
+      expect(
+        (binding.instantiatedType!.typeArguments.last as TypeParameterType)
+            .declaration,
+        binding.typeParameters.single.declaration,
+      );
+      final wasm = lower(validate(module));
+      final native = validateNative(module);
+      final declarations = emitDeclarations(wasm);
+      expect(declarations, emitNativeDeclarations(native));
+      expect(declarations, contains('export declare class IntPair<'));
+      expect(declarations, contains('constructor(first: number, second: T)'));
+      expect(declarations, contains('self(): IntPair<T>'));
+      expect(
+        declarations,
+        contains('<U = unknown>(value: IntPair<U>) => IntPair<U>'),
+      );
+      expect(
+        wasm.functions.single.inputs.single.dartType,
+        'target.IntPair<_NapiHostValue>',
+      );
+      expect(
+        native.functions.single.inputs.single.dartType,
+        'target.IntPair<_NapiHostValue>',
+      );
+    },
+  );
+
+  test(
     'concrete selection metadata cannot disguise an ordinary class',
     () async {
       final input = await source(cells);
@@ -209,6 +257,88 @@ class Cell<T> { T value; Cell(this.value); }
       );
     },
   );
+
+  test(
+    'partial aliases infer declared order and repeated parameters',
+    () async {
+      final input = await source('''
+import 'package:napi/napi.dart';
+class Triple<A, B, C> { Triple(this.a, this.b, this.c); A a; B b; C c; }
+@NAPI() typedef Flipped<X, Y> = Triple<Y, int, X>;
+@NAPI() Flipped<P, Q> echo<P, Q>(Triple<Q, int, P> value) => value;
+''');
+      final module = await read(input);
+      final arguments = referenceTypeArguments(
+        module.classes.single,
+        module.functions.single.parameters.single.type as DeclaredType,
+      )!;
+      expect(arguments.map((t) => (t as TypeParameterType).declaration.name), [
+        'P',
+        'Q',
+      ]);
+      expect(
+        validateNative(module).functions.single.output!.typescriptType,
+        'Flipped<P, Q>',
+      );
+
+      final repeated = await source('''
+import 'package:napi/napi.dart';
+class Triple<A, B, C> { Triple(this.a, this.b, this.c); A a; B b; C c; }
+@NAPI() typedef Repeated<T> = Triple<T, int, T>;
+@NAPI() Repeated<U> echo<U>(Triple<U, int, U> value) => value;
+''');
+      final repeatedModule = await read(repeated);
+      expect(validate(repeatedModule).classes, hasLength(1));
+      expect(
+        validateNative(repeatedModule).functions.single.output!.typescriptType,
+        'Repeated<U>',
+      );
+    },
+  );
+
+  test(
+    'partial and closed aliases remain distinct selected instances',
+    () async {
+      final input = await source('''
+import 'package:napi/napi.dart';
+class Pair<A, B> { Pair(this.a, this.b); A a; B b; }
+@NAPI() typedef IntPair<T> = Pair<int, T>;
+@NAPI() typedef IntTextPair = Pair<int, String>;
+@NAPI() IntTextPair echo(IntTextPair value) => value;
+''');
+      final module = await read(input);
+      expect(validate(module).classes, hasLength(2));
+      expect(
+        validateNative(module).functions.single.output!.typescriptType,
+        'IntTextPair',
+      );
+      expect(
+        referenceClassMatches(
+          module.classes.first,
+          module.classes.last.instantiatedType!,
+        ),
+        isFalse,
+      );
+    },
+  );
+
+  for (final alias in [
+    'typedef Selected<T> = Cell<List<T>>;',
+    'typedef Selected<T> = Cell<T?>;',
+    'typedef Selected<T> = Cell<int>;',
+  ]) {
+    test('unsupported alias projection remains diagnostic: $alias', () async {
+      final input = await source('''
+import 'package:napi/napi.dart';
+class Cell<T> { Cell(); }
+@NAPI() $alias
+''');
+      final module = await read(input);
+      for (final check in [validate, validateNative]) {
+        expect(() => check(module), throwsA(diagnostic('NAPI_GENERIC')));
+      }
+    });
+  }
 
   test('external overrides are scoped independently to each alias', () async {
     final input = await source(cells);
@@ -635,11 +765,6 @@ class Cell<T> { T value; Cell(this.value); }
   });
 
   for (final (name, body, code) in [
-    (
-      'open alias',
-      'class Cell<T> {} @NAPI() typedef Selected<T> = Cell<T>;',
-      'NAPI_GENERIC',
-    ),
     (
       'nullable alias',
       'class Cell<T> {} @NAPI() typedef Selected = Cell<int>?;',

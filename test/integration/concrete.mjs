@@ -562,6 +562,52 @@ async function values(api) {
 }
 
 
+async function partialAliases(api) {
+  for (const payload of [undefined, null, {}, Symbol('partial'), () => 7]) {
+    const pair = new api.IntPair(3, payload);
+    assert.equal(pair.first, 3);
+    assert.equal(pair.second, payload);
+    assert.equal(pair.self(), pair);
+    assert.equal(api.echoPartial(pair), pair);
+    assert.equal(pair.echo(payload), payload);
+    assert.equal(api.IntPair.staticEcho(payload), payload);
+    pair.first = 4;
+    assert.equal(pair.first, 4);
+    assert.equal(api.IntPair.named(2, payload).label, 'named');
+    const shape = api.echoPartialValue({first: 'fixed', second: payload});
+    assert.deepEqual(shape, {first: 'fixed', second: payload, label: 'pair'});
+    assert.throws(() => api.widenPartial(pair), TypeError);
+    assert(!(pair instanceof api.MaybeIntPair));
+    assert.throws(() => api.echoPartial(new api.MaybeIntPair(3, payload)), TypeError);
+  }
+  assert.throws(() => new api.IntPair(1), TypeError);
+  assert.throws(() => new api.IntPair('1', {}), TypeError);
+  assert.throws(() => new api.IntPair(1.5, {}), RangeError);
+  assert.throws(() => api.echoPartialValue({first: 1, second: {}}), TypeError);
+  assert.throws(() => api.echoPartialValue({first: 'fixed'}), TypeError);
+  assert(!Object.hasOwn(api, 'TextPair'));
+  const child = new api.PartialChild(7, {child: true});
+  assert(child instanceof api.IntPair);
+  assert.equal(api.echoPartial(child), child);
+  assert.equal(api.IntPair.prototype.self.call(child), child);
+  const first = {}, last = Symbol('last');
+  const flipped = new api.FlippedPair(first, 5, last);
+  assert.equal(flipped.first, first);
+  assert.equal(flipped.middle, 5);
+  assert.equal(flipped.last, last);
+  assert.equal(flipped.self(), flipped);
+  assert.equal(api.echoFlipped(flipped), flipped);
+  assert.throws(() => new api.FlippedPair(first, '5', last), TypeError);
+  const before = api.partialCloses(), payload = {};
+  const resource = new api.ResourcePair(true, payload);
+  const pending = resource.later(), closing = resource.close();
+  assert.equal(api.partialCloses(), before);
+  assert.equal(await pending, payload);
+  await closing;
+  assert.equal(api.partialCloses(), before + 1);
+  assert.throws(() => resource.second);
+}
+
 if (!isMainThread) {
   const api = await import(typeof workerData === 'string' ? workerData : workerData.name);
   if (workerData.teardown) {
@@ -575,6 +621,7 @@ if (!isMainThread) {
     await resources(api);
     await hierarchies(api);
     await values(api);
+    await partialAliases(api);
     parentPort.postMessage('passed');
   }
 } else {
@@ -584,6 +631,7 @@ if (!isMainThread) {
     await resources(api);
     await hierarchies(api);
     await values(api);
+    await partialAliases(api);
     await new Promise((resolve, reject) => {
       const worker = new Worker(new URL(import.meta.url), {workerData: name});
       let passed = false;

@@ -702,3 +702,58 @@ class CompatibleOwner extends LeftOwner<int?> implements SameAliasOwner {
 NullableLeftOwner crossedOwner(int id) => CrossedOwner(id);
 @NAPI()
 NullableLeftOwner compatibleOwner(int id) => CompatibleOwner(id);
+
+int _partialCloses = 0;
+
+class PartialPair<A, B> {
+  A first;
+  B second;
+  final String label;
+  PartialPair(this.first, this.second, {this.label = 'pair'});
+  PartialPair.named(this.first, this.second) : label = 'named';
+  PartialPair<A, B> self() => this;
+  T echo<T>(T value) => value;
+  static T staticEcho<T>(T value) => value;
+  Future<B> later() async {
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+    return second;
+  }
+
+  void close() => _partialCloses++;
+}
+
+@NAPI()
+typedef IntPair<T> = PartialPair<int, T>;
+@NAPI()
+typedef MaybeIntPair<T> = PartialPair<int?, T>;
+@NAPI(classPolicy: ClassPolicy.value)
+typedef TextPair<T> = PartialPair<String, T>;
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+typedef ResourcePair<T> = PartialPair<bool, T>;
+
+@NAPI()
+class PartialChild<T> extends PartialPair<int, T> {
+  PartialChild(super.first, super.second);
+}
+
+@NAPI()
+IntPair<U> echoPartial<U>(PartialPair<int, U> value) => value;
+@NAPI()
+MaybeIntPair<U> widenPartial<U>(IntPair<U> value) => value;
+@NAPI()
+TextPair<U> echoPartialValue<U>(TextPair<U> value) => value;
+@NAPI()
+int partialCloses() => _partialCloses;
+
+class PartialTriple<A, B, C> {
+  A first;
+  B middle;
+  C last;
+  PartialTriple(this.first, this.middle, this.last);
+  PartialTriple<A, B, C> self() => this;
+}
+
+@NAPI()
+typedef FlippedPair<X, Y> = PartialTriple<Y, int, X>;
+@NAPI()
+FlippedPair<A, B> echoFlipped<A, B>(PartialTriple<B, int, A> value) => value;

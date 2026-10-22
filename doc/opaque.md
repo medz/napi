@@ -131,7 +131,7 @@ its independent `U`. Instance methods can use both class and method parameters;
 static methods use only their own parameters. Same-spelled method parameters
 shadow the class parameter by Dart declaration scope. Required/optional/named
 presence, structural payloads, JS collection handles and Future/Stream results
-follow the contracts below. Closed concrete aliases and non-cleanup methods on
+follow the contracts below. Selected class aliases and non-cleanup methods on
 non-generic resource classes also support method parameters; resource operations
 keep their existing settlement/cancellation leases.
 

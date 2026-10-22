@@ -351,11 +351,14 @@ DeclaredType valueClassType(ClassBinding binding) =>
 Map<DeclarationId, DeclarationId> valueClassParameterProjection(
   ClassBinding binding,
   DeclaredType type,
-) => {
-  for (final (index, parameter) in binding.typeParameters.indexed)
-    parameter.declaration:
-        (type.typeArguments[index] as TypeParameterType).declaration,
-};
+) {
+  final arguments = referenceTypeArguments(binding, type)!;
+  return {
+    for (final (index, parameter) in binding.typeParameters.indexed)
+      parameter.declaration:
+          (arguments[index] as TypeParameterType).declaration,
+  };
+}
 
 List<ValueClassSchema> validateValueClasses(BindingModule module) {
   final result = <ValueClassSchema>[];
@@ -628,11 +631,10 @@ ValidatedDeclarations validateDeclarations(BindingModule module) {
         (instance != null &&
             (instance.declaration != binding.declaration ||
                 instance.semantics != ValueSemantics.reference ||
-                instance.nullability != TypeNullability.nonNullable ||
-                binding.typeParameters.isNotEmpty))) {
+                instance.nullability != TypeNullability.nonNullable))) {
       throw BindingDiagnostic(
         'NAPI_DECLARATION',
-        'A concrete alias must identify its selected typedef and original non-null class instance.',
+        'A class alias must identify its selected typedef and original non-null class instance.',
         binding.source,
       );
     }
@@ -997,16 +999,23 @@ ValidatedModule validate(BindingModule module) {
   return ValidatedModule._(declarations.bindings, classes, values);
 }
 
-void _validateConcreteSelections(BindingModule module) {
-  final concrete = module.classes.where(
+void _validateAliasSelections(BindingModule module) {
+  final aliases = module.classes.where(
     (binding) => binding.instantiatedType != null,
   );
-  for (final binding in concrete) {
+  for (final binding in aliases) {
     final type = binding.instantiatedType!;
-    if (!isClosedConcreteType(type)) {
+    final opaque = opaqueParameterIds(binding.typeParameters);
+    if (referenceTypeArguments(binding, type) == null ||
+        type.typeArguments.any(
+          (argument) =>
+              !isClosedConcreteType(argument) &&
+              !(argument.nullability == TypeNullability.nonNullable &&
+                  isOpaqueType(argument, opaque)),
+        )) {
       throw BindingDiagnostic(
         'NAPI_GENERIC',
-        'Concrete aliases require a closed class type.',
+        'Class aliases require closed arguments or direct non-null opaque parameters, with every alias parameter represented.',
         binding.source,
       );
     }
@@ -1018,14 +1027,14 @@ void _validateConcreteSelections(BindingModule module) {
       if (other.instantiatedType == null) {
         throw BindingDiagnostic(
           'NAPI_GENERIC',
-          'Select either the open class or its concrete aliases, not both.',
+          'Select either the original class or its class aliases, not both.',
           binding.source,
         );
       }
       if (referenceClassMatches(other, type)) {
         throw BindingDiagnostic(
           'NAPI_GENERIC',
-          'Select one export for each canonical concrete class instance.',
+          'Select one export for each canonical class instance.',
           binding.source,
         );
       }
@@ -1057,7 +1066,7 @@ bool isClosedConcreteType(BindingType type) =>
 
 /// Shared reference-class call contracts, without target ABI choices.
 List<ReferenceClassShape> validateReferenceClasses(BindingModule module) {
-  _validateConcreteSelections(module);
+  _validateAliasSelections(module);
   final result = <ReferenceClassShape>[];
   for (final binding in module.classes.where(
     (c) => c.classPolicy != ClassPolicy.value,
@@ -1392,7 +1401,9 @@ List<ReferenceClassShape> _referenceHierarchy(
               .map((p) => p.declaration)
               .toList();
           slots = [
-            for (final argument in type.typeArguments)
+            for (final argument
+                in referenceTypeArguments(parentBinding, type) ??
+                    const <BindingType>[])
               argument is TypeParameterType &&
                       argument.nullability == TypeNullability.nonNullable
                   ? parameters.indexOf(argument.declaration)
@@ -1889,16 +1900,19 @@ bool _referenceSubtype(
       final selected = classes[childId];
       if (!selected.memberships.contains(parentId)) return false;
       if (selected.binding.typeParameters.isEmpty) return true;
+      final childArguments = referenceTypeArguments(selected.binding, child)!;
+      final parentArguments = referenceTypeArguments(
+        classes[parentId].binding,
+        parent,
+      )!;
       final slots = childId == parentId
-          ? [for (var i = 0; i < child.typeArguments.length; i++) i]
+          ? [for (var i = 0; i < childArguments.length; i++) i]
           : selected.ancestorArguments[parentId];
       return slots != null &&
-          slots.length == parent.typeArguments.length &&
+          slots.length == parentArguments.length &&
           slots.indexed.every(
-            (e) => _sameCanonicalType(
-              child.typeArguments[e.$2],
-              parent.typeArguments[e.$1],
-            ),
+            (e) =>
+                _sameCanonicalType(childArguments[e.$2], parentArguments[e.$1]),
           );
     }
     if (child.declaration != parent.declaration ||
@@ -2082,17 +2096,50 @@ bool isOpaqueType(BindingType type, Set<DeclarationId> parameters) =>
     parameters.contains(type.declaration);
 
 /// Match the canonical Dart instance, ignoring typedef spelling and the use
-/// site's outer nullability. Concrete aliases are invariant boundary views.
-bool referenceClassMatches(ClassBinding binding, DeclaredType type) {
-  if (binding.declaration != type.declaration) return false;
+/// site's outer nullability. Selected aliases are invariant boundary views.
+bool referenceClassMatches(ClassBinding binding, DeclaredType type) =>
+    referenceTypeArguments(binding, type) != null;
+
+/// Logical arguments of a selected alias, excluding its fixed Dart arguments.
+/// A repeated parameter must refer to the same use-site parameter each time.
+List<BindingType>? referenceTypeArguments(
+  ClassBinding binding,
+  DeclaredType type,
+) {
+  if (binding.declaration != type.declaration) return null;
   final concrete = binding.instantiatedType;
   if (concrete == null) {
-    return binding.typeParameters.length == type.typeArguments.length;
+    return binding.typeParameters.length == type.typeArguments.length
+        ? type.typeArguments
+        : null;
   }
-  return concrete.typeArguments.length == type.typeArguments.length &&
-      concrete.typeArguments.indexed.every(
-        (entry) => _sameCanonicalType(entry.$2, type.typeArguments[entry.$1]),
-      );
+  if (concrete.typeArguments.length != type.typeArguments.length) return null;
+  final parameters = opaqueParameterIds(binding.typeParameters);
+  final projected = <DeclarationId, BindingType>{};
+  for (final (index, pattern) in concrete.typeArguments.indexed) {
+    final argument = type.typeArguments[index];
+    if (pattern is TypeParameterType &&
+        pattern.nullability == TypeNullability.nonNullable &&
+        parameters.contains(pattern.declaration)) {
+      if (argument is! TypeParameterType ||
+          argument.nullability != TypeNullability.nonNullable) {
+        return null;
+      }
+      if (projected[pattern.declaration] case final previous?) {
+        if (!_sameCanonicalType(previous, argument)) return null;
+      }
+      projected[pattern.declaration] = argument;
+    } else if (!_sameCanonicalType(pattern, argument)) {
+      return null;
+    }
+  }
+  final arguments = <BindingType>[];
+  for (final parameter in binding.typeParameters) {
+    final argument = projected[parameter.declaration];
+    if (argument == null) return null;
+    arguments.add(argument);
+  }
+  return arguments;
 }
 
 bool _sameCanonicalType(BindingType left, BindingType right) {
@@ -2153,10 +2200,9 @@ bool isReferenceType(
       (binding) =>
           binding.classPolicy != ClassPolicy.value &&
           referenceClassMatches(binding, type) &&
-          (binding.instantiatedType != null ||
-              binding.typeParameters.isEmpty ||
+          (binding.typeParameters.isEmpty ||
               binding.typeParameters.every((p) => p.opaque) &&
-                  type.typeArguments.every(
+                  referenceTypeArguments(binding, type)!.every(
                     (t) =>
                         t.nullability == TypeNullability.nonNullable &&
                         isOpaqueType(t, opaqueParameters),
@@ -2447,8 +2493,11 @@ void validateOpaqueReferenceNames(
             source,
           );
         }
-        // Concrete aliases emit their selected name without type arguments.
-        if (binding.instantiatedType != null) return;
+        // Closed aliases emit their selected name without type arguments.
+        if (binding.instantiatedType != null &&
+            binding.typeParameters.isEmpty) {
+          return;
+        }
       }
     }
   }
@@ -2760,10 +2809,9 @@ bool _valueClassArgumentsSupported(
   DeclaredType type,
   Set<DeclarationId> opaqueParameters,
 ) =>
-    binding.instantiatedType != null ||
     binding.typeParameters.isEmpty ||
     binding.typeParameters.every((parameter) => parameter.opaque) &&
-        type.typeArguments.every(
+        referenceTypeArguments(binding, type)!.every(
           (argument) =>
               argument.nullability == TypeNullability.nonNullable &&
               isOpaqueType(argument, opaqueParameters),
