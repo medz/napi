@@ -38,6 +38,36 @@ invalid aliases fail at their source locations before output is written.
 An alias's spelling is not its identity: parameters spelled `Cell<int>` or with
 another unselected equivalent typedef refer to the same selected `IntCell`.
 
+## Partially open class aliases
+
+An alias can fix some Dart arguments while retaining opaque payload parameters:
+
+```dart
+class Pair<A, B> {
+  Pair(this.first, this.second);
+  A first;
+  B second;
+}
+
+@NAPI()
+typedef IntPair<T> = Pair<int, T>;
+```
+
+`new IntPair(1, payload)` uses a real Dart `int` for `first` and preserves the
+original JS payload in `second`. TypeScript exposes `IntPair<T>`; `T` follows the
+[opaque storage contract](opaque.md#author-contract), rather than selecting a
+real Dart specialization. `ExternalClass('IntPair')` selects the same API.
+Reference, resource and value-class policies use the existing ownership and
+conversion rules.
+
+Parameters may be reordered or repeated, for example
+`typedef Flipped<X, Y> = Triple<Y, int, X>`. Every alias parameter must appear as
+a direct, non-null argument of the selected class. Nested or nullable uses such
+as `List<T>` and `T?`, and unused parameters, remain diagnosed. Remaining
+parameters accept the ordinary opaque bounds. A selected ancestor alias must
+retain the existing bijective mapping between its remaining opaque parameters
+and the child's parameters.
+
 ## Concrete callable exports
 
 A public top-level `const` can select real type arguments for a top-level
@@ -216,14 +246,14 @@ validation before construction remain unchanged.
 
 ## Supported shapes and limits
 
-Concrete exports support non-null, closed aliases of reference, resource and value classes,
-and explicitly specialized top-level callable consts.
+Class exports support non-null closed aliases and partially open aliases with
+direct opaque arguments. Callable consts require explicit closed specializations.
 Arguments containing `dynamic` or generic function types remain diagnosed even
 when Dart considers the surrounding alias closed. [Open opaque generics](opaque.md)
-use a separate storage/forwarding contract. Selecting an open class and one of its
-concrete aliases together is rejected, as is selecting multiple aliases for the
+use a separate storage/forwarding contract. Selecting an original class and one of its
+aliases together is rejected, as is selecting multiple aliases for the
 same canonical specialization. Selected hierarchies support ordinary classes,
-closed aliases and [bijective opaque parameter mappings](opaque.md#reference-inheritance).
+class aliases and [bijective opaque parameter mappings](opaque.md#reference-inheritance).
 Other open ancestor mappings remain diagnosed. Reference selections
 that Dart type tests cannot distinguish, such as `Marker<void>` with `Marker<Object?>`, are also rejected;
 value projections do not use that runtime classification.

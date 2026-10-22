@@ -161,7 +161,7 @@ final class _Reader {
   final _externalConfigs = <a.Element, NAPI>{};
   final _aliasMemberConfigs = <a.TypeAliasElement, Map<a.Element, NAPI>>{};
   final _selectedClasses = <a.ClassElement>{};
-  final _selectedConcreteTypes = <a.TypeAliasElement, a.InterfaceType>{};
+  final _selectedAliasTypes = <a.TypeAliasElement, a.InterfaceType>{};
   final _libraries = <a.LibraryElement, ResolvedLibraryResult>{};
   final _documentation = <a.Element, String>{};
   final _typeParameterIds = <a.TypeParameterElement, DeclarationId>{};
@@ -228,8 +228,8 @@ final class _Reader {
         _selectMembers(element, selection);
         _selectedClasses.add(element);
       } else if (selection is ExternalClass && element is a.TypeAliasElement) {
-        final type = _concreteAliasType(element);
-        _selectedConcreteTypes[element] = type;
+        final type = _classAliasType(element);
+        _selectedAliasTypes[element] = type;
         final owner = type.element as a.ClassElement;
         final configs = <a.Element, NAPI>{};
         _selectMembers(owner, selection, configs: configs);
@@ -253,7 +253,7 @@ final class _Reader {
       } else if (element is a.ClassElement) {
         classes.add(_class(element, selection.name, selection.config));
       } else if (element is a.TypeAliasElement) {
-        final origin = _concreteAliasType(element).element.library;
+        final origin = _classAliasType(element).element.library;
         if (origin.uri.scheme != 'dart') await _load(origin);
         classes.add(_classAlias(element, selection.name, selection.config));
       }
@@ -315,6 +315,7 @@ final class _Reader {
     // Register the default payload mapping before reading members/parameters.
     final parameters = switch (element) {
       a.ClassElement() => element.typeParameters,
+      a.TypeAliasElement() => element.typeParameters,
       a.TopLevelFunctionElement() => element.typeParameters,
       _ => const <a.TypeParameterElement>[],
     };
@@ -526,7 +527,7 @@ final class _Reader {
         final type = element.aliasedType;
         if (type is a.InterfaceType && type.element is a.ClassElement) {
           _selectedClasses.add(type.element as a.ClassElement);
-          _selectedConcreteTypes[element] = type;
+          _selectedAliasTypes[element] = type;
         }
       }
     }
@@ -551,14 +552,14 @@ final class _Reader {
       } else if (element is a.ClassElement) {
         classes.add(_class(element, candidate.key, config));
       } else if (element is a.TypeAliasElement) {
-        final origin = _concreteAliasType(element).element.library;
+        final origin = _classAliasType(element).element.library;
         if (origin.uri.scheme != 'dart') await _load(origin);
         classes.add(_classAlias(element, candidate.key, config));
       } else {
         _reject(
           element,
           'NAPI_PLACEMENT',
-          '@NAPI() selects functions, concrete callable consts, classes and concrete class aliases.',
+          '@NAPI() selects functions, concrete callable consts, classes and class aliases.',
         );
       }
     }
@@ -830,44 +831,67 @@ final class _Reader {
     );
   }
 
-  a.InterfaceType _concreteAliasType(a.TypeAliasElement alias) {
+  a.InterfaceType _classAliasType(a.TypeAliasElement alias) {
     final type = alias.aliasedType;
-    if (alias.typeParameters.isNotEmpty ||
-        type is! a.InterfaceType ||
+    if (type is! a.InterfaceType ||
         type.element is! a.ClassElement ||
         type.nullabilitySuffix != NullabilitySuffix.none) {
       _reject(
         alias,
         'NAPI_GENERIC',
-        'Select a non-generic, non-null alias of a concrete class type.',
+        'Select a non-null alias of a class type.',
       );
     }
     if (_type(type).semantics != ValueSemantics.reference) {
       _reject(
         alias,
         'NAPI_PLACEMENT',
-        'A concrete class alias must select a reference class, not a scalar or container type.',
+        'A class alias must select a class, not a scalar or container type.',
       );
     }
     return type;
   }
 
+  a.InterfaceType _aliasRuntimeType(a.TypeAliasElement alias) {
+    final type = _selectedAliasTypes[alias]!;
+    if (alias.typeParameters.isEmpty) return type;
+    // Opaque parameters share one non-null carrier. Compare aliases using one
+    // variable so their spelling and parameter count do not hide overlap.
+    final parameter = _selectedAliasTypes.entries
+        .firstWhere(
+          (entry) =>
+              entry.value.element == type.element &&
+              entry.key.typeParameters.isNotEmpty,
+        )
+        .key
+        .typeParameters
+        .first;
+    final carrier = type.element.library.typeSystem.promoteToNonNull(
+      parameter.instantiate(nullabilitySuffix: NullabilitySuffix.none),
+    );
+    return alias.instantiate(
+      typeArguments: [for (final _ in alias.typeParameters) carrier],
+      nullabilitySuffix: NullabilitySuffix.none,
+    ) as a.InterfaceType;
+  }
+
   ClassBinding _classAlias(a.TypeAliasElement alias, String path, NAPI config) {
-    final type = _concreteAliasType(alias);
+    final type = _classAliasType(alias);
+    final runtime = _aliasRuntimeType(alias);
     final types = type.element.library.typeSystem;
     if (config.classPolicy != ClassPolicy.value &&
-        _selectedConcreteTypes.entries.any(
+        _selectedAliasTypes.entries.any(
           (entry) =>
               _config(entry.key)?.classPolicy != ClassPolicy.value &&
               entry.value.element == type.element &&
-              entry.value != type &&
-              types.isSubtypeOf(type, entry.value) &&
-              types.isSubtypeOf(entry.value, type),
+              _aliasRuntimeType(entry.key) != runtime &&
+              types.isSubtypeOf(runtime, _aliasRuntimeType(entry.key)) &&
+              types.isSubtypeOf(_aliasRuntimeType(entry.key), runtime),
         )) {
       _reject(
         alias,
         'NAPI_GENERIC',
-        'Selected concrete aliases must be distinguishable by Dart type tests.',
+        'Selected class aliases must be distinguishable by Dart type tests.',
       );
     }
     return _class(
@@ -889,6 +913,7 @@ final class _Reader {
     Map<a.Element, NAPI>? memberConfigs,
   }) {
     final type = instantiatedType ?? element.thisType;
+    final runtime = alias == null ? null : _aliasRuntimeType(alias);
     final selected = alias ?? element;
     final members = instantiatedType == null
         ? _classMembers(element)
@@ -902,20 +927,20 @@ final class _Reader {
                 as DeclaredType,
       concreteSupertypes: instantiatedType == null
           ? const []
-          : _selectedConcreteTypes.values
+          : _selectedAliasTypes.entries
                 .where(
                   (other) =>
-                      other.element == element &&
+                      other.value.element == element &&
                       element.library.typeSystem.isSubtypeOf(
-                        instantiatedType,
-                        other,
+                        runtime!,
+                        _aliasRuntimeType(other.key),
                       ) &&
                       !element.library.typeSystem.isSubtypeOf(
-                        other,
-                        instantiatedType,
+                        _aliasRuntimeType(other.key),
+                        runtime,
                       ),
                 )
-                .map((other) => _type(other) as DeclaredType),
+                .map((other) => _type(other.value) as DeclaredType),
       exportName: config.name ?? path,
       source: _source(selected),
       classPolicy: config.classPolicy ?? ClassPolicy.reference,
@@ -929,9 +954,9 @@ final class _Reader {
       exportSurface: entry,
       callPath: path,
       documentation: selected.documentationComment ?? _documentation[selected],
-      typeParameters: alias == null
-          ? element.typeParameters.map(_typeParameter)
-          : const [],
+      typeParameters: (alias?.typeParameters ?? element.typeParameters).map(
+        _typeParameter,
+      ),
       members: members
           .where((e) => e.isPublic)
           .map((member) => _member(member, configs: memberConfigs)),
@@ -1892,7 +1917,7 @@ final class _AnnotationVisitor extends RecursiveAstVisitor<void> {
     if (element == null) {
       reject(
         'NAPI_PLACEMENT',
-        'Place @NAPI() on a top-level function, single concrete callable const, class, concrete class alias, or single class member.',
+        'Place @NAPI() on a top-level function, single concrete callable const, class, class alias, or single class member.',
       );
     }
     final config = reader._config(element);

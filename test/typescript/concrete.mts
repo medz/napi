@@ -219,3 +219,31 @@ api.sumBigints(2n, {multiplier: 2});
 // @ts-expect-error Nested concrete values retain scalar types.
 api.nestedIdentity([new Map([['value', 'wrong']])]);
 void [sum, bigSum, kind, defaultCount, staticResult, maybeInteger, callableRecord, callableNested, laterInteger, externalSum, directSum];
+
+const partial = new api.IntPair(1, {id: 'payload'});
+const partialSelf: api.IntPair<{id: string}> = partial.self();
+const partialChild: api.IntPair<{child: boolean}> = new api.PartialChild<{child: boolean}>(1, {child: true});
+const partialEcho: api.IntPair<{id: string}> = api.echoPartial(partial);
+const partialFixed: number = partial.first;
+const partialPayload: {id: string} = partial.second;
+const partialIndependent: symbol = partial.echo(Symbol('independent'));
+const partialNamed: api.IntPair<undefined> = api.IntPair.named(2, undefined);
+const partialValue: api.TextPair<{id: number}> = api.echoPartialValue({first: 'fixed', second: {id: 3}});
+const partialResource: api.ResourcePair<{id: number}> = new api.ResourcePair(true, {id: 4});
+const partialFuture: Promise<{id: number}> = partialResource.later();
+const flippedPair: api.FlippedPair<string, symbol> = new api.FlippedPair(Symbol('first'), 1, 'last');
+const flippedSelf: api.FlippedPair<string, symbol> = api.echoFlipped(flippedPair.self());
+const flippedFirst: symbol = flippedPair.first;
+const flippedLast: string = flippedPair.last;
+const externalPartial: external.IntPair<number> = external.echoPartial(new external.IntPair(2, 3));
+// @ts-expect-error A fixed integer argument remains numeric.
+new api.IntPair('1', {});
+// @ts-expect-error A required opaque payload cannot be omitted.
+new api.IntPair(1);
+// @ts-expect-error Opaque parameters remain invariant.
+const wrongPartial: api.IntPair<number> = partial;
+// @ts-expect-error A fixed value-class argument remains a string.
+api.echoPartialValue({first: 1, second: {}});
+// @ts-expect-error Parameter order follows the alias declaration.
+const wrongFlipped: api.FlippedPair<symbol, string> = flippedPair;
+void [partialSelf, partialEcho, partialFixed, partialPayload, partialIndependent, partialNamed, partialValue, partialFuture, flippedSelf, flippedFirst, flippedLast, externalPartial, wrongPartial, wrongFlipped];

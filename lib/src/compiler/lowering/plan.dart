@@ -538,9 +538,7 @@ final class ReferenceConversion extends ValueConversion {
     super.context, {
     required this.classBinding,
     required this.classId,
-  }) : typeArguments = classBinding.instantiatedType == null
-           ? type.typeArguments
-           : const [];
+  }) : typeArguments = referenceTypeArguments(classBinding, type)!;
   @override
   String get dartType =>
       '${dartReferenceClassType(classBinding)}${nullable ? '?' : ''}';
@@ -651,9 +649,7 @@ final class ValueClassConversion extends ValueConversion {
     this.direction,
     this.bigint,
     this.typescriptName,
-  ) : typeArguments = schema.binding.instantiatedType == null
-          ? type.typeArguments
-          : const [];
+  ) : typeArguments = referenceTypeArguments(schema.binding, type)!;
   ClassBinding get classBinding => schema.binding;
   MemberBinding? get constructor => schema.constructor;
   String get dartConstructorType => dartReferenceClassType(classBinding);
@@ -1001,9 +997,7 @@ final class _ConversionBuilder {
       if (index < 0) throw StateError('A validated value schema is required.');
       final schema = values[index];
       final key = (schema.binding, declared.nullability, direction);
-      final arguments = schema.binding.instantiatedType == null
-          ? declared.typeArguments
-          : const <BindingType>[];
+      final arguments = referenceTypeArguments(schema.binding, declared)!;
       if (!lazy &&
           direction == ValueDirection.input &&
           schema.constructor == null) {
