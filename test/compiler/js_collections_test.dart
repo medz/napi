@@ -29,6 +29,21 @@ $source
     return AnnotationFrontend(packagesPath: packages).read(file.uri);
   }
 
+  test('copied Map keys retain typed JS handles in both directions', () async {
+    final module = await read('''
+@NAPI(classPolicy: ClassPolicy.value)
+class Packet { Packet(this.items); final JsArray<int> items; }
+@NAPI() Map<JsArray<int>?, int> arrays(Map<JsArray<int>?, int> value) => value;
+@NAPI() Map<({JsMap<String, int> key}), int> records(Map<({JsMap<String, int> key}), int> value) => value;
+@NAPI() JsArray<Map<JsArray<int>, int>> nested(JsArray<Map<JsArray<int>, int>> value) => value;
+@NAPI() Map<Packet, int> values(Map<Packet, int> value) => value;
+@NAPI() int callback(Map<JsArray<int>, int> Function() value) => 1;
+''');
+    final wasm = lower(validate(module));
+    final native = validateNative(module);
+    expect(emitDeclarations(wasm), emitNativeDeclarations(native));
+  });
+
   test('function Map keys use both callback conversion directions', () async {
     final module = await read('''
 @NAPI() JsMap<int Function(int), int> keys(JsMap<int Function(int), int> source) => source;
@@ -987,21 +1002,15 @@ for (const value of [null, undefined, object]) {
     '@NAPI() JsMap<Stream<int> Function(), int> bad(JsMap<Stream<int> Function(), int> value) => value;',
     '@NAPI() JsArray<Map<int Function(int), int>> bad(JsArray<Map<int Function(int), int>> value) => value;',
     '@NAPI() JsMap<Object, int> bad(JsMap<Object, int> value) => value;',
-    '@NAPI() Map<JsArray<int>, int> bad(Map<JsArray<int>, int> value) => value;',
-    '@NAPI() Map<(JsMap<String,int>,), int> bad(Map<(JsMap<String,int>,), int> value) => value;',
+    '@NAPI() Map<JsArray<dynamic>, int> bad(Map<JsArray<dynamic>, int> value) => value;',
     '@NAPI() JsArray<Map<T, int>> bad<T>(JsArray<Map<T, int>> value) => value;',
     '@NAPI() JsArray<Map<(List<T>,), int>> bad<T>(JsArray<Map<(List<T>,), int>> value) => value;',
-    '@NAPI() JsArray<Map<JsArray<int>, int>> bad(JsArray<Map<JsArray<int>, int>> value) => value;',
-    '@NAPI() JsArray<Map<({JsMap<String, int> key}), int>> bad(JsArray<Map<({JsMap<String, int> key}), int>> value) => value;',
     '@NAPI() void bad<T>(JsArray<Map<T, int>> Function() callback) {}',
-    '@NAPI() void bad(JsArray<Map<JsArray<int>, int>> Function() callback) {}',
     '@NAPI() JsArray<Set<int>> bad(JsArray<Set<int>> value) => value;',
     "import 'dart:typed_data'; @NAPI() JsArray<List<Uint16List>> bad(JsArray<List<Uint16List>> value) => value;",
     '@NAPI(classPolicy: ClassPolicy.value) class Value<T> { Value(this.n); final T n; } @NAPI() JsArray<Value<int>> bad(JsArray<Value<int>> value) => value;',
     '@NAPI() JsArray<Future<T>> bad<T>(JsArray<Future<T>> value) => value;',
     '@NAPI() JsArray<Stream<T>> bad<T>(JsArray<Stream<T>> value) => value;',
-    '@NAPI(classPolicy: ClassPolicy.value) class Packet { Packet(this.items); final JsArray<int> items; } @NAPI() Map<Packet,int> bad(Map<Packet,int> value) => value;',
-    '@NAPI(classPolicy: ClassPolicy.value) class Packet { Packet(this.items); final JsArray<int> items; } @NAPI() (Packet, Map<Packet,int>) bad((Packet, Map<Packet,int>) value) => value;',
   ]) {
     test('unsupported payload is diagnostic: $source', () async {
       final module = await read(source);

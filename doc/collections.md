@@ -64,8 +64,8 @@ identity and ownership contracts.
 A saved Dart value is independent of later changes to its source containers. Strict
 structural validation and traversal limits apply separately to each accessed
 element, while admitting the outer handle remains lazy. As with ordinary copied
-Map bindings, keys inside a copied Dart Map cannot contain opaque values or JS
-handles; this restriction does not apply to the outer JsMap's keys.
+Map bindings, keys inside a copied Dart Map cannot contain opaque values;
+this restriction does not apply to the outer JsMap's keys.
 
 Copied structural and binary Map keys become new JavaScript objects on every conversion.
 Passing a copied key back to `has`, `get` or `delete` does not address the original
@@ -157,7 +157,12 @@ Calling `first([source])` returns the original `source` array. Reading an inner
 handle checks its Array/Map brand without walking its elements; subsequent reads
 and writes use its own element policy. Saving the inner handle keeps it usable
 after the outer container removes it. `JsMap` handle keys retain the original JS
-key identity. Handles cannot be keys of an ordinary copied Dart Map.
+key identity. Handles also work as keys of an ordinary copied Dart Map, including
+inside record and value-class keys. Repeated conversions in the same module with
+the same element policy reuse the live Dart handle, so a retained Dart Map can
+look up a key supplied by a later call. The copied Map is independent; its handle
+keys retain their original JS identity and continue to observe shared data.
+Record and value-class keys still use Dart equality for the enclosing key.
 
 Admission checks the genuine container brand without walking its contents.
 Cross-realm containers work; Proxy containers are rejected. Each operation
