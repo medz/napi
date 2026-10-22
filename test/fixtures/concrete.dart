@@ -776,3 +776,27 @@ class PartialTriple<A, B, C> {
 typedef FlippedPair<X, Y> = PartialTriple<Y, int, X>;
 @NAPI()
 FlippedPair<A, B> echoFlipped<A, B>(PartialTriple<B, int, A> value) => value;
+
+@NAPI()
+typedef NestedIntPair<T> = PartialPair<int, Map<String, List<T?>>>;
+@NAPI(classPolicy: ClassPolicy.value)
+typedef NestedTextPair<T> = PartialPair<String, (T, {List<T?> values})>;
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+typedef NestedResourcePair<T> = PartialPair<bool, List<T?>>;
+@NAPI()
+typedef NestedCallbackPair<T> = PartialPair<double, T Function(T)>;
+
+@NAPI()
+class NestedChild<T> extends PartialPair<int, Map<String, List<T?>>> {
+  NestedChild(super.first, super.second);
+}
+
+@NAPI()
+NestedIntPair<U> echoNestedPair<U>(
+  PartialPair<int, Map<String, List<U?>>> value,
+) => value;
+@NAPI()
+void appendNestedNull<T>(NestedIntPair<T> value) =>
+    value.second['values']!.add(null);
+@NAPI()
+NestedTextPair<U> echoNestedValue<U>(NestedTextPair<U> value) => value;

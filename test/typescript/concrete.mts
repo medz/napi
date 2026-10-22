@@ -245,6 +245,22 @@ const nullablePairValue: api.NullableTextPair<undefined> = api.echoNullableValue
 const nullableResource = new api.NullableResourcePair<symbol>(null, Symbol('resource'));
 const nullableFuture: Promise<symbol | null> = nullableResource.later();
 const externalNullable: external.NullableIntPair<undefined> = new external.NullableIntPair<undefined>(1, undefined);
+const nestedOpaquePair = new api.NestedIntPair<symbol>(1, new Map([['values', [Symbol('nested'), null]]]));
+const nestedOpaqueSelf: api.NestedIntPair<symbol> = api.echoNestedPair(nestedOpaquePair.self());
+const nestedOpaqueValue: Map<string, (symbol | null)[]> = nestedOpaquePair.second;
+const nestedOpaqueChild: api.NestedIntPair<symbol> = new api.NestedChild<symbol>(1, new Map());
+const nestedRecordValue: api.NestedTextPair<symbol> = api.echoNestedValue<symbol>({first: 'record', second: {$1: Symbol('record'), values: [null]}});
+const nestedCallbackPair = new api.NestedCallbackPair<symbol>(1.5, value => value);
+const nestedCallbackResult: symbol = nestedCallbackPair.second(Symbol('call'));
+const nestedResourcePair = new api.NestedResourcePair<symbol>(true, [Symbol('resource'), null]);
+const nestedResourceResult: Promise<(symbol | null)[]> = nestedResourcePair.later();
+const externalNestedPair: external.NestedIntPair<undefined> = new external.NestedIntPair<undefined>(1, new Map([['values', [undefined]]]));
+// @ts-expect-error Fixed nested Map keys remain strings.
+new api.NestedIntPair<symbol>(1, new Map([[1, []]]));
+// @ts-expect-error The alias retains its nested container shape.
+new api.NestedIntPair<symbol>(1, [Symbol('wrong')]);
+// @ts-expect-error Nested opaque parameters retain handle invariance.
+const wrongNestedPair: api.NestedIntPair<string> = nestedOpaquePair;
 // @ts-expect-error Nullable fields cannot be treated as always present payloads.
 const nonNullablePayload: symbol = nullablePair.second;
 // @ts-expect-error Adding null to a selected argument does not grant a wider writable view.
@@ -262,3 +278,4 @@ api.echoPartialValue({first: 1, second: {}});
 // @ts-expect-error Parameter order follows the alias declaration.
 const wrongFlipped: api.FlippedPair<symbol, string> = flippedPair;
 void [partialSelf, partialEcho, partialFixed, partialPayload, partialIndependent, partialNamed, partialValue, partialFuture, flippedSelf, flippedFirst, flippedLast, externalPartial, wrongPartial, wrongFlipped, nullableSelf, nullablePayload, nullablePairValue, nullableFuture, externalNullable, nonNullablePayload];
+void [nestedOpaqueSelf, nestedOpaqueValue, nestedOpaqueChild, nestedRecordValue, nestedCallbackResult, nestedResourceResult, externalNestedPair, wrongNestedPair];
