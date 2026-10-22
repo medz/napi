@@ -91,7 +91,7 @@ jobs:
           package-manager-cache: false
       - run: node -p '"NAPI_NODE_EXECUTABLES=" + JSON.stringify([process.execPath, process.env.NAPI_NODE_26])' >> "$GITHUB_ENV"
       - run: dart pub get
-      - run: dart test --platform node --compiler dart2wasm test/runtime/resources_test.dart test/runtime/streams_test.dart test/runtime/cancellation_test.dart
+      - run: dart test --platform node --compiler dart2wasm test/runtime/resources_test.dart test/runtime/streams_test.dart test/runtime/callback_stream_test.dart test/runtime/cancellation_test.dart
 
   consumers:
     needs: scope

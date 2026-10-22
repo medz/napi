@@ -252,6 +252,13 @@ const asyncCallbackEntrypointPrelude = r'''
 external WasmExternRef? _startCallback(WasmExternRef callback, WasmExternRef arguments, WasmI32 context, WasmExternRef deliver, WasmExternRef roots, WasmExternRef? retain);
 ''';
 
+const streamCallbackEntrypointPrelude = r'''
+@pragma('wasm:import', 'napi.startCallbackStream')
+external WasmExternRef? _startCallbackStream(WasmExternRef control, WasmI32 cancel, WasmI32 context, WasmExternRef deliver, WasmExternRef roots, WasmExternRef? retain);
+@pragma('wasm:import', 'napi.callbackStreamDone')
+external WasmI32 _callbackStreamDone(WasmExternRef envelope);
+''';
+
 /// Callback conversion retains through its invoking operation, including host
 /// Promise settlement. Detached work can still exchange ordinary references.
 const callbackResourceEntrypointPrelude = r'''

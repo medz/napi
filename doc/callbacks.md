@@ -192,6 +192,41 @@ Native async results are delivered in the owning Dart isolate. Unresolved
 callback Promises alone do not keep Node alive. Direct synchronous reentry into
 another active native isolate remains [unsupported](native.md).
 
+## Stream results
+
+`Stream<R> Function(...)` accepts a JS callback returning `AsyncIterable<R>`:
+
+```dart
+@NAPI()
+Future<List<int>> read(Stream<int> Function(int) source) => source(3).toList();
+```
+
+```js
+await read(async function* (start) {
+  yield start;
+  yield start + 1;
+}); // [3, 4]
+```
+
+The callback and its `[Symbol.asyncIterator]()` method run during the Dart call.
+Dart starts pulling when it subscribes, with at most one pending `next()`.
+Pausing the subscription stops further pulls. A next result may be an object or
+a Promise of an object, following the async iteration protocol. Only yielded
+values are converted; a completed iterator's return value is discarded.
+`Stream<void>` counts events and discards their values. Opaque payloads retain
+identity, including Promise values inside iterator results.
+
+Cancelling the Dart subscription or failing payload conversion calls the JS
+iterator's optional `return()` once and waits for it. Natural completion does
+not call `return()`. JS iteration and conversion failures become Dart stream
+errors; original JS thrown values keep their identity. A cleanup failure does
+not replace an iteration error already delivered to Dart.
+
+Stream callbacks with resource payloads retain their accepted operation through
+iteration. Closing a resource requests cancellation, including for an unlistened
+callback stream. Cleanup still waits for any already accepted `next()` or
+`return()` to settle; it cannot force an unresolved JS Promise to complete.
+
 ## Supported signatures
 
 Callbacks are direct inputs to synchronous, Future-returning and Stream-returning
@@ -200,7 +235,7 @@ parameters preserve normal presence rules. External selections use the same
 mapping. Callbacks support required and optional positional parameters and named
 parameters. Payloads use the ordinary scalar, binary snapshot, `SharedBytes`,
 container, value-class, selected-reference, resource and opaque mappings, with
-synchronous or Future results; void is also supported.
+synchronous, Future or Stream results; void is also supported.
 
 An omitted optional positional parameter is omitted from the JavaScript call.
 Named parameters become one trailing options object containing only the provided
@@ -222,9 +257,8 @@ containing undefined keeps its argument slot or named property, while normal
 JavaScript default expressions still apply to that undefined value. Omitted
 parameters skip payload conversion and resource admission.
 
-Generic function signatures, nullable outer Future results and FutureOr receive
+Generic function signatures, nullable outer Future/Stream results and FutureOr receive
 diagnostics.
-Stream-returning function elements in JS collection handles receive diagnostics.
 [Stream exports](streams.md) retain input
 callbacks through subscription completion. [Explicit cancellation](cancellation.md)
 never revokes a retained callback or cancels a JavaScript Promise returned by it.

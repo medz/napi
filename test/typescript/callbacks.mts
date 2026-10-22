@@ -3,6 +3,19 @@ import * as direct from '@napi/callback-fixture/BACKEND';
 import {plainCallback, plainAsyncCallback} from '@napi/callback-external';
 import * as externalHandles from '@napi/callback-external';
 
+const streamValues: Promise<Array<number | null>> = api.readCallbackStream(async function* (value) { yield value; yield null; }, 2);
+const streamPayload: Promise<Array<{id: number}>> = api.readPayloadStream(async function* (value) { yield value; }, {id: 1});
+const streamVoid: Promise<number> = api.countCallbackStream(async function* () { yield; });
+externalHandles.readCallbackStream(async function* (value) { yield value; }, 2);
+api.callbackStreamHandles([async function* (value: number) { yield value; }], new Map());
+// @ts-expect-error Stream callbacks require asynchronous iteration.
+api.readCallbackStream(function* () { yield 1; }, 1);
+// @ts-expect-error A Promise is not an asynchronous iterable.
+api.readCallbackStream(async () => 1, 1);
+// @ts-expect-error Stream payloads retain their declared scalar type.
+api.readCallbackStream(async function* () { yield 'bad'; }, 1);
+void [streamValues, streamPayload, streamVoid];
+
 const twice: number = api.callTwice(n => n + 1, 3);
 const string: string = api.callString(s => s + '!', 'hello');
 const bigint: bigint = api.callBigInt(n => n + 1n, 1n);

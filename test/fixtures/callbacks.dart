@@ -438,6 +438,10 @@ class CallbackResource {
   CallbackResource(this.id);
   int apply(int Function(int) callback) => callback(id);
   Future<int> applyAsync(Future<int> Function(int) callback) => callback(id);
+  Future<int> applyStream(Stream<int> Function(CallbackResource) callback) =>
+      callback(this).first;
+  Stream<int> stream(Stream<int> Function(CallbackResource) callback) =>
+      callback(this);
   Future<int> applyLater(int Function(int) callback) async {
     await Future<void>.delayed(Duration.zero);
     return callback(id);
@@ -467,6 +471,46 @@ int plainCallback(int Function(int) callback, int value) => callback(value);
 
 Future<int> plainAsyncCallback(Future<int> Function(int) callback, int value) =>
     callback(value);
+
+@NAPI()
+Future<List<int?>> readCallbackStream(
+  Stream<int?> Function(int) callback,
+  int value,
+) => callback(value).toList();
+
+@NAPI()
+Future<List<T>> readPayloadStream<T>(Stream<T> Function(T) callback, T value) =>
+    callback(value).toList();
+
+@NAPI()
+Future<int> countCallbackStream(Stream<void> Function() callback) =>
+    callback().length;
+
+@NAPI()
+Future<List<int>> optionalCallbackStream(
+  Stream<int> Function([int?]) callback,
+) => callback().toList();
+
+@NAPI()
+Future<List<int>> namedCallbackStream(
+  Stream<int> Function({int? count}) callback,
+) => callback(count: 7).toList();
+
+@NAPI()
+Stream<int?> forwardCallbackStream(Stream<int?> Function() callback) =>
+    callback();
+
+@NAPI()
+Future<int> callbackStreamHandles(
+  JsArray<Stream<int> Function(int)> array,
+  JsMap<Stream<int> Function(int), int> map,
+) async {
+  final callback = array.get(0)!;
+  final key = map.entries.first.$1;
+  map.set(callback, 7);
+  array.set(0, (value) => Stream.value(value + 3));
+  return await callback(1).first + await key(2).first;
+}
 
 JsArray<int>? _callbackArray;
 Function? _handleSignature;

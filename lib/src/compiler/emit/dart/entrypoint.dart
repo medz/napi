@@ -33,7 +33,7 @@ String emitDart(ModulePlan plan) {
       if (conversion is CallbackConversion) index: conversion,
   };
   final asyncCallbacks = callbacks.values.any(
-    (callback) => callback.returnsFuture,
+    (callback) => callback.returnsFuture || callback.returnsStream,
   );
   final prelude = withCallbackErrors(entrypointPrelude);
   final source = jsonEncode(plan.source.toString()).replaceAll(r'$', r'\$');
@@ -84,6 +84,9 @@ String emitDart(ModulePlan plan) {
     result.writeln(cancellationEntrypointPrelude);
   }
   if (asyncCallbacks) result.writeln(asyncCallbackEntrypointPrelude);
+  if (callbacks.values.any((callback) => callback.returnsStream)) {
+    result.writeln(streamCallbackEntrypointPrelude);
+  }
   if (resources) {
     result.writeln(resourceEntrypointPrelude);
     result.writeln(
@@ -528,7 +531,10 @@ void _emitCallbackAdapter(
   final payloadType = callback.output?.dartType ?? 'void';
   final resultType = callback.returnsFuture
       ? 'Future<$payloadType>'
+      : callback.returnsStream
+      ? 'Stream<$payloadType>'
       : payloadType;
+  final asynchronous = callback.returnsFuture || callback.returnsStream;
   result.writeln(
     '''$adapterType _callback$context(WasmExternRef callback) {
   final signature = externRefForJSAny(${quote(callback.signatureKey)}.toJS)!;
@@ -542,7 +548,7 @@ void _emitCallbackAdapter(
   if (resourceValues) {
     result.writeln(
       '''    final currentOperation = ResourceOperation.current;
-    final operation = currentOperation != null && !currentOperation.isReleased ? currentOperation${callback.returnsFuture ? '.fork()' : ''} : null;''',
+    final operation = currentOperation != null && !currentOperation.isReleased ? currentOperation${asynchronous ? '.fork()' : ''} : null;''',
     );
   }
   result.writeln(
@@ -550,73 +556,119 @@ void _emitCallbackAdapter(
     try {
       arguments = <JSAny?>[${arguments.join(', ')}].toJS;
     } on _StructureViolation catch (error) {
-${resourceValues && callback.returnsFuture ? '      operation?.release();\n' : ''}      throw $structureFailure;
-${resourceValues && callback.returnsFuture ? '    } catch (_) {\n      operation?.release();\n      rethrow;\n' : ''}    }''',
+${resourceValues && asynchronous ? '      operation?.release();\n' : ''}      throw $structureFailure;
+${resourceValues && asynchronous ? '    } catch (_) {\n      operation?.release();\n      rethrow;\n' : ''}    }''',
   );
   if (resourceValues) {
     result.writeln(
       '    final retainer = _callbackResourceRetainer(operation);',
     );
   }
-  if (callback.returnsFuture) {
+  if (callback.returnsStream) {
+    final output = callback.output;
+    final converted = output == null
+        ? 'null'
+        : '${structural.read(output, bigintText: true)}(value.isNull ? null : value!.toJS, ${quote(output.context)})';
     result.writeln(
-      '''    final completer = Completer<${callback.output?.dartType ?? 'void'}>();
+      '''    final opened = _invokeCallback(callback, externRefForJSAny(arguments)!, WasmI32.fromInt($context), ${resourceValues ? 'retainer' : 'WasmExternRef.nullRef'});
+    if (_callbackThrew(opened).toIntSigned() != 0) {
+      ${resourceValues ? 'operation?.release();' : ''}
+      throw _CallbackThrown(opened);
+    }
+    final control = _callbackValue(opened)!;
+    Future<CallbackStreamItem<$payloadType>> advance(bool cancel) {
+      ${resourceValues ? 'final lease = operation?.fork();' : ''}
+      final completer = Completer<CallbackStreamItem<$payloadType>>();
+      void complete(JSAny result) {
+        try {
+          final envelope = externRefForJSAny(result)!;
+          if (_callbackThrew(envelope).toIntSigned() != 0) throw _CallbackThrown(envelope);
+          if (${resourceValues ? 'operation?.isReleased == true || ' : ''}_callbackStreamDone(envelope).toIntSigned() != 0) {
+            completer.complete(CallbackStreamItem<$payloadType>.done());
+          } else {
+            ${output == null ? '' : 'final value = _callbackValue(envelope);'}
+            completer.complete(CallbackStreamItem<$payloadType>.value($converted));
+          }
+        } on _StructureViolation catch (error, stack) {
+          completer.completeError($structureFailure, stack);
+        } catch (error, stack) { completer.completeError(error, stack); }
+      }
+      void deliver(JSAny result) {
+        try { ${resourceValues ? 'if (lease == null) { complete(result); } else { lease.run(() => complete(result)); }' : 'complete(result);'} }
+        finally { ${resourceValues ? 'lease?.release();' : ''} }
+      }
+      final failure = _startCallbackStream(control, WasmI32.fromInt(cancel ? 1 : 0), WasmI32.fromInt($context),
+        externRefForJSAny(deliver.toJS)!, WasmAnyRef.fromObject(advance).externalize(), ${resourceValues ? '_callbackResourceRetainer(lease)' : 'WasmExternRef.nullRef'});
+      if (!failure.isNull) { ${resourceValues ? 'lease?.release();' : ''} throw _CallbackThrown(failure!); }
+      return completer.future;
+    }
+    return NapiCallbackStream<$payloadType>(
+      next: () => advance(false),
+      close: () async { await advance(true); },
+      ${resourceValues ? 'operation: operation,' : ''}
+    ).stream;''',
+    );
+  } else {
+    if (callback.returnsFuture) {
+      result.writeln(
+        '''    final completer = Completer<${callback.output?.dartType ?? 'void'}>();
     void complete(JSAny result) {
       try {
         final envelope = externRefForJSAny(result)!;
         if (_callbackThrew(envelope).toIntSigned() != 0) throw _CallbackThrown(envelope);''',
-    );
-  } else {
-    result.writeln(
-      '''    final envelope = _invokeCallback(callback, externRefForJSAny(arguments)!, WasmI32.fromInt($context), ${resourceValues ? 'retainer' : 'WasmExternRef.nullRef'});
+      );
+    } else {
+      result.writeln(
+        '''    final envelope = _invokeCallback(callback, externRefForJSAny(arguments)!, WasmI32.fromInt($context), ${resourceValues ? 'retainer' : 'WasmExternRef.nullRef'});
     if (_callbackThrew(envelope).toIntSigned() != 0) throw _CallbackThrown(envelope);''',
-    );
-  }
-  if (callback.output case final output?) {
-    final read = structural.read(output, bigintText: true);
-    var converted =
-        '$read(value.isNull ? null : value!.toJS, ${quote(output.context)})';
-    if (resourceValues && !callback.returnsFuture) {
-      converted =
-          'operation == null ? $converted : operation.run(() => $converted)';
+      );
     }
-    result.writeln('    final value = _callbackValue(envelope);');
-    if (!callback.returnsFuture) result.writeln('    try {');
-    result.writeln(
-      callback.returnsFuture
-          ? '    completer.complete($converted);'
-          : '    return $converted;',
-    );
-    if (!callback.returnsFuture) {
-      result.writeln('''    } on _StructureViolation catch (error) {
+    if (callback.output case final output?) {
+      final read = structural.read(output, bigintText: true);
+      var converted =
+          '$read(value.isNull ? null : value!.toJS, ${quote(output.context)})';
+      if (resourceValues && !callback.returnsFuture) {
+        converted =
+            'operation == null ? $converted : operation.run(() => $converted)';
+      }
+      result.writeln('    final value = _callbackValue(envelope);');
+      if (!callback.returnsFuture) result.writeln('    try {');
+      result.writeln(
+        callback.returnsFuture
+            ? '    completer.complete($converted);'
+            : '    return $converted;',
+      );
+      if (!callback.returnsFuture) {
+        result.writeln('''    } on _StructureViolation catch (error) {
       throw $structureFailure;
     }''');
+      }
+    } else if (callback.returnsFuture) {
+      result.writeln('    completer.complete();');
     }
-  } else if (callback.returnsFuture) {
-    result.writeln('    completer.complete();');
-  }
-  if (callback.returnsFuture) {
-    result.writeln('''      } on _StructureViolation catch (error, stack) {
+    if (callback.returnsFuture) {
+      result.writeln('''      } on _StructureViolation catch (error, stack) {
         completer.completeError($structureFailure, stack);
       } catch (error, stack) { completer.completeError(error, stack); }
     }''');
-    result.writeln(
-      resourceValues
-          ? '''    void deliver(JSAny result) {
+      result.writeln(
+        resourceValues
+            ? '''    void deliver(JSAny result) {
       try {
         if (operation == null) { complete(result); }
         else { operation.run(() => complete(result)); }
       } catch (error, stack) { completer.completeError(error, stack); }
       finally { operation?.release(); }
     }'''
-          : '''    void deliver(JSAny result) { complete(result); }''',
-    );
-    result.writeln(
-      '''    final failure = _startCallback(callback, externRefForJSAny(arguments)!, WasmI32.fromInt($context), externRefForJSAny(deliver.toJS)!,
+            : '''    void deliver(JSAny result) { complete(result); }''',
+      );
+      result.writeln(
+        '''    final failure = _startCallback(callback, externRefForJSAny(arguments)!, WasmI32.fromInt($context), externRefForJSAny(deliver.toJS)!,
         WasmAnyRef.fromObject(adapter).externalize(), ${resourceValues ? 'retainer' : 'WasmExternRef.nullRef'});
     if (!failure.isNull) { ${resourceValues ? 'operation?.release(); ' : ''}throw _CallbackThrown(failure!); }
     return completer.future;''',
-    );
+      );
+    }
   }
   if (mapped) {
     result.writeln(

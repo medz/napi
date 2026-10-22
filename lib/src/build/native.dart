@@ -66,7 +66,12 @@ Future<BuiltModule> buildNativeModule({
         ),
         hasAsyncCallbacks: plan.callbacks.any(
           (input) =>
-              input.direction == ValueDirection.input && input.returnsFuture,
+              input.direction == ValueDirection.input &&
+              (input.returnsFuture || input.returnsStream),
+        ),
+        hasStreamCallbacks: plan.callbacks.any(
+          (input) =>
+              input.direction == ValueDirection.input && input.returnsStream,
         ),
         hasSignals: plan.calls.any(
           (call) => call.inputs.any((input) => input is AbortSignalConversion),

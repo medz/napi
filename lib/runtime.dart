@@ -2,6 +2,7 @@
 library;
 
 export 'src/runtime/cancellation.dart';
+export 'src/runtime/callback_stream.dart';
 
 export 'src/runtime/resources.dart';
 export 'src/runtime/retention.dart';
