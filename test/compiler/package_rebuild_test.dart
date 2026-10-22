@@ -28,7 +28,7 @@ if action in ['init', 'init-acl']:
                 raise
         os.setxattr(path, b'user.napi.binary\xff', b'\0kept\xff')
         os.setxattr(path, 'user.napi.empty', b'')
-        if os.path.basename(path) == 'read-only':
+        if os.path.basename(path) in ['read-only', 'package.json']:
             os.chmod(path, 0o444)
         os.utime(path, ns=(1700000000123456789, 1700000000123456789))
 result = []
@@ -388,6 +388,14 @@ void main() {
             .writeAsString('first selection');
         await assemble(assets: {name: replacement});
         await File('${output.path}/$name').writeAsString('author edit');
+        if (Platform.isLinux) {
+          final permissions = await Process.run('python3', [
+            '-c',
+            'import os,sys; os.chmod(sys.argv[1], 0o444)',
+            '${output.path}/$name',
+          ]);
+          expect(permissions.exitCode, 0, reason: '${permissions.stderr}');
+        }
         await replacement.writeAsString('explicit replacement');
         await assemble(assets: {name: replacement});
         expect(

@@ -207,7 +207,11 @@ final class PackageOwnership {
     return PackageOwnership._(directory, entries, artifacts, assets, package);
   }
 
-  Future<void> copyAuthors(Directory staging, Set<String> newArtifacts) async {
+  Future<void> copyAuthors(
+    Directory staging,
+    Set<String> newArtifacts, {
+    Set<String> replacedAssets = const {},
+  }) async {
     for (final entry in _entries.entries) {
       final name = entry.key;
       if (name.isEmpty ||
@@ -219,9 +223,14 @@ final class PackageOwnership {
       if (entry.value.hash == null) {
         await Directory(destination).create(recursive: true);
       } else {
+        // Linux restores package.json metadata after rewriting its contents.
+        // Explicitly replaced assets should receive a fresh destination inode.
+        if ((name == 'package.json' && Platform.isLinux) ||
+            (assets.contains(name) && replacedAssets.contains(name))) {
+          continue;
+        }
         await File(destination).parent.create(recursive: true);
-        // package.json is rewritten below, but first copy its author-owned
-        // mode/ACL/xattrs along with the other retained files.
+        // macOS File.copy preserves metadata of the rewritten package.json.
         await File(path.join(directory.path, name)).copy(destination);
       }
     }

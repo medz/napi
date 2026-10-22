@@ -92,7 +92,7 @@ Fresh POSIX package builds also use this lock; raw module publication uses an ex
 
 The new package is committed with one directory exchange:
 `renamex_np(RENAME_SWAP)` on macOS or `renameat2(RENAME_EXCHANGE)` on Linux.
-Compilation or merge failures leave the old output intact. After a successful
+Compilation or merge failures do not replace the old package. After a successful
 exchange, failure to remove old output or build scratch reports the retained path
 and still returns success; it never rolls the package back. An exchange error
 retains both names for inspection, without attempting two renames. This is atomic
@@ -107,6 +107,8 @@ Copies preserve author file metadata through the pinned macOS Dart SDK's
 files and directories restore their ownership, permissions, ACLs and extended
 attributes through libc after writes finish. Unchanged author files also retain
 their timestamps; the rewritten `package.json` keeps its new modification time.
+Validation and copying use normal reads, so a failed rebuild can still advance
+access times on the old output.
 The builder needs permission to preserve the original ownership and attributes.
 Preservation errors
 fail before publication. Symlinks and special files anywhere in an existing
