@@ -1,39 +1,62 @@
 ## 0.18.0
 
-Generic payloads now work in value and resource classes and as keys in copied
-Maps. Selected class aliases can leave part of their Dart type arguments open.
+This release lets you keep part of a class alias generic, carry JavaScript
+payloads through value and resource classes, and use those payloads as Map keys.
+Dart handles the surrounding structure while the original JavaScript values
+keep their identity.
 
-### Generic values, resources and class aliases
+### 🧩 Keep class aliases partially generic
 
-Value and resource classes can store and forward opaque generic payloads using
-their declared `<T>` parameters. Selected generic resource ancestors support full
-parameter renaming and permutation with compatible cleanup contracts.
-
-A class alias can fix some Dart arguments and expose the remaining parameters:
+Fix the Dart type arguments your API needs and leave the payload type open:
 
 ```dart
 class Pair<A, B> {
-  Pair(this.first, this.value);
-  final A first;
-  B value;
+  Pair(this.first, this.second);
+  A first;
+  B second;
 }
 
 @NAPI()
 typedef IntPair<T> = Pair<int, T>;
 ```
 
-JavaScript uses `new IntPair(1, payload)`. Alias patterns can also contain nullable
-and nested opaque arguments, including Lists, Maps, records and typed functions.
-Every alias parameter must occur in the selected type; ordinary open classes
-retain their separate specialization limits.
+```js
+const payload = {name: 'example'};
+const pair = new IntPair(1, payload);
 
-[Generic aliases](https://github.com/medz/napi/blob/v0.18.0/doc/concrete-generics.md)
-and [opaque payloads](https://github.com/medz/napi/blob/v0.18.0/doc/opaque.md)
+pair.first;              // 1: a Dart int
+pair.second === payload; // true: the original JavaScript object
+```
 
-### More Map key types
+TypeScript exposes `IntPair<T>`. The remaining `T` is an opaque payload, not a
+runtime Dart specialization: Dart can store and forward it without inspecting
+its JavaScript contents.
 
-Opaque values and JS collection handles can now be keys in copied Dart Maps,
-including through records, value classes and callbacks:
+Aliases can also select nullable and nested payload shapes, such as
+`Pair<int, T?>` or `Pair<int, List<T?>>`. Ordinary containers are copied;
+opaque leaves retain their identity. Every alias parameter must occur in the
+selected type, and ordinary open classes keep their separate specialization
+limits.
+
+[Partially open class aliases](https://github.com/medz/napi/blob/v0.18.0/doc/concrete-generics.md#partially-open-class-aliases)
+
+### 📦 Carry payloads through value and resource classes
+
+Generic payloads are no longer limited to reference classes. Value classes can
+accept and return them through their declared `<T>` parameters: the surrounding
+plain object is copied, while its opaque payloads remain the original
+JavaScript values.
+
+Resource classes can store and forward these payloads too, with the existing
+cleanup and operation-lease rules. Selected generic resource ancestors may
+rename or reorder all type parameters when their cleanup contracts agree.
+
+[Opaque payloads and their limits](https://github.com/medz/napi/blob/v0.18.0/doc/opaque.md)
+
+### 🗝️ Use JavaScript payloads as Map keys
+
+Dart can now group or look up opaque payloads without converting them to
+strings. For example, count repeated JavaScript objects by identity:
 
 ```dart
 @NAPI()
@@ -46,29 +69,40 @@ Map<T, int> counts<T>(List<T> values) {
 }
 ```
 
-The Map container is copied; opaque payloads and JS handles retain their original
-identity. Opaque keys use JS Map's SameValueZero equality, including NaN and signed
-zero. Enclosing record/value-class keys still use Dart equality, and keys that
-collapse during conversion still fail instead of overwriting an entry.
+```js
+const first = {};
+const second = {};
+const result = counts([first, second, first]);
 
-`JsMap` also accepts typed function keys under the existing function conversion
+result.get(first);  // 2
+result.get(second); // 1
+```
+
+The returned Map is an independent container; its opaque keys retain their
+original identity. Opaque keys use JavaScript Map's SameValueZero equality,
+including `NaN` and signed zero. Enclosing record and value-class keys still
+use Dart equality, and keys that collapse during conversion fail rather than
+overwrite an entry.
+
+JS collection handles can also be keys in copied Dart Maps. `JsMap` now accepts
+typed function keys under the existing signature-specific function conversion
 and identity rules.
 
 [Map key behavior](https://github.com/medz/napi/blob/v0.18.0/doc/opaque.md#map-keys)
 and [JS collection handles](https://github.com/medz/napi/blob/v0.18.0/doc/collections.md)
 
-### Defaults and build fixes
+### Other improvements and fixes
 
-- Fix dual-target packages failing with an internal error for open generic value
+- Resource defaults in value-class constructors now participate in operation
+  leases. Resources stored in constant defaults are retained, including
+  inherited fields; discarded constructor arguments do not acquire extra leases.
+- Fix dual-target builds failing with an internal error for open generic value
   classes and partially open value aliases.
-- Resource defaults in value-class constructors participate in operation leases.
-  Resources are found in actual stored constant state, including inherited
-  fields; discarded constructor arguments do not acquire extra leases.
 - Fix sequential builds reporting an output as locked after the previous build
   has completed.
 
-Regenerate bindings to use these conversions. Both build targets require Dart
-3.13.5; native packages currently support macOS arm64 with bridge ABI 15.
+Regenerate bindings to use the new conversions. Both build targets still require
+Dart 3.13.5; native packages support macOS arm64 with bridge ABI 15.
 
 [Release on GitHub](https://github.com/medz/napi/releases/tag/v0.18.0)
 
