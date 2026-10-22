@@ -1055,3 +1055,69 @@ normalizedFunctionHandle(JsArray<NormalizedUnary> values) {
     same: identical(first, restored),
   );
 }
+
+@NAPI()
+class FunctionKeyMap {
+  final JsMap<Unary, int> _values;
+  FunctionKeyMap(this._values);
+
+  JsMap<Unary, int> get values => _values;
+  Unary first() => _values.entries.first.$1;
+  int callFirst(int value) => first()(value);
+  bool has(Unary key) => _values.has(key);
+  int? read(Unary key) => _values.get(key);
+  void write(Unary key, int value) => _values.set(key, value);
+  bool remove(Unary key) => _values.delete(key);
+}
+
+@NAPI()
+({JsMap<Unary?, int> map, Unary? first, int? value, bool removed})
+nullableFunctionKeys(JsMap<Unary?, int> map, Unary? key) {
+  final first = map.entries.first.$1;
+  final value = map.get(key);
+  map.set(key, 7);
+  return (map: map, first: first, value: value, removed: map.delete(key));
+}
+
+@NAPI()
+Future<({JsMap<AsyncUnary, int> map, AsyncUnary key, int value})>
+asyncFunctionKeys(JsMap<AsyncUnary, int> map) async {
+  final (key, previous) = map.entries.first;
+  final value = await key(2);
+  map.set(key, previous + 1);
+  return (map: map, key: key, value: value);
+}
+
+@NAPI()
+({JsMap<T Function(T), T> map, T value}) opaqueFunctionKeys<T>(
+  JsMap<T Function(T), T> map,
+  T Function(T) key,
+  T value,
+) {
+  if (!map.has(key)) throw StateError('function key not found');
+  final result = key(value);
+  map.set(key, result);
+  return (map: map, value: result);
+}
+
+@NAPI()
+({
+  JsMap<NormalizedUnary, int> map,
+  NormalizedUnary key,
+  bool present,
+  int? value,
+})
+normalizedFunctionKey(JsMap<NormalizedUnary, int> map) {
+  final (key, previous) = map.entries.first;
+  final present = map.has(key);
+  map.set(key, previous + 1);
+  final value = map.get(key);
+  if (!map.delete(key)) throw StateError('converted function key not found');
+  return (map: map, key: key, present: present, value: value);
+}
+
+@NAPI()
+CallbackResource resourceFunctionKey(
+  JsMap<CallbackResource Function(CallbackResource), int> map,
+  CallbackResource resource,
+) => map.entries.first.$1(resource);

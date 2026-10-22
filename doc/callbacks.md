@@ -223,7 +223,7 @@ parameters skip payload conversion and resource admission.
 
 Generic function signatures, nullable outer Future results, FutureOr and opaque
 Map keys receive diagnostics.
-Function keys of `JsMap` and Stream-returning function elements receive diagnostics.
+Stream-returning function elements in JS collection handles receive diagnostics.
 [Stream exports](streams.md) retain input
 callbacks through subscription completion. [Explicit cancellation](cancellation.md)
 never revokes a retained callback or cancels a JavaScript Promise returned by it.

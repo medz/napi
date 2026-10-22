@@ -88,8 +88,8 @@ the next getter runs. Resource leaves therefore acquire their operation lease
 before a later getter can request cleanup. Conversion completes before assigning
 the target slot; constructor, getter and setter side effects are not rolled back.
 
-Typed functions work as Array elements and Map values, including inside copied
-containers and value classes:
+Typed functions work as Array elements and Map keys/values, including inside
+copied containers and value classes:
 
 ```dart
 @NAPI()
@@ -112,7 +112,15 @@ function. TypeScript describes these stored functions as a union of input and
 output signatures. Nullable functions accept null; present undefined and unfilled
 holes fail conversion. An absent slot or Map key returns Dart null.
 
-Function keys of `JsMap` and Stream-returning function elements are unsupported.
+`JsMap<int Function(int), int>` preserves the original JS function key. Reading
+an entry and passing its function to `has`, `get`, `set` or `delete` addresses
+that same key. If a signature needs a converting facade, such as a value class
+with different constructor and getter shapes, key operations use that facade
+instead. It is a different JS key from the original function; repeated conversions
+reuse the compatible facade. Use an opaque key when lookup must preserve the raw
+function regardless of its conversion signature.
+
+Stream-returning function elements are unsupported.
 A function stored through an opaque type parameter remains an uninterpreted JS
 value. Function signatures alone do not lease resources captured by a closure;
 resource arguments and results use the normal call lifetime rules.

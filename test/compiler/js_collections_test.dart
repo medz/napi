@@ -29,6 +29,41 @@ $source
     return AnnotationFrontend(packagesPath: packages).read(file.uri);
   }
 
+  test('function Map keys use both callback conversion directions', () async {
+    final module = await read('''
+@NAPI() JsMap<int Function(int), int> keys(JsMap<int Function(int), int> source) => source;
+@NAPI() JsMap<int Function(int)?, int> nullableKeys(JsMap<int Function(int)?, int> source) => source;
+@NAPI() JsMap<Future<T> Function(T), T> pending<T>(JsMap<Future<T> Function(T), T> source) => source;
+@NAPI() JsArray<JsMap<int Function(int), int>> nested(JsArray<JsMap<int Function(int), int>> source) => source;
+''');
+    final wasm = lower(validate(module));
+    final native = validateNative(module);
+    for (final roots in [
+      wasm.functions.map((f) => f.inputs.single),
+      native.functions.map((f) => f.inputs.single),
+    ]) {
+      final maps = roots.take(3).cast<JsCollectionConversion>().toList();
+      for (final map in maps) {
+        expect(
+          (map.key as CallbackConversion).direction,
+          ValueDirection.output,
+        );
+        expect(
+          (map.inputKey as CallbackConversion).direction,
+          ValueDirection.input,
+        );
+      }
+      expect(maps[1].key!.nullable, isTrue);
+      expect((maps[2].key as CallbackConversion).returnsFuture, isTrue);
+      expect(
+        ((roots.last as JsCollectionConversion).value as JsCollectionConversion)
+            .key,
+        isA<CallbackConversion>(),
+      );
+    }
+    expect(emitDeclarations(wasm), emitNativeDeclarations(native));
+  });
+
   test('value element policies carry finite input and output graphs', () async {
     final module = await read('''
 @NAPI(classPolicy: ClassPolicy.value)
@@ -949,7 +984,7 @@ for (const value of [null, undefined, object]) {
   for (final source in [
     '@NAPI() JsArray<Stream<int> Function()> bad(JsArray<Stream<int> Function()> value) => value;',
     '@NAPI() JsArray<T Function<T>(T)> bad(JsArray<T Function<T>(T)> value) => value;',
-    '@NAPI() JsMap<int Function(int), int> bad(JsMap<int Function(int), int> value) => value;',
+    '@NAPI() JsMap<Stream<int> Function(), int> bad(JsMap<Stream<int> Function(), int> value) => value;',
     '@NAPI() JsMap<Object, int> bad(JsMap<Object, int> value) => value;',
     '@NAPI() Map<JsArray<int>, int> bad(Map<JsArray<int>, int> value) => value;',
     '@NAPI() Map<(JsMap<String,int>,), int> bad(Map<(JsMap<String,int>,), int> value) => value;',
