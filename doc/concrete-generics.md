@@ -259,7 +259,8 @@ validation before construction remain unchanged.
 ## Supported shapes and limits
 
 Class exports support non-null closed aliases and partially open aliases with
-direct opaque arguments. Callable consts require explicit closed specializations.
+direct, nullable or nested opaque arguments. Every alias parameter must occur in
+the selected class type. Callable consts require explicit closed specializations.
 Arguments containing `dynamic` or generic function types remain diagnosed even
 when Dart considers the surrounding alias closed. [Open opaque generics](opaque.md)
 use a separate storage/forwarding contract. Selecting an original class and one of its

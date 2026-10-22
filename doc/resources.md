@@ -37,13 +37,15 @@ presence and structural conversion rules apply. An excluded cleanup method,
 unsupported result or unsupported generic signature produces a build diagnostic.
 
 [Concrete class aliases](concrete-generics.md#resource-aliases) may use the same
-resource policy. The alias fixes the real Dart type arguments before cleanup and
-other member signatures are checked. Independent generic resource classes also
+resource policy. The alias fixes all or some real Dart type arguments before
+cleanup and other member signatures are checked. Generic resource classes also
 support [opaque payloads](opaque.md): fields, callbacks, Future and Stream results
 preserve the declared payload mapping and normal resource leases. Cleanup
 parameters may use the class's type parameters; the cleanup method cannot declare
-its own generic parameters. Selected inheritance involving generic resource
-classes remains unsupported.
+its own generic parameters. Selected generic ancestors use the same
+[bijective opaque parameter mappings](opaque.md#reference-inheritance) as ordinary
+reference classes. A selected subclass inherits the resource contract; its cleanup
+call shape and defaults must remain compatible with every selected ancestor.
 
 ## Constant defaults
 
