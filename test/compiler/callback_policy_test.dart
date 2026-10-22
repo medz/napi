@@ -602,10 +602,6 @@ typedef Bytes = Uint8List;
       '@NAPI() int run<T>(Map<T,int> Function() callback) => 1;',
       'NAPI_OPAQUE_KEY',
     ),
-    'handle Map key': (
-      '@NAPI() int run(Map<JsArray<int>,int> Function() callback) => 1;',
-      'NAPI_JS_COLLECTION',
-    ),
     'dynamic handle element': (
       '@NAPI() int run(JsArray<List<dynamic>> Function() callback) => 1;',
       'NAPI_JS_COLLECTION',

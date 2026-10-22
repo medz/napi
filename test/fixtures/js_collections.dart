@@ -943,6 +943,39 @@ bool containerKeys(
 }
 
 @NAPI()
+class ContainerKeyMaps {
+  ContainerKeyMaps(this.arrays, this.maps);
+  final Map<JsArray<int>?, int> arrays;
+  final Map<JsMap<String, int>, int> maps;
+  int? arrayValue(JsArray<int>? key) => arrays[key];
+  int? mapValue(JsMap<String, int> key) => maps[key];
+  void putArray(JsArray<int>? key, int value) => arrays[key] = value;
+}
+
+@NAPI()
+Map<({JsArray<int> key}), int> containerKeyRecords(
+  Map<({JsArray<int> key}), int> value,
+) => value;
+
+@NAPI()
+int? containerKeyCopies(
+  JsArray<Map<JsArray<int>, int>> values,
+  JsArray<int> key,
+) {
+  final copied = values.get(0)!;
+  final value = copied[key];
+  if (value != null) copied[key] = value + 1;
+  values.set(1, copied);
+  return value;
+}
+
+@NAPI()
+int? containerKeyCallback(
+  Map<JsArray<int>, int> Function(Map<JsArray<int>, int>) callback,
+  JsArray<int> key,
+) => callback({key: 1})[key];
+
+@NAPI()
 bool recordMapCollision(JsArray<Map<({int id}), int>> value, bool catchError) {
   try {
     value.get(0);

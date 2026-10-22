@@ -8,7 +8,7 @@ reference-class contract. Open generic declarations also support [opaque](opaque
 `T`/`T?` leaves in Lists, Dictionaries, records and Map values, plus selected
 references such as `List<Box<T>>`. [JsArray/JsMap handles](collections.md) can be
 leaves inside copied containers and value classes, preserving their original JS
-source identity. Opaque values and handles cannot be Map keys.
+source identity, including when used as Map keys. Opaque values cannot be Map keys.
 [Value classes](values.md) compose as nested structural
 shapes with explicit input construction. `@NAPI(bigint: true)` applies recursively to Dart `int`
 leaves. Functions, constructors, methods, fields and accessors share this model.
@@ -156,8 +156,8 @@ value without inspecting it.
 
 Compatible empty constants can supply defaults for containers with opaque
 elements. Nullable opaque elements can also use Dart null constants, for example
-`List<T?> values = const <Null>[null]`. Non-null opaque payload defaults,
-opaque Map keys and JS collection handles as Map keys remain unsupported.
+`List<T?> values = const <Null>[null]`. Non-null opaque payload defaults
+and opaque Map keys remain unsupported.
 Open generic value classes can store opaque parameters in their converted fields;
 their JS containers are copied while payload identity is preserved. Optional opaque
 constructor fields select their Dart default only when absent, including inside

@@ -2315,7 +2315,7 @@ void _validateJsCollection(
   if (!_supportedJsCollectionElements(collection, classes, opaqueParameters)) {
     throw BindingDiagnostic(
       'NAPI_JS_COLLECTION',
-      'JsArray/JsMap support scalars, selected references, binary values, SharedBytes, opaque elements, typed functions, nested JS collection handles, value classes and copied containers. Stream-returning function elements are unsupported. Copied Map keys cannot contain typed functions, opaque values or JS collection handles.',
+      'JsArray/JsMap support scalars, selected references, binary values, SharedBytes, opaque elements, typed functions, nested JS collection handles, value classes and copied containers. Stream-returning function elements are unsupported. Copied Map keys cannot contain typed functions or opaque values.',
       source,
     );
   }
@@ -2351,13 +2351,12 @@ bool _supportedJsCollectionElement(
     return true;
   }
   if (isJsCollectionType(type)) {
-    return !mapKey &&
-        _supportedJsCollectionElements(
-          type as DeclaredType,
-          classes,
-          opaqueParameters,
-          visited: visited,
-        );
+    return _supportedJsCollectionElements(
+      type as DeclaredType,
+      classes,
+      opaqueParameters,
+      visited: visited,
+    );
   }
   if (_isBackendScalar(type) || isBinaryType(type) || isSharedBytesType(type)) {
     return true;
@@ -2901,13 +2900,6 @@ void _checkValueDirection(
     return;
   }
   if (isJsCollectionType(type)) {
-    if (mapKey) {
-      throw BindingDiagnostic(
-        'NAPI_JS_COLLECTION',
-        'JsArray/JsMap cannot be structural Map keys; handle values are supported.',
-        source,
-      );
-    }
     _validateJsCollection(
       type as DeclaredType,
       source,

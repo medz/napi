@@ -111,6 +111,9 @@ dependencies:
     'structuralKeys',
     'recordKey',
     'containerKeys',
+    'containerKeyRecords',
+    'containerKeyCopies',
+    'containerKeyCallback',
     'recordMapCollision',
     'structuralCallback',
     'structuralWideBigints',
@@ -148,6 +151,7 @@ Future<void> main() async {
           ${functions.map((name) => "ExternalFunction('$name'),").join('\n          ')}
           ${bigints.map((name) => "ExternalFunction('$name', config: NAPI(bigint: true)),").join('\n          ')}
           ExternalClass('Holder'),
+          ExternalClass('ContainerKeyMaps'),
           ExternalClass('ArrayPayloads'),
           ExternalClass('MapPayloads'),
           ExternalClass('NestedArrays'),

@@ -202,6 +202,22 @@ new api.StructuralCollections([{values: []}], new Map());
 api.structuralKeys(new Map([[['wrong'], {value: 1}]]));
 void [structuralArray, structuralMap, structuralRead, structuralCopiedKeys, structuralRecordKey, structuralContainerKeys, structuralCollision, structuralWide, structuralArbitrary, structuralResourceEntry, structuralCallbackValue];
 
+const containerMapKey = new Map([['key', 1]]);
+const containerKeyMaps = new api.ContainerKeyMaps(new Map<number[] | null, number>([[array, 1], [null, 2]]), new Map([[containerMapKey, 3]]));
+const copiedArrayKeys: Map<number[] | null, number> = containerKeyMaps.arrays;
+const copiedMapKeys: Map<Map<string, number>, number> = containerKeyMaps.maps;
+const containerKeyValue: number | null = containerKeyMaps.arrayValue(array);
+const containerKeyRecords: Map<{key: number[]}, number> = external.containerKeyRecords(new Map([[{key: array}, 1]]));
+const containerKeyCopy: number | null = api.containerKeyCopies([new Map([[array, 1]])], array);
+const containerKeyCallback: number | null = api.containerKeyCallback(value => value, array);
+// @ts-expect-error A nullable handle key permits null, not undefined.
+new api.ContainerKeyMaps(new Map([[undefined, 1]]), new Map());
+// @ts-expect-error Array key elements retain the declared scalar policy.
+containerKeyMaps.arrayValue(['wrong']);
+// @ts-expect-error Nested Map handles retain their key declaration.
+containerKeyMaps.mapValue(new Map([[1, 1]]));
+void [copiedArrayKeys, copiedMapKeys, containerKeyValue, containerKeyRecords, containerKeyCopy, containerKeyCallback];
+
 const copiedPayloadSource = [{reference: ref, payload: undefined as Payload, handle: [undefined] as Payload[]}];
 const copiedPayloads = new api.CopiedPayloads<Payload>(copiedPayloadSource);
 const copiedPayload: Payload | null = copiedPayloads.payload();

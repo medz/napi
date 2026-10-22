@@ -952,6 +952,34 @@ async function pureCopied(api) {
   assert.equal(api.pureCopiedPayload(source), source); assert.notEqual(source[0], source[1]);
   assert.equal(source[1][0], payload); assert.equal(source[1][1], undefined); assert.equal(source[1][2], null);
 }
+async function copiedContainerKeys(api) {
+  const array = [1], sameContent = [1], map = new Map([['key', 1]]);
+  const arrays = new Map([[array, 1], [null, 2]]), maps = new Map([[map, 3]]);
+  const owner = new api.ContainerKeyMaps(arrays, maps);
+  assert.equal(owner.arrayValue(array), 1); assert.equal(owner.arrayValue(null), 2);
+  assert.equal(owner.arrayValue(sameContent), null); assert.equal(owner.mapValue(map), 3);
+  assert.equal(owner.mapValue(new Map([['key', 1]])), null);
+  owner.putArray(array, 4); assert.equal(owner.arrays.size, 2);
+  assert.equal(owner.arrays.get(array), 4); assert.equal(arrays.get(array), 1);
+  assert.notEqual(owner.arrays, arrays); assert.equal(owner.maps.get(map), 3);
+  array[0] = 9; map.set('key', 8);
+  assert.equal(owner.arrayValue(array), 4); assert.equal(owner.mapValue(map), 3);
+  assert.equal([...owner.arrays.keys()][0], array); assert.equal([...owner.maps.keys()][0], map);
+  assert.throws(() => new api.ContainerKeyMaps(new Map([[undefined, 1]]), maps), TypeError);
+  assert.throws(() => new api.ContainerKeyMaps(new Map([[{}, 1]]), maps), TypeError);
+  const record = {key: array}, records = new Map([[record, 5]]);
+  const converted = api.containerKeyRecords(records), convertedKey = [...converted.keys()][0];
+  assert.notEqual(converted, records); assert.notEqual(convertedKey, record);
+  assert.equal(convertedKey.key, array); assert.equal(converted.get(convertedKey), 5);
+  assert.throws(() => api.containerKeyRecords(new Map([[{key: array}, 1], [{key: array}, 2]])), /duplicate converted Map key/);
+  const copies = [new Map([[array, 6]])];
+  assert.equal(api.containerKeyCopies(copies, array), 6);
+  assert.notEqual(copies[0], copies[1]); assert.equal(copies[0].get(array), 6);
+  assert.equal(copies[1].size, 1); assert.equal(copies[1].get(array), 7);
+  assert.equal(api.containerKeyCallback(value => {
+    assert.equal([...value.keys()][0], array); value.set(array, 8); return value;
+  }, array), 8);
+}
 async function valueClasses(api) {
   const item = {value: 3}, key = {value: 4}, mapped = {value: 5};
   const values = [item, {value: 6, tag: null}, null], map = new Map([[key, mapped]]), outputs = [null];
@@ -1006,7 +1034,7 @@ async function valueClasses(api) {
   assert.equal(target[0].resource, resource); assert.equal(target[0].value, 31);
   await closed; assert.equal(api.collectionValueCleanups(), cleanups + 1);
 }
-const cases = {valueClasses, copiedResources, copiedPayloads, direct, scalars, maps, accessors, admission, captures, futures, streams, retained, opaque, opaqueAsync, opaqueRetained, nested, nestedHandles, references, resourceCollections, resourceCollectionStreams, binaryCollections, sharedByteCollections, structuralCollections};
+const cases = {copiedContainerKeys, valueClasses, copiedResources, copiedPayloads, direct, scalars, maps, accessors, admission, captures, futures, streams, retained, opaque, opaqueAsync, opaqueRetained, nested, nestedHandles, references, resourceCollections, resourceCollectionStreams, binaryCollections, sharedByteCollections, structuralCollections};
 async function worker(held) {
   const thread = new Worker(new URL(import.meta.url), {workerData: {held}});
   await new Promise((resolve, reject) => {
@@ -1017,7 +1045,7 @@ async function worker(held) {
   if (held) await thread.terminate();
 }
 if (!isMainThread) {
-  const api = await import('@napi/js-collections-fixture'); await direct(api); await retained(api); await opaque(api);
+  const api = await import('@napi/js-collections-fixture'); await direct(api); await retained(api); await opaque(api); await copiedContainerKeys(api);
   const resource = new api.ResourceItem(301), resources = new api.ResourceCollections([resource], new Map());
   assert.equal(resources.read(0), resource);
   if (workerData.held) {globalThis.resourceUse = resources.hold(50, false); globalThis.resourceClose = resource.close();}
