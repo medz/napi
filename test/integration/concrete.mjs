@@ -563,6 +563,36 @@ async function values(api) {
 
 
 async function partialAliases(api) {
+  for (const payload of [undefined, null, {}, Symbol('nested'), () => 9]) {
+    const source = new Map([['values', [payload]]]);
+    const pair = new api.NestedIntPair(1, source);
+    source.get('values').push('outside');
+    assert.deepEqual(pair.second.get('values'), [payload]);
+    assert.equal(api.echoNestedPair(pair), pair);
+    assert.equal(pair.self(), pair);
+    api.appendNestedNull(pair);
+    assert.deepEqual(pair.second.get('values'), [payload, null]);
+    const child = new api.NestedChild(2, new Map([['values', [payload]]]));
+    assert(child instanceof api.NestedIntPair);
+    assert.equal(api.echoNestedPair(child), child);
+    assert.equal(api.NestedIntPair.prototype.self.call(child), child);
+    const data = {first: 'record', second: {$1: payload, values: [payload, null]}};
+    const value = api.echoNestedValue(data);
+    assert.equal(value.second.$1, payload);
+    assert.deepEqual(value.second.values, [payload, null]);
+    let observed;
+    const callbackPair = new api.NestedCallbackPair(1.5, value => (observed = value));
+    assert.equal(callbackPair.second(payload), payload);
+    assert.equal(observed, payload);
+  }
+  assert.throws(() => new api.NestedIntPair(1, new Map([[1, []]])), TypeError);
+  assert.throws(() => new api.NestedIntPair(1, new Map([['values', {}]])), TypeError);
+  assert.throws(() => api.echoNestedValue({first: 'record', second: {$1: {}, values: {}}}), TypeError);
+  const nestedPayload = {}, nestedResource = new api.NestedResourcePair(true, [nestedPayload, undefined, null]);
+  const nestedResult = nestedResource.later(), nestedClose = nestedResource.close();
+  assert.deepEqual(await nestedResult, [nestedPayload, undefined, null]);
+  await nestedClose;
+  assert.throws(() => nestedResource.second);
   for (const payload of [undefined, null, {}, Symbol('nullable'), () => 8]) {
     const pair = new api.NullableIntPair(1, payload);
     assert.equal(pair.second, payload);

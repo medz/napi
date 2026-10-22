@@ -61,14 +61,21 @@ Reference, resource and value-class policies use the existing ownership and
 conversion rules.
 
 Parameters may be reordered or repeated, for example
-`typedef Flipped<X, Y> = Triple<Y, int, X>`. Every alias parameter must appear as
-a direct argument of the selected class, optionally nullable. For example,
+`typedef Flipped<X, Y> = Triple<Y, int, X>`. Parameters may also be nullable. For example,
 `typedef NullablePair<T> = Pair<int, T?>` exposes a `T | null` payload field;
 omitting a required payload still fails, and explicit `undefined` remains an
 opaque value. The nullable shape belongs to this selected alias: an ordinary
 `Pair<int, T>` handle cannot acquire its wider writable view.
 
-Nested uses such as `List<T>`, and unused parameters, remain diagnosed. Remaining
+Nested shapes such as `typedef Rows<T> = Cell<List<T?>>` retain the existing
+container conversion: `new Rows([payload, null])` copies the List while preserving
+its opaque payloads. Maps, records, selected class types and non-generic function
+signatures may also contain the alias parameters, subject to their ordinary
+conversion restrictions. Repeated occurrences must agree on the same logical
+parameter and each occurrence's nullable shape.
+
+Every alias parameter must occur in the selected type; unused parameters,
+`dynamic` arguments and generic function types remain diagnosed. Remaining
 parameters accept the ordinary opaque bounds. A selected ancestor alias must
 retain the existing bijective mapping between its remaining opaque parameters
 and the child's parameters.

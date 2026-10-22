@@ -312,6 +312,59 @@ class Pair<A, B> { Pair(this.a, this.b); A a; B b; }
     }
   });
 
+  for (final argument in [
+    'List<T?>',
+    'Map<String, List<T>>',
+    '(T, {List<T?> values})',
+    'T Function(T, {required List<T?> values})',
+  ]) {
+    test('nested alias parameters project through $argument', () async {
+      final input = await source('''
+import 'package:napi/napi.dart';
+class Cell<V> { Cell(this.value); V value; Cell<V> self() => this; }
+@NAPI() typedef Nested<T> = Cell<$argument>;
+@NAPI() Nested<U> echo<U>(Nested<U> value) => value;
+''');
+      final module = await read(input);
+      final wasm = lower(validate(module));
+      final native = validateNative(module);
+      expect(emitDeclarations(wasm), emitNativeDeclarations(native));
+      expect(wasm.functions.single.inputs.single.typescriptType, 'Nested<U>');
+      expect(wasm.functions.single.output!.typescriptType, 'Nested<U>');
+      expect(
+        referenceTypeArguments(
+          module.classes.single,
+          module.functions.single.parameters.single.type as DeclaredType,
+        )!.single,
+        isA<TypeParameterType>().having(
+          (type) => type.declaration.name,
+          'logical parameter',
+          'U',
+        ),
+      );
+    });
+  }
+
+  for (final (pattern, argument) in [
+    ('List<T>', 'List<U?>'),
+    ('List<T>', 'Map<String, U>'),
+    ('(T, List<T>)', '(U, List<V>)'),
+    ('T Function(T)', 'U Function(U, U)'),
+  ]) {
+    test('nested alias rejects a mismatched shape: $argument', () async {
+      final input = await source('''
+import 'package:napi/napi.dart';
+class Cell<V> { Cell(this.value); V value; }
+@NAPI() typedef Nested<T> = Cell<$pattern>;
+@NAPI() Cell<$argument> echo<U, V>(Cell<$argument> value) => value;
+''');
+      final module = await read(input);
+      for (final check in [validate, validateNative]) {
+        expect(() => check(module), throwsA(diagnostic('NAPI_TYPE')));
+      }
+    });
+  }
+
   test(
     'partial aliases infer declared order and repeated parameters',
     () async {
@@ -377,7 +430,7 @@ class Pair<A, B> { Pair(this.a, this.b); A a; B b; }
   );
 
   for (final alias in [
-    'typedef Selected<T> = Cell<List<T>>;',
+    'typedef Selected<T> = Cell<Map<dynamic, T>>;',
     'typedef Selected<T> = Cell<int>;',
   ]) {
     test('unsupported alias projection remains diagnostic: $alias', () async {

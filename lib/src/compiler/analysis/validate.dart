@@ -1008,13 +1008,11 @@ void _validateAliasSelections(BindingModule module) {
     final opaque = opaqueParameterIds(binding.typeParameters);
     if (referenceTypeArguments(binding, type) == null ||
         type.typeArguments.any(
-          (argument) =>
-              !isClosedConcreteType(argument) &&
-              !isOpaqueType(argument, opaque),
+          (argument) => !_isConcreteOrOpaqueType(argument, opaque),
         )) {
       throw BindingDiagnostic(
         'NAPI_GENERIC',
-        'Class aliases require closed arguments or direct opaque parameters, with every alias parameter represented.',
+        'Class alias arguments must contain only closed types and their own opaque parameters, with every alias parameter represented.',
         binding.source,
       );
     }
@@ -1043,25 +1041,28 @@ void _validateAliasSelections(BindingModule module) {
 
 /// Whether an explicit specialization contains no open or dynamic arguments.
 bool isClosedConcreteType(BindingType type) =>
-    type.nullability != TypeNullability.legacy &&
-    switch (type) {
-      DynamicType() || TypeParameterType() => false,
-      DeclaredType(:final typeArguments) => typeArguments.every(
-        isClosedConcreteType,
-      ),
-      RecordTypeBinding(:final positional, :final named) =>
-        positional.every(isClosedConcreteType) &&
-            named.values.every(isClosedConcreteType),
-      FunctionTypeBinding(
-        :final typeParameters,
-        :final parameters,
-        :final result,
-      ) =>
-        typeParameters.isEmpty &&
-            parameters.every((p) => isClosedConcreteType(p.type)) &&
-            isClosedConcreteType(result),
-      _ => true,
-    };
+    _isConcreteOrOpaqueType(type, const {});
+
+bool _isConcreteOrOpaqueType(BindingType type, Set<DeclarationId> opaque) {
+  bool supported(BindingType child) => _isConcreteOrOpaqueType(child, opaque);
+  return type.nullability != TypeNullability.legacy &&
+      switch (type) {
+        DynamicType() => false,
+        TypeParameterType() => isOpaqueType(type, opaque),
+        DeclaredType(:final typeArguments) => typeArguments.every(supported),
+        RecordTypeBinding(:final positional, :final named) =>
+          positional.every(supported) && named.values.every(supported),
+        FunctionTypeBinding(
+          :final typeParameters,
+          :final parameters,
+          :final result,
+        ) =>
+          typeParameters.isEmpty &&
+              parameters.every((p) => supported(p.type)) &&
+              supported(result),
+        _ => true,
+      };
+}
 
 /// Shared reference-class call contracts, without target ABI choices.
 List<ReferenceClassShape> validateReferenceClasses(BindingModule module) {
@@ -2115,22 +2116,25 @@ List<BindingType>? referenceTypeArguments(
   if (concrete.typeArguments.length != type.typeArguments.length) return null;
   final parameters = opaqueParameterIds(binding.typeParameters);
   final projected = <DeclarationId, BindingType>{};
-  for (final (index, pattern) in concrete.typeArguments.indexed) {
-    final argument = type.typeArguments[index];
-    if (pattern is TypeParameterType &&
-        pattern.nullability != TypeNullability.legacy &&
-        parameters.contains(pattern.declaration)) {
-      if (argument is! TypeParameterType ||
-          argument.nullability != pattern.nullability) {
-        return null;
-      }
+  bool matchParameter(TypeParameterType pattern, TypeParameterType argument) {
+    if (parameters.contains(pattern.declaration)) {
       // The nullable marker belongs to the alias shape, not its logical slot.
       final projectedArgument = TypeParameterType(argument.declaration);
       if (projected[pattern.declaration] case final previous?) {
-        if (!_sameCanonicalType(previous, projectedArgument)) return null;
+        if (!_sameCanonicalType(previous, projectedArgument)) return false;
       }
       projected[pattern.declaration] = projectedArgument;
-    } else if (!_sameCanonicalType(pattern, argument)) {
+      return true;
+    }
+    return pattern.declaration == argument.declaration;
+  }
+
+  for (final (index, pattern) in concrete.typeArguments.indexed) {
+    if (!_matchCanonicalType(
+      pattern,
+      type.typeArguments[index],
+      matchParameter,
+    )) {
       return null;
     }
   }
@@ -2143,36 +2147,44 @@ List<BindingType>? referenceTypeArguments(
   return arguments;
 }
 
-bool _sameCanonicalType(BindingType left, BindingType right) {
+bool _sameCanonicalType(BindingType left, BindingType right) =>
+    _matchCanonicalType(left, right, (a, b) => a.declaration == b.declaration);
+
+bool _matchCanonicalType(
+  BindingType left,
+  BindingType right,
+  bool Function(TypeParameterType, TypeParameterType) matchParameter,
+) {
   if (left.nullability != right.nullability) return false;
+  bool match(BindingType a, BindingType b) =>
+      _matchCanonicalType(a, b, matchParameter);
   return switch ((left, right)) {
     (SafeIntType(), SafeIntType()) ||
     (DynamicType(), DynamicType()) ||
     (VoidType(), VoidType()) ||
     (NeverType(), NeverType()) => true,
-    (TypeParameterType a, TypeParameterType b) =>
-      a.declaration == b.declaration,
+    (TypeParameterType a, TypeParameterType b) => matchParameter(a, b),
     (DeclaredType a, DeclaredType b) =>
       a.declaration == b.declaration &&
           a.typeArguments.length == b.typeArguments.length &&
           a.typeArguments.indexed.every(
-            (entry) => _sameCanonicalType(entry.$2, b.typeArguments[entry.$1]),
+            (entry) => match(entry.$2, b.typeArguments[entry.$1]),
           ),
     (RecordTypeBinding a, RecordTypeBinding b) =>
       a.positional.length == b.positional.length &&
           a.named.length == b.named.length &&
           a.positional.indexed.every(
-            (entry) => _sameCanonicalType(entry.$2, b.positional[entry.$1]),
+            (entry) => match(entry.$2, b.positional[entry.$1]),
           ) &&
           a.named.entries.every(
             (entry) =>
                 b.named.containsKey(entry.key) &&
-                _sameCanonicalType(entry.value, b.named[entry.key]!),
+                match(entry.value, b.named[entry.key]!),
           ),
     (FunctionTypeBinding a, FunctionTypeBinding b) =>
       a.typeParameters.isEmpty &&
           b.typeParameters.isEmpty &&
-          _sameCanonicalType(a.result, b.result) &&
+          match(a.result, b.result) &&
           a.parameters.length == b.parameters.length &&
           a.parameters.indexed.every((entry) {
             final other = b.parameters[entry.$1];
@@ -2182,7 +2194,7 @@ bool _sameCanonicalType(BindingType left, BindingType right) {
                       ParameterKind.optionalNamed,
                     }.contains(entry.$2.kind) ||
                     entry.$2.name == other.name) &&
-                _sameCanonicalType(entry.$2.type, other.type);
+                match(entry.$2.type, other.type);
           }),
     _ => false,
   };
