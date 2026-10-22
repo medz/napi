@@ -28,6 +28,21 @@ void main() {
       AnnotationFrontend(packagesPath: _packages)
           .read((await source(text)).uri);
 
+  test('opaque Map keys compose through both conversion directions', () async {
+    final module = await read('''
+@NAPI(classPolicy: ClassPolicy.value)
+class Keys<T> { Keys(this.values); final Map<T, int> values; }
+@NAPI() Map<T, int> maps<T>(Map<T, int> value) => value;
+@NAPI() Map<(T, int), String> records<T>(Map<(T, int), String> value) => value;
+@NAPI() Keys<T> values<T>(Keys<T> value) => value;
+@NAPI() JsArray<Map<T, int>> handles<T>(JsArray<Map<T, int>> value) => value;
+@NAPI() int callback<T>(Map<T, int> Function() value) => 1;
+''');
+    final wasm = lower(validate(module));
+    final native = validateNative(module);
+    expect(emitDeclarations(wasm), emitNativeDeclarations(native));
+  });
+
   const router = '''
 @NAPI()
 class Router<T> {
@@ -596,14 +611,6 @@ const stream: AsyncIterableIterator<{ then: Then }, undefined, undefined> = stre
     'cross parameter bound': (
       "@NAPI() U echo<T, U extends T>(U value) => value;",
       'NAPI_TYPE',
-    ),
-    'opaque Map key': (
-      '@NAPI() Map<T,int> echo<T>(Map<T,int> values) => values;',
-      'NAPI_OPAQUE_KEY',
-    ),
-    'opaque nested Map key': (
-      '@NAPI() Map<(T,int),String> echo<T>(Map<(T,int),String> values) => values;',
-      'NAPI_OPAQUE_KEY',
     ),
     'reference with structural specialization': (
       '$router @NAPI() List<Router<List<T>>> echo<T>(List<Router<List<T>>> values) => values;',

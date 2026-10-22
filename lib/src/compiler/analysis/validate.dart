@@ -2272,7 +2272,7 @@ void validateValueType(
     source,
     referenceClasses,
     direction,
-    <(ClassBinding, ValueDirection, bool)>{},
+    <(ClassBinding, ValueDirection)>{},
     opaqueParameters,
   );
   if (!_isBackendValue(
@@ -2315,7 +2315,7 @@ void _validateJsCollection(
   if (!_supportedJsCollectionElements(collection, classes, opaqueParameters)) {
     throw BindingDiagnostic(
       'NAPI_JS_COLLECTION',
-      'JsArray/JsMap support scalars, selected references, binary values, SharedBytes, opaque elements, typed functions, nested JS collection handles, value classes and copied containers. Stream-returning function elements are unsupported. Copied Map keys cannot contain typed functions or opaque values.',
+      'JsArray/JsMap support scalars, selected references, binary values, SharedBytes, opaque elements, typed functions, nested JS collection handles, value classes and copied containers. Stream-returning function elements are unsupported. Copied Map keys cannot contain typed functions.',
       source,
     );
   }
@@ -2346,7 +2346,7 @@ bool _supportedJsCollectionElement(
   required Set<(ClassBinding, bool)> visited,
 }) {
   if (type.nullability == TypeNullability.legacy) return false;
-  if (isOpaqueType(type, opaqueParameters)) return !mapKey;
+  if (isOpaqueType(type, opaqueParameters)) return true;
   if (isReferenceType(type, classes, opaqueParameters: opaqueParameters)) {
     return true;
   }
@@ -2882,18 +2882,10 @@ void _checkValueDirection(
   SourceLocation source,
   List<ClassBinding> classes,
   ValueDirection direction,
-  Set<(ClassBinding, ValueDirection, bool)> visited,
-  Set<DeclarationId> opaqueParameters, {
-  bool mapKey = false,
-}) {
+  Set<(ClassBinding, ValueDirection)> visited,
+  Set<DeclarationId> opaqueParameters,
+) {
   if (isOpaqueType(type, opaqueParameters)) {
-    if (mapKey) {
-      throw BindingDiagnostic(
-        'NAPI_OPAQUE_KEY',
-        'Opaque Map keys require an equality contract and are not supported; opaque values are supported.',
-        source,
-      );
-    }
     return;
   }
   if (isReferenceType(type, classes, opaqueParameters: opaqueParameters)) {
@@ -2984,7 +2976,7 @@ void _checkValueDirection(
         source,
       );
     }
-    if (!visited.add((binding, direction, mapKey))) return;
+    if (!visited.add((binding, direction))) return;
     if (direction == ValueDirection.input) {
       _validateValueConstructorInputs(binding, classes);
     }
@@ -2996,14 +2988,10 @@ void _checkValueDirection(
         direction,
         visited,
         opaqueParameters,
-        mapKey: mapKey,
       );
     }
   } else if (type is DeclaredType) {
-    final isMap =
-        type.declaration.library == Uri.parse('dart:core') &&
-        type.declaration.name == 'Map';
-    for (final (index, child) in type.typeArguments.indexed) {
+    for (final child in type.typeArguments) {
       _checkValueDirection(
         child,
         source,
@@ -3011,7 +2999,6 @@ void _checkValueDirection(
         direction,
         visited,
         opaqueParameters,
-        mapKey: mapKey || isMap && index == 0,
       );
     }
   } else if (type is RecordTypeBinding) {
@@ -3023,7 +3010,6 @@ void _checkValueDirection(
         direction,
         visited,
         opaqueParameters,
-        mapKey: mapKey,
       );
     }
   }

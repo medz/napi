@@ -226,6 +226,37 @@ class NestedStore<T> {
 }
 
 @NAPI()
+class OpaqueKeyStore<T> {
+  OpaqueKeyStore(this._values);
+  final Map<T, int> _values;
+  int get size => _values.length;
+  int? get(T key) => _values[key];
+  void set(T key, int value) => _values[key] = value;
+  bool has(T key) => _values.containsKey(key);
+  int? remove(T key) => _values.remove(key);
+  void clear() => _values.clear();
+  Map<T, int> snapshot() => _values;
+  List<T> keys() => _values.keys.toList();
+  Map<T?, int> withAbsent(T key) => {null: 0, key: 1};
+  Future<int?> later(T key) async {
+    await Future<void>.delayed(const Duration(milliseconds: 1));
+    return _values[key];
+  }
+
+  int? callback(Map<T, int> Function(Map<T, int>) call, T key) =>
+      call(_values)[key];
+
+  int? copiedKeys(JsArray<Map<T, int>> values, T key) {
+    final copied = values.get(0)!;
+    values.set(1, copied);
+    return copied[key];
+  }
+
+  Map<({T key, int tag}), int> records(Map<({T key, int tag}), int> value) =>
+      value;
+}
+
+@NAPI()
 List<OpaquePair<Y, X>> nestedPairs<X, Y>(List<OpaquePairChild<X, Y>> values) =>
     values;
 

@@ -71,6 +71,7 @@ Future<void> main() async {
         ExternalFunction('methodCleanups'),
         ExternalClass('NamedStore'),
         ExternalClass('NestedStore'),
+        ExternalClass('OpaqueKeyStore'),
         ExternalFunction('nestedPairs'),
         ExternalClass('PlainStore'),
         ExternalClass('SetterThenBox'),

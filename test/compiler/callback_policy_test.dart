@@ -598,10 +598,6 @@ typedef Bytes = Uint8List;
 } @NAPI() int run(Projection Function() callback) => 1;''',
       'NAPI_VALUE_INPUT',
     ),
-    'opaque Map key': (
-      '@NAPI() int run<T>(Map<T,int> Function() callback) => 1;',
-      'NAPI_OPAQUE_KEY',
-    ),
     'dynamic handle element': (
       '@NAPI() int run(JsArray<List<dynamic>> Function() callback) => 1;',
       'NAPI_JS_COLLECTION',

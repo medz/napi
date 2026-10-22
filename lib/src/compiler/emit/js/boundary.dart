@@ -10,6 +10,7 @@ import 'structural.dart';
 import 'settlement.dart';
 import 'shared_bytes.dart';
 import 'js_collections.dart';
+import 'opaque.dart';
 import 'streams.dart';
 
 String emitBoundary(ModulePlan plan) {
@@ -37,6 +38,17 @@ String emitBoundary(ModulePlan plan) {
   final jsCollectionLeaves = conversionGraph(conversions)
       .whereType<JsCollectionConversion>()
       .toList();
+  final hasOpaque =
+      jsCollectionLeaves.isNotEmpty ||
+      conversionDependencies(conversions).any((c) => c is OpaqueConversion) ||
+      plan.functions.any(
+        (f) => f.binding.typeParameters.any((p) => p.opaque),
+      ) ||
+      plan.classes.any(
+        (c) =>
+            c.binding.typeParameters.any((p) => p.opaque) ||
+            c.members.any((m) => m.binding.typeParameters.any((p) => p.opaque)),
+      );
   final collectionStructures = jsCollectionStructurePolicies(
     jsCollectionLeaves,
     resources: resources,
@@ -82,6 +94,7 @@ ${plan.classes.isEmpty ? '' : "import {readReference, writeReference} from './re
 ${callbacks.isEmpty ? '' : "import {writeFunction, registerCallbackSource} from './references.mjs';\nexport {unwrapFunction} from './references.mjs';"}
 ${jsCollectionLeaves.isEmpty ? '' : '$jsCollectionsPolicy\nconst \$jcPolicies = ${jsCollectionPolicies(jsCollectionLeaves)};\n$wasmJsCollectionsPolicy\n'}$sharedBytesPolicy
 $wasmSharedBytesPolicy
+${hasOpaque ? '$opaqueKeyPolicy\n$wasmOpaqueKeyPolicy' : ''}
 ${nestedOpaque ? '$opaqueStructuralPolicy\n' : ''}${signals ? '$cancellationPolicy\n$wasmCancellationPolicy' : ''}
 ${hasBinary ? '$binaryPolicy\n$wasmBinaryPolicy' : ''}
 ${resources ? '$settlementObserver\n' : ''}const policies = ${jsonEncode(policies)};

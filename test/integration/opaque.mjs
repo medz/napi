@@ -34,6 +34,70 @@ async function keep(api, check, label) {
   }
 }
 
+async function mapKeys(api) {
+  let traps = 0;
+  const hostile = new Proxy({}, {get() {traps++; throw Error('key get');}, getPrototypeOf() {traps++; throw Error('key prototype');}});
+  const revoked = Proxy.revocable(() => {}, {}); revoked.revoke();
+  const keys = [{}, {}, () => 1, hostile, revoked.proxy, Symbol(), Symbol.for('opaque key'), Symbol.iterator,
+    undefined, null, NaN, -0, Infinity, -Infinity, true, false, '', 'a\ud800\0\udfff', 1n, 1, 1n << 100n, -(1n << 100n)];
+  const input = new Map(keys.map((key, index) => [key, index]));
+  const store = new api.OpaqueKeyStore(input);
+  assert.equal(store.size, keys.length);
+  for (let index = 0; index < keys.length; index++) {
+    const key = keys[index];
+    assert(store.has(key)); assert.equal(store.get(key), index);
+    assert.equal(await store.later(key), index);
+  }
+  assert.equal(traps, 0); assert.equal(store.get({}), null); assert.equal(store.get(Symbol()), null);
+  assert.equal(store.get(0), keys.indexOf(-0));
+  const copy = store.snapshot(); assert.notEqual(copy, input); assert.equal(copy.size, input.size);
+  for (const [key, value] of input) assert.equal(copy.get(key), value);
+  store.set(undefined, 90); assert.equal(store.get(undefined), 90); assert.equal(input.get(undefined), keys.indexOf(undefined));
+  const absent = store.withAbsent(undefined);
+  assert.equal(absent.get(null), 0); assert.equal(absent.get(undefined), 1);
+  assert.throws(() => store.withAbsent(null), /duplicate converted Map key/);
+  assert.throws(() => store.get(), TypeError);
+  const zero = new api.OpaqueKeyStore(new Map());
+  zero.set(-0, 1); zero.set(0, 2); assert.equal(zero.size, 1); assert.equal(zero.get(-0), 2);
+  assert(Object.is(zero.keys()[0], -0), 'hashing changed the stored opaque negative zero');
+  zero.clear(); zero.set(0, 1); zero.set(-0, 2); assert(Object.is(zero.keys()[0], 0));
+  const record = {key: hostile, tag: 1}, records = store.records(new Map([[record, 7]]));
+  const recordKey = [...records.keys()][0];
+  assert.notEqual(recordKey, record); assert.equal(recordKey.key, hostile);
+  for (const pair of [[hostile, hostile], [NaN, NaN], [0, -0], [undefined, undefined]]) {
+    assert.throws(() => store.records(new Map([[{key: pair[0], tag: 1}, 1], [{key: pair[1], tag: 1}, 2]])), /duplicate converted Map key/);
+  }
+  assert.equal(store.records(new Map([[{key: null, tag: 1}, 1], [{key: undefined, tag: 1}, 2]])).size, 2);
+  const nested = [new Map([[hostile, 9]])];
+  assert.equal(store.copiedKeys(nested, hostile), 9); assert.notEqual(nested[0], nested[1]); assert.equal(nested[1].get(hostile), 9);
+  assert.equal(store.callback(value => {assert.equal(value.get(hostile), keys.indexOf(hostile)); return new Map([[hostile, 10]]);}, hostile), 10);
+  const originalBigIntText = BigInt.prototype.toString, originalSymbolKey = Symbol.keyFor;
+  try {
+    BigInt.prototype.toString = () => {throw Error('bigint coercion');};
+    Symbol.keyFor = () => {throw Error('symbol coercion');};
+    assert.equal(store.get(1n << 100n), keys.indexOf(1n << 100n));
+    assert.equal(store.get(Symbol.for('opaque key')), keys.indexOf(Symbol.for('opaque key')));
+  } finally {BigInt.prototype.toString = originalBigIntText; Symbol.keyFor = originalSymbolKey;}
+  assert.equal(store.remove(hostile), keys.indexOf(hostile)); assert(!store.has(hostile)); assert.equal(traps, 0);
+}
+
+async function mapKeyRetention(api) {
+  function retained() {
+    const key = {}, weak = new WeakRef(key);
+    return {weak, store: new api.OpaqueKeyStore(new Map([[key, 1]]))};
+  }
+  const {weak, store} = retained();
+  await keep(api, () => weak.deref() !== undefined, 'opaque Map key');
+  store.clear(); await collect(api, () => weak.deref() === undefined, 'cleared opaque Map key');
+  function failed() {
+    const key = {}, weak = new WeakRef(key);
+    assert.throws(() => new api.OpaqueKeyStore(new Map([[key, 'wrong']])), TypeError);
+    return weak;
+  }
+  const rejected = failed();
+  await collect(api, () => rejected.deref() === undefined, 'failed opaque Map key admission');
+}
+
 async function values(api) {
   const external = await import('@napi/opaque-external');
   let traps = 0;
@@ -752,6 +816,12 @@ async function scenario(name) {
   }
   const api = await import(packageName);
   switch (name) {
+    case 'map-keys':
+      await mapKeys(api); await mapKeys(await import('@napi/opaque-external'));
+      break;
+    case 'map-key-retention':
+      await mapKeyRetention(api); await mapKeyRetention(await import('@napi/opaque-external'));
+      break;
     case 'values': await values(api); break;
     case 'nested':
       await nestedValues(api);
@@ -904,6 +974,7 @@ async function scenario(name) {
 }
 
 if (!isMainThread) {
+  await mapKeys(await import(packageName));
   const api = await import(packageName);
   const router = new api.Router();
   const value = {worker: true};
@@ -934,13 +1005,14 @@ if (!isMainThread) {
   child.wait({pending: true});
   api.opaquePressure(1);
   if (workerData.held) {
+    globalThis.heldKeys = new api.OpaqueKeyStore(new Map([[{held: true}, 1]]));
     setInterval(() => {}, 1000);
     parentPort.postMessage('ready');
   }
 } else if (process.argv[2]) {
   await scenario(process.argv[2]);
 } else {
-  const cases = ['values', 'nested', 'nested-retention', 'presence', 'future-values', 'thenables', 'future-unhandled',
+  const cases = ['map-keys', 'map-key-retention', 'values', 'nested', 'nested-retention', 'presence', 'future-values', 'thenables', 'future-unhandled',
     'external', 'named', 'named-retention', 'retention', 'overwrite-remove',
     'cycles', 'pending', 'methods', 'inherited-methods', 'method-retention', 'method-resources', 'hierarchy', 'hierarchy-retention', 'independent', 'worker-only', 'workers-with-main'];
   for (const name of cases) {

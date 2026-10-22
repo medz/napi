@@ -512,7 +512,20 @@ final class _PendingFuture {
 final class NativeHostValue {
   final NapiApi _api;
   int _slot;
+  int? _hash;
   NativeHostValue._(this._api, this._slot);
+
+  @override
+  int get hashCode => _hash ??= _api._hostValueHash(this);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is NativeHostValue &&
+          identical(_api, other._api) &&
+          _slot != 0 &&
+          other._slot != 0 &&
+          _api._hostValuesEqual(this, other);
 
   /// Release once from this owner's active Dart callback or event pump.
   void release() {
@@ -1415,6 +1428,40 @@ final class NapiApi {
       throw StateError('Native host value belongs to a different owner.');
     }
     if (value._slot == 0) throw StateError('Native host value is released.');
+  }
+
+  int _hostValueHash(NativeHostValue value) {
+    final env = _hostEnv!;
+    return _invokeCallback(env, _getCallbackHelper(env, 0), 2, (env, args) {
+      _borrowHostValue(env, value, args);
+      args[1] = Pointer.fromAddress(integerResult(env, 6, 'opaque hash'));
+    }, (env, hash) => integer(env, hash, 'opaque hash'));
+  }
+
+  bool _hostValuesEqual(NativeHostValue left, NativeHostValue right) {
+    final env = _hostEnv!;
+    final buffer = _allocate<Pointer<Void>>(3, sizeOf<Pointer<Void>>());
+    var opened = false;
+    try {
+      _check(_openCallbackHandles(env, buffer));
+      opened = true;
+      _borrowHostValue(env, left, buffer + 1);
+      _borrowHostValue(env, right, buffer + 2);
+      final a = buffer[1], b = buffer[2];
+      if (strictEquals(env, a, b)) return true;
+      return typeOf(env, a) == 3 &&
+          typeOf(env, b) == 3 &&
+          doubleValue(env, a, 'opaque key').isNaN &&
+          doubleValue(env, b, 'opaque key').isNaN;
+    } catch (error, stack) {
+      Error.throwWithStackTrace(_callbackError(env, error), stack);
+    } finally {
+      try {
+        if (opened) _check(_closeCallbackHandles(env, buffer.value));
+      } finally {
+        _free(buffer.cast());
+      }
+    }
   }
 
   int _result(int Function(Pointer<Pointer<Void>>) create) {
