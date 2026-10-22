@@ -208,8 +208,9 @@ specialization. Every referenced value instance must be selected: `Box<Box<int>>
 requires a selected `Box<int>` schema. An unselected expanding instance such as
 `Node<List<int>>` is diagnosed, not instantiated automatically. Each
 specialization resolves its input constructor from the selected Dart declaration:
-the public unnamed constructor takes precedence, otherwise a sole public named
-constructor or factory is used. A specialization without an unambiguous callable
+an explicitly selected public constructor or factory takes precedence, followed
+by the public unnamed constructor, or a sole public named constructor or factory.
+A specialization without an unambiguous callable
 constructor is output-only. Defaults, bigint policy, copy semantics and whole-root
 validation before construction remain unchanged.
 

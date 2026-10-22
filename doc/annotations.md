@@ -63,7 +63,8 @@ signature and remain selected for export.
 
 Both targets generate [reference classes](classes.md), including
 [Future-returning calls](futures.md), and
-[structural value classes](values.md). Value inputs use the public unnamed
+[structural value classes](values.md). Value inputs use an explicitly selected
+public constructor or factory first. Otherwise they use the public unnamed
 constructor, or the sole public named constructor/factory. Parameters determine
 input properties; matching readable members supply their public renames, with
 optional `valueFields` overrides for different names. Without an unambiguous
@@ -74,15 +75,14 @@ uses the selected method's export name and supported parameters, returns
 `Promise<void>` for Dart `void` or `Future<void>`, and waits for accepted operation
 leases. Excluding the cleanup method prevents a resource build.
 
-Direct function-typed inputs generate [callbacks](callbacks.md) on both targets,
-including constructors, methods, setters, Future-returning exports and resource
-cleanup. The Dart function's reachability retains its JS callback, with weak
-adapter identity across calls. Callback parameters must be required positional.
-Arguments and results support scalars, JS collection handles, and Lists/records
-containing them; results may also be void or Future-based. Handle elements may
-use an enclosing declaration's opaque parameters. Nullable outer inputs preserve
-presence rules. Exporting a callback, nesting a callback, callback-owned generic
-parameters and bare opaque callback payloads remain unsupported.
+Typed Dart functions generate [callbacks and callable facades](callbacks.md) on
+both targets. They can be arguments, results, class members and leaves in
+supported structural containers and JS collection handles. Dart reachability
+retains a JS callback; a weak cache preserves compatible adapter identity across
+calls. Required, optional positional and named parameters use the function
+mapping described in the callback guide. Enclosing opaque type parameters may
+appear in supported callback signatures. Generic function types and JavaScript
+callbacks returning Streams remain unsupported.
 
 ## Library resolution
 

@@ -259,7 +259,9 @@ their leaves become unreachable; cross-heap cycles still require the explicit
 break described above. `JsArray`/`JsMap` handles may be nested inside copied
 containers and value classes. Their adapters follow ordinary Dart reachability:
 a later conversion failure does not invalidate a handle already stored by Dart.
-Callbacks themselves cannot be nested inside structural containers.
+Typed functions can be nested inside supported structural containers and JS
+collection handles; their signature and lifetime rules are described in
+[callbacks](callbacks.md).
 
 Setter-only properties read `undefined`. Their declarations also include getters
 that compatible selected views may contribute, including through an unselected
