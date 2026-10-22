@@ -43,7 +43,7 @@ Future<void> verifyPackageAssembly(Directory root) async {
     assets: {'LICENSE': File('LICENSE')},
   );
   Directory? rebuiltModule;
-  if (Platform.isMacOS) {
+  if (Platform.isMacOS || Platform.isLinux) {
     // Reuse the real compiler output: exercise replacement and npm exclusion
     // without compiling the same fixture twice.
     rebuiltModule = await Directory('${canonical.path}/rebuild input').create();

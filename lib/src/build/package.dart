@@ -321,7 +321,7 @@ Future<Directory> _assemblePackage({
       assets: selectedAssets,
       autoPlatform: autoPlatform,
     );
-    previous?.copyDirectoryMetadata(staging);
+    previous?.copyMetadata(staging, replacedFiles: files.keys.toSet());
     await previous?.checkUnchanged();
     if (previous == null) {
       publishDirectory(staging, target);

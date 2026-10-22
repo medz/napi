@@ -267,13 +267,21 @@ final class PackageOwnership {
     }
   }
 
-  /// Apply directory metadata after all child writes, including the root.
-  void copyDirectoryMetadata(Directory staging) {
+  /// Restore retained metadata after writes, with directories after children.
+  void copyMetadata(Directory staging, {required Set<String> replacedFiles}) {
     for (final entry in _entries.entries.toList().reversed) {
       if (entry.value.hash == null) {
         copyPackageDirectoryMetadata(
           Directory(path.join(directory.path, entry.key)),
           Directory(path.join(staging.path, entry.key)),
+        );
+      } else if (!artifacts.contains(entry.key) &&
+          entry.key != packageOwnershipFile &&
+          !replacedFiles.contains(entry.key)) {
+        copyPackageFileMetadata(
+          File(path.join(directory.path, entry.key)),
+          File(path.join(staging.path, entry.key)),
+          preserveTimes: entry.key != 'package.json',
         );
       }
     }
