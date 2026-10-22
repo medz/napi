@@ -59,6 +59,8 @@ and [JS collection handles](https://github.com/medz/napi/blob/v0.18.0/doc/collec
 
 ### Defaults and build fixes
 
+- Fix dual-target packages failing with an internal error for open generic value
+  classes and partially open value aliases.
 - Resource defaults in value-class constructors participate in operation leases.
   Resources are found in actual stored constant state, including inherited
   fields; discarded constructor arguments do not acquire extra leases.

@@ -155,11 +155,16 @@ Map<String, Object?> _contract(
               DeclaredType(
                 schema.binding.declaration,
                 ValueSemantics.reference,
+                typeArguments: [
+                  for (final parameter in schema.binding.typeParameters)
+                    TypeParameterType(parameter.declaration),
+                ],
               ),
           schema.binding.exportName,
           bigint: false,
           classes: bindings.classes,
           valueSchemas: values,
+          opaqueParameters: opaqueParameterIds(schema.binding.typeParameters),
         ),
       ),
   };
