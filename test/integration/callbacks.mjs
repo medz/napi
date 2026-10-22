@@ -238,6 +238,46 @@ function functionCollectionValues(api, add, javascript, normalize, normalized) {
   assert.deepEqual(asymmetric[0]({source: '12'}), {value: 13});
   assert.equal(api.normalizedFunctionHandle(asymmetric).same, true);
   assert.throws(() => api.normalizedFunctionHandle([value => value]), TypeError);
+  functionKeyValues(api, add, javascript, normalize, normalized);
+}
+
+function functionKeyValues(api, add, javascript, normalize, normalized) {
+  const source = new Map([[javascript, 7]]), owner = new api.FunctionKeyMap(source);
+  assert.equal(owner.values, source); assert.equal(owner.first(), javascript);
+  assert.equal(owner.callFirst(2), 6); assert.equal(owner.has(javascript), true);
+  assert.equal(owner.read(javascript), 7); assert.equal(owner.read(add), null);
+  owner.write(add, 9); assert.equal(source.get(add), 9);
+  assert.equal(owner.remove(javascript), true); assert.equal(owner.remove(javascript), false);
+  assert.equal(owner.first(), add); assert.equal(owner.callFirst(3), 5);
+  for (const invalid of [null, undefined, 3, {}]) {
+    assert.throws(() => owner.has(invalid), TypeError);
+    const bad = new api.FunctionKeyMap(new Map([[invalid, 7]]));
+    assert.throws(() => bad.first(), /JsMap key/);
+  }
+  const lazy = new Map([[javascript, 1], [3, 2]]);
+  assert.equal(new api.FunctionKeyMap(lazy).first(), javascript);
+  const reason = {functionKey: true};
+  exact(() => new api.FunctionKeyMap(new Map([[() => {throw reason;}, 7]])).callFirst(2), reason);
+  assert.throws(() => new api.FunctionKeyMap(new Map([[() => 'bad', 7]])).callFirst(2), TypeError);
+  const nullable = new Map([[null, 3], [javascript, 4]]);
+  assert.deepEqual(api.nullableFunctionKeys(nullable, null), {map: nullable, first: null, value: 3, removed: true});
+  assert.equal(nullable.has(null), false); assert.equal(nullable.get(javascript), 4);
+  assert.deepEqual(api.nullableFunctionKeys(nullable, javascript), {map: nullable, first: javascript, value: 4, removed: true});
+  assert.equal(nullable.size, 0);
+  const identity = value => value;
+  Object.defineProperty(identity, 'then', {get() {throw Error('function keys must not inspect then');}});
+  for (const value of [{payload: true}, javascript, Symbol('key'), null, undefined]) {
+    const map = new Map([[identity, value]]), result = api.opaqueFunctionKeys(map, identity, value);
+    assert.equal(result.map, map); assert.equal(result.value, value); assert.equal(map.get(identity), value);
+  }
+  const raw = new Map([[normalize, 7]]), converted = api.normalizedFunctionKey(raw);
+  assert.equal(converted.map, raw); assert.equal(converted.key, normalized);
+  assert.equal(converted.present, false); assert.equal(converted.value, 8);
+  assert.equal(raw.size, 1); assert.equal(raw.get(normalize), 7);
+  assert.deepEqual(converted.key({source: '12'}), {value: 13});
+  assert.throws(() => converted.key({value: 12}), TypeError);
+  const canonical = new Map([[normalized, 7]]), restored = api.normalizedFunctionKey(canonical);
+  assert.equal(restored.present, true); assert.equal(restored.key, normalized); assert.equal(canonical.size, 0);
 }
 
 async function asyncFunctionValues(api) {
@@ -266,6 +306,22 @@ async function asyncFunctionValues(api) {
   assert.equal(api.functionHandleValues(source, map, adaptive).result, 10);
   await assert.rejects(api.asyncFunctionHandle([value => value], asynchronous), TypeError);
   await assert.rejects(api.asyncFunctionHandle([async () => 'bad'], asynchronous), TypeError);
+  let complete;
+  const key = value => new Promise(resolve => {complete = () => resolve(value + 1);});
+  const keyed = new Map([[key, 7]]), pending = api.asyncFunctionKeys(keyed);
+  await new Promise(resolve => setImmediate(resolve));
+  keyed.clear(); global.gc(); complete();
+  const keys = await pending;
+  assert.equal(keys.map, keyed); assert.equal(keys.key, key); assert.equal(keys.value, 3);
+  assert.equal(keyed.get(key), 8);
+  await assert.rejects(api.asyncFunctionKeys(new Map([[value => value, 7]])), TypeError);
+  await assert.rejects(api.asyncFunctionKeys(new Map([[async () => 'bad', 7]])), TypeError);
+  const resourceId = 917, cleanups = api.callbackCleanups(resourceId), resource = new api.CallbackResource(resourceId);
+  let closing;
+  const close = value => {closing = value.close(); assert.equal(api.callbackCleanups(resourceId), cleanups); return value;};
+  const resources = new Map([[close, 7]]);
+  assert.equal(api.resourceFunctionKey(resources, resource), resource);
+  await closing; assert.equal(api.callbackCleanups(resourceId), cleanups + 1); assert.equal(resources.has(close), true);
 }
 
 function payloadValues(api) {
@@ -1418,6 +1474,8 @@ async function scenario(name) {
         'functionHandleValues', 'callListFunctionHandle', 'nullableFunctionHandles', 'asyncFunctionHandle',
         'callNestedListFunctionHandle',
         'opaqueFunctionHandles', 'copiedFunctionHandle', 'normalizedFunctionHandle',
+        'FunctionKeyMap', 'nullableFunctionKeys', 'asyncFunctionKeys', 'opaqueFunctionKeys',
+        'normalizedFunctionKey', 'resourceFunctionKey',
       ].sort());
       assert.equal(external.plainCallback(n => n + 1, 3), 4);
       assert.throws(() => external.plainCallback(), TypeError);

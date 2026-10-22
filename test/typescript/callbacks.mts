@@ -298,6 +298,30 @@ type StoredNormalizedFunction =
   | ((value: {source: string}) => api.CallbackNormalized);
 const normalizedFunctions: {values: StoredNormalizedFunction[]; before: api.CallbackNormalized; after: api.CallbackNormalized; same: boolean} =
   api.normalizedFunctionHandle([(value: api.CallbackNormalized) => ({source: String(value.value)})]);
+const functionKeyMap = new api.FunctionKeyMap(new Map([[adder, 7]]));
+const functionKey: (value: number) => number = functionKeyMap.first();
+functionKeyMap.has(adder); functionKeyMap.read(adder); functionKeyMap.write(adder, 9); functionKeyMap.remove(adder);
+new externalHandles.FunctionKeyMap(new Map([[adder, 7]])).has(adder);
+new direct.FunctionKeyMap(new Map([[adder, 7]])).has(adder);
+const nullableFunctionKeys = api.nullableFunctionKeys(new Map<((value: number) => number) | null, number>([[null, 3]]), null);
+const asyncFunctionKeys: Promise<{map: Map<(value: number) => Promise<number>, number>; key: (value: number) => Promise<number>; value: number}> =
+  api.asyncFunctionKeys(new Map([[asyncAdder, 7]]));
+const opaqueFunctionKeys = api.opaqueFunctionKeys<undefined>(new Map([[value => value, undefined]]), value => value, undefined);
+const normalizedKey = api.normalizedFunctionKey(new Map<StoredNormalizedFunction, number>([
+  [(value: api.CallbackNormalized) => ({source: String(value.value)}), 7],
+]));
+const normalizedKeyValue: api.CallbackNormalized = normalizedKey.key({source: '12'});
+api.resourceFunctionKey(new Map([[resourceFunction, 7]]), resource);
+// @ts-expect-error Function keys retain their result type.
+new api.FunctionKeyMap(new Map([[() => 'bad', 7]]));
+// @ts-expect-error Non-null function keys exclude null.
+new api.FunctionKeyMap(new Map([[null, 7]]));
+// @ts-expect-error Nullable function keys still exclude undefined.
+api.nullableFunctionKeys(new Map([[undefined, 7]]), null);
+// @ts-expect-error Future-returning function keys require Promise signatures.
+api.asyncFunctionKeys(new Map([[adder, 7]]));
+// @ts-expect-error A converted function facade takes constructor inputs.
+normalizedKey.key({value: 12});
 externalHandles.functionHandleValues([adder], new Map([['add', adder]]), adder);
 direct.nullableFunctionHandles([null], new Map(), 0, null);
 // @ts-expect-error Function handle values preserve their callback result type.
