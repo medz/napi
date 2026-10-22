@@ -563,6 +563,28 @@ async function values(api) {
 
 
 async function partialAliases(api) {
+  for (const Type of [api.GenericResourceChild, api.GenericResourceLeaf]) {
+    const before = api.partialCloses(), payload = {};
+    const overrides = api.genericResourceCloses();
+    const resource = new Type(payload);
+    assert(resource instanceof api.ResourcePair);
+    assert(resource instanceof api.GenericResourceChild);
+    assert.equal(resource.self(), resource);
+    assert.equal(api.ResourcePair.prototype.self.call(resource), resource);
+    const pending = api.ResourcePair.prototype.later.call(resource);
+    const parentClose = api.ResourcePair.prototype.close.call(resource);
+    const childClose = resource.close();
+    assert.equal(api.partialCloses(), before);
+    assert.equal(await pending, payload);
+    await Promise.all([parentClose, childClose]);
+    assert.equal(api.partialCloses(), before + 1);
+    assert.deepEqual(api.genericResourceCloses(), {
+      child: overrides.child + 1,
+      leaf: overrides.leaf + (Type === api.GenericResourceLeaf ? 1 : 0),
+    });
+    assert.throws(() => resource.second);
+    assert.throws(() => api.ResourcePair.prototype.self.call(resource));
+  }
   for (const payload of [undefined, null, {}, Symbol('nested'), () => 9]) {
     const source = new Map([['values', [payload]]]);
     const pair = new api.NestedIntPair(1, source);
