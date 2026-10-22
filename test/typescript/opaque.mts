@@ -9,6 +9,21 @@ const un: undefined = api.identity(undefined);
 const nullable: null = api.identity(null);
 const directValue: symbol = direct.identity(Symbol('direct'));
 const router = new api.Router<string>();
+const keyStore = new api.OpaqueKeyStore<typeof item | undefined>(new Map<typeof item | undefined, number>([[item, 1], [undefined, 2]]));
+const keyValue: number | null = keyStore.get(item);
+const keySnapshot: Map<typeof item | undefined, number> = keyStore.snapshot();
+const keyLater: Promise<number | null> = keyStore.later(undefined);
+const keyRecords: Map<{key: typeof item | undefined; tag: number}, number> = keyStore.records(new Map([[{key: item, tag: 1}, 2]]));
+keyStore.set(undefined, 3); keyStore.callback(value => value, item);
+keyStore.copiedKeys([new Map([[item, 1]])], item);
+const externalKeys = new namedExternal.OpaqueKeyStore<string>(new Map([['key', 1]]));
+// @ts-expect-error Opaque key types remain explicit.
+keyStore.get('wrong');
+// @ts-expect-error A required opaque key must be supplied even when undefined is permitted.
+keyStore.get();
+// @ts-expect-error Record key leaves retain their logical payload type.
+keyStore.records(new Map([[{key: 1, tag: 1}, 2]]));
+void [keyValue, keySnapshot, keyLater, keyRecords, externalKeys];
 router.set('key', 'value');
 router.put({key: 'named', value: 'value'});
 const read: string | null = router.get('key');

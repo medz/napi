@@ -248,11 +248,6 @@ void [optional, pair, duplicated, node, parsed, projected, integer, emptyItems, 
       '@NAPI() int bad<T>(Projection<T> value) => 1;',
       'NAPI_VALUE_INPUT',
     ),
-    (
-      'opaque map key',
-      '@NAPI(classPolicy: ClassPolicy.value) class Keys<T> { Keys(this.values); final Map<T, int> values; }',
-      'NAPI_OPAQUE_KEY',
-    ),
   ]) {
     test('generic values diagnose $name', () async {
       await input.writeAsString('$_source\n$body');

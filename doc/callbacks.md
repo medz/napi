@@ -44,7 +44,8 @@ identity. Lookalikes and wrappers from another module are rejected.
 An enclosing Dart type parameter passes an [opaque payload](opaque.md) through
 unchanged, including `undefined`, functions and objects with hostile properties.
 No additional annotation is needed. It can also appear inside supported Lists,
-records, Map values and Dictionaries; opaque Map keys remain unsupported.
+records, Map keys/values and Dictionaries. Opaque keys use the
+[opaque equality contract](opaque.md#map-keys).
 
 [Binary snapshots](binary.md) and `SharedBytes` work directly or inside nullable
 Lists and records, including fulfilled Future results. `Uint8List` becomes a
@@ -221,8 +222,8 @@ containing undefined keeps its argument slot or named property, while normal
 JavaScript default expressions still apply to that undefined value. Omitted
 parameters skip payload conversion and resource admission.
 
-Generic function signatures, nullable outer Future results, FutureOr and opaque
-Map keys receive diagnostics.
+Generic function signatures, nullable outer Future results and FutureOr receive
+diagnostics.
 Stream-returning function elements in JS collection handles receive diagnostics.
 [Stream exports](streams.md) retain input
 callbacks through subscription completion. [Explicit cancellation](cancellation.md)

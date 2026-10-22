@@ -8,6 +8,7 @@ import '../emit/js/reference_views.dart';
 import '../emit/js/settlement.dart';
 import '../emit/js/shared_bytes.dart';
 import '../emit/js/js_collections.dart';
+import '../emit/js/opaque.dart';
 import '../lowering/plan.dart' show JsCollectionConversion;
 import 'plan.dart';
 
@@ -21,6 +22,7 @@ String emitNativeLoader(
   bool hasAsyncCallbacks = false,
   bool hasSignals = false,
   bool hasBinary = false,
+  bool hasOpaque = false,
   Iterable<JsCollectionConversion> jsCollections = const [],
   String? streamClassName,
 }) {
@@ -71,6 +73,7 @@ function $napiCreatePromise() {
     );
   }
   code.write(sharedBytesPolicy);
+  if (hasOpaque) code.write(opaqueKeyPolicy);
   if (hasAsyncCallbacks) {
     code.write(callbackPromisePolicy);
   }
@@ -93,6 +96,11 @@ const $napiFunctionDescriptor = Object.getOwnPropertyDescriptor;
     let next = 0;
     return function identify(callback, kind, nullable, path) {
 ''');
+  if (hasOpaque) {
+    code.writeln(
+      r'''      if (arguments.length === 2 && kind === 6) return $napiOpaqueHash(callback);''',
+    );
+  }
   if (functionValues.isNotEmpty) {
     code.writeln(r'''      if (arguments.length === 2 && kind === 5) {
         const dispatcher = $napiFunctionDispatchers[callback];

@@ -63,9 +63,8 @@ leaves. References, opaque values, handles and SharedBytes retain their respecti
 identity and ownership contracts.
 A saved Dart value is independent of later changes to its source containers. Strict
 structural validation and traversal limits apply separately to each accessed
-element, while admitting the outer handle remains lazy. As with ordinary copied
-Map bindings, keys inside a copied Dart Map cannot contain opaque values;
-this restriction does not apply to the outer JsMap's keys.
+element, while admitting the outer handle remains lazy. Keys inside a copied Dart
+Map can contain opaque values using their [equality contract](opaque.md#map-keys).
 
 Copied structural and binary Map keys become new JavaScript objects on every conversion.
 Passing a copied key back to `has`, `get` or `delete` does not address the original

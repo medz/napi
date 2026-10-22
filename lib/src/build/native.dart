@@ -1,7 +1,8 @@
 import 'dart:io';
 
 import '../compiler/ir/model.dart';
-import '../compiler/lowering/plan.dart' show AbortSignalConversion;
+import '../compiler/lowering/plan.dart'
+    show AbortSignalConversion, OpaqueConversion, conversionDependencies;
 import '../compiler/native/plan.dart';
 import '../compiler/native/entrypoint.dart';
 import '../compiler/native/declarations.dart';
@@ -54,6 +55,9 @@ Future<BuiltModule> buildNativeModule({
         classes: plan.classes,
         functionValues: plan.functionValues,
         hasBinary: plan.hasBinary,
+        hasOpaque: conversionDependencies(
+          plan.calls.expand((call) => [...call.inputs, ?call.output]),
+        ).any((value) => value is OpaqueConversion),
         jsCollections: plan.jsCollections,
         hasFutures: plan.hasFutures,
         streamClassName: plan.hasStreams ? plan.streamClassName : null,

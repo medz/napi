@@ -137,9 +137,19 @@ final class _SharedBytes implements napi.SharedBytes {
 /// A non-null Dart object keeps raw JS null and undefined distinct from Dart
 /// absence. WasmGC traces the externref directly without inspecting its value.
 const opaqueEntrypointPrelude = r'''
+@pragma('wasm:import', 'napi.opaqueHash')
+external WasmI32 _opaqueHash(WasmExternRef? value);
+@pragma('wasm:import', 'napi.opaqueEquals')
+external WasmI32 _opaqueEquals(WasmExternRef? left, WasmExternRef? right);
 final class _NapiHostValue {
   final WasmExternRef? value;
+  int? _hash;
   _NapiHostValue(this.value);
+  @override
+  int get hashCode => _hash ??= _opaqueHash(value).toIntSigned();
+  @override
+  bool operator ==(Object other) => other is _NapiHostValue &&
+      _opaqueEquals(value, other.value).toIntSigned() != 0;
 }
 ''';
 

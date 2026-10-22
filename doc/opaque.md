@@ -46,9 +46,9 @@ the separate callback feature.
 
 The default generic binding is a storage/forwarding contract, not general Dart
 runtime specialization. Generated Dart instantiates the declaration with a
-private carrier type. Business code may store, return or remove that carrier. It must
-not use casts, runtime type checks, payload method calls, equality or hash codes
-to interpret the original JS value. The compiler does not analyze the business
+private carrier type. Business code may store, return or remove that carrier,
+and use it as a Map key as described below. It must not use casts, runtime type
+checks or payload method calls to interpret the original JS value. The compiler does not analyze the business
 implementation for compliance with this contract. The same
 requirement applies to external dependencies selected with `ExternalLibrary`;
 there is no additional generic configuration.
@@ -58,6 +58,35 @@ Implicit bounds and canonical `Object`/`Object?`
 bounds accept the carrier. Other bounds fail at build time. Even a JS null or
 undefined payload is a non-null Dart carrier, so an `Object` bound does not
 restrict JS payloads to objects or exclude nullish values.
+
+## Map keys
+
+Opaque values can be keys of copied Dart Maps, including inside records,
+value classes, callbacks and explicit JS collection handles:
+
+```dart
+@NAPI()
+Map<T, int> counts<T>(List<T> values) {
+  final result = <T, int>{};
+  for (final value in values) {
+    result[value] = (result[value] ?? 0) + 1;
+  }
+  return result;
+}
+```
+
+Comparisons between opaque values use JavaScript Map's SameValueZero semantics:
+NaN equals NaN, positive and negative zero are equal, and objects, functions and
+symbols compare by identity. Null and undefined remain distinct. Hashing does not
+coerce application objects or read their properties. The original payload still
+retains its value, including negative zero; a returned JS Map normalizes zero keys
+according to its ordinary semantics.
+
+Enclosing record and value-class keys keep their Dart equality rules. Actual Dart
+null remains distinct from an opaque JS null payload. A returned Map containing
+both is rejected as a duplicate converted key, just as with other keys that
+collapse during conversion. Copying a Map does not copy its opaque key payloads.
+Key retention follows the ordinary [ownership rules](#ownership).
 
 ## Presence and TypeScript
 
