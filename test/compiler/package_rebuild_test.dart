@@ -45,6 +45,12 @@ print(json.dumps(result))
 ''';
 
 void main() {
+  String? unsupportedRebuild;
+  try {
+    checkPackageRebuildFilesystem(Directory.systemTemp);
+  } on UnsupportedError catch (error) {
+    unsupportedRebuild = error.toString();
+  }
   late Directory root;
   late Directory source;
   late Directory output;
@@ -110,19 +116,15 @@ void main() {
     },
   );
 
-  test(
-    'unsupported hosts retain managed output without attempting replacement',
-    () async {
-      await assemble();
-      await File('${source.path}/module.wasm').writeAsString('second');
-      await expectLater(assemble(), throwsUnsupportedError);
-      expect(
-        await File('${output.path}/module.wasm').readAsString(),
-        'first module.wasm',
-      );
-    },
-    skip: Platform.isMacOS || Platform.isLinux,
-  );
+  test('unsupported rebuild environments retain managed output without replacement', () async {
+    await assemble();
+    await File('${source.path}/module.wasm').writeAsString('second');
+    await expectLater(assemble(), throwsUnsupportedError);
+    expect(
+      await File('${output.path}/module.wasm').readAsString(),
+      'first module.wasm',
+    );
+  }, skip: unsupportedRebuild == null);
 
   test(
     'external package URI reaches frontend diagnostics without a file-URI cast',
@@ -256,7 +258,7 @@ void main() {
       );
       expect((await package())['version'], '1.0.0');
     });
-  }, skip: !Platform.isLinux);
+  }, skip: Platform.isLinux ? unsupportedRebuild ?? false : true);
 
   group('managed replacement', () {
     test(
@@ -782,5 +784,5 @@ void main() {
       },
       skip: !Platform.isMacOS,
     );
-  }, skip: !Platform.isMacOS && !Platform.isLinux);
+  }, skip: unsupportedRebuild ?? false);
 }

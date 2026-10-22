@@ -231,9 +231,14 @@ void main() {
   test(
     'one exchange swaps populated directories without a missing name',
     () async {
+      try {
+        checkPackageRebuildFilesystem(root);
+      } on UnsupportedError catch (error) {
+        markTestSkipped(error.toString());
+        return;
+      }
       await target.create();
       await File('${target.path}/marker').writeAsString('old');
-      checkPackageRebuildFilesystem(root);
       exchangeDirectories(source, target);
       expect(await File('${target.path}/marker').readAsString(), 'artifact');
       expect(await File('${source.path}/marker').readAsString(), 'old');

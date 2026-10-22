@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:napi/build.dart';
+import 'package:napi/src/build/publish.dart' show checkPackageRebuildFilesystem;
 
 import 'package_contents.dart';
 import 'command.dart';
@@ -43,7 +44,14 @@ Future<void> verifyPackageAssembly(Directory root) async {
     assets: {'LICENSE': File('LICENSE')},
   );
   Directory? rebuiltModule;
-  if (Platform.isMacOS || Platform.isLinux) {
+  var rebuild = true;
+  try {
+    checkPackageRebuildFilesystem(packaged);
+  } on UnsupportedError catch (error) {
+    stdout.writeln('Managed rebuild skipped: $error');
+    rebuild = false;
+  }
+  if (rebuild) {
     // Reuse the real compiler output: exercise replacement and npm exclusion
     // without compiling the same fixture twice.
     rebuiltModule = await Directory('${canonical.path}/rebuild input').create();
