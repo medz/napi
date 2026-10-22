@@ -270,8 +270,7 @@ getter outputs. Nested value classes can rename, permute or repeat those paramet
 their TypeScript aliases retain each use site's parameter order. Each occurrence
 creates a copied JS object; opaque leaves retain their original JS payloads.
 
-Opaque keys in converted Dart Maps and non-bijective open hierarchies remain
-unsupported. Concrete or erased specializations
+Non-bijective open hierarchies remain unsupported. Concrete or erased specializations
 such as `Router<String>` or raw `Router` are not interchangeable with
 `Router<T>` under this carrier policy. They receive build diagnostics.
 
