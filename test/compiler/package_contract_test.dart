@@ -64,6 +64,36 @@ void main() {
     }
   });
 
+  for (final source in [
+    '''@NAPI(classPolicy: ClassPolicy.value)
+class Box<T> { Box(this.value); final T value; }''',
+    '''class Pair<A, B> { Pair(this.first, this.value); final A first; final B value; }
+@NAPI(classPolicy: ClassPolicy.value) typedef Label<T> = Pair<String, T>;''',
+  ]) {
+    test(
+      'generic value declarations have a dual-target contract: $source',
+      () async {
+        expect(await compare(source, source), contains('<T>'));
+      },
+    );
+  }
+
+  test('generic value output differences remain incompatible', () async {
+    await expectLater(
+      compare(
+        '@NAPI(classPolicy: ClassPolicy.value) class Box<T> { Box(this.value); final T value; }',
+        '@NAPI(classPolicy: ClassPolicy.value) class Box<T> { Box(this.value); final List<T> value; }',
+      ),
+      throwsA(
+        isA<BindingDiagnostic>().having(
+          (error) => error.code,
+          'code',
+          'NAPI_PACKAGE_CONTRACT',
+        ),
+      ),
+    );
+  });
+
   final incompatible = <String, (String, String)>{
     'default': (
       '@NAPI() int run([int n = 1]) => n;',
