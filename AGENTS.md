@@ -32,6 +32,31 @@ Issues describe problems and impact only, without implementation or acceptance c
 PRs describe changes. Docs explain usage, behavior, limitations and necessary design.
 Keep development logs, local constraints and review gates out of public content.
 
+# Release writing
+
+Use the 0.17.0 entry as the style reference. CHANGELOG.md and GitHub Releases
+share one core body; only the version heading and navigation links differ.
+Keep both in sync when release notes change.
+
+- Write in English for package users: a short overview, concrete feature
+  sections, other improvements and fixes, then upgrade guidance only when needed.
+  Preserve consistent heading levels, restrained section icons, fenced-code
+  languages and links. Keep the verified version/date consistent with the
+  existing release; never invent or reset publication dates.
+- Lead with what users can now do and why it helps. Use direct technical titles
+  and short Dart plus JavaScript/TypeScript examples where they clarify the
+  behavior. Keep essential limitations next to the feature; link to versioned
+  guides for detail. Small patches may need only a few bullets.
+- Verify every claim and example against the target version's code, tests and
+  docs, and compare the full previous-release-to-target range. Group related
+  changes by user benefit, not by PR or commit. Do not claim unchanged behavior
+  as new, invent APIs or show unsupported examples, add hype, test counts or internal review logs.
+- For actual breaking changes, state who is affected and show a small actionable
+  migration diff. Do not manufacture migration steps for additive features or
+  add empty upgrade sections.
+- Editing published notes does not authorize republishing packages, moving tags
+  or changing release flags, assets or publication dates.
+
 # Code review
 
 Use the Codex GitHub connector's PR review on the final commit. Its completed
