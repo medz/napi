@@ -1,3 +1,75 @@
+## 0.18.0
+
+Generic payloads now work in value and resource classes and as keys in copied
+Maps. Selected class aliases can leave part of their Dart type arguments open.
+
+### Generic values, resources and class aliases
+
+Value and resource classes can store and forward opaque generic payloads using
+their declared `<T>` parameters. Selected generic resource ancestors support full
+parameter renaming and permutation with compatible cleanup contracts.
+
+A class alias can fix some Dart arguments and expose the remaining parameters:
+
+```dart
+class Pair<A, B> {
+  Pair(this.first, this.value);
+  final A first;
+  B value;
+}
+
+@NAPI()
+typedef IntPair<T> = Pair<int, T>;
+```
+
+JavaScript uses `new IntPair(1, payload)`. Alias patterns can also contain nullable
+and nested opaque arguments, including Lists, Maps, records and typed functions.
+Every alias parameter must occur in the selected type; ordinary open classes
+retain their separate specialization limits.
+
+[Generic aliases](https://github.com/medz/napi/blob/v0.18.0/doc/concrete-generics.md)
+and [opaque payloads](https://github.com/medz/napi/blob/v0.18.0/doc/opaque.md)
+
+### More Map key types
+
+Opaque values and JS collection handles can now be keys in copied Dart Maps,
+including through records, value classes and callbacks:
+
+```dart
+@NAPI()
+Map<T, int> counts<T>(List<T> values) {
+  final result = <T, int>{};
+  for (final value in values) {
+    result[value] = (result[value] ?? 0) + 1;
+  }
+  return result;
+}
+```
+
+The Map container is copied; opaque payloads and JS handles retain their original
+identity. Opaque keys use JS Map's SameValueZero equality, including NaN and signed
+zero. Enclosing record/value-class keys still use Dart equality, and keys that
+collapse during conversion still fail instead of overwriting an entry.
+
+`JsMap` also accepts typed function keys under the existing function conversion
+and identity rules.
+
+[Map key behavior](https://github.com/medz/napi/blob/v0.18.0/doc/opaque.md#map-keys)
+and [JS collection handles](https://github.com/medz/napi/blob/v0.18.0/doc/collections.md)
+
+### Defaults and build fixes
+
+- Resource defaults in value-class constructors participate in operation leases.
+  Resources are found in actual stored constant state, including inherited
+  fields; discarded constructor arguments do not acquire extra leases.
+- Fix sequential builds reporting an output as locked after the previous build
+  has completed.
+
+Regenerate bindings to use these conversions. Both build targets require Dart
+3.13.5; native packages currently support macOS arm64 with bridge ABI 15.
+
+[Release on GitHub](https://github.com/medz/napi/releases/tag/v0.18.0)
+
 ## 0.17.0
 
 This release adds Dart function-value exports, more element types for shared
