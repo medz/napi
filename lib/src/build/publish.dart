@@ -86,7 +86,8 @@ void checkPackageRebuildFilesystem(Directory directory) {
   }
   if (!Platform.isMacOS) {
     throw UnsupportedError(
-      'Managed package replacement is currently qualified only on macOS.',
+      'Managed package replacement requires macOS or 64-bit Linux '
+      'on a supported local filesystem.',
     );
   }
   final publisher = _publisher;
