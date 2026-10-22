@@ -918,8 +918,8 @@ typedef Unary = int Function(int);
         '@NAPI() int run(int Function(T Function<T>(T)) callback) => 1;',
     'nested untyped Function':
         '@NAPI() int run(List<Function> callbacks) => 1;',
-    'callback Stream result':
-        '@NAPI() int run(Stream<int> Function() callback) => 1;',
+    'nullable callback Stream':
+        '@NAPI() int run(Stream<int>? Function() callback) => 1;',
     'Future dynamic callback result':
         '@NAPI() int run(Future<dynamic> Function() callback) => 1;',
     'Future List dynamic callback result':

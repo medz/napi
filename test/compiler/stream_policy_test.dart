@@ -167,8 +167,8 @@ class Middle extends Parent {
       'NAPI_TYPE',
     ),
     (
-      'callback stream',
-      '@NAPI() int call(Stream<int> Function() callback) => 1;',
+      'nullable callback stream',
+      '@NAPI() int call(Stream<int>? Function() callback) => 1;',
       'NAPI_CALLBACK',
     ),
     (

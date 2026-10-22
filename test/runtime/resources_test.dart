@@ -560,6 +560,33 @@ void main() {
   });
 
   test(
+    'forked streams cancel independently before shared resource cleanup',
+    () async {
+      final control = ResourceControl.forObject(Object());
+      final first = ResourceOperation()..retain(control);
+      final second = first.fork();
+      final target1 = Object(), target2 = Object();
+      final gate = Completer<void>();
+      final events = <String>[];
+      first.attachStream(target1, (_) async {
+        events.add('first');
+        first.release();
+      });
+      second.attachStream(target2, (_) async {
+        events.add('second');
+        await gate.future;
+        second.release();
+      });
+      final closing = control.dispose(() => events.add('cleanup'));
+      await Future<void>.value();
+      expect(events, ['first', 'second']);
+      gate.complete();
+      await closing;
+      expect(events, ['first', 'second', 'cleanup']);
+    },
+  );
+
+  test(
     'stream cancellation registers resources acquired after attachment',
     () async {
       final first = ResourceControl.forObject(Object());

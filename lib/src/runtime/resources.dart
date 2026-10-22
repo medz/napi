@@ -199,6 +199,7 @@ final class ResourceOperation implements OperationLease {
 
   final _ResourceOperationGroup _group;
   bool _released = false;
+  _ResourceStreamNotice? _stream;
 
   bool get isEmpty => _released || _group.leases.isEmpty;
   @override
@@ -226,11 +227,13 @@ final class ResourceOperation implements OperationLease {
       return;
     }
     _group.leases[control] = control.retainOperation();
-    final notice = _group.stream;
-    if (notice == null) return;
-    notice.attach(control);
+    final notices = _group.streams?.toList(growable: false);
+    if (notices == null) return;
+    for (final notice in notices) {
+      if (!notice.operation.isReleased) notice.attach(control);
+    }
     if (!_released && control.state != ResourceState.open) {
-      control._cancelStreams([notice]);
+      control._cancelStreams(notices);
     }
   }
 
@@ -239,11 +242,12 @@ final class ResourceOperation implements OperationLease {
   /// [cancel] must be an unbound function: the notice keeps only a weak target,
   /// but retains this operation so an abandoned target cannot strand leases.
   void attachStream(Object target, Future<void> Function(Object) cancel) {
-    if (_released || _group.stream != null) {
+    if (_released || _stream != null) {
       throw StateError('Resource operation cannot attach another stream.');
     }
     final notice = _ResourceStreamNotice(this, target, cancel);
-    _group.stream = notice;
+    _stream = notice;
+    (_group.streams ??= []).add(notice);
     for (final control in _group.leases.keys.toList(growable: false)) {
       notice.attach(control);
       if (_released) return;
@@ -259,10 +263,13 @@ final class ResourceOperation implements OperationLease {
   void release() {
     if (_released) return;
     _released = true;
-    final notice = _group.stream;
-    if (identical(notice?.operation, this)) {
-      notice!.detach();
-      _group.stream = null;
+    final notice = _stream;
+    if (notice != null) {
+      notice.detach();
+      final streams = _group.streams!;
+      streams.remove(notice);
+      if (streams.isEmpty) _group.streams = null;
+      _stream = null;
     }
     if (--_group.scopes != 0) return;
     final leases = _group.leases.values.toList(growable: false);
@@ -281,7 +288,7 @@ final class _ResourceOperationGroup {
 
   ResourceControl? exempt;
   final leases = Map<ResourceControl, OperationLease>.identity();
-  _ResourceStreamNotice? stream;
+  List<_ResourceStreamNotice>? streams;
   int scopes = 1;
 }
 

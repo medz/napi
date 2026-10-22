@@ -2315,7 +2315,7 @@ void _validateJsCollection(
   if (!_supportedJsCollectionElements(collection, classes, opaqueParameters)) {
     throw BindingDiagnostic(
       'NAPI_JS_COLLECTION',
-      'JsArray/JsMap support scalars, selected references, binary values, SharedBytes, opaque elements, typed functions, nested JS collection handles, value classes and copied containers. Stream-returning function elements are unsupported. Copied Map keys cannot contain typed functions.',
+      'JsArray/JsMap support scalars, selected references, binary values, SharedBytes, opaque elements, typed functions, nested JS collection handles, value classes and copied containers. Copied Map keys cannot contain typed functions.',
       source,
     );
   }
@@ -2366,8 +2366,7 @@ bool _supportedJsCollectionElement(
     if (mapKey ||
         type.typeParameters.isNotEmpty ||
         type.parameters.any((parameter) => parameter.hasDefault) ||
-        isStreamType(result) ||
-        isFutureType(result) &&
+        (isFutureType(result) || isStreamType(result)) &&
             (result.nullability != TypeNullability.nonNullable ||
                 (result as DeclaredType).typeArguments.length != 1)) {
       return false;
@@ -2450,11 +2449,7 @@ bool _supportedJsCollectionElement(
       );
 }
 
-void _validateCallback(
-  FunctionTypeBinding type,
-  SourceLocation source,
-  ValueDirection direction,
-) {
+void _validateCallback(FunctionTypeBinding type, SourceLocation source) {
   Never reject(String message) =>
       throw BindingDiagnostic('NAPI_CALLBACK', message, source);
   if (type.typeParameters.isNotEmpty) {
@@ -2467,11 +2462,6 @@ void _validateCallback(
     reject('Function types cannot declare parameter defaults.');
   }
   final result = type.result;
-  if (isStreamType(result) && direction == ValueDirection.input) {
-    reject(
-      'Stream results are not supported in JavaScript callback signatures.',
-    );
-  }
   if ((isFutureType(result) || isStreamType(result)) &&
       (result.nullability != TypeNullability.nonNullable ||
           (result as DeclaredType).typeArguments.length != 1)) {
@@ -2911,7 +2901,7 @@ void _checkValueDirection(
     );
   }
   if (type is FunctionTypeBinding) {
-    _validateCallback(type, source, direction);
+    _validateCallback(type, source);
     void payload(BindingType value, ValueDirection valueDirection) {
       _checkValueDirection(
         value,

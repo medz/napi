@@ -120,7 +120,8 @@ instead. It is a different JS key from the original function; repeated conversio
 reuse the compatible facade. Use an opaque key when lookup must preserve the raw
 function regardless of its conversion signature.
 
-Stream-returning function elements are unsupported.
+Stream-returning functions accept async iterables from JS and expose Dart streams
+as async iterators, using the [callback stream mapping](callbacks.md#stream-results).
 A function stored through an opaque type parameter remains an uninterpreted JS
 value. Function signatures alone do not lease resources captured by a closure;
 resource arguments and results use the normal call lifetime rules.

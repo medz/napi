@@ -51,7 +51,9 @@ String emitNativeDart(NativeModulePlan plan) {
       )
       .exportName;
   final hasCallbacks = callbacks.isNotEmpty;
-  final hasAsyncCallbacks = callbacks.keys.any((value) => value.returnsFuture);
+  final hasAsyncCallbacks = callbacks.keys.any(
+    (value) => value.returnsFuture || value.returnsStream,
+  );
   final shapedCallbacks = callbacks.keys.any(
     (value) => value.hasParameterShape,
   );
@@ -821,7 +823,11 @@ void _emitCallbackAdapter(
     }
     final resultType = conversion.output?.dartType ?? 'void';
     code.writeln(
-      '      ${conversion.returnsFuture ? 'Future<$resultType>' : resultType} _invoke(${conversion.invocationParameters}) {',
+      '      ${conversion.returnsFuture
+          ? 'Future<$resultType>'
+          : conversion.returnsStream
+          ? 'Stream<$resultType>'
+          : resultType} _invoke(${conversion.invocationParameters}) {',
     );
     for (var i = 0; i < conversion.inputs.length; i++) {
       if (conversion.isOptionalParameter(i)) {
@@ -866,11 +872,15 @@ void _emitCallbackAdapter(
   if (resourceValues) {
     code.writeln(
       '''      final active = ResourceOperation.current;
-      final operation = active != null && !active.isReleased ? active${conversion.returnsFuture ? '.fork()' : ''} : null;''',
+      final operation = active != null && !active.isReleased ? active${conversion.returnsFuture || conversion.returnsStream ? '.fork()' : ''} : null;''',
     );
   }
   code.writeln(
-    "      return callback.${conversion.returnsFuture ? 'invokeFuture' : 'invoke'}<${conversion.output?.dartType ?? 'void'}>(${conversion.returnsFuture ? 'adapter, ' : ''}${shaped ? 'argc' : conversion.inputs.length}, (env, argv) {",
+    "      return callback.${conversion.returnsStream
+        ? 'invokeStream'
+        : conversion.returnsFuture
+        ? 'invokeFuture'
+        : 'invoke'}<${conversion.output?.dartType ?? 'void'}>(${conversion.returnsFuture ? 'adapter, ' : ''}${shaped ? 'argc' : conversion.inputs.length}, (env, argv) {",
   );
   if (inputOwners) {
     code.writeln(
@@ -981,7 +991,7 @@ void _emitCallbackAdapter(
         return operation == null ? convert() : operation.run(convert);''');
   }
   code.writeln(
-    '      }${resourceValues && conversion.returnsFuture ? ', lease: operation' : ''});',
+    '      }${resourceValues && (conversion.returnsFuture || conversion.returnsStream) ? ', ${conversion.returnsStream ? 'operation' : 'lease'}: operation' : ''});',
   );
   if (shaped) {
     code.writeln('      }');

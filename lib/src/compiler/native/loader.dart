@@ -20,6 +20,7 @@ String emitNativeLoader(
   bool hasFutures = false,
   bool hasCallbacks = false,
   bool hasAsyncCallbacks = false,
+  bool hasStreamCallbacks = false,
   bool hasSignals = false,
   bool hasBinary = false,
   bool hasOpaque = false,
@@ -77,6 +78,7 @@ function $napiCreatePromise() {
   if (hasAsyncCallbacks) {
     code.write(callbackPromisePolicy);
   }
+  if (hasStreamCallbacks) code.write(callbackStreamPolicy);
   code.writeln(r'''const $napiCallbackWeakMap = WeakMap;
 const $napiCallbackGet = WeakMap.prototype.get;
 const $napiCallbackSet = WeakMap.prototype.set;
@@ -99,6 +101,11 @@ const $napiFunctionDescriptor = Object.getOwnPropertyDescriptor;
   if (hasOpaque) {
     code.writeln(
       r'''      if (arguments.length === 2 && kind === 6) return $napiOpaqueHash(callback);''',
+    );
+  }
+  if (hasStreamCallbacks) {
+    code.writeln(
+      r'''      if (arguments.length === 2 && kind === 7) return $napiOpenCallbackStream(callback);''',
     );
   }
   if (functionValues.isNotEmpty) {

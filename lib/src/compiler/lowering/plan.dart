@@ -293,7 +293,9 @@ final class CallbackConversion extends ValueConversion {
     final result = returnsFuture
         ? 'globalThis.Promise<$payload>'
         : returnsStream
-        ? 'globalThis.AsyncIterableIterator<$payload, undefined, undefined>'
+        ? direction == ValueDirection.input
+              ? 'globalThis.AsyncIterable<$payload>'
+              : 'globalThis.AsyncIterableIterator<$payload, undefined, undefined>'
         : payload;
     final positional = <String>[];
     final named = <String>[];

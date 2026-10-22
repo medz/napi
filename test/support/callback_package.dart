@@ -38,6 +38,13 @@ Future<void> main() async {
       external: external ? const ExternalLibrary([
         ExternalFunction('plainCallback'),
         ExternalFunction('plainAsyncCallback'),
+        ExternalFunction('readCallbackStream'),
+        ExternalFunction('readPayloadStream'),
+        ExternalFunction('countCallbackStream'),
+        ExternalFunction('optionalCallbackStream'),
+        ExternalFunction('namedCallbackStream'),
+        ExternalFunction('forwardCallbackStream'),
+        ExternalFunction('callbackStreamHandles'),
         ExternalFunction('callBytes'),
         ExternalFunction('callBuffer'),
         ExternalFunction('callShared'),

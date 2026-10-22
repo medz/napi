@@ -1354,6 +1354,161 @@ async function worker(held, queued = false) {
   });
 }
 
+async function streamValues(api) {
+  let calls = 0;
+  const pending = api.readCallbackStream(value => {
+    calls++;
+    return (async function* () { yield value; yield null; yield value + 1; })();
+  }, 4);
+  assert.equal(calls, 1, 'the callback runs during the Dart call');
+  assert.deepEqual(await pending, [4, null, 5]);
+  const payload = {id: 1}, promise = Promise.resolve(4);
+  const leaves = [payload, null, undefined, promise];
+  const result = await api.readPayloadStream(value => ({
+    [Symbol.asyncIterator]() {
+      assert.equal(value, payload);
+      let index = 0;
+      return {next() { return {done: index === leaves.length, value: leaves[index++]}; }};
+    },
+  }), payload);
+  assert.equal(result.length, leaves.length);
+  for (let i = 0; i < leaves.length; i++) assert.equal(result[i], leaves[i]);
+  assert.equal(await api.countCallbackStream(async function* () { yield; yield; }), 2);
+  assert.deepEqual(await api.optionalCallbackStream(async function* (value = 42) {
+    assert.equal(arguments.length, 0); yield value;
+  }), [42]);
+  assert.deepEqual(await api.namedCallbackStream(async function* (options) {
+    assert.equal(Object.getPrototypeOf(options), null); yield options.count;
+  }), [7]);
+  let nexts = 0, returned = 0;
+  const iterator = api.forwardCallbackStream(() => ({
+    [Symbol.asyncIterator]() { return this; },
+    next() { nexts++; return {done: false, value: nexts}; },
+    return() { returned++; return {done: true}; },
+  }));
+  assert.equal(nexts, 0, 'iteration starts only when Dart subscribes');
+  assert.deepEqual({...await iterator.next()}, {done: false, value: 1});
+  await iterator.return();
+  assert.equal(returned, 1);
+  const callback = async function* (value) { yield value + 1; };
+  const array = [callback], map = new Map([[callback, 1]]);
+  assert.equal(await api.callbackStreamHandles(array, map), 5);
+  assert.equal(map.get(callback), 7);
+  assert.deepEqual({...await array[0](10).next()}, {done: false, value: 13});
+}
+
+function pendingStream(api, promise) {
+  const iterator = {[Symbol.asyncIterator]() { return this; }, next() { return promise; }};
+  const callback = () => iterator;
+  return {iterator: new WeakRef(iterator), callback: new WeakRef(callback), result: api.readCallbackStream(callback, 0)};
+}
+
+async function streamRetention(api) {
+  const gate = Promise.withResolvers();
+  const held = pendingStream(api, gate.promise);
+  for (let i = 0; i < 6; i++) {
+    await turn(); global.gc(); api.callbackPressure(i); await turn();
+    assert(held.iterator.deref(), 'pending next owns its iterator');
+  }
+  gate.resolve({done: true});
+  assert.deepEqual(await held.result, []);
+  await collect(api, () => held.iterator.deref() === undefined && held.callback.deref() === undefined, 'completed stream releases callback and iterator');
+}
+
+async function streamErrors(api) {
+  for (const value of [null, [], {}, Promise.resolve(1), {[Symbol.asyncIterator]: () => 1}]) {
+    await assert.rejects(api.readCallbackStream(() => value, 1), TypeError);
+  }
+  const error = {stream: true};
+  await exactRejection(api.readCallbackStream(() => { throw error; }, 1), error);
+  await exactRejection(api.readCallbackStream(() => ({get [Symbol.asyncIterator]() { throw error; }}), 1), error);
+  for (const value of [undefined, null, false, 3n, error]) {
+    await exactRejection(api.readCallbackStream(() => ({
+      [Symbol.asyncIterator]() { return this; },
+      next() { return Promise.reject(value); },
+    }), 1), value);
+  }
+  let returns = 0;
+  await assert.rejects(api.readCallbackStream(() => ({
+    [Symbol.asyncIterator]() { return this; },
+    next() { return {done: false, value: 'bad'}; },
+    return() { returns++; return {done: true}; },
+  }), 1), TypeError);
+  assert.equal(returns, 1, 'invalid payload conversion closes the iterator');
+  await assert.rejects(api.readCallbackStream(() => ({
+    [Symbol.asyncIterator]() { return this; },
+    next() { return {done: false, value: 'bad'}; },
+    return() { return Promise.reject(error); },
+  }), 1), TypeError);
+  const original = {next: true};
+  await exactRejection(api.readCallbackStream(() => ({
+    [Symbol.asyncIterator]() { return this; },
+    next() { throw original; },
+    return() { throw error; },
+  }), 1), original);
+  const invalidClose = api.forwardCallbackStream(() => ({
+    [Symbol.asyncIterator]() { return this; },
+    next() { return {done: false, value: 1}; },
+    return() { return 1; },
+  }));
+  await invalidClose.next();
+  await assert.rejects(invalidClose.return(), TypeError);
+  for (const [next, expected] of [
+    [() => 1, null],
+    [() => ({get done() { throw error; }}), error],
+    [() => ({done: false, get value() { throw error; }}), error],
+  ]) {
+    const result = api.readCallbackStream(() => ({[Symbol.asyncIterator]() { return {next}; }}), 1);
+    if (expected === null) await assert.rejects(result, TypeError);
+    else await exactRejection(result, expected);
+  }
+  assert.deepEqual(await api.readCallbackStream(() => ({
+    [Symbol.asyncIterator]() { return this; },
+    next() { return {done: true, get value() { throw error; }}; },
+    get return() { throw error; },
+  }), 1), []);
+}
+
+async function streamResources(api) {
+  const resource = new api.CallbackResource(8100);
+  let returned = 0;
+  assert.equal(await resource.applyStream(async function* (value) {
+    try { assert.equal(value, resource); yield value.id; }
+    finally { returned++; }
+  }), 8100);
+  assert.equal(returned, 1);
+  await resource.close();
+  assert.equal(api.callbackCleanups(8100), 1);
+
+  const pendingResource = new api.CallbackResource(8101);
+  let fulfill;
+  const pending = pendingResource.applyStream(() => ({
+    [Symbol.asyncIterator]() { return this; },
+    next() { return new Promise(resolve => { fulfill = resolve; }); },
+    return() { returned++; return {done: true}; },
+  }));
+  const failed = assert.rejects(pending, /No element/);
+  await until(() => fulfill !== undefined, 'next must be pending');
+  const closing = pendingResource.close();
+  await turn();
+  assert.equal(api.callbackCleanups(8101), 0, 'accepted next retains resources until it settles');
+  fulfill({get done() { throw Error('cancelled result must not be inspected'); }});
+  await Promise.all([failed, closing]);
+  assert.equal(api.callbackCleanups(8101), 1);
+
+  const unopened = new api.CallbackResource(8102), error = {return: true};
+  let closes = 0;
+  const iterator = unopened.stream(() => ({
+    [Symbol.asyncIterator]() { return this; },
+    next() { throw Error('unlistened stream must not pull'); },
+    return() { closes++; throw error; },
+  }));
+  await exactRejection(unopened.close(), error);
+  assert.equal(closes, 1);
+  assert.equal(api.callbackCleanups(8102), 1);
+  await iterator.return();
+}
+
 async function scenario(name) {
   if (name === 'worker-only') {
     for (let round = 0; round < 2; round++) { await worker(false); await worker(true); }
@@ -1435,12 +1590,17 @@ async function scenario(name) {
     case 'async-errors': await asyncErrors(api); break;
     case 'async-retention': await asyncRetention(api); break;
     case 'async-resources': await asyncResources(api); break;
+    case 'stream-values': await streamValues(api); break;
+    case 'stream-errors': await streamErrors(api); break;
+    case 'stream-resources': await streamResources(api); break;
+    case 'stream-retention': await streamRetention(api); break;
     case 'js-handles': handleValues(api); break;
     case 'async-handles': await asyncHandles(api); break;
     case 'foreign-owner': await foreignOwner(api); break;
     case 'pending-natural-exit': {
       api.registerAsyncCallback(() => new Promise(() => {}));
       api.invokeAsyncRegistered(0, 1);
+      pendingStream(api, new Promise(() => {}));
       break;
     }
     case 'queued-teardown': await worker(false, true); break;
@@ -1453,6 +1613,8 @@ async function scenario(name) {
         'callNullableHandle', 'callPayloadHandles', 'callShared', 'callWideHandle',
         'callbackHandleOrder', 'callbackPressure', 'clearBinaryCallback', 'clearCallbackHandle',
         'invokeBinaryRecord', 'plainAsyncCallback', 'plainCallback', 'readCallbackHandle', 'sameHandleSignature',
+        'readCallbackStream', 'readPayloadStream', 'countCallbackStream', 'forwardCallbackStream', 'callbackStreamHandles',
+        'optionalCallbackStream', 'namedCallbackStream',
         'sameOpaqueHandleSignature', 'sameWideHandleSignature',
         'callContainers', 'callAsyncContainers', 'callKeyMap', 'callNormalized', 'selectValue',
         'callProjection', 'readProjectionCallback', 'callReference', 'callNewResource',
@@ -1490,6 +1652,7 @@ async function scenario(name) {
       payloadValues(external); await asyncPayloadValues(external);
       optionalArguments(external); await asyncOptionalArguments(external);
       functionValues(external); await asyncFunctionValues(external);
+      await streamValues(external); await streamErrors(external); await streamResources(external);
       await payloadResources(external); await retainedPayloads(external);
       break;
     }
@@ -1518,8 +1681,10 @@ if (!isMainThread) {
   payloadValues(api); await asyncPayloadValues(api); await payloadResources(api);
   optionalArguments(api); await asyncOptionalArguments(api);
   functionValues(api); await asyncFunctionValues(api);
+  await streamValues(api);
   api.registerAsyncCallback(() => new Promise(() => {}));
   api.invokeAsyncRegistered(0, 1);
+  pendingStream(api, new Promise(() => {}));
   if (workerData.queued) {
     for (let i = 0; i < 1000; i++) api.callAsync(() => Promise.resolve(i), i);
     process._tickCallback();

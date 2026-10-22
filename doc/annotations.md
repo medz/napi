@@ -81,8 +81,9 @@ supported structural containers and JS collection handles. Dart reachability
 retains a JS callback; a weak cache preserves compatible adapter identity across
 calls. Required, optional positional and named parameters use the function
 mapping described in the callback guide. Enclosing opaque type parameters may
-appear in supported callback signatures. Generic function types and JavaScript
-callbacks returning Streams remain unsupported.
+appear in supported callback signatures. JavaScript callbacks can return
+Promises or async iterables for Dart Future or Stream results. Generic function
+types remain unsupported.
 
 ## Library resolution
 

@@ -162,8 +162,9 @@ String _emitCallbacks(
   required Map<String, int> functionContracts,
 }) {
   final asynchronous = callbacks.values.any(
-    (callback) => callback.returnsFuture,
+    (callback) => callback.returnsFuture || callback.returnsStream,
   );
+  final streams = callbacks.values.any((callback) => callback.returnsStream);
   final source = StringBuffer(r'''
 const callbackApply = Reflect.apply;
 const callbackAdapters = new WeakMap();
@@ -240,8 +241,10 @@ function settleCallback(record, envelope) {
 }
 ''');
   }
+  if (streams) source.writeln(callbackStreamPolicy);
   final synchronousCases = StringBuffer();
   final asynchronousCases = StringBuffer();
+  final streamCases = StringBuffer();
   for (final entry in callbacks.entries) {
     final id = entry.key;
     final callback = entry.value;
@@ -281,6 +284,12 @@ function settleCallback(record, envelope) {
       source.writeln(boundary.source);
       read =
           '${boundary.read}(value, ${jsonEncode(output.context)}, {work: 0, active: new Set()${resources ? ', operation' : ''}}, 0)';
+    }
+    if (callback.returnsStream) {
+      streamCases.writeln('''      case $id: {
+        const value = result.value;
+        return {threw: false, done: false, value: $read};
+      }''');
     }
     final cases = callback.returnsFuture ? asynchronousCases : synchronousCases;
     cases.writeln('      case $id: {');
@@ -350,6 +359,10 @@ function settleCallback(record, envelope) {
           settleCallback(record, envelope);
         }, value => { settleCallback(record, {threw: true, value}); });
         return null;''');
+    } else if (callback.returnsStream) {
+      cases.writeln(
+        '        return {threw: false, value: \$napiOpenCallbackStream(value)};',
+      );
     } else {
       cases.writeln('        return {threw: false, value: $read};');
     }
@@ -381,6 +394,33 @@ $asynchronousCases      default: throw new Error('Unknown async callback convers
     }
   } catch (value) {
     if (state.pending !== null) { for (const undo of state.pending) undo(); }
+    releaseCallback(record);
+    return {threw: true, value};
+  }
+}''');
+  }
+  if (streams) {
+    source.writeln('''
+export function callbackStreamDone(envelope) { return envelope.done ? 1 : 0; }
+export function startCallbackStream(control, cancel, context, deliver, roots${resources ? ', retain' : ''}) {
+${resources ? '  const operation = {retain};\n' : ''}  const record = {callback: control, promise: null, deliver, roots, done: false};
+  callbackApply(pendingCallbackAdd, pendingCallbacks, [record]);
+  try {
+    record.promise = control(cancel !== 0);
+    \$napiObserveCallbackPromise(record.promise, result => {
+      let envelope;
+      try {
+        envelope = (() => {
+          if (result.done) return {threw: false, done: true};
+          switch (context) {
+$streamCases          default: throw new Error('Unknown stream callback conversion context');
+          }
+        })();
+      } catch (value) { envelope = {threw: true, value}; }
+      settleCallback(record, envelope);
+    }, value => { settleCallback(record, {threw: true, value}); });
+    return null;
+  } catch (value) {
     releaseCallback(record);
     return {threw: true, value};
   }

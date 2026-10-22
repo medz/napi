@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import '../../api/shared_bytes.dart';
 import '../../api/js_collections.dart';
 import '../../runtime/cancellation.dart';
+import '../../runtime/callback_stream.dart';
 import '../../runtime/resources.dart';
 import '../../runtime/retention.dart';
 
@@ -626,6 +627,66 @@ final class NativeCallback {
     void Function(Pointer<Void>, Pointer<Pointer<Void>>) write,
     T Function(Pointer<Void>, Pointer<Void>) read,
   ) => _api._invokeCallback(_env, nullptr, argc, write, read, owned: _function);
+
+  Stream<T> invokeStream<T>(
+    int argc,
+    void Function(Pointer<Void>, Pointer<Pointer<Void>>) write,
+    T Function(Pointer<Void>, Pointer<Void>) read, {
+    ResourceOperation? operation,
+  }) {
+    try {
+      final iterator = invoke<NativeCallback>(argc, write, (env, value) {
+        final control = _api._invokeCallback(
+          env,
+          _api._getCallbackHelper(env, 0),
+          2,
+          (env, args) {
+            args[0] = value;
+            args[1] = Pointer.fromAddress(
+              _api.integerResult(env, 7, 'operation'),
+            );
+          },
+          _api.ownHostValue,
+        );
+        return NativeCallback._(_api, env, control);
+      });
+      Future<CallbackStreamItem<T>> advance(bool cancel) =>
+          iterator.invokeFuture(
+            advance,
+            1,
+            (env, args) {
+              args[0] = Pointer.fromAddress(_api.booleanResult(env, cancel));
+            },
+            (env, result) {
+              if (operation?.isReleased == true ||
+                  _api.boolean(
+                    env,
+                    _api.readOwnValue(env, result, 'done', 'callback stream'),
+                    'callback stream.done',
+                  )) {
+                return CallbackStreamItem<T>.done();
+              }
+              return CallbackStreamItem<T>.value(
+                read(
+                  env,
+                  _api.readOwnValue(env, result, 'value', 'callback stream'),
+                ),
+              );
+            },
+            lease: operation?.fork(),
+          );
+      return NapiCallbackStream<T>(
+        next: () => advance(false),
+        close: () async {
+          await advance(true);
+        },
+        operation: operation,
+      ).stream;
+    } catch (_) {
+      operation?.release();
+      rethrow;
+    }
+  }
 
   Future<T> invokeFuture<T>(
     Function adapter,
