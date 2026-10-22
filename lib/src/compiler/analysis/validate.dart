@@ -2258,7 +2258,7 @@ void _validateJsCollection(
   if (!_supportedJsCollectionElements(collection, classes, opaqueParameters)) {
     throw BindingDiagnostic(
       'NAPI_JS_COLLECTION',
-      'JsArray/JsMap support scalars, selected references, binary values, SharedBytes, opaque elements, typed functions, nested JS collection handles, value classes and copied containers. Stream-returning function elements are unsupported. Copied Map keys cannot contain opaque values or JS collection handles.',
+      'JsArray/JsMap support scalars, selected references, binary values, SharedBytes, opaque elements, typed functions, nested JS collection handles, value classes and copied containers. Stream-returning function elements are unsupported. Copied Map keys cannot contain typed functions, opaque values or JS collection handles.',
       source,
     );
   }

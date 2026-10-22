@@ -985,6 +985,7 @@ for (const value of [null, undefined, object]) {
     '@NAPI() JsArray<Stream<int> Function()> bad(JsArray<Stream<int> Function()> value) => value;',
     '@NAPI() JsArray<T Function<T>(T)> bad(JsArray<T Function<T>(T)> value) => value;',
     '@NAPI() JsMap<Stream<int> Function(), int> bad(JsMap<Stream<int> Function(), int> value) => value;',
+    '@NAPI() JsArray<Map<int Function(int), int>> bad(JsArray<Map<int Function(int), int>> value) => value;',
     '@NAPI() JsMap<Object, int> bad(JsMap<Object, int> value) => value;',
     '@NAPI() Map<JsArray<int>, int> bad(Map<JsArray<int>, int> value) => value;',
     '@NAPI() Map<(JsMap<String,int>,), int> bad(Map<(JsMap<String,int>,), int> value) => value;',

@@ -24,12 +24,14 @@ abstract interface class JsArray<T> {
 ///
 /// Keys and values support scalars, selected class references, copied binary
 /// values, SharedBytes, copied List/Map/Dictionary/record trees of supported
-/// leaves, nested JS collection handles and opaque
-/// type parameters, including nullable forms. Copied keys become new JS objects
-/// on each conversion; use reference, handle, SharedBytes or opaque keys when
-/// lookup requires object identity.
-/// Values also support typed synchronous/Future functions. Function keys and
-/// Stream-returning functions are unsupported.
+/// leaves, typed synchronous/Future functions, nested JS collection handles and
+/// opaque type parameters, including nullable forms. Copied keys become new JS
+/// objects on each conversion; use reference, handle, SharedBytes or opaque keys
+/// when lookup requires object identity.
+/// Function keys preserve their JS identity when input/output conversions agree;
+/// otherwise they use a converting facade. Stream-returning function elements
+/// are unsupported. Keys inside copied Maps cannot contain functions, opaque
+/// values or JS collection handles.
 /// Returning a handle preserves the original Map identity. Resource access joins
 /// the current call's operation without a permanent resource lease.
 abstract interface class JsMap<K, V> {
