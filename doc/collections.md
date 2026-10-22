@@ -88,8 +88,9 @@ the next getter runs. Resource leaves therefore acquire their operation lease
 before a later getter can request cleanup. Conversion completes before assigning
 the target slot; constructor, getter and setter side effects are not rolled back.
 
-Typed functions work as Array elements and Map keys/values, including inside
-copied containers and value classes:
+Typed functions work as `JsArray` elements and `JsMap` keys/values, including
+inside copied containers and value classes. Keys of a copied Dart `Map` cannot
+contain typed functions.
 
 ```dart
 @NAPI()
