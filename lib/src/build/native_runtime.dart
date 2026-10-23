@@ -5,18 +5,40 @@ import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as path;
 
 import '../compiler/native/platform.dart';
-import '../compiler/sdk_adapter/dart_sdk_adapter.dart';
 import 'native_bundle.dart';
 import 'publish.dart';
 
-const nativeRuntimeArchiveUrl =
-    'https://github.com/medz/napi/releases/download/runtime-dart-3.13.5-abi15/'
-    'napi-runtime-dart-3.13.5-macos-arm64-abi15-b07f81272d03.zip';
-const nativeRuntimeArchiveSha256 =
-    'b07f81272d03682ec2661db28ee2d986e80daf3c81d9a9e16b86a9fc33b4bcb2';
-const nativeRuntimeArchiveBytes = 1919213;
-const nativeRuntimeManifestSha256 =
-    '600733d9dc5df77a81354ee12314310e2f27f9337174b3655e7a16de93f00cfb';
+typedef NativeRuntimeArchive = ({
+  String url,
+  String sha256,
+  int bytes,
+  String manifestSha256,
+});
+
+const _runtimeArchives = {
+  NativePlatform.macosArm64: (
+    url:
+        'https://github.com/medz/napi/releases/download/runtime-dart-3.13.5-abi15/'
+        'napi-runtime-dart-3.13.5-macos-arm64-abi15-b07f81272d03.zip',
+    sha256: 'b07f81272d03682ec2661db28ee2d986e80daf3c81d9a9e16b86a9fc33b4bcb2',
+    bytes: 1919213,
+    manifestSha256:
+        '600733d9dc5df77a81354ee12314310e2f27f9337174b3655e7a16de93f00cfb',
+  ),
+  NativePlatform.linuxX64: (
+    url:
+        'https://github.com/medz/napi/releases/download/runtime-dart-3.13.5-linux-x64-abi15/'
+        'napi-runtime-dart-3.13.5-linux-x64-abi15-a695d8aa09f2.zip',
+    sha256: 'a695d8aa09f211ad410ce0726c3463e0aaf106305333b65ad3c71e759f4022d4',
+    bytes: 2336729,
+    manifestSha256:
+        'e8997486de1114a4bf1ea0c41d3a8c59f5dd02f0bb7e16f66acdce3e21287cc7',
+  ),
+};
+
+NativeRuntimeArchive get nativeRuntimeArchive =>
+    _runtimeArchives[verifyNativeHost()]!;
+
 const _networkTimeout = Duration(seconds: 30);
 
 /// The whole cache root is an input: output must not enclose its staging files.
@@ -28,12 +50,22 @@ Directory nativeRuntimeCacheDirectory() {
     }
     return Directory(configured).absolute;
   }
+  if (Platform.isLinux) {
+    final xdg = Platform.environment['XDG_CACHE_HOME'];
+    if (xdg != null && xdg.isNotEmpty && path.isAbsolute(xdg)) {
+      return Directory(path.join(xdg, 'napi'));
+    }
+  }
   final home = Platform.environment['HOME'];
   if (home == null || home.isEmpty) {
     throw StateError('Set NAPI_RUNTIME_CACHE when HOME is unavailable.');
   }
   final base = Directory(home).resolveSymbolicLinksSync();
-  return Directory(path.join(base, 'Library', 'Caches', 'napi'));
+  return Directory(
+    Platform.isLinux
+        ? path.join(base, '.cache', 'napi')
+        : path.join(base, 'Library', 'Caches', 'napi'),
+  );
 }
 
 /// Resolve only the bundled, hash-pinned profile. No native code is loaded here.
@@ -47,32 +79,34 @@ Future<NativeRuntimeBundle> resolveNativeRuntime({
     bundle.verifyHost();
     return bundle;
   }
-  if (verifyNativeHost() != NativePlatform.macosArm64) {
-    throw const SdkCompatibilityException(
-      'NAPI_NATIVE_RUNTIME',
-      'Linux native builds require a local runtime bundle. '
-          'Pass nativeRuntime to buildLibrary or buildPackage.',
-    );
-  }
+  final lock = nativeRuntimeArchive;
   final cacheDirectory = (cache ?? nativeRuntimeCacheDirectory()).absolute;
   await _checkCacheOutput(cacheDirectory, output);
-  final entry = Directory(
-    path.join(cacheDirectory.path, nativeRuntimeArchiveSha256),
-  );
-  if (await _exists(entry.path)) return _readCached(entry);
+  final entry = Directory(path.join(cacheDirectory.path, lock.sha256));
+  if (await _exists(entry.path)) return _readCached(entry, lock);
 
   await cacheDirectory.create(recursive: true);
   await checkNativePath(cacheDirectory.path);
   final staging = await cacheDirectory.createTemp('.download-');
   try {
+    final extractor = Platform.isLinux ? '/usr/bin/unzip' : '/usr/bin/ditto';
+    if (Platform.isLinux && !await File(extractor).exists()) {
+      throw FileSystemException(
+        'Cannot extract the native runtime. Install unzip or supply '
+        'nativeRuntime explicitly.',
+        extractor,
+      );
+    }
     final archive = File(path.join(staging.path, 'runtime.zip'));
-    await _download(archive);
+    await _download(archive, lock);
     final extracted = Directory(path.join(staging.path, 'bundle'));
     // These exact ZIP bytes contain six flat regular files, prepared by the
     // maintainer packer. Never extract before both size and SHA-256 match.
     final result = await Process.run(
-      '/usr/bin/ditto',
-      ['-x', '-k', archive.path, extracted.path],
+      extractor,
+      Platform.isLinux
+          ? ['-q', archive.path, '-d', extracted.path]
+          : ['-x', '-k', archive.path, extracted.path],
       includeParentEnvironment: false,
       environment: const {'LC_ALL': 'C'},
     );
@@ -82,28 +116,34 @@ Future<NativeRuntimeBundle> resolveNativeRuntime({
         archive.path,
       );
     }
-    await NativeRuntimeBundle.read(
+    final bundle = await NativeRuntimeBundle.read(
       extracted,
-      expectedManifestSha256: nativeRuntimeManifestSha256,
+      expectedManifestSha256: lock.manifestSha256,
     );
+    bundle.verifyHost();
     try {
       publishDirectory(extracted, entry);
     } on FileSystemException {
       if (!await _exists(entry.path)) rethrow;
       // A concurrent publisher is reusable only after complete validation.
     }
-    return await _readCached(entry);
+    return await _readCached(entry, lock);
   } finally {
     if (await staging.exists()) await staging.delete(recursive: true);
   }
 }
 
-Future<NativeRuntimeBundle> _readCached(Directory entry) async {
+Future<NativeRuntimeBundle> _readCached(
+  Directory entry,
+  NativeRuntimeArchive lock,
+) async {
   try {
-    return await NativeRuntimeBundle.read(
+    final bundle = await NativeRuntimeBundle.read(
       entry,
-      expectedManifestSha256: nativeRuntimeManifestSha256,
+      expectedManifestSha256: lock.manifestSha256,
     );
+    bundle.verifyHost();
+    return bundle;
   } catch (error) {
     throw FileSystemException(
       'Invalid native runtime cache. Remove this entry and retry: $error',
@@ -112,13 +152,13 @@ Future<NativeRuntimeBundle> _readCached(Directory entry) async {
   }
 }
 
-Future<void> _download(File destination) async {
+Future<void> _download(File destination, NativeRuntimeArchive lock) async {
   final client = HttpClient()
     ..autoUncompress = false
     ..connectionTimeout = _networkTimeout;
   final deadline = Timer(_networkTimeout, () => client.close(force: true));
   try {
-    var uri = Uri.parse(nativeRuntimeArchiveUrl);
+    var uri = Uri.parse(lock.url);
     for (var redirects = 0; ; redirects++) {
       final request = await client.getUrl(uri).timeout(_networkTimeout);
       request.followRedirects = false;
@@ -150,7 +190,7 @@ Future<void> _download(File destination) async {
         );
       }
       if (response.contentLength != -1 &&
-          response.contentLength != nativeRuntimeArchiveBytes) {
+          response.contentLength != lock.bytes) {
         throw const FormatException('Native runtime archive size mismatch.');
       }
       final sink = destination.openWrite();
@@ -163,7 +203,7 @@ Future<void> _download(File destination) async {
             .bind(
               response.timeout(_networkTimeout).map((chunk) {
                 bytes += chunk.length;
-                if (bytes > nativeRuntimeArchiveBytes) {
+                if (bytes > lock.bytes) {
                   throw const FormatException(
                     'Native runtime archive exceeds its locked size.',
                   );
@@ -173,8 +213,7 @@ Future<void> _download(File destination) async {
               }),
             )
             .first;
-        if (bytes != nativeRuntimeArchiveBytes ||
-            hash.toString() != nativeRuntimeArchiveSha256) {
+        if (bytes != lock.bytes || hash.toString() != lock.sha256) {
           throw const FormatException(
             'Native runtime archive integrity mismatch.',
           );

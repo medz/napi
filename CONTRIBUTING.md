@@ -22,21 +22,23 @@ Select tests with their path or `--name`. Consumer commands use `node`
 from `PATH`; set `NAPI_NODE_EXECUTABLES` to a JSON array of absolute executable
 paths to run them with more than one Node version.
 
-On macOS arm64, run native and dual-target consumers with:
+On macOS arm64 or Linux x64 with glibc 2.28 or later, run native and dual-target
+consumers with:
 
 ```sh
 dart test -P native-consumers
 ```
 
-The macOS runtime downloads automatically. On Linux x64, or to use an existing
-bundle offline, pass a matching bundle:
+The runtime downloads automatically; Linux needs `/usr/bin/unzip`. To use an
+existing bundle offline, pass a matching bundle:
 
 ```sh
 NAPI_TEST_NATIVE_RUNTIME=/absolute/path/to/runtime-bundle \
   dart test -P native-consumers
 ```
 
-See the [runtime maintainer guide](native/README.md) to build a Linux bundle.
+See [native builds](doc/native.md#runtime-download-and-offline-builds) for cache
+locations, or the [runtime maintainer guide](native/README.md) to build a bundle.
 
 ## Checks
 

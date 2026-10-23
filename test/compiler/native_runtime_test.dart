@@ -4,14 +4,79 @@ import 'dart:io';
 
 import 'package:napi/src/build/native_bundle.dart';
 import 'package:napi/src/build/native_runtime.dart';
+import 'package:napi/src/compiler/native/platform.dart';
 import 'package:napi/src/compiler/sdk_adapter/dart_sdk_adapter.dart';
 import 'package:test/test.dart';
 
-final _supported = Platform.isMacOS && Abi.current() == Abi.macosArm64;
+final _supported =
+    (Platform.isMacOS && Abi.current() == Abi.macosArm64) ||
+    (Platform.isLinux && Abi.current() == Abi.linuxX64);
 
 void main() {
+  test('native runtime cache honors host cache conventions', () async {
+    final root = await Directory(
+      await Directory.systemTemp.resolveSymbolicLinks(),
+    ).createTemp('napi cache paths ');
+    addTearDown(() => root.delete(recursive: true));
+    final home = await Directory('${root.path}/home').create();
+    final script = await File('${root.path}/cache.dart').writeAsString('''
+import 'package:napi/src/build/native_runtime.dart';
+void main() => print(nativeRuntimeCacheDirectory().path);
+''');
+    final fallback = Platform.isLinux
+        ? '${home.path}/.cache/napi'
+        : '${home.path}/Library/Caches/napi';
+    final cases = <({Map<String, String> environment, String? expected})>[
+      (environment: {'HOME': home.path}, expected: fallback),
+      (
+        environment: {
+          'HOME': home.path,
+          'NAPI_RUNTIME_CACHE': '${root.path}/override',
+          'XDG_CACHE_HOME': '${root.path}/xdg',
+        },
+        expected: '${root.path}/override',
+      ),
+      (
+        environment: {'HOME': home.path, 'XDG_CACHE_HOME': '${root.path}/xdg'},
+        expected: Platform.isLinux ? '${root.path}/xdg/napi' : fallback,
+      ),
+      if (Platform.isLinux) ...[
+        (
+          environment: {'HOME': home.path, 'XDG_CACHE_HOME': 'relative'},
+          expected: fallback,
+        ),
+        (
+          environment: {'XDG_CACHE_HOME': '${root.path}/xdg'},
+          expected: '${root.path}/xdg/napi',
+        ),
+      ],
+      (
+        environment: {'HOME': home.path, 'NAPI_RUNTIME_CACHE': ''},
+        expected: null,
+      ),
+    ];
+    for (final entry in cases) {
+      final result = await Process.run(
+        Platform.resolvedExecutable,
+        [
+          '--packages=${File('.dart_tool/package_config.json').absolute.path}',
+          script.path,
+        ],
+        includeParentEnvironment: false,
+        environment: entry.environment,
+      );
+      if (entry.expected == null) {
+        expect(result.exitCode, isNot(0));
+        expect(result.stderr, contains('NAPI_RUNTIME_CACHE must not be empty'));
+      } else {
+        expect(result.exitCode, 0, reason: '${result.stderr}');
+        expect((result.stdout as String).trim(), entry.expected);
+      }
+    }
+  }, skip: !_supported);
   for (final scenario in [
     'cold-warm',
+    'foreign-cache',
     'parallel',
     'corrupt',
     'override',
@@ -28,6 +93,7 @@ void main() {
   ]) {
     final needsArchive = const {
       'cold-warm',
+      'foreign-cache',
       'parallel',
       'corrupt',
       'override',
@@ -53,7 +119,7 @@ void main() {
       skip: scenario == 'unsupported'
           ? (_supported ? 'Requires an unsupported native host.' : false)
           : !_supported
-          ? 'Automatic downloads currently support macOS arm64 only.'
+          ? 'Requires macOS arm64 or Linux x64 glibc.'
           : needsArchive && archive == null
           ? 'Set NAPI_TEST_RUNTIME_ARCHIVE to the published locked ZIP.'
           : false,
@@ -81,7 +147,7 @@ Future<void> _scenario(String scenario, Directory root) async {
         scenario == 'bad-redirect'
             ? 'http://example.com/runtime.zip'
             : scenario == 'redirect-loop'
-            ? nativeRuntimeArchiveUrl
+            ? nativeRuntimeArchive.url
             : 'https://release-assets.githubusercontent.com/locked.zip?token=test',
       );
     } else if (scenario == 'truncated') {
@@ -95,7 +161,7 @@ Future<void> _scenario(String scenario, Directory root) async {
       }
       response.add(
         List<int>.filled(
-          nativeRuntimeArchiveBytes + (scenario == 'oversized' ? 1 : 0),
+          nativeRuntimeArchive.bytes + (scenario == 'oversized' ? 1 : 0),
           0,
         ),
       );
@@ -124,8 +190,10 @@ Future<void> _scenario(String scenario, Directory root) async {
           cache,
           Directory('${cache.path}/package'),
           root,
-          Directory('${root.path}/CACHE'),
-          Directory('${root.path}/CACHE/package'),
+          if (Platform.isMacOS) ...[
+            Directory('${root.path}/CACHE'),
+            Directory('${root.path}/CACHE/package'),
+          ],
         ]) {
           await expectLater(
             resolveNativeRuntime(output: target, cache: cache),
@@ -155,20 +223,36 @@ Future<void> _scenario(String scenario, Directory root) async {
         expect(urls.length, scenario == 'redirect-loop' ? 6 : 1);
         return;
       }
+      final foreign = Directory('${cache.path}/${'0' * 64}');
+      if (scenario == 'foreign-cache') {
+        await foreign.create(recursive: true);
+        await File('${foreign.path}/manifest.json')
+            .writeAsString('other runtime');
+      }
       final bundles = scenario == 'parallel'
           ? await Future.wait([resolve(), resolve()])
           : [await resolve()];
       final bundle = bundles.first;
       expect(
         bundle.directory.path,
-        '${cache.path}/$nativeRuntimeArchiveSha256',
+        '${cache.path}/${nativeRuntimeArchive.sha256}',
       );
-      expect(urls.first.toString(), nativeRuntimeArchiveUrl);
+      expect(urls.first.toString(), nativeRuntimeArchive.url);
+      expect(
+        bundle.platform,
+        Platform.isLinux ? NativePlatform.linuxX64 : NativePlatform.macosArm64,
+      );
       for (final other in bundles) {
         expect(other.directory.path, bundle.directory.path);
         expect(other.hashes, bundle.hashes);
       }
-      expect(await cache.list().length, 1);
+      expect(await cache.list().length, scenario == 'foreign-cache' ? 2 : 1);
+      if (scenario == 'foreign-cache') {
+        expect(
+          await File('${foreign.path}/manifest.json').readAsString(),
+          'other runtime',
+        );
+      }
       final requests = urls.length;
       // Offline reuse must never even construct a network client.
       await HttpOverrides.runWithHttpOverrides(() async {
