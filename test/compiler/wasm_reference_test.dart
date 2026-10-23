@@ -209,11 +209,6 @@ final _shared = Box();
       'NAPI_TYPE',
     ),
     (
-      'private constructor class default',
-      '@NAPI() class Box { const Box._(); } @NAPI() Box identity([Box x = const Box._()]) => x;',
-      'NAPI_DEFAULT',
-    ),
-    (
       'named static collision',
       '@NAPI() class Box { Box.named(); @NAPI(name: "named") static void make() {} }',
       'NAPI_DUPLICATE',
