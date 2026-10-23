@@ -307,7 +307,7 @@ class Generic<T> { Generic(T source); final int value = 4; }
       ('Object source', '', 'NAPI_TYPE'),
       ('DateTime source', '', 'NAPI_TYPE'),
       (
-        '[Ref source = const Ref._()]',
+        '[Ref source = const Ref._(), int after = 3]',
         '@NAPI() class Ref { const Ref._(); }',
         'NAPI_DEFAULT',
       ),

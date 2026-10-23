@@ -123,6 +123,22 @@ new wasm.HiddenPoint();
 // @ts-expect-error Omitted defaults do not weaken other constructor parameters.
 new native.HiddenIntDefault('3');
 
+const hiddenValue: wasm.HiddenNamedValue = wasm.hiddenNamedValue({origin: undefined});
+const hiddenValuePoint: wasm.HiddenPoint | null = hiddenValue.origin;
+const hiddenPositionalValue: native.HiddenPositionalValue = native.hiddenPositionalValue({offset: undefined});
+const hiddenResource = new wasm.Resource(3);
+const hiddenPayload = {tag: 'opaque'};
+const hiddenFactory: wasm.HiddenFactoryValue<typeof hiddenPayload> =
+  wasm.hiddenFactoryValue({payload: hiddenPayload, resource: hiddenResource});
+const hiddenInteger: wasm.HiddenIntValue = wasm.hiddenIntValue({payload: 3, resource: hiddenResource});
+void [hiddenValuePoint, hiddenPositionalValue, hiddenFactory, hiddenInteger];
+// @ts-expect-error The renamed JS field uses its public name, not the Dart parameter name.
+wasm.hiddenNamedValue({source: hiddenPoint});
+// @ts-expect-error A non-nullable value constructor default still rejects null.
+wasm.hiddenPositionalValue({point: null});
+// @ts-expect-error Concrete factory aliases retain their scalar input type.
+wasm.hiddenIntValue({payload: '3', resource: hiddenResource});
+
 const resourceContainers: boolean = wasm.resourceContainerDefaults(undefined,
   new Map([['both', [constResource]]]), {both: [constResource]},
   {$1: [constResource], resource: constResource});

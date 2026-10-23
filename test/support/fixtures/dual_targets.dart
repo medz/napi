@@ -86,6 +86,10 @@ Future<void> verifyDualTargetFixture(
                 'hiddenDefaultVoid',
                 'hiddenResourceUse',
                 'hiddenResourceLater',
+                'hiddenNamedValue',
+                'hiddenPositionalValue',
+                'hiddenFactoryValue',
+                'hiddenIntValue',
               ])
                 ExternalFunction(name),
               ExternalClass('Counter'),
@@ -98,6 +102,25 @@ Future<void> verifyDualTargetFixture(
               ExternalClass('HiddenPoint'),
               ExternalClass('HiddenDefault'),
               ExternalClass('HiddenIntDefault'),
+              ExternalClass(
+                'HiddenNamedValue',
+                config: const NAPI(
+                  classPolicy: ClassPolicy.value,
+                  valueFields: {'source': 'point'},
+                ),
+                members: const [
+                  ExternalMember.field('point', config: NAPI(name: 'origin')),
+                ],
+              ),
+              for (final name in [
+                'HiddenPositionalValue',
+                'HiddenFactoryValue',
+                'HiddenIntValue',
+              ])
+                ExternalClass(
+                  name,
+                  config: const NAPI(classPolicy: ClassPolicy.value),
+                ),
               ExternalClass(
                 'NamedValue',
                 config: const NAPI(classPolicy: ClassPolicy.value),

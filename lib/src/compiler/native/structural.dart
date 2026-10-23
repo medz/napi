@@ -940,6 +940,14 @@ $retains      result.add(null);
         for (final (index, field) in conversion.fields.indexed) {
           final materialized =
               '${functions[index]}(items[${2 * index + 1}], path + ${_quote('.${field.name}')} )';
+          if (field.parameter!.defaultOmissionKey != null) {
+            _code.writeln(
+              '  final default$index = items[${2 * index}] as bool;\n'
+              '  late final ${field.conversion.dartType} child$index;\n'
+              '  if (!default$index) child$index = $materialized;',
+            );
+            continue;
+          }
           final expression = field.optional
               ? '(items[${2 * index}] as bool) ? ${renderDartDefault(field.parameter!, field.conversion, declarationSource: defaultDeclarationSource)} : $materialized'
               : materialized;
@@ -947,11 +955,34 @@ $retains      result.add(null);
             '  final ${field.conversion.dartType} child$index = $expression;',
           );
         }
+        final constructor = conversion.constructor!;
+        if (conversion.fields.any(
+          (field) => field.parameter!.defaultOmissionKey != null,
+        )) {
+          final positional = <String>[];
+          final named = <String>[];
+          for (final (index, field) in conversion.fields.indexed) {
+            final parameter = field.parameter!;
+            final present = parameter.defaultOmissionKey == null
+                ? ''
+                : 'if (!default$index) ';
+            if (parameter.kind == ParameterKind.requiredNamed ||
+                parameter.kind == ParameterKind.optionalNamed) {
+              named.add('$present#${parameter.name}: child$index');
+            } else {
+              positional.add('${present}child$index');
+            }
+          }
+          _code.writeln(
+            '  return Function.apply(${conversion.dartConstructorType}.${constructor.declaration.name}, '
+            '[${positional.join(', ')}], {${named.join(', ')}}) as ${conversion.dartConstructorType};',
+          );
+          break;
+        }
         final arguments = [
           for (final (index, field) in conversion.fields.indexed)
             '${field.parameter!.kind == ParameterKind.requiredNamed || field.parameter!.kind == ParameterKind.optionalNamed ? '${field.parameter!.name}: ' : ''}child$index',
         ].join(', ');
-        final constructor = conversion.constructor!;
         final suffix = constructor.declaration.name == 'new'
             ? ''
             : '.${constructor.declaration.name}';
