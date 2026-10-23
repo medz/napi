@@ -439,6 +439,30 @@ const _origin = $expression;
     },
   );
 
+  test('stored Type defaults erase extension type representations', () async {
+    await File('${root.path}/model.dart').writeAsString('''
+import 'package:napi/napi.dart';
+extension type Count(int value) {}
+@NAPI() class Metadata {
+  final Type _type;
+  const Metadata._(this._type);
+}
+const first = Metadata._(Count);
+const second = Metadata._(int);
+''');
+    String source(String expression) =>
+        '''
+import 'model.dart';
+export 'model.dart';
+const _origin = $expression;
+@NAPI() bool run({Metadata value = _origin}) => true;
+''';
+    await compare(
+      source('true ? first : second'),
+      source('false ? first : second'),
+    );
+  });
+
   test(
     'public cleanup remains equal after private implementation renaming',
     () async {

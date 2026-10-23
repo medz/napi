@@ -195,6 +195,33 @@ import 'package:napi/napi.dart';
 }
 const _origin = PrivatePoint._(7);
 """;
+  for (final declaration in [
+    'typedef Callback = int Function();',
+    'extension type Callback(int Function() value) {}',
+  ]) {
+    test(
+      'stored function Type defaults stay unsupported: $declaration',
+      () async {
+        final input = source('entry.dart', '''
+import 'package:napi/napi.dart';
+$declaration
+@NAPI() class Metadata {
+  final Type _type;
+  const Metadata._(this._type);
+}
+const _origin = Metadata._(Callback);
+@NAPI() int take([Metadata value = _origin]) => 7;
+''');
+        for (final native in [false, true]) {
+          await expectLater(() async {
+            final module = await read(input, native: native);
+            native ? validateNative(module) : validate(module);
+          }, rejectedDefault());
+        }
+      },
+    );
+  }
+
   for (final (name, declaration) in [
     (
       'last positional',
