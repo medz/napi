@@ -487,3 +487,76 @@ int namedResourceUse(
   callback();
   return value.value;
 }
+
+@NAPI()
+class HiddenPoint {
+  final int value;
+  const HiddenPoint._(this.value);
+}
+
+const _hiddenPoint = HiddenPoint._(41);
+const _hiddenPoints = [_hiddenPoint];
+const _hiddenMapping = {'point': _hiddenPoint};
+
+@NAPI()
+HiddenPoint hiddenDefault([HiddenPoint point = _hiddenPoint]) => point;
+@NAPI()
+HiddenPoint? hiddenNamedDefault({HiddenPoint? point = _hiddenPoint}) => point;
+@NAPI()
+int hiddenDefaultAfter([int offset = 3, HiddenPoint point = _hiddenPoint]) =>
+    offset + point.value;
+@NAPI()
+bool hiddenContainerDefaults({
+  List<HiddenPoint> points = _hiddenPoints,
+  Map<String, HiddenPoint> mapping = _hiddenMapping,
+}) => identical(points, _hiddenPoints) && identical(mapping, _hiddenMapping);
+@NAPI()
+Future<HiddenPoint> hiddenDefaultLater([
+  HiddenPoint point = _hiddenPoint,
+]) async => point;
+@NAPI()
+void hiddenDefaultVoid({HiddenPoint point = _hiddenPoint}) {
+  _calls += point.value;
+}
+
+@NAPI()
+class HiddenDefault {
+  final HiddenPoint point;
+  HiddenDefault([this.point = _hiddenPoint]);
+  HiddenDefault.named({this.point = _hiddenPoint});
+  static HiddenPoint create([HiddenPoint value = _hiddenPoint]) => value;
+  static Stream<HiddenPoint> sequence({
+    HiddenPoint value = _hiddenPoint,
+  }) async* {
+    yield value;
+  }
+}
+
+class GenericHiddenDefault<T> {
+  final T value;
+  final HiddenPoint point;
+  GenericHiddenDefault(this.value, {this.point = _hiddenPoint});
+  GenericHiddenDefault.named(this.value, [this.point = _hiddenPoint]);
+}
+
+@NAPI()
+typedef HiddenIntDefault = GenericHiddenDefault<int>;
+
+@NAPI()
+int hiddenResourceUse(
+  Resource resource,
+  void Function() callback, {
+  HiddenPoint point = _hiddenPoint,
+}) {
+  callback();
+  return resource.value + point.value;
+}
+
+@NAPI()
+Future<int> hiddenResourceLater(
+  Resource resource, {
+  HiddenPoint point = _hiddenPoint,
+}) async {
+  await Future<void>.delayed(const Duration(milliseconds: 2));
+  return resource.value + point.value;
+}

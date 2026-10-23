@@ -269,6 +269,7 @@ String? constantTypeSource(
 /// Implicit null and a represented null prescribe the same omitted value.
 /// A scalar int in a declared double context retains the existing normalization.
 String parameterDefaultKey(ParameterBinding parameter) {
+  if (parameter.defaultOmissionKey case final key?) return 'omitted:$key';
   final value = parameter.defaultValue;
   if (value == null) return 'null';
   if (value case ScalarDefault(value: final double n) when n.isNaN) {

@@ -106,6 +106,23 @@ new wasm.NamedPoint();
 // @ts-expect-error Constant object defaults retain reference ownership.
 native.namedValueFieldDefault({point: originPoint});
 
+const hiddenPoint: wasm.HiddenPoint = wasm.hiddenDefault();
+const hiddenNamed: wasm.HiddenPoint | null = wasm.hiddenNamedDefault({point: undefined});
+const hiddenOwner: wasm.HiddenDefault = new wasm.HiddenDefault(hiddenPoint);
+const hiddenConcrete: native.HiddenIntDefault = new native.HiddenIntDefault(3, {});
+const hiddenFuture: Promise<wasm.HiddenPoint> = wasm.hiddenDefaultLater(undefined);
+const hiddenVoid: void = wasm.hiddenDefaultVoid({point: hiddenPoint});
+const hiddenStream: AsyncIterableIterator<wasm.HiddenPoint, undefined, undefined> = wasm.HiddenDefault.sequence();
+void [hiddenNamed, hiddenConcrete, hiddenFuture, hiddenVoid, hiddenStream];
+// @ts-expect-error Omission does not permit null for a non-nullable parameter.
+wasm.hiddenDefault(null);
+// @ts-expect-error Supplied defaultable references keep their backend ownership.
+native.hiddenDefault(hiddenPoint);
+// @ts-expect-error The private Dart constructor is not exposed.
+new wasm.HiddenPoint();
+// @ts-expect-error Omitted defaults do not weaken other constructor parameters.
+new native.HiddenIntDefault('3');
+
 const resourceContainers: boolean = wasm.resourceContainerDefaults(undefined,
   new Map([['both', [constResource]]]), {both: [constResource]},
   {$1: [constResource], resource: constResource});

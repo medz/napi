@@ -175,6 +175,7 @@ async function check(name, selected) {
     assert.equal(current.NamedResource.cleanups, 1);
     assert.equal(originResource.close(), originClosed);
     assert.throws(() => current.originResourceDefault(), /closing|closed/i);
+    await hiddenDefaults(current);
     await resourceDefaults(current, callback => { onSignalRead = callback; });
     assert.throws(() => current.identity({value: 4}), TypeError);
   }
@@ -183,6 +184,64 @@ async function check(name, selected) {
   native.reset(); wasm.reset();
   native.add(1);
   assert.equal(wasm.calls(), 0);
+}
+
+async function hiddenDefaults(current) {
+  const point = current.hiddenDefault();
+  assert.equal(point.value, 41);
+  assert.equal(current.hiddenDefault(undefined), point);
+  assert.equal(current.hiddenDefault(point), point);
+  for (const options of [undefined, {}, {point: undefined}, {point}]) {
+    assert.equal(current.hiddenNamedDefault(options), point);
+  }
+  assert.equal(current.hiddenNamedDefault({point: null}), null);
+  assert.throws(() => current.hiddenDefault(null), TypeError);
+  assert.throws(() => current.hiddenDefault({value: 41}), TypeError);
+  assert.throws(() => current.hiddenNamedDefault({point: {value: 41}}), TypeError);
+  assert.equal(current.hiddenDefaultAfter(), 44);
+  assert.equal(current.hiddenDefaultAfter(undefined, point), 44);
+  assert.equal(current.hiddenDefaultAfter(2, undefined), 43);
+  assert.throws(() => current.hiddenDefaultAfter('bad'), TypeError);
+  assert.equal(current.hiddenContainerDefaults(), true);
+  assert.equal(current.hiddenContainerDefaults({points: undefined, mapping: undefined}), true);
+  assert.equal(current.hiddenContainerDefaults({points: [point]}), false);
+  assert.throws(() => current.hiddenContainerDefaults({points: [null]}), TypeError);
+  assert.equal(await current.hiddenDefaultLater(undefined), point);
+  const calls = current.calls();
+  assert.equal(current.hiddenDefaultVoid(), undefined);
+  assert.equal(current.calls(), calls + 41);
+  assert.throws(() => current.hiddenDefaultVoid({point: null}), TypeError);
+  assert.equal(current.calls(), calls + 41);
+
+  const owner = new current.HiddenDefault();
+  assert.equal(owner.point, point);
+  assert.equal(new current.HiddenDefault(undefined).point, point);
+  assert.equal(new current.HiddenDefault(point).point, point);
+  assert.equal(current.HiddenDefault.named({point: undefined}).point, point);
+  assert.equal(current.HiddenDefault.create(undefined), point);
+  assert.deepEqual(await Array.fromAsync(current.HiddenDefault.sequence()), [point]);
+  assert.throws(() => new current.HiddenDefault(null), TypeError);
+  const concrete = new current.HiddenIntDefault(9);
+  assert.equal(concrete.value, 9);
+  assert.equal(concrete.point, point);
+  assert.equal(current.HiddenIntDefault.named(8, undefined).point, point);
+
+  const resource = new current.Resource(2);
+  const cleanups = current.cleanups();
+  let closing;
+  assert.equal(current.hiddenResourceUse(resource, () => {
+    closing = resource.close();
+    assert.equal(current.cleanups(), cleanups);
+  }), 43);
+  await closing;
+  assert.equal(current.cleanups(), cleanups + 1);
+  const asyncResource = new current.Resource(3);
+  const pending = current.hiddenResourceLater(asyncResource);
+  const asyncClosing = asyncResource.close();
+  assert.equal(current.cleanups(), cleanups + 1);
+  assert.equal(await pending, 44);
+  await asyncClosing;
+  assert.equal(current.cleanups(), cleanups + 2);
 }
 
 async function resourceDefaults(api, onSignalRead) {

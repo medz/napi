@@ -317,6 +317,10 @@ final class ParameterBinding {
   final String? defaultSource;
   final ConstantDefault? defaultValue;
 
+  /// Stored-value identity for a default supplied by omitting this argument.
+  /// Non-null only when its value cannot be reconstructed publicly.
+  final String? defaultOmissionKey;
+
   /// Actual constant storage, including private fields and inherited state.
   /// Null means it could not be scanned; an empty list is a complete empty scan.
   final List<DefaultObjectBinding>? defaultObjects;
@@ -341,6 +345,7 @@ final class ParameterBinding {
     this.kind = ParameterKind.requiredPositional,
     this.defaultSource,
     this.defaultValue,
+    this.defaultOmissionKey,
     this.defaultObjects,
     this.defaultIdentity,
     this.defaultTypeIsAssignable = false,

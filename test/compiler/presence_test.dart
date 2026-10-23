@@ -281,36 +281,6 @@ import 'package:napi/napi.dart';
     );
   });
 
-  test(
-    'const graphs cannot bypass unsupported declared default leaves',
-    () async {
-      final root = await Directory.systemTemp.createTemp('napi-const-default-');
-      addTearDown(() => root.delete(recursive: true));
-      final file = File('${root.path}/entry.dart');
-      for (final declaration in [
-        '@NAPI() class Item { const Item._(); } '
-            '@NAPI() bool run([List<Item> value = const [Item._()]]) => true;',
-      ]) {
-        await file.writeAsString(
-          "import 'package:napi/napi.dart';\n$declaration",
-        );
-        final module = await AnnotationFrontend(
-          packagesPath: File('.dart_tool/package_config.json').absolute.path,
-        ).read(file.uri);
-        expect(
-          () => validate(module),
-          throwsA(
-            isA<BindingDiagnostic>().having(
-              (e) => e.code,
-              'code',
-              'NAPI_DEFAULT',
-            ),
-          ),
-        );
-      }
-    },
-  );
-
   test('shared constant graphs have bounded expansion before generation', () async {
     final root = await Directory.systemTemp.createTemp('napi-const-budget-');
     addTearDown(() => root.delete(recursive: true));
