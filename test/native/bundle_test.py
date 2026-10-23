@@ -98,6 +98,31 @@ class BundleTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'bridge.cc'):
             bundle.provenance(self.manifest, self.repository)
 
+    def test_linux_archive_retains_libc_profile_and_so_payload(self):
+        old_runtime = self.manifest['runtime']
+        identity = self.manifest['identity'].replace('macos-arm64', 'linux-x64')
+        runtime = 'libnapi_runtime_'+identity+'.so'
+        (self.directory/old_runtime).rename(self.directory/runtime)
+        self.manifest['files'][runtime] = self.manifest['files'].pop(old_runtime)
+        self.manifest.update(platform='linux', architecture='x64', libc='glibc',
+                             minimumLibcVersion='2.17', identity=identity, runtime=runtime)
+        del self.manifest['minimumOsVersion']
+        compiler = self.manifest['build']['provenance']['compiler']
+        del compiler['macosSdkVersion']
+        compiler.update(sysrootSha256='5'*64, clangPackageSha256='6'*64)
+        self.save()
+        lock = bundle.pack(self.directory, self.archive, self.lock, self.dart,
+                           repository=self.repository)
+        self.assertEqual(lock['profile']['libc'], 'glibc')
+        self.assertEqual(lock['profile']['minimumLibcVersion'], '2.17')
+        self.assertNotIn('minimumOsVersion', lock['profile'])
+        fetched = bundle.fetch(self.lock, self.cache, self.dart, self.archive, self.repository)
+        self.assertTrue((fetched/runtime).is_file())
+        self.assertFalse((fetched/old_runtime).exists())
+        compiler.pop('sysrootSha256')
+        with self.assertRaisesRegex(ValueError, 'toolchain provenance'):
+            bundle.provenance(self.manifest, self.repository)
+
     def test_local_reads_are_bounded_before_allocating_payloads(self):
         source = io.BytesIO(b'x'*100)
         with patch.object(Path, 'open', return_value=source), patch.object(source, 'read', wraps=source.read) as read:
@@ -320,8 +345,12 @@ class BuildInputsTest(unittest.TestCase):
     def test_prepared_inputs_cannot_change_during_build(self):
         # Commands are intercepted: this exercises publication decisions without
         # compiling C/C++, downloading an SDK or loading any fixture payload.
-        for changed in [None, 'vm', 'recipe', 'header', 'source', 'compiler']:
-            with self.subTest(changed=changed), tempfile.TemporaryDirectory() as tmp:
+        cases = [(profile, changed) for profile in ['macos-arm64', 'linux-x64']
+                 for changed in [None, 'vm', 'recipe', 'header', 'source', 'compiler']]
+        cases += [('linux-x64', 'sysroot'), ('linux-x64', 'clang-package')]
+        for profile, changed in cases:
+            with self.subTest(profile=profile, changed=changed), tempfile.TemporaryDirectory() as tmp:
+                linux = profile == 'linux-x64'
                 root = Path(tmp).resolve()
                 repo, cache, sdk, node = [root/name for name in ['repo', 'cache', 'sdk', 'node']]
                 for path in [repo, cache, sdk, node]:
@@ -334,20 +363,35 @@ class BuildInputsTest(unittest.TestCase):
                     (node/name).write_text('header')
                 header = sdk/'actual.h'
                 header.write_text('header')
-                clang = root/'clang'
+                clang = sdk/'buildtools/linux-x64/clang/bin/clang++' if linux else root/'clang'
+                clang.parent.mkdir(parents=True, exist_ok=True)
                 clang.write_text('compiler')
+                packages = {
+                    'sysroot': sdk/'buildtools/sysroot/linux/.versions/sysroot.cipd_version',
+                    'clang-package': sdk/'buildtools/linux-x64/clang/.versions/clang.cipd_version',
+                }
+                for path in packages.values():
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text('pinned package')
                 (cache/'args.gn').write_text('arguments')
-                toolchain = cache/'clang_arm64_shared/toolchain.ninja'
+                toolchain_name = 'clang_x64_shared' if linux else 'clang_arm64_shared'
+                toolchain = cache/toolchain_name/'toolchain.ninja'
                 toolchain.parent.mkdir()
                 toolchain.write_text('toolchain')
                 target, compile_target = cache/'link.ninja', cache/'compile.ninja'
-                target.write_text('build runtime.dylib: clang_arm64_shared_solink vm.o\n')
+                target.write_text(f'build runtime: {toolchain_name}_solink vm.o\n' + (
+                    f'  ldflags = --sysroot={sdk}/buildtools/sysroot/linux -fPIC '
+                    '--target=x86_64-linux-gnu -static-libgcc -static-libstdc++ '
+                    '-Wl,-rpath=\\$$ORIGIN/ -Wl,--disable-new-dtags\n  libs = -ldl -lpthread\n'
+                    if linux else ''))
                 compile_target.write_text('defines = -DPRODUCT -DDART_PRECOMPILED_RUNTIME\n')
                 vm = cache/'vm.o'
                 vm.write_text('original VM input')
                 original_vm = build.vm_inputs(cache, ['vm.o'])
+                commands = []
 
                 def fake_run(command, cwd=None):
+                    commands.append(command)
                     if command[0] == 'git':
                         return '1'*40 if 'rev-parse' in command else ''
                     if command[:2] == ['xcrun', '--find']:
@@ -360,11 +404,22 @@ class BuildInputsTest(unittest.TestCase):
                         return 'test compiler'
                     if command[0] == 'codesign':
                         return ''
+                    if '--file-header' in command:
+                        return 'Class: ELF64\nMachine: Advanced Micro Devices X86-64'
+                    if '--dynamic' in command:
+                        binary = Path(command[-1])
+                        runtime = next(binary.parent.glob('*.so')).name
+                        return (f'(SONAME) Library soname: [{binary.name}]\n'
+                                '(RUNPATH) Library runpath: [$ORIGIN]\n'
+                                '(NEEDED) Shared library: [libc.so.6]\n' +
+                                (f'(NEEDED) Shared library: [{runtime}]' if binary.suffix == '.node' else ''))
+                    if '--version-info' in command:
+                        return 'Name: GLIBC_2.2.5\nName: GLIBC_2.17'
                     output = Path(command[command.index('-o')+1])
                     if '-shared' in command and changed:
                         {'vm': vm, 'recipe': target, 'header': header,
                          'source': repo/'native/runtime/runtime.cc',
-                         'compiler': clang}[changed].write_text('changed during build')
+                         'compiler': clang, **packages}[changed].write_text('changed during build')
                     if '-MM' not in command:
                         output.write_bytes(b'test artifact')
                     if '-MF' in command:
@@ -374,8 +429,8 @@ class BuildInputsTest(unittest.TestCase):
 
                 output = root/'bundle'
                 with patch.object(build, 'ROOT', repo), patch.object(build, 'run', fake_run), \
-                     patch.object(build.platform, 'system', return_value='Darwin'), \
-                     patch.object(build.platform, 'machine', return_value='arm64'), \
+                     patch.object(build.platform, 'system', return_value='Linux' if linux else 'Darwin'), \
+                     patch.object(build.platform, 'machine', return_value='x86_64' if linux else 'arm64'), \
                      patch.object(build, 'validate_cache', return_value=(target, compile_target)), \
                      patch.object(build, 'publish', side_effect=lambda a, b: a.rename(b)):
                     if changed:
@@ -387,6 +442,122 @@ class BuildInputsTest(unittest.TestCase):
                         self.assertEqual(manifest['build']['vmInputsSha256'], original_vm)
                         self.assertEqual(manifest['build']['provenance']['headers'],
                                          {'sdk/actual.h': build.digest(header)})
+                        self.assertIn(f'-product-{profile}-abi15-id', manifest['identity'])
+                        if linux:
+                            self.assertEqual(manifest['minimumLibcVersion'], '2.17')
+                            self.assertEqual(manifest['libc'], 'glibc')
+                            self.assertNotIn('minimumOsVersion', manifest)
+                            self.assertEqual(manifest['build']['provenance']['compiler']['sysrootSha256'],
+                                             build.digest(packages['sysroot']))
+                            links = [command for command in commands if '-shared' in command and '-MM' not in command]
+                            self.assertEqual(len(links), 2)
+                            for command in links:
+                                self.assertIn('-static-libstdc++', command)
+                                self.assertIn(f'--sysroot={sdk}/buildtools/sysroot/linux', command)
+                                self.assertIn('-Wl,-rpath,$ORIGIN', command)
+                                self.assertNotIn('-Wl,-rpath=$$ORIGIN/', command)
+                            self.assertIn('-Wl,-soname,'+manifest['runtime'], links[0])
+                            self.assertIn('-Wl,-soname,bridge.node', links[1])
+                            self.assertFalse(any(command[0] in ['xcrun', 'codesign'] for command in commands))
+
+    def test_linux_cache_requires_pinned_target_and_sysroot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sdk, cache = root/'sdk', root/'cache'
+            (sdk/'tools').mkdir(parents=True)
+            (sdk/'tools/VERSION').write_text('MAJOR 3\nMINOR 13\nPATCH 5\n')
+            sysroot = sdk/'buildtools/sysroot/linux'
+            sysroot.mkdir(parents=True)
+            target = cache/'clang_x64_shared/obj/runtime/napi/napi_runtime.ninja'
+            compile_target = target.with_name('napi_runtime_set.ninja')
+            target.parent.mkdir(parents=True)
+            toolchain = cache/'clang_x64_shared/toolchain.ninja'
+            toolchain.write_text('command = ../../buildtools/linux-x64/clang/bin/clang++')
+            args = {'target_os': '"linux"', 'host_cpu': '"x64"', 'target_cpu': '"x64"',
+                    'dart_target_arch': '"x64"', 'dart_sysroot': '"debian"', 'is_product': 'true',
+                    **{key: 'false' for key in ['is_release', 'is_debug', 'dart_debug',
+                        'dart_use_compressed_pointers', 'dart_dynamic_modules', 'is_asan',
+                        'is_lsan', 'is_msan', 'is_tsan', 'is_ubsan', 'is_hwasan']}}
+            flags = f'--sysroot={sysroot} --target=x86_64-linux-gnu -fPIC'
+            for changed in [None, 'host', 'args-sysroot', 'compile-sysroot', 'link-sysroot', 'pic', 'compiler', 'libcxx']:
+                with self.subTest(changed=changed):
+                    current = dict(args)
+                    if changed == 'host':
+                        current['host_cpu'] = '"arm64"'
+                    if changed == 'args-sysroot':
+                        current['dart_sysroot'] = '"alpine"'
+                    if changed == 'libcxx':
+                        current['use_custom_libcxx'] = 'true'
+                    (cache/'args.gn').write_text('\n'.join(f'{key} = {value}' for key, value in current.items()))
+                    compile_target.write_text('cflags = ' + (flags.replace(str(sysroot), '/host')
+                                              if changed == 'compile-sysroot' else flags))
+                    target.write_text('  ldflags = ' + (flags.replace(str(sysroot), '/host')
+                                      if changed == 'link-sysroot' else flags.replace('-fPIC', '')
+                                      if changed == 'pic' else flags))
+                    toolchain.write_text('command = ' + ('/usr/bin/clang++' if changed == 'compiler' else
+                                         '../../buildtools/linux-x64/clang/bin/clang++'))
+                    with patch.object(build.platform, 'system', return_value='Linux'), \
+                         patch.object(build.platform, 'machine', return_value='x86_64'), \
+                         patch.object(build, 'run', return_value=build.SDK_REVISION):
+                        if changed:
+                            with self.assertRaises(ValueError):
+                                build.validate_cache(sdk, cache)
+                        else:
+                            self.assertEqual(build.validate_cache(sdk, cache), (target, compile_target))
+
+    def test_elf_rejects_newer_libc_and_nonportable_dependencies(self):
+        dynamic = ('(SONAME) Library soname: [bridge.node]\n'
+                   '(RUNPATH) Library runpath: [$ORIGIN]\n'
+                   '(NEEDED) Shared library: [runtime.so]\n'
+                   '(NEEDED) Shared library: [libc.so.6]\n')
+        for changed in [None, 'glibc', 'private-glibc', 'absolute-path', 'libstdc++', 'runpath', 'machine']:
+            with self.subTest(changed=changed):
+                def readelf(command, cwd=None):
+                    if '--file-header' in command:
+                        return 'Class: ELF64\nMachine: ' + ('AArch64' if changed == 'machine' else 'AMD x86-64')
+                    if '--version-info' in command:
+                        return 'Name: GLIBC_' + ('2.28' if changed == 'glibc' else
+                                                'PRIVATE' if changed == 'private-glibc' else '2.17')
+                    value = dynamic
+                    if changed == 'absolute-path':
+                        value += '(NEEDED) Shared library: [/build/libhelper.so]'
+                    if changed == 'libstdc++':
+                        value += '(NEEDED) Shared library: [libstdc++.so.6]'
+                    if changed == 'runpath':
+                        value = value.replace('$ORIGIN', '/build')
+                    return value
+
+                with patch.object(build, 'run', readelf):
+                    if changed:
+                        with self.assertRaises(ValueError):
+                            build.validate_elf('readelf', Path('bridge.node'), 'runtime.so')
+                    else:
+                        build.validate_elf('readelf', Path('bridge.node'), 'runtime.so')
+
+    def test_atomic_publish_preserves_existing_destination(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source, target = root/'source', root/'target'
+            source.mkdir()
+            (source/'payload').write_text('new bundle')
+            for symlink in [False, True]:
+                with self.subTest(symlink=symlink):
+                    if symlink:
+                        target.symlink_to(root/'missing')
+                    else:
+                        target.mkdir()
+                    with self.assertRaises(FileExistsError):
+                        build.publish(source, target)
+                    self.assertEqual((source/'payload').read_text(), 'new bundle')
+                    if symlink:
+                        self.assertEqual(target.readlink(), root/'missing')
+                        target.unlink()
+                    else:
+                        self.assertEqual(list(target.iterdir()), [])
+                        target.rmdir()
+            build.publish(source, target)
+            self.assertFalse(source.exists())
+            self.assertEqual((target/'payload').read_text(), 'new bundle')
 
 
 if __name__ == '__main__':

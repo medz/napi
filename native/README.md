@@ -3,22 +3,39 @@
 This guide covers building and distributing the precompiled runtime. Application
 authors use the automatic download or local bundle described in
 [native builds](../doc/native.md); their business code is compiled as Dart AOT.
-The current profile is Dart **3.13.5**, revision
-`04bcd1036cdc799ac6564988f159ee454d42c822`, **macOS arm64 Product**, uncompressed
-pointers, no sanitizers/dynamic modules, and deployment target **14.0**.
-Other profiles fail explicitly.
+Both runtime profiles use Dart **3.13.5**, revision
+`04bcd1036cdc799ac6564988f159ee454d42c822`, Product mode, uncompressed pointers
+and no sanitizers or dynamic modules:
+
+| Profile | Toolchain | Runtime baseline |
+| --- | --- | --- |
+| macOS arm64 | System Apple clang | macOS 14 |
+| Linux x64 | Pinned SDK clang and Debian sysroot | glibc 2.17 |
+
+Other profiles fail explicitly. Node.js has its own host requirements.
 
 ## Maintainer build
 
-Prerequisites are an existing checkout of that exact SDK with its dependencies,
-a prepared Product VM build cache, Xcode command-line tools, Python 3, and local
-Node and libuv headers. The build tool requires these inputs to be prepared
-before it runs.
+The bundle builder uses a prepared Product VM object cache, Python 3, and local
+Node and libuv headers. macOS also requires Xcode command-line tools and a
+checkout of the exact SDK with its dependencies.
 The builder looks for `uv.h` alongside the Node headers, then in their parent
 directory for installations that separate Node and libuv headers. Missing
-headers fail explicitly. The current macOS profile uses system Apple clang.
+headers fail explicitly.
 
-To prepare a cache, copy `native/runtime/` into the SDK as `runtime/napi/` in a
+On Linux x64, prepare the fixed SDK dependencies and VM objects with:
+
+```sh
+python3 tool/native/prepare_linux.py --directory .dart_tool/native-linux
+```
+
+The script needs Git and network access on its first run. It fetches only the
+runtime source dependencies and build tools, then compiles the VM and dart:io
+objects. Reuse that directory for subsequent builds. The SDK checkout is
+`.dart_tool/native-linux/sdk`, with its VM cache in `out/ProductX64`.
+Use `--jobs` to limit compilation parallelism.
+
+On macOS, copy `native/runtime/` into the SDK as `runtime/napi/` in a
 checkout where that directory does not already exist. Do not overwrite an
 unrelated SDK customization. The included `BUILD.gn` follows the pinned SDK's
 `runtime/engine/BUILD.gn` and provides the `napi_runtime` cache-preparation target.
@@ -28,7 +45,7 @@ Generate the Product cache with GN and Ninja:
 "$SDK_SOURCE/buildtools/gn" gen "$VM_CACHE" \
   --root-target=//runtime/napi:napi_runtime \
   --args='target_os="mac" host_cpu="arm64" target_cpu="arm64" dart_target_arch="arm64" is_debug=false is_release=false is_product=true dart_debug=false dart_runtime_mode="release" dart_use_compressed_pointers=false dart_use_crashpad=false dart_dynamic_modules=false is_asan=false is_lsan=false is_msan=false is_tsan=false is_ubsan=false is_hwasan=false mac_sdk_min="14.0"'
-"$LOCAL_NINJA" -C "$VM_CACHE" napi_runtime
+"$LOCAL_NINJA" -C "$VM_CACHE" clang_arm64_shared/phony/runtime/napi/napi_runtime_set
 ```
 
 That first SDK build can compile VM objects. The bundle command below reuses
@@ -52,20 +69,24 @@ untouched. Node headers affect the reusable bridge, not individual businesses.
 
 ## Bundle contract
 
-The flat bundle contains `bridge.node`, the identity-qualified runtime dylib,
-`DART_LICENSE`, `DART_AUTHORS`, `NAPI_LICENSE`, and `manifest.json`.
+The flat bundle contains `bridge.node`, the identity-qualified runtime (`.dylib`
+on macOS or `.so` on Linux), `DART_LICENSE`, `DART_AUTHORS`, `NAPI_LICENSE`, and
+`manifest.json`.
 The manifest has `format: 1`, `sdkVersion`, `sdkRevision`, `platform: "macos"`,
 `architecture: "arm64"`, `minimumOsVersion: "14.0"`, `abi: 15`, `identity`,
 `bridge`, `runtime`, and `files` mapping the five payload names to SHA-256 hashes.
 Its `build` metadata records the cache arguments hash, combined input-object
 digest/count, and runtime/ABI source hash. It contains no local SDK paths.
+The Linux profile instead uses `platform: "linux"`, `architecture: "x64"`,
+`libc: "glibc"` and `minimumLibcVersion: "2.17"`, with no `minimumOsVersion`.
 The consumer build validates this manifest and hashes before copying its exact
 file whitelist. File hashes validate the distributed assets; runtime identity is described below.
 
 The builder also writes `build.provenance`: the producer commit and
 explicit dirty-source flag, hashes of the repository's actual build inputs,
-compiler identity and macOS SDK version, cache recipe hashes, and non-system
-headers discovered with the compilation flags before compiling and checked
+compiler identity and macOS SDK version or Linux toolchain package hashes,
+cache recipe hashes, and non-system headers discovered with the compilation
+flags before compiling and checked
 again against the actual compiler dependency files. Source, VM objects, cache
 recipes and compiler hashes are also checked again before publication; detected
 input drift fails the build. Keep the prepared cache and toolchain unchanged
@@ -134,8 +155,10 @@ it. The bridge compares the actual linked `NapiDart_RuntimeIdentity()` result
 with its compiled expected identity before any VM initialization. Compatible
 copies may share one loaded image; an unused local copy is not inspected.
 Different actual identities fail. Pack/manifest validation owns asset integrity.
-Both native images use deployment target 14.0; the bridge resolves its sole
-runtime dependency through `@loader_path`, without an SDK/developer path.
+On macOS both native images use deployment target 14.0 and the bridge resolves
+its runtime dependency through `@loader_path`. On Linux the bridge links to the
+identity-qualified runtime SONAME through `$ORIGIN`. The builder rejects ELF
+files with a newer glibc requirement or unexpected dynamic dependencies.
 
 ## ABI and lifecycle
 

@@ -126,9 +126,17 @@ jobs:
   native:
     needs: scope
     if: ${{ always() && needs.scope.result == 'success' && needs.scope.outputs.scope == 'full' }}
-    name: Native consumers (macOS arm64)
-    runs-on: macos-14
-    timeout-minutes: 30
+    name: Native consumers (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            platform: macos-arm64
+          - os: ubuntu-24.04
+            platform: linux-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dart-lang/setup-dart@v1
@@ -146,7 +154,56 @@ jobs:
       - run: node -p '"NAPI_NODE_EXECUTABLES=" + JSON.stringify([process.execPath, process.env.NAPI_NODE_26])' >> "$GITHUB_ENV"
       - run: dart pub get
       - run: npm install --prefix .dart_tool/js --no-save --no-package-lock --ignore-scripts --no-audit --no-fund typescript@7.0.2
+      - name: Identify Linux VM cache
+        if: runner.os == 'Linux'
+        id: vm-cache-key
+        run: echo "key=$(python3 tool/native/prepare_linux.py --cache-key)" >> "$GITHUB_OUTPUT"
+      - name: Restore Linux VM objects and toolchain
+        if: runner.os == 'Linux'
+        id: vm-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .dart_tool/native-linux
+          key: ${{ steps.vm-cache-key.outputs.key }}
+      - name: Prepare Linux VM objects
+        if: runner.os == 'Linux'
+        run: python3 tool/native/prepare_linux.py --directory .dart_tool/native-linux
+      - name: Save Linux VM objects and toolchain
+        if: runner.os == 'Linux' && steps.vm-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .dart_tool/native-linux
+          key: ${{ steps.vm-cache-key.outputs.key }}
+      - name: Build Linux runtime from current sources
+        if: runner.os == 'Linux'
+        run: |
+          curl --fail --location --retry 2 --max-time 120 \
+            'https://nodejs.org/dist/v24.19.0/node-v24.19.0-headers.tar.gz' \
+            --output "$RUNNER_TEMP/node-headers.tar.gz"
+          tar -xzf "$RUNNER_TEMP/node-headers.tar.gz" -C "$RUNNER_TEMP"
+          python3 tool/native/build.py \
+            --sdk .dart_tool/native-linux/sdk \
+            --runtime-build .dart_tool/native-linux/sdk/out/ProductX64 \
+            --node-headers "$RUNNER_TEMP/node-v24.19.0/include/node" \
+            --output "$RUNNER_TEMP/native-linux-bundle"
+          echo "NAPI_TEST_NATIVE_RUNTIME=$RUNNER_TEMP/native-linux-bundle" >> "$GITHUB_ENV"
+      - name: Package Linux runtime artifact
+        if: runner.os == 'Linux'
+        run: |
+          python3 tool/native/bundle.py --dart "$(command -v dart)" pack \
+            "$RUNNER_TEMP/native-linux-bundle" \
+            --archive "$RUNNER_TEMP/native-linux-artifact/runtime.zip" \
+            --lock "$RUNNER_TEMP/native-linux-artifact/runtime.lock.json"
+      - name: Upload Linux runtime artifact
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-linux-x64-${{ github.sha }}
+          path: ${{ runner.temp }}/native-linux-artifact
+          if-no-files-found: error
+          retention-days: 7
       - name: Obtain runtime archive for download tests
+        if: runner.os == 'macOS'
         run: |
           curl --fail --location --retry 2 --max-time 120 \
             'https://github.com/medz/napi/releases/download/runtime-dart-3.13.5-abi15/napi-runtime-dart-3.13.5-macos-arm64-abi15-b07f81272d03.zip' \

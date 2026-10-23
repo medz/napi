@@ -8,8 +8,9 @@ Node-API `.node` addon; both run your application code in Dart.
 
 - Dart **3.13.5**.
 - Node.js **24.19.0** or **26.11.1**.
-- Native builds: macOS 14 or later on arm64. The precompiled runtime downloads
-  automatically; application builds do not need a C/C++ toolchain.
+- Native builds: macOS 14 or later on arm64, or Linux x64 with glibc.
+  macOS downloads its precompiled runtime automatically; Linux requires a
+  [local runtime bundle](doc/native.md). Application builds do not need a C/C++ toolchain.
 
 Wasm is the default target. It depends on experimental Dart compiler and interop
 APIs and is tied to Dart 3.13.5. Browser and Bun support is not yet verified.

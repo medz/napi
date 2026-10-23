@@ -11,10 +11,12 @@ import '../emit/js/js_collections.dart';
 import '../emit/js/opaque.dart';
 import '../lowering/plan.dart' show JsCollectionConversion;
 import 'plan.dart';
+import 'platform.dart';
 
 /// Public export names are aliases, never local loader bindings.
 String emitNativeLoader(
   List<String> exports, {
+  NativePlatform platform = NativePlatform.macosArm64,
   List<NativeClassPlan> classes = const [],
   List<NativeCallPlan> functionValues = const [],
   bool hasFutures = false,
@@ -35,11 +37,30 @@ String emitNativeLoader(
   final code = StringBuffer('''
 import {createRequire} from 'node:module';
 import {fileURLToPath} from 'node:url';
-if (process.platform !== 'darwin' || process.arch !== 'arm64') {
-  throw new Error('This native artifact requires macOS arm64. Build a matching target.');
+if (process.platform !== ${jsonEncode(platform.nodePlatform)} || process.arch !== ${jsonEncode(platform.architecture)}) {
+  throw new Error(${jsonEncode('This native artifact requires ${platform.description}. Build a matching target.')});
 }
 const require = createRequire(import.meta.url);
 ''');
+  if (platform.minimumLibcVersion case final minimum?) {
+    code.writeln('''
+let \$napiLibcVersion;
+try { \$napiLibcVersion = process.report?.getReport()?.header?.glibcVersionRuntime; } catch {}
+const \$napiLibcParts = typeof \$napiLibcVersion === 'string' && /^[0-9]+(?:\\.[0-9]+)*\$/.test(\$napiLibcVersion)
+  ? \$napiLibcVersion.split('.').map(Number) : [];
+const \$napiLibcMinimum = ${jsonEncode(minimum.split('.').map(int.parse).toList())};
+let \$napiLibcCompatible = \$napiLibcParts.length > 0 && \$napiLibcParts.every(Number.isSafeInteger);
+if (\$napiLibcCompatible) {
+  for (let i = 0; i < Math.max(\$napiLibcParts.length, \$napiLibcMinimum.length); i++) {
+    const actual = \$napiLibcParts[i] ?? 0, required = \$napiLibcMinimum[i] ?? 0;
+    if (actual !== required) { \$napiLibcCompatible = actual > required; break; }
+  }
+}
+if (!\$napiLibcCompatible) {
+  throw new Error(${jsonEncode('This native artifact requires glibc $minimum or newer.')});
+}
+''');
+  }
   if (hasCompositeViews) {
     code.writeln(r'''const $napiCreate = Object.create;
 function $napiResolveReferenceShape(views, context) {

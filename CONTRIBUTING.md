@@ -28,12 +28,15 @@ On macOS arm64, run native and dual-target consumers with:
 dart test -P native-consumers
 ```
 
-The runtime downloads automatically. To use an existing bundle offline:
+The macOS runtime downloads automatically. On Linux x64, or to use an existing
+bundle offline, pass a matching bundle:
 
 ```sh
 NAPI_TEST_NATIVE_RUNTIME=/absolute/path/to/runtime-bundle \
   dart test -P native-consumers
 ```
+
+See the [runtime maintainer guide](native/README.md) to build a Linux bundle.
 
 ## Checks
 

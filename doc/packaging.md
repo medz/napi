@@ -66,8 +66,8 @@ again.
 ## Choose native or Wasm
 
 Wasm is the default. For a native package, pass `target: BuildTarget.native`.
-Native packages currently support macOS arm64; the builder obtains and caches
-the matching runtime. See [native builds](native.md).
+Native packages support macOS arm64 and Linux x64 glibc. macOS obtains its
+runtime automatically; Linux uses a local bundle. See [native builds](native.md).
 
 To ship both backends in one package:
 

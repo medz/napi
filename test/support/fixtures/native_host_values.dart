@@ -46,7 +46,7 @@ Future<void> verifyNativeHostValues(
       'laterDone',
       'holdTimer',
       'HostRouter',
-    ]),
+    ], platform: bundle.platform),
   );
   await File('${package.path}/package.json').writeAsString(
     jsonEncode({
@@ -58,7 +58,7 @@ Future<void> verifyNativeHostValues(
         '*.mjs',
         '*.aot',
         '*.node',
-        '*.dylib',
+        bundle.runtime,
         '*.json',
         '*LICENSE',
         'DART_AUTHORS',

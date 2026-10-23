@@ -136,11 +136,11 @@ final class OutputOwnership {
         calls is! bool ||
         (calls && !targets.contains('wasm')) ||
         !packageAssetNames.containsAll(assets) ||
-        !{'os', 'cpu'}.containsAll(auto) ||
+        !{'os', 'cpu', 'libc'}.containsAll(auto) ||
         (auto.isNotEmpty && (targets.length != 1 || root != 'native')) ||
         (targets.contains('native')
             ? runtime is! String ||
-                  !RegExp(r'^libnapi_runtime_[A-Za-z0-9_.-]+\.dylib$')
+                  !RegExp(r'^libnapi_runtime_[A-Za-z0-9_.-]+\.(?:dylib|so)$')
                       .hasMatch(runtime)
             : runtime != null) ||
         hashes is! Map<String, dynamic>) {
@@ -166,8 +166,9 @@ final class OutputOwnership {
         throw ArgumentError('Generated output artifact changed: $name');
       }
     }
+    NativeRuntimeBundle? bundle;
     if (targets.contains('native')) {
-      final bundle = await NativeRuntimeBundle.read(
+      bundle = await NativeRuntimeBundle.read(
         targets.length > 1 ? Directory('${directory.path}/native') : directory,
         built: true,
       );
@@ -210,7 +211,12 @@ final class OutputOwnership {
       package.remove(field);
     }
     for (final field in auto) {
-      if (!_sameJson(package[field], [field == 'os' ? 'darwin' : 'arm64'])) {
+      final expected = switch (field) {
+        'os' => bundle!.platform.nodePlatform,
+        'cpu' => bundle!.platform.architecture,
+        _ => bundle!.platform.libc,
+      };
+      if (expected == null || !_sameJson(package[field], [expected])) {
         throw ArgumentError('Generated package metadata changed: $field');
       }
       package.remove(field);

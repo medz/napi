@@ -5,6 +5,7 @@ import '../compiler/front_end/external.dart';
 import '../compiler/ir/model.dart';
 import '../compiler/native/declarations.dart';
 import '../compiler/native/plan.dart';
+import '../compiler/native/platform.dart';
 import 'build.dart';
 import 'contract.dart';
 import 'metadata.dart';
@@ -39,10 +40,9 @@ Future<Directory> buildPackage({
 }) async {
   final selected = Set<BuildTarget>.of(targets ?? {target});
   final supplied = packageMetadata(metadata);
-  packageMetadata(
-    supplied,
-    native: selected.length == 1 && selected.contains(BuildTarget.native),
-  );
+  final nativeOnly =
+      selected.length == 1 && selected.contains(BuildTarget.native);
+  packageMetadata(supplied, native: nativeOnly);
   if (selected.isEmpty || !selected.contains(target)) {
     throw ArgumentError('Package targets must contain the root target.');
   }
@@ -73,7 +73,7 @@ Future<Directory> buildPackage({
     packageMetadata({
       ...?update?.previous?.metadata,
       ...supplied,
-    }, native: selected.length == 1 && selected.contains(BuildTarget.native));
+    }, native: nativeOnly);
     final bindings = <BuildTarget, BindingModule>{};
     String? declarations;
     for (final backend in BuildTarget.values.where(selected.contains)) {
@@ -101,10 +101,17 @@ Future<Directory> buildPackage({
     }
     Directory? runtime;
     if (selected.contains(BuildTarget.native)) {
-      runtime = (await resolveNativeRuntime(
+      final bundle = await resolveNativeRuntime(
         runtime: nativeRuntime,
         output: destination,
-      )).directory;
+      );
+      runtime = bundle.directory;
+      if (nativeOnly) {
+        packageMetadata({
+          ...?update?.previous?.metadata,
+          ...supplied,
+        }, nativePlatform: bundle.platform);
+      }
     }
     update ??= await OutputUpdate.open(destination);
     await destination.parent.create(recursive: true);
@@ -220,6 +227,7 @@ Future<Directory> _assemblePackage({
   await _checkAssets(assets);
   final files = <String, File>{};
   String? runtime;
+  NativePlatform? nativePlatform;
   var calls = false;
   for (final module in modules) {
     final source = module.directory.absolute;
@@ -233,7 +241,10 @@ Future<Directory> _assemblePackage({
     final bundle = native
         ? await NativeRuntimeBundle.read(source, built: true)
         : null;
-    if (bundle != null) runtime = bundle.runtime;
+    if (bundle != null) {
+      runtime = bundle.runtime;
+      nativePlatform = bundle.platform;
+    }
     final requiredFiles = bundle == null
         ? wasmPackageFiles
         : [
@@ -280,11 +291,18 @@ Future<Directory> _assemblePackage({
     final author = {...?previous?.metadata, ...supplied};
     final autoPlatform = <String>{
       if (nativeOnly)
-        for (final field in ['os', 'cpu'])
+        for (final field in [
+          'os',
+          'cpu',
+          if (nativePlatform?.libc != null) 'libc',
+        ])
           if (!author.containsKey(field)) field,
     };
     final selectedAssets = {...?previous?.assets, ...assets.keys};
-    final package = packageMetadata(author, native: nativeOnly);
+    final package = packageMetadata(
+      author,
+      nativePlatform: nativeOnly ? nativePlatform : null,
+    );
     final targets = modules.map((module) => module.target.name).toSet();
     package.addAll({
       'type': 'module',

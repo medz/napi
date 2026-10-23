@@ -10,6 +10,7 @@ import 'package:napi/src/build/output_ownership.dart';
 import 'package:napi/src/build/publish.dart' show checkPackageRebuildFilesystem;
 import 'package:napi/build.dart';
 import 'package:napi/src/compiler/native/loader.dart';
+import 'package:napi/src/compiler/native/platform.dart';
 import 'package:napi/src/compiler/sdk_adapter/dart_aot_adapter.dart';
 import 'package:napi/src/compiler/sdk_adapter/dart_sdk_adapter.dart';
 import 'package:test/test.dart';
@@ -27,10 +28,10 @@ void main() {
   const runtime = 'libnapi_runtime_$identity.dylib';
   Future<void> save() =>
       File('${root.path}/manifest.json').writeAsString(jsonEncode(manifest));
-  setUp(() async {
-    root = await Directory.systemTemp.createTemp('napi bundle 中文 ');
-    root = Directory(root.resolveSymbolicLinksSync());
-    addTearDown(() => root.delete(recursive: true));
+  Future<void> selectPlatform(NativePlatform profile) async {
+    final identity =
+        'dart-3.13.5-product-${profile.platform}-${profile.architecture}-abi15-fixture';
+    final runtime = 'libnapi_runtime_$identity.${profile.runtimeExtension}';
     final hashes = <String, String>{};
     for (final name in [
       'bridge.node',
@@ -47,9 +48,13 @@ void main() {
       'format': 1,
       'sdkVersion': '3.13.5',
       'sdkRevision': nativeSdkRevision,
-      'platform': 'macos',
-      'architecture': 'arm64',
-      'minimumOsVersion': '14.0',
+      'platform': profile.platform,
+      'architecture': profile.architecture,
+      if (profile.minimumOsVersion != null)
+        'minimumOsVersion': profile.minimumOsVersion,
+      if (profile.libc != null) 'libc': profile.libc,
+      if (profile.minimumLibcVersion != null)
+        'minimumLibcVersion': profile.minimumLibcVersion,
       'abi': 15,
       'identity': identity,
       'bridge': 'bridge.node',
@@ -57,6 +62,82 @@ void main() {
       'files': hashes,
     };
     await save();
+  }
+
+  setUp(() async {
+    root = await Directory.systemTemp.createTemp('napi bundle 中文 ');
+    root = Directory(root.resolveSymbolicLinksSync());
+    addTearDown(() => root.delete(recursive: true));
+    await selectPlatform(NativePlatform.macosArm64);
+  });
+
+  test(
+    'Linux bundles validate and copy without loading their native code',
+    () async {
+      await selectPlatform(NativePlatform.linuxX64);
+      final bundle = await NativeRuntimeBundle.read(root);
+      expect(bundle.platform, NativePlatform.linuxX64);
+      expect(bundle.runtime, endsWith('.so'));
+      final output = await Directory('${root.path}/copied').create();
+      await bundle.copyTo(output);
+      expect(
+        (await NativeRuntimeBundle.read(output, built: true)).platform,
+        NativePlatform.linuxX64,
+      );
+      expect(File('${output.path}/$runtime').existsSync(), isFalse);
+      if (Platform.isMacOS && Abi.current() == Abi.macosArm64) {
+        expect(bundle.verifyHost, throwsA(isA<SdkCompatibilityException>()));
+      } else if (Platform.isLinux && Abi.current() == Abi.linuxX64) {
+        bundle.verifyHost();
+      }
+    },
+  );
+
+  test(
+    'host verification rejects a bundle for another architecture or OS',
+    () async {
+      final bundle = await NativeRuntimeBundle.read(root);
+      if (Platform.isMacOS && Abi.current() == Abi.macosArm64) {
+        bundle.verifyHost();
+      } else {
+        expect(bundle.verifyHost, throwsA(isA<SdkCompatibilityException>()));
+      }
+    },
+  );
+
+  test(
+    'Linux libc requirements are distinct from the operating system version',
+    () async {
+      await selectPlatform(NativePlatform.linuxX64);
+      for (final change in [
+        {'libc': 'musl'},
+        {'libc': null},
+        {'minimumLibcVersion': '2.9'},
+        {'minimumLibcVersion': null},
+        {'minimumOsVersion': '2.17'},
+      ]) {
+        final original = Map<String, Object?>.of(manifest);
+        manifest.addAll(change);
+        await save();
+        await expectLater(
+          NativeRuntimeBundle.read(root),
+          throwsA(isA<SdkCompatibilityException>()),
+        );
+        manifest = original;
+      }
+      manifest['runtime'] = '${manifest['runtime']}.dylib';
+      await save();
+      await expectLater(NativeRuntimeBundle.read(root), throwsFormatException);
+    },
+  );
+
+  test('libc versions compare numeric components', () {
+    for (final version in ['2.17', '2.17.0', '2.18', '2.40', '3.0']) {
+      expect(nativeVersionAtLeast(version, '2.17'), isTrue, reason: version);
+    }
+    for (final version in ['2.9', '2.16.99', '1.99', '', 'glibc 2.40', '2.x']) {
+      expect(nativeVersionAtLeast(version, '2.17'), isFalse, reason: version);
+    }
   });
 
   test('hashes and copies only the declared flat runtime assets', () async {
@@ -262,79 +343,11 @@ import 'package:napi/napi.dart';
     skip: !Platform.isMacOS || Abi.current() != Abi.macosArm64,
   );
 
-  test(
-    'native npm assembly retains provenance and fixes target exports',
-    () async {
-      final bundle = await NativeRuntimeBundle.read(root);
-      final built = await Directory('${root.path}/built').create();
-      await bundle.copyTo(built);
-      for (final name in ['module.mjs', 'module.d.mts', 'module.aot']) {
-        await File('${built.path}/$name').writeAsString('fixture');
-      }
-      final module = BuiltModule(built, '3.13.5', target: BuildTarget.native);
-      final output = Directory('${root.path}/npm');
-      await assembleNativePackage(
-        module: module,
-        output: output,
-        metadata: {
-          'name': '@napi/fixture',
-          'version': '0.0.0',
-          'author': 'Author',
-        },
-      );
-      final package = jsonDecode(
-        await File('${output.path}/package.json').readAsString(),
-      ) as Map;
-      expect(package['author'], 'Author');
-      expect(package['os'], ['darwin']);
-      expect(package['cpu'], ['arm64']);
-      expect((package['exports'] as Map)['.'], {
-        'types': './module.d.mts',
-        'import': './module.mjs',
-      });
-      expect(
-        File('${output.path}/runtime.json').readAsStringSync(),
-        File('${built.path}/runtime.json').readAsStringSync(),
-      );
-      await expectLater(
-        assembleNativePackage(
-          module: module,
-          output: Directory('${root.path}/bad'),
-          metadata: {
-            'name': '@napi/fixture',
-            'version': '0.0.0',
-            'cpu': ['x64'],
-          },
-        ),
-        throwsArgumentError,
-      );
-      expect(Directory('${root.path}/bad').existsSync(), isFalse);
-      await expectLater(
-        assembleWasmPackage(
-          module: module,
-          output: output,
-          metadata: {'name': '@napi/fixture', 'version': '0.0.0'},
-        ),
-        throwsArgumentError,
-      );
-      final rebuild = assembleNativePackage(
-        module: module,
-        output: output,
-        metadata: {'name': '@napi/fixture', 'version': '0.0.0'},
-      );
-      if (unsupportedRebuild == null) {
-        await rebuild;
-      } else {
-        await expectLater(rebuild, throwsUnsupportedError);
-      }
-      expect(File('${output.path}/module.aot').readAsStringSync(), 'fixture');
-    },
-  );
-
-  for (final explicit in [false, true]) {
+  for (final profile in NativePlatform.values) {
     test(
-      'native ${explicit ? 'author' : 'automatic'} platform fields across target changes',
+      'native npm assembly retains ${profile.name} provenance and target exports',
       () async {
+        await selectPlatform(profile);
         final bundle = await NativeRuntimeBundle.read(root);
         final built = await Directory('${root.path}/built').create();
         await bundle.copyTo(built);
@@ -349,43 +362,143 @@ import 'package:napi/napi.dart';
           metadata: {
             'name': '@napi/fixture',
             'version': '0.0.0',
-            if (explicit) 'os': ['darwin'],
-            if (explicit) 'cpu': ['arm64'],
+            'author': 'Author',
           },
-        );
-        final ownership = (await OutputOwnership.read(output))!;
-        // Dual assembly and single Wasm assembly both use this author metadata
-        // with native:false. The implicit native restrictions must not survive.
-        final dual = packageMetadata(ownership.metadata);
-        expect(dual.containsKey('os'), explicit);
-        expect(dual.containsKey('cpu'), explicit);
-        final wasm = await Directory('${root.path}/wasm').create();
-        for (final name in wasmPackageFiles) {
-          await File('${wasm.path}/$name').writeAsString('wasm $name');
-        }
-        await assembleWasmPackage(
-          module: BuiltModule(wasm, '3.13.5'),
-          output: output,
-          metadata: {'name': '@napi/fixture', 'version': '0.0.1'},
         );
         final package = jsonDecode(
           await File('${output.path}/package.json').readAsString(),
         ) as Map;
-        expect(package.containsKey('os'), explicit);
-        expect(package.containsKey('cpu'), explicit);
-        if (explicit) {
-          expect(package['os'], ['darwin']);
-          expect(package['cpu'], ['arm64']);
-        }
-        expect(await File('${output.path}/module.aot').exists(), isFalse);
-        expect(await File('${output.path}/$runtime').exists(), isFalse);
+        expect(package['author'], 'Author');
+        expect(package['os'], [profile.nodePlatform]);
+        expect(package['cpu'], [profile.architecture]);
+        expect(package['libc'], profile.libc == null ? null : [profile.libc]);
+        expect((package['exports'] as Map)['.'], {
+          'types': './module.d.mts',
+          'import': './module.mjs',
+        });
         expect(
-          await File('${output.path}/module.wasm').readAsString(),
-          'wasm module.wasm',
+          File('${output.path}/runtime.json').readAsStringSync(),
+          File('${built.path}/runtime.json').readAsStringSync(),
         );
-        await OutputOwnership.read(output);
+        await expectLater(
+          assembleNativePackage(
+            module: module,
+            output: Directory('${root.path}/bad'),
+            metadata: {
+              'name': '@napi/fixture',
+              'version': '0.0.0',
+              'cpu': [profile.architecture == 'arm64' ? 'x64' : 'arm64'],
+            },
+          ),
+          throwsArgumentError,
+        );
+        expect(Directory('${root.path}/bad').existsSync(), isFalse);
+        await expectLater(
+          assembleNativePackage(
+            module: module,
+            output: Directory('${root.path}/bad-libc'),
+            metadata: {
+              'name': '@napi/fixture',
+              'version': '0.0.0',
+              'libc': ['musl'],
+            },
+          ),
+          throwsArgumentError,
+        );
+        expect(Directory('${root.path}/bad-libc').existsSync(), isFalse);
+        await expectLater(
+          assembleWasmPackage(
+            module: module,
+            output: output,
+            metadata: {'name': '@napi/fixture', 'version': '0.0.0'},
+          ),
+          throwsArgumentError,
+        );
+        final rebuild = assembleNativePackage(
+          module: module,
+          output: output,
+          metadata: {'name': '@napi/fixture', 'version': '0.0.0'},
+        );
+        if (unsupportedRebuild == null) {
+          await rebuild;
+        } else {
+          await expectLater(rebuild, throwsUnsupportedError);
+        }
+        expect(File('${output.path}/module.aot').readAsStringSync(), 'fixture');
       },
-      skip: unsupportedRebuild ?? false,
     );
+
+    for (final explicit in [false, true]) {
+      test(
+        '${profile.name} ${explicit ? 'author' : 'automatic'} platform fields across target changes',
+        () async {
+          await selectPlatform(profile);
+          final bundle = await NativeRuntimeBundle.read(root);
+          final built = await Directory('${root.path}/built').create();
+          await bundle.copyTo(built);
+          for (final name in ['module.mjs', 'module.d.mts', 'module.aot']) {
+            await File('${built.path}/$name').writeAsString('fixture');
+          }
+          final module = BuiltModule(
+            built,
+            '3.13.5',
+            target: BuildTarget.native,
+          );
+          final output = Directory('${root.path}/npm');
+          await assembleNativePackage(
+            module: module,
+            output: output,
+            metadata: {
+              'name': '@napi/fixture',
+              'version': '0.0.0',
+              if (explicit) 'os': [profile.nodePlatform],
+              if (explicit) 'cpu': [profile.architecture],
+              if (explicit && profile.libc != null) 'libc': [profile.libc],
+            },
+          );
+          final ownership = (await OutputOwnership.read(output))!;
+          // Dual assembly and single Wasm assembly both use this author metadata
+          // without a native profile. Implicit restrictions must not survive.
+          final dual = packageMetadata(ownership.metadata);
+          expect(dual.containsKey('os'), explicit);
+          expect(dual.containsKey('cpu'), explicit);
+          expect(dual.containsKey('libc'), explicit && profile.libc != null);
+          final wasm = await Directory('${root.path}/wasm').create();
+          for (final name in wasmPackageFiles) {
+            await File('${wasm.path}/$name').writeAsString('wasm $name');
+          }
+          await assembleWasmPackage(
+            module: BuiltModule(wasm, '3.13.5'),
+            output: output,
+            metadata: {'name': '@napi/fixture', 'version': '0.0.1'},
+          );
+          final package = jsonDecode(
+            await File('${output.path}/package.json').readAsString(),
+          ) as Map;
+          expect(package.containsKey('os'), explicit);
+          expect(package.containsKey('cpu'), explicit);
+          expect(package.containsKey('libc'), explicit && profile.libc != null);
+          if (explicit) {
+            expect(package['os'], [profile.nodePlatform]);
+            expect(package['cpu'], [profile.architecture]);
+            expect(
+              package['libc'],
+              profile.libc == null ? null : [profile.libc],
+            );
+          }
+          expect(await File('${output.path}/module.aot').exists(), isFalse);
+          expect(
+            await File('${output.path}/${bundle.runtime}').exists(),
+            isFalse,
+          );
+          expect(
+            await File('${output.path}/module.wasm').readAsString(),
+            'wasm module.wasm',
+          );
+          await OutputOwnership.read(output);
+        },
+        skip: unsupportedRebuild ?? false,
+      );
+    }
   }
 }

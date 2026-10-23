@@ -22,6 +22,13 @@ PROFILE = ('sdkVersion', 'sdkRevision', 'platform', 'architecture',
            'minimumOsVersion', 'abi', 'identity')
 
 
+def profile_fields(manifest):
+    if manifest.get('platform') == 'linux':
+        return tuple(key for key in PROFILE if key != 'minimumOsVersion') + (
+            'libc', 'minimumLibcVersion')
+    return PROFILE
+
+
 def no_symlinks(path):
     path = path.absolute()
     for part in [*reversed(path.parents), path]:
@@ -71,8 +78,12 @@ def provenance(manifest, repository):
         if not sha(expected) or digest(regular(repository/name)) != expected:
             raise ValueError(f'Bundle source input differs: {name}; rebuild the bundle')
     compiler = proof.get('compiler', {})
-    if (not isinstance(compiler, dict) or not sha(compiler.get('sha256')) or not compiler.get('version')
-            or not compiler.get('macosSdkVersion')):
+    if (not isinstance(compiler, dict) or not sha(compiler.get('sha256')) or not compiler.get('version')):
+        raise ValueError('Missing native compiler provenance')
+    if manifest.get('platform') == 'linux':
+        if not all(sha(compiler.get(key)) for key in ['sysrootSha256', 'clangPackageSha256']):
+            raise ValueError('Missing native Linux toolchain provenance')
+    elif not compiler.get('macosSdkVersion'):
         raise ValueError('Missing native compiler provenance')
     for key in ['headers', 'cacheRecipe']:
         values = proof.get(key, {})
@@ -106,7 +117,7 @@ def read_lock(path):
             or lock.get('format') != 1 or not sha(lock.get('manifestSha256'))
             or not sha(archive.get('sha256')) or type(archive.get('bytes')) is not int
             or not 0 < archive['bytes'] <= MAX_BYTES
-            or set(profile) != set(PROFILE)
+            or set(profile) != set(profile_fields(profile))
             or not isinstance(profile.get('identity'), str)
             or not re.fullmatch('[A-Za-z0-9_.-]{1,200}', profile['identity'])):
         raise ValueError('Invalid native bundle lock; prepare it from an actual built bundle')
@@ -164,7 +175,8 @@ def unpack(archive, destination, lock):
     with zipfile.ZipFile(archive) as zipped:
         entries = zipped.infolist()
         names = [entry.filename for entry in entries]
-        runtime = 'libnapi_runtime_'+lock['profile']['identity']+'.dylib'
+        extension = '.so' if lock['profile']['platform'] == 'linux' else '.dylib'
+        runtime = 'libnapi_runtime_'+lock['profile']['identity']+extension
         expected = {'manifest.json', 'bridge.node', runtime,
                     'DART_LICENSE', 'DART_AUTHORS', 'NAPI_LICENSE'}
         if len(entries) != 6 or set(names) != expected:
@@ -189,7 +201,7 @@ def check_locked(bundle, lock, repository, dart):
     manifest = verify(bundle, repository, dart)
     if digest(regular(bundle/'manifest.json')) != lock['manifestSha256']:
         raise ValueError('Native manifest differs from its reviewed lock')
-    if {key: manifest.get(key) for key in PROFILE} != lock['profile']:
+    if {key: manifest.get(key) for key in profile_fields(manifest)} != lock['profile']:
         raise ValueError('Native bundle profile differs from its lock')
 
 
@@ -259,7 +271,7 @@ def pack(bundle, archive, lock_path, dart, url=None, repository=ROOT):
                 zipped.writestr(entry, data)
         if staged.stat().st_size > MAX_BYTES:
             raise ValueError('Native archive exceeds its size limit')
-        lock = {'format': 1, 'profile': {key: manifest[key] for key in PROFILE},
+        lock = {'format': 1, 'profile': {key: manifest[key] for key in profile_fields(manifest)},
                 'manifestSha256': manifest_hash,
                 'archive': {'url': url, 'sha256': digest(staged), 'bytes': staged.stat().st_size}}
         # Hard-link publication is no-replace; the staging file is on this

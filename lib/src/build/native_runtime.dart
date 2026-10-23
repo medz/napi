@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as path;
 
+import '../compiler/native/platform.dart';
+import '../compiler/sdk_adapter/dart_sdk_adapter.dart';
 import 'native_bundle.dart';
 import 'publish.dart';
 
@@ -45,7 +47,13 @@ Future<NativeRuntimeBundle> resolveNativeRuntime({
     bundle.verifyHost();
     return bundle;
   }
-  verifyNativeHost();
+  if (verifyNativeHost() != NativePlatform.macosArm64) {
+    throw const SdkCompatibilityException(
+      'NAPI_NATIVE_RUNTIME',
+      'Linux native builds require a local runtime bundle. '
+          'Pass nativeRuntime to buildLibrary or buildPackage.',
+    );
+  }
   final cacheDirectory = (cache ?? nativeRuntimeCacheDirectory()).absolute;
   await _checkCacheOutput(cacheDirectory, output);
   final entry = Directory(
