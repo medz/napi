@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:ffi' show Abi;
 import 'dart:io';
 
 import 'package:napi/src/build/native_bundle.dart';
@@ -8,9 +7,16 @@ import 'package:napi/src/compiler/native/platform.dart';
 import 'package:napi/src/compiler/sdk_adapter/dart_sdk_adapter.dart';
 import 'package:test/test.dart';
 
-final _supported =
-    (Platform.isMacOS && Abi.current() == Abi.macosArm64) ||
-    (Platform.isLinux && Abi.current() == Abi.linuxX64);
+final _supported = _supportsNativeRuntime();
+
+bool _supportsNativeRuntime() {
+  try {
+    verifyNativeHost();
+    return true;
+  } on SdkCompatibilityException {
+    return false;
+  }
+}
 
 void main() {
   test('native runtime cache honors host cache conventions', () async {
