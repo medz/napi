@@ -15,6 +15,7 @@ import '../compiler/native/plan.dart';
 import '../compiler/sdk_adapter/dart_sdk_adapter.dart';
 import 'publish.dart';
 import 'native.dart';
+import 'native_runtime.dart';
 import 'output.dart';
 import 'output_ownership.dart';
 
@@ -77,6 +78,8 @@ Future<BuiltModule> buildLibrary({
     File.fromUri(bindings.source),
     if (effectivePackages != null) File(effectivePackages),
     ?nativeRuntime,
+    if (target == BuildTarget.native && nativeRuntime == null)
+      nativeRuntimeCacheDirectory(),
   ]);
   final update = await OutputUpdate.open(destination, kind: OutputKind.module);
   Directory? staging;
@@ -168,7 +171,7 @@ Future<BindingModule> readLibraryBindings({
 ///
 /// The destination must not exist. Compilation and linking finish in a sibling
 /// staging directory before an atomic no-replace rename publishes the artifacts.
-/// Package assembly is separate; output replacement remains #135.
+/// Package assembly and managed output replacement are handled by the callers.
 Future<BuiltModule> buildModule({
   required BindingModule bindings,
   required Directory output,
@@ -177,6 +180,7 @@ Future<BuiltModule> buildModule({
   BuildTarget target = BuildTarget.wasm,
   Directory? nativeRuntime,
 }) async {
+  checkOutputLockPath(output);
   if (target == BuildTarget.native) {
     return buildNativeModule(
       bindings: bindings,
