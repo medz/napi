@@ -6,7 +6,7 @@ import 'package:napi/src/compiler/front_end/frontend.dart';
 import 'package:napi/src/compiler/sdk_adapter/dart_sdk_adapter.dart';
 import 'package:test/test.dart';
 
-import '../../tool/scalar_fixture.dart';
+import '../support/fixtures/scalars.dart';
 import '../fixtures/build_competitor.dart';
 
 const _kinds = [

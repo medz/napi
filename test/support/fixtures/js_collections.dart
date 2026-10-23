@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'verify.dart' show run;
+import '../commands.dart' show run, typecheck;
 
 /// Build once per backend, then verify relocated annotation/external packages.
 Future<void> verifyJsCollectionsFixture(
@@ -251,14 +251,10 @@ Future<void> main() async {
     'test/typescript/js_collections.mts',
   ).readAsString()).replaceAll('/BACKEND', native ? '/native' : '/module.wasm');
   await File('${consumer.path}/consumer.mts').writeAsString(declarations);
-  final tsc =
-      Platform.environment['NAPI_TSC'] ??
-      '${Directory.current.path}/.dart_tool/js/node_modules/typescript/bin/tsc';
   for (final mode in ['NodeNext', 'Bundler']) {
     for (final exact in ['true', 'false']) {
       for (final unchecked in ['true', 'false']) {
-        await run('node', [
-          File(tsc).absolute.path,
+        await typecheck([
           '--ignoreConfig',
           '--strict',
           '--exactOptionalPropertyTypes',
@@ -278,21 +274,4 @@ Future<void> main() async {
       }
     }
   }
-  stdout.writeln(
-    'JS collections $backend fresh consumer passed: ${consumer.path}',
-  );
-}
-
-Future<void> main(List<String> args) async {
-  if (args.length > 1) {
-    throw ArgumentError(
-      'Usage: dart run tool/js_collections_fixture.dart [native-runtime-bundle]',
-    );
-  }
-  final root = await Directory('.dart_tool').createTemp('napi js collections ');
-  stdout.writeln('JS collection artifacts: ${root.absolute.path}');
-  await verifyJsCollectionsFixture(
-    root,
-    nativeRuntime: args.isEmpty ? null : Directory(args.single),
-  );
 }

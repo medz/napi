@@ -1,27 +1,27 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'verify.dart' show run;
+import '../commands.dart' show run, typecheck;
 
-/// Verifies generated stream declarations in relocated, installed packages.
-Future<void> verifyStreamFixture(
+/// Verifies generated cancellation declarations in relocated, installed packages.
+Future<void> verifyCancellationFixture(
   Directory root, {
   Directory? nativeRuntime,
 }) async {
   final native = nativeRuntime != null;
   final backend = native ? 'native' : 'wasm';
   final canonical = await Directory(root.resolveSymbolicLinksSync())
-      .createTemp('streams $backend 雪 ');
+      .createTemp('cancellation $backend 雪 ');
   final project = await Directory('${canonical.path}/business 中文').create();
   await File('${project.path}/pubspec.yaml').writeAsString('''
-name: streams_business
+name: cancellation_business
 environment:
   sdk: ^3.13.5
 dependencies:
   napi:
     path: ${jsonEncode(Directory.current.path)}
 ''');
-  await File('test/fixtures/streams.dart')
+  await File('test/fixtures/cancellation.dart')
       .copy('${project.path}/business.dart');
   await File('${project.path}/build.dart').writeAsString('''
 import 'dart:io';
@@ -32,40 +32,34 @@ Future<void> main() async {
     await buildPackage(
       library: File('business.dart').absolute.uri,
       output: Directory(external ? 'external' : 'package'),
-      metadata: {'name': external ? '@napi/streams-external' : '@napi/streams-fixture', 'version': '0.0.0'},
+      metadata: {'name': external ? '@napi/cancellation-external' : '@napi/cancellation-fixture', 'version': '0.0.0'},
       packagesPath: File('.dart_tool/package_config.json').absolute.path,
       external: external ? const ExternalLibrary([
-        ExternalFunction('streamCalls'),
-        ExternalFunction('streamEvents'),
-        ExternalFunction('releaseCancel'),
-        ExternalFunction('emitHeld'),
-        ExternalFunction('range'),
-        ExternalFunction('generated'),
-        ExternalFunction('voidItems'),
-        ExternalFunction('echoItems'),
-        ExternalFunction('textItems'),
-        ExternalFunction('doubleItems'),
-        ExternalFunction('wideItems', config: NAPI(bigint: true)),
-        ExternalFunction('hugeItems'),
-        ExternalFunction('unsafeItems'),
-        ExternalFunction('sourceError'),
-        ExternalFunction('callbackError'),
-        ExternalFunction('pointItems'),
-        ExternalFunction('rowItems'),
-        ExternalFunction('mapItems'),
-        ExternalFunction('holdInputs'),
-        ExternalFunction('heldBoxAlive'),
-        ExternalFunction('streamPressure'),
-        ExternalFunction('compositeItems'),
-        ExternalFunction('rightItems'),
-        ExternalClass('StreamBox'),
-        ExternalClass('StreamPoint', config: NAPI(classPolicy: ClassPolicy.value)),
-        ExternalClass('IntFeed'),
-        ExternalClass('OpaqueFeed'),
-        ExternalClass('SnapshotFeed'),
-        ExternalClass('StreamOwner', config: NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')),
-        ExternalClass('StreamLeft'),
-        ExternalClass('StreamRight'),
+        ExternalFunction('entries'),
+        ExternalFunction('events'),
+        ExternalFunction('check'),
+        ExternalFunction('peekAfter'),
+        ExternalFunction('checkAfter'),
+        ExternalFunction('guarded'),
+        ExternalFunction('setConversion'),
+        ExternalFunction('immediate'),
+        ExternalFunction('optional'),
+        ExternalFunction('named'),
+        ExternalFunction('resolved'),
+        ExternalFunction('completeWork'),
+        ExternalFunction('work'),
+        ExternalFunction('timerWork'),
+        ExternalFunction('remember'),
+        ExternalFunction('tokenAlive'),
+        ExternalFunction('removeRetained'),
+        ExternalFunction('pressure'),
+        ExternalFunction('cancelComplete'),
+        ExternalFunction('once'),
+        ExternalClass('WorkOwner', config: NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')),
+        ExternalClass('CleanupSignal', config: NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')),
+        ExternalClass('SavedSignal'),
+        ExternalClass('GuardValue', config: NAPI(classPolicy: ClassPolicy.value)),
+        ExternalClass('SignalFeed', config: NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')),
       ]) : null,
       ${native ? 'target: BuildTarget.native,\n      nativeRuntime: Directory(${jsonEncode(nativeRuntime.absolute.path)}),' : ''}
     );
@@ -88,7 +82,7 @@ Future<void> main() async {
   ]) {
     final package = '${project.path}/$directory';
     await run('npm', ['pack', '--ignore-scripts', '--silent'], cwd: package);
-    final archive = await File('$package/napi-streams-$name-0.0.0.tgz')
+    final archive = await File('$package/napi-cancellation-$name-0.0.0.tgz')
         .copy('${canonical.path}/$name.tgz');
     archives.add(archive.path);
   }
@@ -105,12 +99,11 @@ Future<void> main() async {
     '--no-fund',
     ...archives,
   ], cwd: consumer.path);
-  await File('test/integration/streams.mjs').copy('${consumer.path}/test.mjs');
-  final declarations = await File('test/typescript/streams.mts').readAsString();
+  await File('test/integration/cancellation.mjs')
+      .copy('${consumer.path}/test.mjs');
+  final declarations = await File('test/typescript/cancellation.mts')
+      .readAsString();
   await run('node', ['--expose-gc', 'test.mjs'], cwd: consumer.path);
-  final tsc =
-      Platform.environment['NAPI_TSC'] ??
-      '${Directory.current.path}/.dart_tool/js/node_modules/typescript/bin/tsc';
   for (final mode in ['NodeNext', 'Bundler']) {
     for (final exact in ['true', 'false']) {
       await File('${consumer.path}/consumer.mts').writeAsString(
@@ -120,8 +113,7 @@ Future<void> main() async {
         ),
       );
       for (final strictFunctions in ['true', 'false']) {
-        await run('node', [
-          File(tsc).absolute.path,
+        await typecheck([
           '--ignoreConfig',
           '--strict',
           '--exactOptionalPropertyTypes',
@@ -141,19 +133,4 @@ Future<void> main() async {
       }
     }
   }
-  stdout.writeln('Stream $backend fresh packages and TypeScript: passed');
-}
-
-Future<void> main(List<String> args) async {
-  if (args.length > 1) {
-    throw ArgumentError(
-      'Usage: dart run tool/stream_fixture.dart [native-runtime-bundle]',
-    );
-  }
-  final root = await Directory('.dart_tool').createTemp('napi streams ');
-  stdout.writeln('Stream verification artifacts: ${root.absolute.path}');
-  await verifyStreamFixture(
-    root,
-    nativeRuntime: args.isEmpty ? null : Directory(args.single),
-  );
 }

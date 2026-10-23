@@ -5,7 +5,7 @@ import 'package:napi/src/build/native_bundle.dart';
 import 'package:napi/src/compiler/native/loader.dart';
 import 'package:napi/src/compiler/sdk_adapter/dart_aot_adapter.dart';
 
-import 'verify.dart' show run;
+import '../commands.dart' show run;
 
 /// Fresh npm packaging of a handwritten private ABI fixture, not generated
 /// opaque declarations. Uses the production carrier, bridge and AOT compiler.
@@ -85,7 +85,4 @@ Future<void> verifyNativeHostValues(
   await File('test/integration/native_host_values.mjs')
       .copy('${consumer.path}/test.mjs');
   await run('node', ['--expose-gc', 'test.mjs'], cwd: consumer.path);
-  stdout.writeln(
-    'Native private host-value AOT fixture and fresh consumer: passed',
-  );
 }

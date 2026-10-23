@@ -22,7 +22,3 @@ Future<void> buildScalarFixture(Directory output) async {
     await File(entry.key).copy('${output.path}/${entry.value}');
   }
 }
-
-Future<void> main(List<String> args) async {
-  await buildScalarFixture(Directory(args.single));
-}

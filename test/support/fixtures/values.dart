@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'verify.dart' show run, typescript;
+import '../commands.dart' show run, typescript;
 
 /// Proves that a type-only library survives packaging and source removal.
 /// The experimental Wasm SDK's support exports are not the public binding API.
@@ -131,5 +131,4 @@ void [tree, number, missing, absent, wrong, integer, text, mixed, wrongText];
 ''');
   await run('node', ['test.mjs'], cwd: consumer.path);
   await typescript(consumer, 'consumer.mts');
-  stdout.writeln('Type-only $backend fresh package and TypeScript: passed');
 }

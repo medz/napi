@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:napi/build.dart';
 import 'package:test/test.dart';
 
-import '../../tool/command.dart' show run;
+import '../support/commands.dart' show run;
 
 void main() {
   test(

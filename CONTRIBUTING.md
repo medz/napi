@@ -12,30 +12,27 @@ npm install --prefix .dart_tool/js --no-save --no-package-lock \
 
 ```sh
 dart test
-dart test -P callback-wasm
-dart run tool/verify.dart
+dart test -P wasm-consumers
 dart test --platform node --compiler dart2wasm \
   test/runtime/resources_test.dart test/runtime/streams_test.dart \
   test/runtime/callback_stream_test.dart test/runtime/cancellation_test.dart
 ```
 
-Select compiler tests with their path or `--name`. Consumer commands use `node`
+Select tests with their path or `--name`. Consumer commands use `node`
 from `PATH`; set `NAPI_NODE_EXECUTABLES` to a JSON array of absolute executable
 paths to run them with more than one Node version.
 
 On macOS arm64, run native and dual-target consumers with:
 
 ```sh
-dart run tool/native_verify.dart
-# Or use an existing runtime bundle offline:
-dart run tool/native_verify.dart /absolute/path/to/runtime-bundle
+dart test -P native-consumers
 ```
 
-To run the native callback suite alone:
+The runtime downloads automatically. To use an existing bundle offline:
 
 ```sh
 NAPI_TEST_NATIVE_RUNTIME=/absolute/path/to/runtime-bundle \
-  dart test -P callback-native
+  dart test -P native-consumers
 ```
 
 ## Checks

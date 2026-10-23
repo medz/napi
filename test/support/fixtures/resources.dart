@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'verify.dart' show run, typescript;
+import '../commands.dart' show run, typescript;
 
 /// Runs the same resource contract against independently packed backend modules.
 Future<void> verifyResourceFixture(
@@ -97,19 +97,4 @@ Future<void> main() async {
   );
   await run('node', ['--expose-gc', 'test.mjs'], cwd: consumer.path);
   await typescript(consumer, 'consumer.mts');
-  stdout.writeln('Resource $backend fresh package and TypeScript: passed');
-}
-
-Future<void> main(List<String> args) async {
-  if (args.length > 1) {
-    throw ArgumentError(
-      'Usage: dart run tool/resource_fixture.dart [native-runtime-bundle]',
-    );
-  }
-  final root = await Directory('.dart_tool').createTemp('napi resources ');
-  stdout.writeln('Resource verification artifacts: ${root.absolute.path}');
-  await verifyResourceFixture(
-    root,
-    nativeRuntime: args.isEmpty ? null : Directory(args.single),
-  );
 }

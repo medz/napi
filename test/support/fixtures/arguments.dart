@@ -16,7 +16,3 @@ Future<void> buildArgumentFixture(Directory output) async {
     await File(entry.key).copy('${output.path}/${entry.value}');
   }
 }
-
-Future<void> main(List<String> args) async {
-  await buildArgumentFixture(Directory(args.single));
-}

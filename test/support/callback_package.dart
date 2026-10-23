@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import '../../tool/command.dart' show run;
+import 'commands.dart' show run;
 
 /// Build source/external callbacks once, then relocate and install both archives.
 /// Compiler/npm subprocess trees still use the existing build command path.
