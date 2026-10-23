@@ -28,8 +28,10 @@ Build the library with `buildPackage`, as shown in the
 the source library: source files import `package:napi/napi.dart`, and the build
 script imports `package:napi/build.dart`.
 
-Public members of an annotated class are exported automatically. Reexported
-annotated declarations are also selected, respecting Dart's `show` and `hide`.
+An annotated class exports its own public members. Inherited members require
+the ancestor to be selected too; see [class inheritance](classes.md#inheritance-and-interfaces).
+Reexported annotated declarations are also selected, respecting Dart's `show`
+and `hide`.
 Ordinary imports do not add exports. Private declarations cannot be exported.
 Dart documentation comments appear in the generated TypeScript declarations.
 
@@ -72,8 +74,9 @@ export is renamed.
 ## Numbers and generic parameters
 
 Dart `int` uses JavaScript `number` and checks the safe-integer range. Use
-`@NAPI(bigint: true)` to map every `int` in that callable's supported signature
-to signed 64-bit JavaScript `bigint`. Dart `BigInt` always uses `bigint`.
+`@NAPI(bigint: true)` on a top-level function or concrete callable const to map
+every `int` in its supported signature to signed 64-bit JavaScript `bigint`.
+This option is not supported on class members. Dart `BigInt` always uses `bigint`.
 See [numbers and strings](scalars.md).
 
 Generic parameters come from the Dart declaration; no extra name list is

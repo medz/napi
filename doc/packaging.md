@@ -40,8 +40,9 @@ npm publish --access public
 ```
 
 Keep the complete generated package and its license notices. Consumers import
-from the package root; they do not initialize the runtime manually. Wasm
-packages also expose the same entry through `/module.wasm`.
+from the package root; they do not initialize the runtime manually. `/module.wasm`
+selects the Wasm entry. It shares the root's constructors and state only when
+Wasm is the root target.
 
 ## Package metadata and files
 
