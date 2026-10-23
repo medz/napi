@@ -23,7 +23,10 @@ Future<Map<String, Object?>> createModuleContract(
   String declarations, {
   String? packagesPath,
 }) async {
-  final uris = await _ContractUris.read(bindings.source, packagesPath);
+  final uris = await _ContractUris.read(
+    bindings.source,
+    bindings.packageConfigPath ?? packagesPath,
+  );
   String declaration(DeclarationId value) => value.owner == null
       ? '${uris.key(value.library)}#${value.name}'
       : '${declaration(value.owner!)}.${value.name}';
@@ -333,10 +336,9 @@ final class _ContractUris {
   _ContractUris(this.source, this.packages);
 
   static Future<_ContractUris> read(Uri source, String? packagesPath) async {
-    final config = File(packagesPath ?? '.dart_tool/package_config.json')
-        .absolute;
+    final config = packagesPath == null ? null : File(packagesPath).absolute;
     final packages = <(String, Uri)>[];
-    if (await config.exists()) {
+    if (config != null && await config.exists()) {
       final value = jsonDecode(await config.readAsString()) as Map;
       for (final package in value['packages'] as List) {
         final root = config.uri.resolve(package['rootUri'] as String);

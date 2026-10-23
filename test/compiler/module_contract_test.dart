@@ -21,7 +21,6 @@ void main() {
     String directory,
     String source, {
     BuildTarget target = BuildTarget.native,
-    String? contractPackagesPath,
     String filename = 'bindings.dart',
   }) async {
     final entry = File('${root.path}/$directory/$filename');
@@ -54,7 +53,7 @@ void main() {
       classes,
       values,
       declarations,
-      packagesPath: contractPackagesPath ?? packages,
+      packagesPath: packages,
     );
   }
 
@@ -133,7 +132,7 @@ const _origin = Point._((type: Hidden, types: [Hidden]));
   });
 
   test(
-    'package roots normalize file imports across checkout layouts',
+    'uses the analyzed source package config outside the current project',
     () async {
       const model = '''
 import 'package:napi/napi.dart';
@@ -147,12 +146,24 @@ import 'package:napi/napi.dart';
         final modelFile = File('${dependencyRoot.path}/lib/model.dart');
         await modelFile.parent.create(recursive: true);
         await modelFile.writeAsString(model);
-        final config = File('${root.path}/$directory/config.json');
+        final project = Directory('${root.path}/$directory');
+        final config = File('${project.path}/.dart_tool/package_config.json');
         await config.parent.create(recursive: true);
+        await File('${project.path}/pubspec.yaml')
+            .writeAsString('name: fixture_app\nenvironment:\n  sdk: ^3.13.0\n');
+        final originalConfig = File(packages);
+        final original = jsonDecode(await originalConfig.readAsString()) as Map;
         await config.writeAsString(
           jsonEncode({
             'configVersion': 2,
             'packages': [
+              for (final package in original['packages'] as List)
+                {
+                  ...package as Map,
+                  'rootUri': originalConfig.uri
+                      .resolve(package['rootUri'] as String)
+                      .toString(),
+                },
               {
                 'name': 'fixture',
                 'rootUri': dependencyRoot.uri.toString(),
@@ -161,11 +172,40 @@ import 'package:napi/napi.dart';
             ],
           }),
         );
-        return contract('$directory/lib', '''
+        final entry = File('${project.path}/lib/bindings.dart');
+        await entry.parent.create(recursive: true);
+        await entry.writeAsString('''
+import 'package:napi/napi.dart';
 import '${modelFile.uri}';
 export '${modelFile.uri}';
 @NAPI() int run([Point value = const Point(7)]) => value.value;
-''', contractPackagesPath: config.path);
+''');
+        Map<String, Object?>? expected;
+        for (final packagePath in [config.path, null]) {
+          final bindings = await readLibraryBindings(
+            library: entry.uri,
+            packagesPath: packagePath,
+            target: BuildTarget.native,
+          );
+          expect(bindings.packageConfigPath, config.path);
+          final plan = validateNative(bindings);
+          final classes = plan.classes.map((c) => c.shape).toList();
+          final actual = await createModuleContract(
+            bindings,
+            classes,
+            plan.valueSchemas,
+            emitBindingDeclarations(
+              functions: bindings.functions,
+              classes: bindings.classes,
+              references: classes,
+              values: plan.valueSchemas,
+            ),
+            packagesPath: packagePath,
+          );
+          if (expected != null) expect(actual, expected);
+          expected = actual;
+        }
+        return expected!;
       }
 
       expect(

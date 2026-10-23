@@ -585,11 +585,15 @@ final class BindingModule {
 
   /// Canonical library identity used by generated target imports.
   final Uri importUri;
+
+  /// Package configuration actually selected by source analysis, when present.
+  final String? packageConfigPath;
   final List<FunctionBinding> functions;
   final List<ClassBinding> classes;
   BindingModule({
     required this.source,
     Uri? importUri,
+    this.packageConfigPath,
     Iterable<FunctionBinding> functions = const [],
     Iterable<ClassBinding> classes = const [],
   }) : importUri = importUri ?? source,
