@@ -515,7 +515,9 @@ class BuildInputsTest(unittest.TestCase):
                                               for path in [clang, *link_inputs.values()]})
                             links = [command for command in commands if '-shared' in command and '-MM' not in command]
                             self.assertEqual(len(links), 3)
+                            self.assertIn('-Wl,--strip-debug', manifest['build']['provenance']['arguments']['link'])
                             for command in links:
+                                self.assertIn('-Wl,--strip-debug', command)
                                 self.assertIn('-static-libstdc++', command)
                                 self.assertIn(f'--sysroot={sdk}/buildtools/sysroot/linux', command)
                                 self.assertIn('-Wl,-rpath,$ORIGIN', command)

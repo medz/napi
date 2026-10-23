@@ -278,7 +278,8 @@ def build(sdk, headers, output, cache):
         link_vars = variables(target)
         link_flags = [flag for flag in shlex.split(link_vars.get('ldflags', ''))
                       if not flag.startswith(('-Wl,-rpath=', '-Wl,-rpath,', '-Wl,-soname='))]
-        link_flags += ['--ld-path='+linker, '-Wl,--enable-new-dtags', '-Wl,-rpath,$ORIGIN']
+        link_flags += ['--ld-path='+linker, '-Wl,--strip-debug',
+                       '-Wl,--enable-new-dtags', '-Wl,-rpath,$ORIGIN']
         libraries = shlex.split(link_vars.get('libs', ''))
     else:
         clang = run(['xcrun', '--find', 'clang++'])
