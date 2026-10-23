@@ -149,9 +149,9 @@ recompiling VM objects.
 
 The stable runtime identity includes the pinned SDK revision, mode, architecture,
 ABI and a combined digest of the runtime/bridge ABI source hash and VM input
-objects digest. On Linux it also includes the compiler, linker and toolchain
-files actually consumed by the link. Distinct VM caches cannot silently share an identity merely
-because their Git HEAD matches. The runtime filename/install-name contain
+objects digest. On Linux it also includes the compiler, linker, linked toolchain
+files and compilation/link arguments. Distinct VM caches cannot silently share
+an identity merely because their Git HEAD matches. The runtime filename/install-name contain
 it. The bridge compares the actual linked `NapiDart_RuntimeIdentity()` result
 with its compiled expected identity before any VM initialization. Compatible
 copies may share one loaded image; an unused local copy is not inspected.

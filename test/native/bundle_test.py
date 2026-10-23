@@ -352,9 +352,12 @@ class BuildInputsTest(unittest.TestCase):
         cases = [(profile, changed) for profile in ['macos-arm64', 'linux-x64']
                  for changed in [None, 'vm', 'recipe', 'header', 'source', 'compiler']]
         cases += [('linux-x64', 'sysroot'), ('linux-x64', 'clang-package')]
+        cases += [('linux-x64', 'bridge-extra')]
         link_changes = ['linker', 'crt', 'static-library', 'linker-script', 'indirect-library']
         cases += [('linux-x64', name) for name in link_changes]
         cases += [('linux-x64', 'initial-'+name) for name in link_changes]
+        cases += [('linux-x64', 'initial-'+name) for name in
+                  ['link-flags', 'compile-flags', 'library-order']]
         cases += [('linux-x64', None)]  # The same inputs in another SDK directory.
         original_identity = None
         for profile, changed in cases:
@@ -393,7 +396,7 @@ class BuildInputsTest(unittest.TestCase):
                     path.parent.mkdir(parents=True, exist_ok=True)
                     path.write_text('GROUP ( /lib/libc.so.6 )' if path.name == 'libc.so' else 'original link input')
                 initial_change = changed is not None and changed.startswith('initial-')
-                if initial_change:
+                if initial_change and changed.removeprefix('initial-') in link_inputs:
                     link_inputs[changed.removeprefix('initial-')].write_text('updated before build')
                 (cache/'args.gn').write_text('arguments')
                 toolchain_name = 'clang_x64_shared' if linux else 'clang_arm64_shared'
@@ -407,6 +410,12 @@ class BuildInputsTest(unittest.TestCase):
                     '-Wl,-rpath=\\$$ORIGIN/ -Wl,--disable-new-dtags\n  libs = -ldl -lpthread\n'
                     if linux else ''))
                 compile_target.write_text('defines = -DPRODUCT -DDART_PRECOMPILED_RUNTIME\n')
+                if changed == 'initial-link-flags':
+                    target.write_text(target.read_text().replace('-fPIC', '-fPIC -Wl,-Bsymbolic'))
+                if changed == 'initial-compile-flags':
+                    compile_target.write_text(compile_target.read_text()+'cflags = -fno-inline\n')
+                if changed == 'initial-library-order':
+                    target.write_text(target.read_text().replace('-ldl -lpthread', '-lpthread -ldl'))
                 vm = cache/'vm.o'
                 vm.write_text('original VM input')
                 original_vm = build.vm_inputs(cache, ['vm.o'])
@@ -438,7 +447,8 @@ class BuildInputsTest(unittest.TestCase):
                     if '--version-info' in command:
                         return 'Name: GLIBC_2.2.5\nName: GLIBC_2.17'
                     output = Path(command[command.index('-o')+1])
-                    if '-shared' in command and output.name != 'link-probe.so' and changed and not initial_change:
+                    if ('-shared' in command and output.name != 'link-probe.so' and changed and
+                            not initial_change and changed != 'bridge-extra'):
                         {'vm': vm, 'recipe': target, 'header': header,
                          'source': repo/'native/runtime/runtime.cc',
                          'compiler': clang, **packages, **link_inputs}[changed].write_text('changed during build')
@@ -450,12 +460,22 @@ class BuildInputsTest(unittest.TestCase):
                     link_dep = next((arg.removeprefix('-Wl,--dependency-file=') for arg in command
                                      if arg.startswith('-Wl,--dependency-file=')), None)
                     if link_dep:
-                        inputs = list(link_inputs.values())
+                        # A library loaded from an archive member is only read
+                        # once the VM or bridge supplies the referring object.
+                        inputs = [path for name, path in link_inputs.items() if name != 'indirect-library']
+                        has_objects = False
                         for arg in command:
                             if arg.startswith('@'):
                                 inputs += [Path(name) for name in shlex.split(Path(arg[1:]).read_text())]
+                                has_objects = True
+                        if has_objects:
+                            inputs.append(link_inputs['indirect-library'])
                         if output.suffix == '.node':
                             inputs += [output.parent.parent/'bridge.o', next(output.parent.glob('*.so'))]
+                            if changed == 'bridge-extra':
+                                extra = sdk/'unrecorded-library.a'
+                                extra.write_text('not present in runtime probe')
+                                inputs.append(extra)
                         Path(link_dep).write_text(
                             str(output)+': '+ ' '.join(map(str, inputs))+'\n\n'+
                             '\n'.join(str(path)+':' for path in inputs)+'\n')
@@ -563,6 +583,8 @@ class BuildInputsTest(unittest.TestCase):
                     if '--version-info' in command:
                         return 'Name: GLIBC_' + ('2.28' if changed == 'glibc' else
                                                 'PRIVATE' if changed == 'private-glibc' else '2.17')
+                    if '--dyn-syms' in command:
+                        return '1: 0 0 FUNC GLOBAL DEFAULT UND getrandom@GLIBC_2.28 (2)'
                     value = dynamic
                     if changed == 'absolute-path':
                         value += '(NEEDED) Shared library: [/build/libhelper.so]'
@@ -574,7 +596,7 @@ class BuildInputsTest(unittest.TestCase):
 
                 with patch.object(build, 'run', readelf):
                     if changed:
-                        with self.assertRaises(ValueError):
+                        with self.assertRaisesRegex(ValueError, 'getrandom@GLIBC_2.28' if changed == 'glibc' else '.'):
                             build.validate_elf('readelf', Path('bridge.node'), 'runtime.so')
                     else:
                         build.validate_elf('readelf', Path('bridge.node'), 'runtime.so')
