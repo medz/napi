@@ -224,7 +224,7 @@ parameter. The ancestor does not need to use every parameter of the child.
 This applies through unselected intermediate classes and to selected interfaces.
 Own and inherited overrides retain their declaring defaults and argument presence.
 Fixed, repeated, nested or nullable ancestor arguments still receive build
-diagnostics. Resource classes support the same bijective parameter mappings.
+diagnostics. Resource classes support the same parameter mappings.
 An ordinary selected subclass inherits its ancestor's resource contract; all
 selected views must agree on the cleanup method's call shape and defaults.
 Closing through any view waits for active operations and releases the object once.
