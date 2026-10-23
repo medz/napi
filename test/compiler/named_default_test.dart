@@ -359,6 +359,59 @@ const origin = $constructor();
     });
   }
 
+  test(
+    'an inaccessible root retains a resource through a public stored field',
+    () async {
+      final input = source('entry.dart', '''
+import 'package:napi/napi.dart';
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+class Resource {
+  const Resource._();
+  void close() {}
+}
+class Anchor {
+  final Resource resource;
+  const Anchor(this.resource);
+}
+const anchor = Anchor(Resource._());
+@NAPI() class Holder {
+  final Anchor _anchor;
+  const Holder._(this._anchor);
+  int get value => 7;
+}
+const _origin = Holder._(anchor);
+@NAPI() int take({Holder value = _origin}) => value.value;
+@NAPI(classPolicy: ClassPolicy.value)
+class Envelope {
+  final Holder item;
+  Envelope({this.item = _origin});
+}
+@NAPI() int readEnvelope(Envelope value) => value.item.value;
+''');
+      for (final native in [false, true]) {
+        final module = await read(input, native: native);
+        final parameter = module.functions.first.parameters.single;
+        expect(parameter.defaultValue, isNull);
+        expect(parameter.defaultOmissionKey, isNotNull);
+        final resource = defaultResourceObjects(
+          parameter,
+          module.classes,
+        ).single;
+        expect(resource.expression, isA<NamedObjectDefault>());
+        expect(resource.fieldPath, ['resource']);
+        if (native) {
+          final plan = validateNative(module);
+          expect(plan.needsResourceOperation(plan.functions.first), isTrue);
+          emitNativeDart(plan);
+        } else {
+          final plan = lower(validate(module));
+          expect(plan.needsResourceOperation(plan.functions.first), isTrue);
+          emitDart(plan);
+        }
+      }
+    },
+  );
+
   for (final (name, declaration) in [
     ('direct value default', '@NAPI() int take([Value value = origin]) => 7;'),
     (

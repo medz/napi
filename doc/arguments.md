@@ -97,11 +97,12 @@ coordinate({ point: undefined }); // 7
 ```
 
 This also works for static methods, reference-class constructors and value-class
-input constructors. These inaccessible defaults must contain no resources,
-function values, type literals or symbols. Instance methods still need a public
-constructor or const binding so overrides cannot change the selected
-declaration's defaults. Earlier optional positional parameters also need a
-public constructor or const binding.
+input constructors. Stored resources must have an accessible const expression or
+public stored-field path, as described below. Function values, type literals and
+symbols remain unsupported in inaccessible defaults. Instance methods still need
+a public constructor or const binding so overrides cannot change the selected
+declaration's defaults. Earlier optional positional parameters also need a public
+constructor or const binding.
 
 Defaults preserve the actual Dart constant, including its type, insertion order
 and canonical identity. Returning a default uses the normal result conversion.

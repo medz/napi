@@ -449,7 +449,8 @@ String _arguments(
   final defaultContainers = [
     for (final (i, parameter) in parameters.indexed)
       if (retainReferences &&
-          call.inputs[i] is! ReferenceConversion &&
+          (call.inputs[i] is! ReferenceConversion ||
+              parameter.defaultOmissionKey != null) &&
           hasDartDefaultResourceRetains(parameter, call.inputs[i], classes))
         i,
   ];

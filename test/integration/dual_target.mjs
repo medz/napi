@@ -178,6 +178,7 @@ async function check(name, selected) {
     await hiddenDefaults(current);
     await hiddenValueDefaults(current);
     await resourceDefaults(current, callback => { onSignalRead = callback; });
+    await inaccessibleResourceDefaults(current, callback => { onSignalRead = callback; });
     assert.throws(() => current.identity({value: 4}), TypeError);
   }
   assert.throws(() => native.identity(wasm.singleton()), TypeError);
@@ -279,6 +280,55 @@ async function hiddenValueDefaults(current) {
   assert.equal(current.calls(), calls);
   await failing.close();
   assert.equal(current.cleanups(), cleanups + 1);
+}
+
+async function inaccessibleResourceDefaults(api, onSignalRead) {
+  const box = api.hiddenResourceDefault();
+  const resource = api.ConstResource.constant(61);
+  assert.equal(box.resource, resource);
+  assert.equal(api.hiddenResourceDefault(undefined), box);
+  const supplied = new api.HiddenResourceBox(new api.ConstResource(70));
+  assert.equal(api.hiddenResourceDefault(supplied), supplied);
+  assert.throws(() => api.hiddenResourceDefault(null), TypeError);
+  let closed;
+  onSignalRead(() => {
+    closed = resource.close();
+    assert.equal(api.ConstResource.cleanups(61), 0);
+  });
+  try {
+    assert.equal(api.hiddenResourceDefaultSignal(new AbortController().signal), 61);
+  } finally { onSignalRead(undefined); }
+  assert(closed instanceof Promise);
+  await closed;
+  assert.equal(api.ConstResource.cleanups(61), 1);
+  assert.throws(() => api.hiddenResourceDefault(), /closing|closed/i);
+  assert.equal(api.hiddenResourceDefault(supplied), supplied);
+
+  assert.equal(await api.hiddenResourceDefaultLater(() => {}), 62);
+  let futureClosed;
+  await assert.rejects(api.hiddenResourceDefaultLater(() => {
+    futureClosed = api.ConstResource.constant(62).close();
+    assert.equal(api.ConstResource.cleanups(62), 0);
+  }, {box: undefined, fail: true}), /hidden resource Future failed/);
+  await futureClosed;
+  assert.equal(api.ConstResource.cleanups(62), 1);
+
+  assert.deepEqual(await Array.fromAsync(api.hiddenResourceDefaultSequence()), [63, 64]);
+  const stream = api.hiddenResourceDefaultSequence({box: undefined, fail: true});
+  const first = await stream.next();
+  assert.equal(first.value, 63);
+  assert.equal(first.done, false);
+  await assert.rejects(stream.next(), /hidden resource Stream failed/);
+  await api.ConstResource.constant(63).close();
+  assert.equal(api.ConstResource.cleanups(63), 1);
+
+  assert.equal(api.hiddenResourceValue({}), 65);
+  const beforeFailure = api.calls();
+  assert.throws(() => api.hiddenResourceValue({amount: -1}), /hidden resource constructor failed/);
+  assert.equal(api.calls(), beforeFailure);
+  await api.ConstResource.constant(64).close();
+  assert.equal(api.ConstResource.cleanups(64), 1);
+  await supplied.resource.close();
 }
 
 async function resourceDefaults(api, onSignalRead) {

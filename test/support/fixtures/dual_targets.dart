@@ -90,6 +90,11 @@ Future<void> verifyDualTargetFixture(
                 'hiddenPositionalValue',
                 'hiddenFactoryValue',
                 'hiddenIntValue',
+                'hiddenResourceDefault',
+                'hiddenResourceDefaultSignal',
+                'hiddenResourceDefaultLater',
+                'hiddenResourceDefaultSequence',
+                'hiddenResourceValue',
               ])
                 ExternalFunction(name),
               ExternalClass('Counter'),
@@ -102,6 +107,7 @@ Future<void> verifyDualTargetFixture(
               ExternalClass('HiddenPoint'),
               ExternalClass('HiddenDefault'),
               ExternalClass('HiddenIntDefault'),
+              ExternalClass('HiddenResourceBox'),
               ExternalClass(
                 'HiddenNamedValue',
                 config: const NAPI(
@@ -116,6 +122,7 @@ Future<void> verifyDualTargetFixture(
                 'HiddenPositionalValue',
                 'HiddenFactoryValue',
                 'HiddenIntValue',
+                'HiddenResourceValue',
               ])
                 ExternalClass(
                   name,

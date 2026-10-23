@@ -178,11 +178,14 @@ ${tests.declarations}  return externRefForJSAny(<JSAny?>[
     final parameters = call.parameters;
     if (resources && plan.needsResourceOperation(call)) {
       for (final (i, parameter) in parameters.indexed) {
-        if (parameter.defaultValue == null ||
+        final omitDefault = parameter.defaultOmissionKey != null;
+        if (parameter.defaultValue == null && !omitDefault ||
             parameter.defaultValue is ScalarDefault) {
           continue;
         }
-        if (call.inputs[i] is! ReferenceConversion &&
+        final referenceDefault =
+            call.inputs[i] is ReferenceConversion && !omitDefault;
+        if (!referenceDefault &&
             !hasDartDefaultResourceRetains(
               parameter,
               call.inputs[i],
@@ -190,13 +193,15 @@ ${tests.declarations}  return externRefForJSAny(<JSAny?>[
             )) {
           continue;
         }
-        final value = renderDartDefault(
-          parameter,
-          call.inputs[i],
-          declarationSource: declarationSource,
-        );
+        final value = omitDefault
+            ? 'null'
+            : renderDartDefault(
+                parameter,
+                call.inputs[i],
+                declarationSource: declarationSource,
+              );
         // Admit the canonical default before host getters can reenter cleanup.
-        if (call.inputs[i] is ReferenceConversion) {
+        if (referenceDefault) {
           result.writeln('''
 @pragma('wasm:export', '${call.coreExportName}:default:$i')
 WasmExternRef? _default${index}_$i(WasmExternRef prepared) {
