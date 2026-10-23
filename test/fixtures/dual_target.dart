@@ -524,9 +524,10 @@ class HiddenDefault {
   final HiddenPoint point;
   HiddenDefault([this.point = _hiddenPoint]);
   HiddenDefault.named({this.point = _hiddenPoint});
-  HiddenPoint read({HiddenPoint value = _hiddenPoint}) => value;
   static HiddenPoint create([HiddenPoint value = _hiddenPoint]) => value;
-  Stream<HiddenPoint> sequence({HiddenPoint value = _hiddenPoint}) async* {
+  static Stream<HiddenPoint> sequence({
+    HiddenPoint value = _hiddenPoint,
+  }) async* {
     yield value;
   }
 }
@@ -536,7 +537,6 @@ class GenericHiddenDefault<T> {
   final HiddenPoint point;
   GenericHiddenDefault(this.value, {this.point = _hiddenPoint});
   GenericHiddenDefault.named(this.value, [this.point = _hiddenPoint]);
-  HiddenPoint read([HiddenPoint point = _hiddenPoint]) => point;
 }
 
 @NAPI()

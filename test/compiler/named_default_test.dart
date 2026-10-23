@@ -217,13 +217,12 @@ const _origin = PrivatePoint._(7);
       '@NAPI() int take({(PrivatePoint, {int label}) point = (_origin, label: 3)}) => point.\$1.value;',
     ),
     (
-      'reference constructors and methods',
+      'reference constructors and static methods',
       '''
 @NAPI() class Owner {
   final PrivatePoint point;
   Owner([this.point = _origin]);
   Owner.named({this.point = _origin});
-  PrivatePoint read({PrivatePoint value = _origin}) => value;
   static PrivatePoint create([PrivatePoint value = _origin]) => value;
 }''',
     ),
@@ -255,6 +254,18 @@ const _origin = PrivatePoint._(7);
     (
       'middle positional',
       '@NAPI() int take([PrivatePoint point = _origin, int after = 3]) => point.value + after;',
+    ),
+    (
+      'instance method with an unselected override',
+      '''
+@NAPI() class Owner {
+  PrivatePoint read({PrivatePoint point = _origin}) => point;
+}
+class _Other extends Owner {
+  @override
+  PrivatePoint read({PrivatePoint point = const PrivatePoint._(9)}) => point;
+}
+@NAPI() Owner owner() => _Other();''',
     ),
     (
       'value input constructor',

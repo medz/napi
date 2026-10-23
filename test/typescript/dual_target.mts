@@ -112,7 +112,7 @@ const hiddenOwner: wasm.HiddenDefault = new wasm.HiddenDefault(hiddenPoint);
 const hiddenConcrete: native.HiddenIntDefault = new native.HiddenIntDefault(3, {});
 const hiddenFuture: Promise<wasm.HiddenPoint> = wasm.hiddenDefaultLater(undefined);
 const hiddenVoid: void = wasm.hiddenDefaultVoid({point: hiddenPoint});
-const hiddenStream: AsyncIterableIterator<wasm.HiddenPoint, undefined, undefined> = hiddenOwner.sequence();
+const hiddenStream: AsyncIterableIterator<wasm.HiddenPoint, undefined, undefined> = wasm.HiddenDefault.sequence();
 void [hiddenNamed, hiddenConcrete, hiddenFuture, hiddenVoid, hiddenStream];
 // @ts-expect-error Omission does not permit null for a non-nullable parameter.
 wasm.hiddenDefault(null);

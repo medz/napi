@@ -96,10 +96,12 @@ coordinate(); // 7
 coordinate({ point: undefined }); // 7
 ```
 
-This also works for exported methods and reference-class constructors. These
+This also works for static methods and reference-class constructors. These
 inaccessible defaults must contain no resources, function values, type literals
-or symbols. Defaults in value-class input constructors and earlier optional
-positional parameters still need a public constructor or const binding.
+or symbols. Instance methods still need a public constructor or const binding
+so overrides cannot change the selected declaration's defaults. The same
+restriction applies to value-class input constructors and earlier optional
+positional parameters.
 
 Defaults preserve the actual Dart constant, including its type, insertion order
 and canonical identity. Returning a default uses the normal result conversion.

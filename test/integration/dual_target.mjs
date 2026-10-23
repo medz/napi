@@ -218,16 +218,13 @@ async function hiddenDefaults(current) {
   assert.equal(new current.HiddenDefault(undefined).point, point);
   assert.equal(new current.HiddenDefault(point).point, point);
   assert.equal(current.HiddenDefault.named({point: undefined}).point, point);
-  assert.equal(owner.read(), point);
-  assert.equal(owner.read({value: point}), point);
   assert.equal(current.HiddenDefault.create(undefined), point);
-  assert.deepEqual(await Array.fromAsync(owner.sequence()), [point]);
+  assert.deepEqual(await Array.fromAsync(current.HiddenDefault.sequence()), [point]);
   assert.throws(() => new current.HiddenDefault(null), TypeError);
   const concrete = new current.HiddenIntDefault(9);
   assert.equal(concrete.value, 9);
   assert.equal(concrete.point, point);
   assert.equal(current.HiddenIntDefault.named(8, undefined).point, point);
-  assert.equal(concrete.read(), point);
 
   const resource = new current.Resource(2);
   const cleanups = current.cleanups();

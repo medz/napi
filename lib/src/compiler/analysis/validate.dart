@@ -1109,6 +1109,15 @@ List<ReferenceClassShape> validateReferenceClasses(BindingModule module) {
       List<ParameterBinding> parameters,
       BindingType? type,
     ) {
+      if (kind == ReferenceMemberKind.method &&
+          !member.isStatic &&
+          parameters.any((parameter) => parameter.defaultOmissionKey != null)) {
+        reject(
+          'NAPI_DEFAULT',
+          'Instance method defaults need a public constructor or const binding to preserve the selected declaration\'s defaults across overrides.',
+          member.source,
+        );
+      }
       final isCleanup = member.declaration == binding.cleanup;
       final callOpaque = opaqueParameterIds(
         referenceCallTypeParameters(binding, member),
