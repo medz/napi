@@ -63,3 +63,24 @@ class PrepareLinuxTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'existing SDK customization'):
             prepare_linux.copy_runtime(self.root)
         self.assertEqual(custom.read_text(), 'local customization')
+
+    def test_prepares_gclient_configuration_before_gn(self):
+        config = self.root/'sdk/build/config/gclient_args.gni'
+        config.parent.mkdir(parents=True)
+        generated = False
+
+        def run(command, **kwargs):
+            nonlocal generated
+            if str(command[0]).endswith('/buildtools/gn'):
+                self.assertEqual(config.read_text(), 'build_devtools_from_sources = false\n')
+                generated = True
+
+        with patch.object(prepare_linux.platform, 'system', return_value='Linux'), \
+                patch.object(prepare_linux.platform, 'machine', return_value='x86_64'), \
+                patch.object(prepare_linux, 'checkout'), \
+                patch.object(prepare_linux, 'cipd_client', return_value=self.root/'cipd'), \
+                patch.object(prepare_linux, 'copy_runtime'), \
+                patch.object(prepare_linux, 'run', side_effect=run), \
+                contextlib.redirect_stdout(io.StringIO()):
+            prepare_linux.prepare(self.root, 2)
+        self.assertTrue(generated)

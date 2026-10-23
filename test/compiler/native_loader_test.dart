@@ -52,50 +52,45 @@ import 'package:napi/napi.dart';
     expect(loader, contains('node:util'));
   });
 
-  test('Linux loaders reject mismatched platforms and libc before loading native code', () async {
-    final linux = await directory.createTemp('linux-loader-');
-    await File('${linux.path}/module.mjs')
-        .writeAsString(emitNativeLoader([], platform: NativePlatform.linuxX64));
-    await File('${linux.path}/bridge.node').writeAsString('''
+  test(
+    'Linux loaders check OS and architecture before loading native code',
+    () async {
+      final linux = await directory.createTemp('linux-loader-');
+      final loader = emitNativeLoader([], platform: NativePlatform.linuxX64);
+      expect(loader, isNot(contains('process.report')));
+      await File('${linux.path}/module.mjs').writeAsString(loader);
+      await File('${linux.path}/bridge.node').writeAsString('''
 globalThis.bridgeLoaded = true;
 exports.load = () => ({});
 ''');
-    for (final (platform, architecture, version, accepted) in [
-      ('linux', 'x64', '2.17', true),
-      ('linux', 'x64', '2.17.1', true),
-      ('linux', 'x64', '2.40', true),
-      ('linux', 'x64', '3.0', true),
-      ('linux', 'x64', '2.9', false),
-      ('linux', 'x64', '2.16.99', false),
-      ('linux', 'x64', null, false),
-      ('linux', 'x64', 'musl', false),
-      ('linux', 'arm64', '2.40', false),
-      ('darwin', 'x64', '2.40', false),
-    ]) {
-      await File('${linux.path}/preload.cjs').writeAsString('''
+      for (final (platform, architecture, accepted) in [
+        ('linux', 'x64', true),
+        ('linux', 'arm64', false),
+        ('darwin', 'x64', false),
+      ]) {
+        await File('${linux.path}/preload.cjs').writeAsString('''
 Object.defineProperty(process, 'platform', {value: ${jsonEncode(platform)}});
 Object.defineProperty(process, 'arch', {value: ${jsonEncode(architecture)}});
-process.report.getReport = () => ({header: {glibcVersionRuntime: ${jsonEncode(version)}}});
 require.extensions['.node'] = require.extensions['.js'];
 ''');
-      await File('${linux.path}/check.mjs').writeAsString('''
+        await File('${linux.path}/check.mjs').writeAsString('''
 import assert from 'node:assert/strict';
-${accepted ? "await import('./module.mjs');\nassert.equal(globalThis.bridgeLoaded, true);" : "await assert.rejects(import('./module.mjs'), /requires (?:Linux x64|glibc)/);\nassert.equal(globalThis.bridgeLoaded, undefined);"}
+${accepted ? "await import('./module.mjs');\nassert.equal(globalThis.bridgeLoaded, true);" : "await assert.rejects(import('./module.mjs'), /requires Linux x64/);\nassert.equal(globalThis.bridgeLoaded, undefined);"}
 ''');
-      final result = await Process.run('node', [
-        '--require',
-        '${linux.path}/preload.cjs',
-        '${linux.path}/check.mjs',
-      ]);
-      expect(
-        result.exitCode,
-        0,
-        reason:
-            '$platform/$architecture/$version: ${result.stdout}${result.stderr}',
-      );
-    }
-    expect(emitNativeLoader([]), isNot(contains('glibcVersionRuntime')));
-  });
+        final result = await Process.run('node', [
+          '--require',
+          '${linux.path}/preload.cjs',
+          '${linux.path}/check.mjs',
+        ]);
+        expect(
+          result.exitCode,
+          0,
+          reason: '$platform/$architecture: ${result.stdout}${result.stderr}',
+        );
+      }
+      expect(emitNativeLoader([]), isNot(contains('process.report')));
+    },
+  );
 
   test(
     'private helpers preserve identity and strict Promise admission',

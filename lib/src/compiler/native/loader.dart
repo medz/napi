@@ -42,25 +42,6 @@ if (process.platform !== ${jsonEncode(platform.nodePlatform)} || process.arch !=
 }
 const require = createRequire(import.meta.url);
 ''');
-  if (platform.minimumLibcVersion case final minimum?) {
-    code.writeln('''
-let \$napiLibcVersion;
-try { \$napiLibcVersion = process.report?.getReport()?.header?.glibcVersionRuntime; } catch {}
-const \$napiLibcParts = typeof \$napiLibcVersion === 'string' && /^[0-9]+(?:\\.[0-9]+)*\$/.test(\$napiLibcVersion)
-  ? \$napiLibcVersion.split('.').map(Number) : [];
-const \$napiLibcMinimum = ${jsonEncode(minimum.split('.').map(int.parse).toList())};
-let \$napiLibcCompatible = \$napiLibcParts.length > 0 && \$napiLibcParts.every(Number.isSafeInteger);
-if (\$napiLibcCompatible) {
-  for (let i = 0; i < Math.max(\$napiLibcParts.length, \$napiLibcMinimum.length); i++) {
-    const actual = \$napiLibcParts[i] ?? 0, required = \$napiLibcMinimum[i] ?? 0;
-    if (actual !== required) { \$napiLibcCompatible = actual > required; break; }
-  }
-}
-if (!\$napiLibcCompatible) {
-  throw new Error(${jsonEncode('This native artifact requires glibc $minimum or newer.')});
-}
-''');
-  }
   if (hasCompositeViews) {
     code.writeln(r'''const $napiCreate = Object.create;
 function $napiResolveReferenceShape(views, context) {
