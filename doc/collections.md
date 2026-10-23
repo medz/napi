@@ -1,9 +1,7 @@
-# Collection ownership
+# Lists, Maps and shared collections
 
-Ordinary collection conversion and explicit shared access have different ownership
-contracts. The model follows napi-rs: convert ordinary owned values, retain a
-handle when accessing an existing JavaScript container, and export classes and
-methods when sharing application state owned by Dart.
+Use `List` and `Map` for copied data, `JsArray` and `JsMap` to access an existing
+JavaScript container, or an exported class to share state owned by Dart.
 
 Both targets use these mappings:
 
@@ -253,18 +251,3 @@ not automatically gain bidirectional live adapters or JavaScript proxies.
 In particular, a Dart Map may use a custom equality policy that JavaScript Map
 cannot reproduce. Exported methods can execute that policy in Dart; a converted
 Map instead follows the documented conversion and collision rules.
-
-## napi-rs comparison
-
-napi-rs converts `Vec<T>` into an Array and string-keyed `HashMap`/`BTreeMap` into
-objects. Its `Array` handle operates on an existing JS array, and explicit
-references support retention beyond a callback. These are distinct mechanisms,
-not a universal live adapter for arbitrary Rust containers. See the official
-[type conversion table](https://napi.rs/docs/concepts/type-conversions#arrays-tuples-maps-and-sets),
-[Array implementation](https://github.com/napi-rs/napi-rs/blob/main/crates/napi/src/bindgen_runtime/js_values/array.rs),
-[Map conversion implementation](https://github.com/napi-rs/napi-rs/blob/main/crates/napi/src/bindgen_runtime/js_values/map.rs)
-and [reference lifetime guide](https://napi.rs/docs/concepts/understanding-lifetime#javascript-value-reference).
-
-We follow that ownership distinction. Existing Dart Map exports continue to use
-JavaScript Map; `Dictionary` is the explicit object representation. The comparison
-does not change those public mappings.

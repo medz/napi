@@ -69,18 +69,11 @@ to keep them reachable. Each module strongly owns pending calls even when a
 business Future has no external owner and the caller drops the public Promise.
 Dropping the JavaScript Promise does not cancel Dart work.
 
-Native completion uses the owning Node thread and its Dart isolate. The private
-bridge creates the Promise outside Dart, queues converted results, exits Dart
-before calling JavaScript resolvers, and acknowledges release of retained Dart
-values afterwards. An unresolved Completer alone does not keep Node alive; live
-Dart timers and ports do. Worker/environment teardown discards pending
-capabilities and shuts down its isolate without invoking JS in a dead realm.
-
-Wasm completion uses the pinned Dart SDK's host scheduling. Its private
-capability keeps explicit roots until conversion and resolver delivery finish.
-Both targets run business code in Dart; Promise return types do not imply
-background-thread execution. Ordering against unrelated JavaScript microtasks
-is not guaranteed to be identical between the two runtimes.
+Promises do not move Dart work to a background thread. Native completion runs
+on the owning Node thread. An unresolved Future alone does not keep Node alive;
+Dart timers and live ports do. Worker teardown releases pending state without
+running cleanup in the terminated environment. Relative ordering with unrelated
+JS microtasks can differ between native and Wasm.
 
 ## Promise resolution and identity
 
@@ -129,4 +122,4 @@ ordinary byte snapshots are not shared implicitly.
 
 Both backends require the pinned Dart SDK. Native currently supports macOS
 arm64; Wasm uses Dart WasmGC. See [native requirements](native.md) and
-[supported toolchains](../README.md#verify).
+[supported toolchains](../README.md#requirements).

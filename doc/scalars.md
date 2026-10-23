@@ -104,4 +104,4 @@ the module: subsequent valid calls remain usable.
 Generated TypeScript declarations use the exact fixed representation, explicit
 `| null` where appropriate, and required parameters without `?` or `undefined`.
 Optional parameters and options properties follow the argument contract.
-See the [compatibility requirements](../README.md#verify).
+See the [compatibility requirements](../README.md#requirements).

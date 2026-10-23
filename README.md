@@ -1,64 +1,45 @@
 # napi
 
-A Dart binding compiler for native Node-API `.node` addons and Dart Wasm.
-Declare an API in Dart, build an npm package, and import it normally:
+Build Node.js extensions in Dart. Export functions and classes, generate an npm
+package, and call it from JavaScript or TypeScript. Choose Dart Wasm or a native
+Node-API `.node` addon; both run your application code in Dart.
+
+## Requirements
+
+- Dart **3.13.5**.
+- Node.js **24.19.0** or **26.11.1**.
+- Native builds: macOS 14 or later on arm64. The precompiled runtime downloads
+  automatically; application builds do not need a C/C++ toolchain.
+
+Wasm is the default target. It depends on experimental Dart compiler and interop
+APIs and is tied to Dart 3.13.5. Browser and Bun support is not yet verified.
+
+## Build a package
+
+Create a Dart package and add napi:
+
+```sh
+dart create -t package dart_counter
+cd dart_counter
+dart pub add napi
+```
+
+Write `lib/counter.dart`:
 
 ```dart
-// lib/counter.dart
 import 'package:napi/napi.dart';
 
 @NAPI()
 class Counter {
+  Counter([this.value = 0]);
   int value;
-  Counter([this.value = 1]);
-  Counter.seed(this.value);
   int increment([int amount = 1]) => value += amount;
 }
 ```
 
-```js
-import { Counter } from '@scope/counter';
-const counter = new Counter();
-counter.increment(); // 2, executed in Dart
-```
-
-`@scope/counter` is the example package built below. Imports initialize the
-selected backend; consumers do not register bindings or call application `main`.
-
-The compiler follows napi-rs's binding model: one Dart declaration and matching
-JavaScript/TypeScript APIs for native and Wasm targets. Business logic runs in
-Dart; generated loaders initialize the selected backend on import.
-
-## Supported bindings
-
-| API | Guide |
-| --- | --- |
-| Functions, optional/named arguments, defaults and strict scalar conversions | [Annotations](doc/annotations.md), [arguments](doc/arguments.md), [scalars](doc/scalars.md) |
-| Lists, Maps, dictionaries, records and value classes | [Structural values](doc/structural.md), [value classes](doc/values.md) |
-| Classes, inheritance, object identity and generics | [Classes](doc/classes.md), [generic payloads](doc/opaque.md), [concrete aliases](doc/concrete-generics.md) |
-| Copied bytes, shared byte views and JS collection handles | [Binary data](doc/binary.md), [SharedBytes](doc/shared-bytes.md), [collections](doc/collections.md) |
-| Futures, callbacks, streams, cancellation and resource disposal | [Futures](doc/futures.md), [callbacks](doc/callbacks.md), [streams](doc/streams.md), [cancellation](doc/cancellation.md), [resources](doc/resources.md) |
-| Unmodified third-party Dart libraries | [External selections](doc/annotations.md#external-selections) |
-
-The guides describe supported combinations. Unsupported signatures produce
-build diagnostics. Wasm is the default target; native currently supports macOS
-arm64. Dual packages expose explicit `/native` and `/wasm` entries, with the root
-backend chosen at build time. There is no automatic platform selection or
-fallback between backends.
-
-## Build a package
-
-Use Dart **3.13.5** and add the package:
-
-```sh
-dart pub add napi
-```
-
-Annotated sources import `package:napi/napi.dart`. A separate Dart VM script
-builds the npm package:
+Create `tool/build.dart`:
 
 ```dart
-// tool/build.dart
 import 'dart:io';
 import 'package:napi/build.dart';
 
@@ -72,67 +53,48 @@ Future<void> main() async {
 }
 ```
 
-Run `dart run tool/build.dart`, then pack/install `npm-package` in the Node
-consumer. Use a new output path, or follow the [managed rebuild rules](doc/packaging.md#managed-rebuilds)
-for a package created by this builder on local macOS APFS or supported 64-bit
-Linux filesystems.
-For native, supply `target: BuildTarget.native`; the builder downloads and caches
-the matching precompiled runtime. See [native prerequisites](doc/native.md) and
-[explicit dual-target builds](doc/packaging.md#explicit-dual-target-packages).
-Use [external selections](doc/annotations.md#external-selections) for unmodified
-Dart dependencies, or `buildLibrary` when raw artifacts are wanted.
-See [migration notes](doc/annotations.md#migrating-earlier-bindings) for the
-former annotation, container and runtime assumptions.
+Build and install the generated package in the same directory:
 
-## Scalar conversions
-
-The same conversion rules apply to package imports on both targets. The example
-below uses the supported direct-Wasm path; ship its generated dependencies too.
-
-```dart
-import 'package:napi/napi.dart';
-
-@NAPI()
-String? echo(String? value) => value;
-
-@NAPI(bigint: true)
-int addWide(int left, int right) => left + right;
+```sh
+dart run tool/build.dart
+npm init -y
+npm install ./npm-package
 ```
+
+Create `example.mjs` and run it with `node example.mjs`:
 
 ```js
-import { echo, addWide } from './module.wasm';
-echo(null);           // null
-echo('🙂');           // '🙂'
-addWide(1n, 2n);      // 3n
+import {Counter} from '@scope/counter';
+
+const counter = new Counter();
+console.log(counter.increment());  // 1
+console.log(counter.increment(2)); // 3
 ```
 
-Conversions never coerce input values. Required nullable parameters accept `null`, but not
-`undefined` or omission. Optional parameters default for omission and `undefined`.
-`double` preserves NaN, infinities and negative zero;
-strings preserve UTF-16 code units, including lone surrogates. Default `int`
-checks the JavaScript safe-integer range in both directions. The `bigint` option
-maps all Dart `int` inputs/results of that function to JavaScript `bigint` with a
-signed 64-bit input range; Dart `BigInt` always uses arbitrary-precision JavaScript
-`bigint`. See [the full contract](doc/scalars.md), including error behavior.
+The package initializes when imported. TypeScript declarations are generated
+alongside the bindings. To use the package in another Node project, run
+`npm pack ./npm-package` and install the resulting tarball there.
 
-## Verify
+For a native package, add `target: BuildTarget.native` to the `buildPackage`
+call. See [native builds](doc/native.md) for runtime caching and offline builds,
+and [packaging](doc/packaging.md) for dual-target packages and rebuilding output.
 
-The tested toolchain is Dart **3.13.5 stable**, Node **24.19.0** and **26.11.1**,
-and TypeScript **7.0.2**. The SDK adapter rejects other Dart versions because it
-uses experimental compiler interfaces. Native builds currently support macOS
-arm64; see [native compatibility](doc/native.md#compatibility). Bun and browser
-compatibility are unverified.
+## Learn more
 
-See [Running tests](doc/testing.md) for dependencies, test commands, Node version
-selection and native runtime setup. See [the architecture](doc/architecture.md)
-and [Wasm backend design](doc/foundation.md) for compiler and runtime boundaries.
+- [Export functions and classes](doc/annotations.md)
+- [Parameters and defaults](doc/arguments.md) · [Numbers and strings](doc/scalars.md)
+- [Classes](doc/classes.md) · [Plain objects](doc/values.md)
+- [Lists, Maps and records](doc/structural.md) · [Shared JS collections](doc/collections.md)
+- [Generic payloads](doc/opaque.md) · [Concrete generic aliases](doc/concrete-generics.md)
+- [Promises](doc/futures.md) · [Callbacks](doc/callbacks.md) · [Streams](doc/streams.md)
+- [Binary data](doc/binary.md) · [Shared bytes](doc/shared-bytes.md)
+- [Resource cleanup](doc/resources.md) · [Cancellation](doc/cancellation.md)
 
-Relative `.wasm` imports use a sibling `module.d.wasm.ts` and TypeScript's
-`allowArbitraryExtensions` option. A single-target Wasm package's root and
-`./module.wasm` subpath both resolve directly to the Wasm file.
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) to run the tests.
 
 ## License
 
-MIT. See [LICENSE](LICENSE). Generated Dart runtime helpers originate in the Dart
-SDK. Generated artifacts include its license as `DART_LICENSE`; distributors
-must retain that notice.
+MIT. See [LICENSE](LICENSE). Generated packages include Dart's `DART_LICENSE`;
+keep the included license notices when distributing them.

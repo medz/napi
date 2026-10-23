@@ -74,7 +74,7 @@ Keep the complete file set and the Dart/napi licenses when redistributing.
 The builder validates the exact compiler revision and runtime bundle before
 compiling Dart AOT. Native analysis selects AOT conditional imports:
 `dart.library.ffi` and `.io` are true; `.mirrors` and JS libraries are absent.
-[External selections](annotations.md#external-selections) use the same mapping.
+[External selections](annotations.md#bind-an-existing-library) use the same mapping.
 See [npm packaging](packaging.md) for fresh output, managed rebuilds and explicit
 dual-target packages.
 
@@ -133,5 +133,5 @@ and 27.0.1 arm64, Node 24.19.0 and 26.11.1, with TypeScript 7.0.2 declarations.
 The bundle was built with Apple clang 21.0.0. Other macOS versions, Linux,
 Windows, Intel Macs and other Node-API hosts are not qualified.
 
-See [Running tests](testing.md#native-consumers) for native test commands and
-[the runtime bundle guide](../native/README.md) for build and distribution details.
+See [the runtime bundle guide](../native/README.md) to build a new runtime
+profile, and [CONTRIBUTING.md](../CONTRIBUTING.md) to run native tests.
