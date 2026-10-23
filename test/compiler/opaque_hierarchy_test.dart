@@ -35,6 +35,26 @@ void main() {
   Matcher diagnostic(String code) =>
       isA<BindingDiagnostic>().having((e) => e.code, 'code', code);
 
+  Future<void> typecheck(String declarations) async {
+    final file = File('${directory.path}/valid.d.mts');
+    await file.writeAsString(declarations);
+    final tsc =
+        Platform.environment['NAPI_TSC'] ??
+        '${Directory.current.path}/.dart_tool/js/node_modules/typescript/bin/tsc';
+    final result = await Process.run(Platform.environment['NODE'] ?? 'node', [
+      tsc,
+      '--ignoreConfig',
+      '--strict',
+      '--noEmit',
+      '--target',
+      'ES2022',
+      '--module',
+      'NodeNext',
+      file.path,
+    ]);
+    expect(result.exitCode, 0, reason: '${result.stdout}\n${result.stderr}');
+  }
+
   for (final native in [false, true]) {
     test(
       'bijections project inherited contracts, not runtime owners ($native)',
@@ -49,6 +69,12 @@ void main() {
             for (final c in module.classes)
               ExternalClass(
                 c.exportName,
+                config: c.exportName == 'OpaqueResourceBase'
+                    ? const NAPI(
+                        classPolicy: ClassPolicy.resource,
+                        cleanup: 'close',
+                      )
+                    : const NAPI(),
                 members: c.exportName == 'OpaqueThen'
                     ? const [
                         ExternalMember.field(
@@ -212,6 +238,120 @@ class Child<U> extends Base<U> {
     }
   });
 
+  test(
+    'children retain independent parameters through selected ancestors',
+    () async {
+      final module = await read('''
+@NAPI() class Base<T> {
+  Base(this.value);
+  T value;
+  Base<T> self() => this;
+  Meta echo<Meta>(Meta value) => value;
+}
+@NAPI() class Tagged<U, Meta> extends Base<U> {
+  Tagged(super.value, this.metadata);
+  Meta metadata;
+  @override Tagged<U, Meta> self() => this;
+}
+class Middle<X, Y, Z> extends Tagged<Y, X> {
+  Middle(super.value, super.metadata, this.extra);
+  Z extra;
+}
+@NAPI() class Leaf<A, B, C> extends Middle<A, B, C> {
+  Leaf(super.value, super.metadata, super.extra);
+}
+''');
+      final validated = validate(module);
+      final shapes = validated.classes;
+      final base = shapes[0], tagged = shapes[1], leaf = shapes[2];
+      expect(tagged.ancestorArguments[base.classId], [0]);
+      expect(leaf.ancestorArguments[tagged.classId], [1, 0]);
+      expect(leaf.ancestorArguments[base.classId], [1]);
+      final self = base.members.singleWhere((m) => m.exportName == 'self');
+      expect(
+        referenceMemberAccepts(
+          tagged.members.singleWhere((m) => m.exportName == 'self'),
+          referenceMemberInScope(self, base, tagged)!,
+          shapes,
+        ),
+        isTrue,
+      );
+      final types = emitDeclarations(lower(validated));
+      expect(types, emitNativeDeclarations(validateNative(module)));
+      expect(types, contains('extends Base<U> {}'));
+      expect(types, contains('extends Tagged<B, A> {}'));
+      await typecheck(types);
+    },
+  );
+
+  for (final declaration in [
+    'class Middle<T> extends Base {} '
+        '@NAPI() class Child<U> extends Middle<U> {}',
+    '@NAPI() class Child<U> implements Base { void close() {} }',
+  ]) {
+    test(
+      'generic children inherit non-generic resources: $declaration',
+      () async {
+        final module = await read('''
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+class Base { void close() {} }
+$declaration
+''');
+        final validated = validate(module);
+        final shapes = validated.classes;
+        expect(shapes.last.ancestorArguments[shapes.first.classId], isEmpty);
+        expect(resourcePolicies(shapes).values.toSet(), hasLength(1));
+        final types = emitDeclarations(lower(validated));
+        expect(types, emitNativeDeclarations(validateNative(module)));
+        expect(types, contains('extends Base {}'));
+        expect(types, isNot(contains('Base<>')));
+      },
+    );
+  }
+
+  test(
+    'ancestor read views do not capture independent child parameters',
+    () async {
+      final module = await read('''
+@NAPI() class Base<T> { Base(); }
+@NAPI() class Derived<T, Meta> extends Base<T> { Derived(); }
+@NAPI() class Write<T> {
+  set value(Base<T> value) {}
+  set known(T value) {}
+}
+@NAPI() class Read<U, Meta> extends Write<U> {
+  Derived<U, Meta> get value => Derived<U, Meta>();
+  U get known => throw StateError('not called');
+}
+''');
+      final validated = validate(module);
+      final shapes = validated.classes;
+      final write = shapes[2], reader = shapes[3];
+      expect(
+        referenceMemberInScope(
+          reader.members.singleWhere((m) => m.exportName == 'value'),
+          reader,
+          write,
+        ),
+        isNull,
+      );
+      final known = referenceMemberInScope(
+        reader.members.singleWhere((m) => m.exportName == 'known'),
+        reader,
+        write,
+      )!;
+      expect(
+        (known.result as TypeParameterType).declaration,
+        write.binding.typeParameters.single.declaration,
+      );
+      final types = emitDeclarations(lower(validated));
+      expect(types, emitNativeDeclarations(validateNative(module)));
+      expect(types, contains('get value(): unknown;'));
+      expect(types, contains('get known(): undefined | T;'));
+      await typecheck(types);
+    },
+  );
+
   final rejected = {
     'fixed':
         '@NAPI() class Base<T> {} @NAPI() class Child extends Base<String> {}',
@@ -219,10 +359,6 @@ class Child<U> extends Base<U> {
     'nullable':
         '@NAPI() class Base<T> {} @NAPI() class Child<U> extends Base<U?> {}',
     'repeated': '@NAPI() class Base<A,B> {} @NAPI() class Child<U,V> extends Base<U,U> {}',
-    'dropped':
-        '@NAPI() class Base<T> {} @NAPI() class Child<U,V> extends Base<U> {}',
-    'resource via intermediate': "@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close') class Base { void close() {} } class Middle<T> extends Base {} @NAPI() class Child<U> extends Middle<U> {}",
-    'resource interface': "@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close') class Base { void close() {} } @NAPI() class Child<U> implements Base { void close() {} }",
   };
   for (final entry in rejected.entries) {
     test('rejects ${entry.key} before lowering', () async {
@@ -479,36 +615,29 @@ export 'base.dart';
     );
   });
 
-  test('unrelated and lexically inherited class names remain legal parameters', () async {
-    final module = await read("""
+  test(
+    'unrelated and lexically inherited class names remain legal parameters',
+    () async {
+      final module = await read("""
 @NAPI() class Box<T> { Box(); }
 @NAPI() class View<T> { Box<T> make() => Box<T>(); }
 @NAPI() class Parent<T> extends View<T> { Parent(); }
 @NAPI() class Child<Box> extends Parent<Box> { Child(); }
 @NAPI() class Leaf<View> extends Parent<View> { Leaf(); }
 """);
-    final types = emitDeclarations(lower(validate(module)));
-    expect(types, emitNativeDeclarations(validateNative(module)));
-    expect(types, contains('Child<in out Box = unknown> extends Parent<Box>'));
-    expect(types, contains('Leaf<in out View = unknown> extends Parent<View>'));
-    final file = File('${directory.path}/valid.d.mts');
-    await file.writeAsString(types);
-    final tsc =
-        Platform.environment['NAPI_TSC'] ??
-        '${Directory.current.path}/.dart_tool/js/node_modules/typescript/bin/tsc';
-    final result = await Process.run(Platform.environment['NODE'] ?? 'node', [
-      tsc,
-      '--ignoreConfig',
-      '--strict',
-      '--noEmit',
-      '--target',
-      'ES2022',
-      '--module',
-      'NodeNext',
-      file.path,
-    ]);
-    expect(result.exitCode, 0, reason: '${result.stdout}\n${result.stderr}');
-  });
+      final types = emitDeclarations(lower(validate(module)));
+      expect(types, emitNativeDeclarations(validateNative(module)));
+      expect(
+        types,
+        contains('Child<in out Box = unknown> extends Parent<Box>'),
+      );
+      expect(
+        types,
+        contains('Leaf<in out View = unknown> extends Parent<View>'),
+      );
+      await typecheck(types);
+    },
+  );
 
   test('unrelated generic contracts remain distinct', () async {
     final module = await read("""

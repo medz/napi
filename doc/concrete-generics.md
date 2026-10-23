@@ -76,9 +76,9 @@ parameter and each occurrence's nullable shape.
 
 Every alias parameter must occur in the selected type; unused parameters,
 `dynamic` arguments and generic function types remain diagnosed. Remaining
-parameters accept the ordinary opaque bounds. A selected ancestor alias must
-retain the existing bijective mapping between its remaining opaque parameters
-and the child's parameters.
+parameters accept the ordinary opaque bounds. Each remaining parameter of a
+selected ancestor alias must map to a distinct, non-nullable child parameter;
+the child may introduce additional independent parameters.
 
 ## Concrete callable exports
 

@@ -516,7 +516,7 @@ Iterable<String> emitReferenceInheritance(
   if (nearest.isNotEmpty) {
     String parent(int id) {
       final slots = shape.ancestorArguments[id];
-      final arguments = slots == null
+      final arguments = slots == null || slots.isEmpty
           ? ''
           : '<${slots.map((slot) => shape.binding.typeParameters[slot].declaration.name).join(', ')}>';
       return '${classes[id].binding.exportName}$arguments';

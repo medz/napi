@@ -364,6 +364,46 @@ void [inheritedBase, inheritedRead, inheritedSelf, inheritedPromise, inheritedSt
   inheritedDirect, inheritedExternalBase, mapped, mappedSlot, mappedResult,
   mappedFirst, mappedSecond, mappedGetter, transitiveBase, inheritedThenable];
 
+const tagged = new api.OpaqueTagged<string, {tag: number}>('value', {tag: 1});
+const taggedBase: api.OpaqueBase<string> = tagged;
+const taggedView: api.OpaqueBase<string> = api.opaqueTaggedBase(tagged);
+const taggedSelf: api.OpaqueTagged<string, {tag: number}> = tagged.self();
+const taggedMeta: {tag: number} = tagged.meta;
+const taggedLeaf = new api.OpaqueTaggedLeaf<{tag: number}, symbol, string>('value', {tag: 2}, Symbol());
+const taggedLeafParent: api.OpaqueTagged<string, {tag: number}> = taggedLeaf;
+const taggedLeafBase: api.OpaqueBase<string> = taggedLeaf;
+const taggedLeafRead: string = taggedLeaf.read();
+const taggedLeafMeta: {tag: number} = taggedLeaf.meta;
+const taggedLeafExtra: symbol = taggedLeaf.extra;
+const taggedDirect: direct.OpaqueBase<string> = taggedLeaf;
+const taggedExternal = new namedExternal.OpaqueTaggedLeaf<number, boolean, string>('external', 1, true);
+const taggedExternalBase: namedExternal.OpaqueBase<string> = taggedExternal;
+const resourceChild = new api.OpaqueResourceChild<string>('resource');
+const resourceBase: api.OpaqueResourceBase = resourceChild;
+const resourceView: api.OpaqueResourceBase = api.opaqueAsResource(resourceChild);
+const resourceRead: string = resourceChild.read();
+const resourceWait: Promise<number> = resourceChild.wait();
+const resourceClose: Promise<void> = resourceChild.close();
+// @ts-expect-error The additional mutable payload stays invariant independently of the ancestor.
+const widerTaggedMeta: api.OpaqueTagged<string, {tag: number} | null> = tagged;
+// @ts-expect-error A subset ancestor still keeps its own payload invariant.
+const widerTaggedBase: api.OpaqueBase<string | null> = taggedLeaf;
+// @ts-expect-error The leaf's independent parameter is not lost when projecting its parents.
+const widerTaggedExtra: api.OpaqueTaggedLeaf<{tag: number}, symbol | null, string> = taggedLeaf;
+// @ts-expect-error Parent payload and metadata are distinct type parameters.
+tagged.meta = 'wrong';
+// @ts-expect-error Transitive parent mapping uses the third child parameter.
+taggedLeaf.write(7);
+// @ts-expect-error Independent opaque constructor arguments remain required.
+new api.OpaqueTagged('value');
+// @ts-expect-error A nongeneric parent cannot supply the child's generic payload.
+const missingResourcePayload: api.OpaqueResourceChild<string> = new api.OpaqueResourceBase();
+// @ts-expect-error Resource children keep their additional payload invariant.
+const widerResourcePayload: api.OpaqueResourceChild<string | null> = resourceChild;
+void [taggedBase, taggedView, taggedSelf, taggedMeta, taggedLeafParent, taggedLeafBase,
+  taggedLeafRead, taggedLeafMeta, taggedLeafExtra, taggedDirect, taggedExternalBase,
+  resourceBase, resourceView, resourceRead, resourceWait, resourceClose];
+
 const inheritedWriter = new api.OpaqueWrite<string>();
 const possibleInheritedRead: string | null | undefined = inheritedWriter.part;
 const inheritedReader = new api.OpaqueRead<string>();
