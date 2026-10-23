@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:napi/build.dart';
-import 'package:napi/src/build/package_ownership.dart';
+import 'package:napi/src/build/output_ownership.dart';
 import 'package:napi/src/build/publish.dart';
 import 'package:test/test.dart';
 
@@ -108,11 +108,11 @@ void main() {
     () async {
       await assemble();
       expect(
-        await File('${output.path}/$packageOwnershipFile').exists(),
+        await File('${output.path}/$outputOwnershipFile').exists(),
         isTrue,
       );
-      expect((await package())['files'], isNot(contains(packageOwnershipFile)));
-      expect(await PackageOwnership.read(output), isA<PackageOwnership>());
+      expect((await package())['files'], isNot(contains(outputOwnershipFile)));
+      expect(await OutputOwnership.read(output), isA<OutputOwnership>());
     },
   );
 
@@ -212,7 +212,7 @@ void main() {
       await assemble();
       final author = await File('${output.path}/author.txt')
           .writeAsString('keep');
-      final marker = await File('${output.path}/$packageOwnershipFile')
+      final marker = await File('${output.path}/$outputOwnershipFile')
           .readAsString();
       final ProcessResult changed;
       try {
@@ -253,7 +253,7 @@ void main() {
         'first module.wasm',
       );
       expect(
-        await File('${output.path}/$packageOwnershipFile').readAsString(),
+        await File('${output.path}/$outputOwnershipFile').readAsString(),
         marker,
       );
       expect((await package())['version'], '1.0.0');
@@ -286,7 +286,7 @@ void main() {
         await assemble(overrides: {'largeAuthorField': text});
         await assemble(overrides: {'version': '1.0.1'});
         expect((await package())['largeAuthorField'], text);
-        final marker = File('${output.path}/$packageOwnershipFile');
+        final marker = File('${output.path}/$outputOwnershipFile');
         await marker.writeAsString(' ' * (1024 * 1024 + 1));
         await expectLater(assemble(), throwsFormatException);
         expect((await package())['largeAuthorField'], text);
@@ -365,7 +365,7 @@ void main() {
             }
             final replacement = await File('${root.path}/replacement')
                 .writeAsString('new selected asset');
-            final before = await File('${output.path}/$packageOwnershipFile')
+            final before = await File('${output.path}/$outputOwnershipFile')
                 .readAsString();
             await expectLater(
               assemble(
@@ -378,7 +378,7 @@ void main() {
             expect((await package())['files'], isNot(contains(name)));
             expect((await package())['version'], '1.0.0');
             expect(
-              await File('${output.path}/$packageOwnershipFile').readAsString(),
+              await File('${output.path}/$outputOwnershipFile').readAsString(),
               before,
             );
           },
@@ -405,7 +405,7 @@ void main() {
           'explicit replacement',
         );
         expect((await package())['files'], contains(name));
-        expect((await PackageOwnership.read(output))!.assets, contains(name));
+        expect((await OutputOwnership.read(output))!.assets, contains(name));
       });
     }
 
@@ -459,7 +459,7 @@ void main() {
       await assemble();
       final author = await File('${output.path}/wasm')
           .writeAsString('keep parent');
-      final ownership = (await PackageOwnership.read(output))!;
+      final ownership = (await OutputOwnership.read(output))!;
       final staging = await root.createTemp('merge-');
       await expectLater(
         ownership.copyAuthors(staging, {'wasm/module.wasm'}),
@@ -510,7 +510,7 @@ void main() {
             markTestSkipped('This filesystem distinguishes case.');
             return;
           }
-          final ownership = (await PackageOwnership.read(output))!;
+          final ownership = (await OutputOwnership.read(output))!;
           final staging = await root.createTemp('merge-equivalent-');
           await expectLater(
             ownership.copyAuthors(staging, {'wasm/module.wasm'}),
@@ -587,7 +587,7 @@ void main() {
       'manifest cannot claim an arbitrary author file even with its real hash',
       () async {
         await assemble();
-        final file = File('${output.path}/$packageOwnershipFile');
+        final file = File('${output.path}/$outputOwnershipFile');
         final value = jsonDecode(await file.readAsString()) as Map;
         (value['artifacts'] as Map)['author.txt'] =
             (value['artifacts'] as Map)['module.wasm'];
@@ -606,7 +606,7 @@ void main() {
       'output edits after snapshot are detected before publication',
       () async {
         await assemble();
-        final ownership = (await PackageOwnership.read(output))!;
+        final ownership = (await OutputOwnership.read(output))!;
         await File('${output.path}/author.txt').writeAsString('changed');
         await expectLater(
           ownership.checkUnchanged(),
@@ -626,7 +626,7 @@ void main() {
       'invalid Dart source preserves a previously assembled package',
       () async {
         await assemble();
-        final before = await File('${output.path}/$packageOwnershipFile')
+        final before = await File('${output.path}/$outputOwnershipFile')
             .readAsString();
         await expectLater(
           buildPackage(
@@ -637,7 +637,7 @@ void main() {
           throwsA(isA<Exception>()),
         );
         expect(
-          await File('${output.path}/$packageOwnershipFile').readAsString(),
+          await File('${output.path}/$outputOwnershipFile').readAsString(),
           before,
         );
         expect(

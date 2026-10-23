@@ -13,6 +13,7 @@ import 'build.dart';
 import 'native_bundle.dart';
 import 'native_runtime.dart';
 import 'publish.dart';
+import 'output_ownership.dart';
 
 Future<BuiltModule> buildNativeModule({
   required BindingModule bindings,
@@ -79,6 +80,14 @@ Future<BuiltModule> buildNativeModule({
       ),
     );
     await File('${artifact.path}/module.d.mts').writeAsString(declarations);
+    await writeOutputOwnership(
+      artifact,
+      kind: OutputKind.module,
+      targets: {'native'},
+      root: 'native',
+      runtime: bundle.runtime,
+      calls: false,
+    );
     publishDirectory(artifact, target);
     return BuiltModule(
       target,

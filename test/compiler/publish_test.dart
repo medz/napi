@@ -453,10 +453,10 @@ Future<void> main(List<String> args) async {
     'postcommit cleanup failure succeeds; precommit cleanup still fails',
     () async {
       final residual = _DeleteFailure('${root.path}/build scratch');
-      await cleanPackageStaging(residual, committed: true);
+      await cleanBuildStaging(residual, committed: true);
       expect(residual.attempts, 1);
       await expectLater(
-        cleanPackageStaging(residual, committed: false),
+        cleanBuildStaging(residual, committed: false),
         throwsA(isA<FileSystemException>()),
       );
       expect(residual.attempts, 2);

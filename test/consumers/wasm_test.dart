@@ -21,6 +21,7 @@ import '../support/fixtures/binary.dart';
 import '../support/fixtures/concrete.dart';
 import '../support/fixtures/shared_bytes.dart';
 import '../support/fixtures/js_collections.dart';
+import '../support/fixtures/module_rebuilds.dart';
 
 void main() {
   setUpAll(reportNodeVersions);
@@ -56,6 +57,7 @@ void main() {
       }),
     );
     test('package assembly', () => consumer(verifyPackageAssembly));
+    test('module rebuilds', () => consumer(verifyModuleRebuild));
     test(
       'classes',
       () => consumer((root) async {

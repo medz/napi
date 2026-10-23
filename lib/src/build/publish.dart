@@ -59,7 +59,7 @@ void exchangeDirectories(Directory source, Directory destination) {
 
 /// Once committed, auxiliary cleanup is best effort, never a failed build or
 /// a reason to roll back. Retain its path even if the diagnostic stream closed.
-Future<void> cleanPackageStaging(
+Future<void> cleanBuildStaging(
   Directory directory, {
   required bool committed,
 }) async {
@@ -68,9 +68,7 @@ Future<void> cleanPackageStaging(
   } catch (error) {
     if (!committed) rethrow;
     try {
-      stderr.writeln(
-        'Package committed; cleanup left ${directory.path}: $error',
-      );
+      stderr.writeln('Build committed; cleanup left ${directory.path}: $error');
     } catch (_) {
       /* Publication remains successful. */
     }
@@ -181,6 +179,18 @@ void copyPackageDirectoryMetadata(
   });
 }
 
+void checkOutputLockPath(Directory output) {
+  final normalized = path.normalize(output.absolute.path);
+  if (path
+      .split(normalized)
+      .any((segment) => segment.toLowerCase() == '.napi-locks')) {
+    throw FileSystemException(
+      'Build output conflicts with the private lock directory.',
+      normalized,
+    );
+  }
+}
+
 /// A stable sibling lock directory, shared by processes and Dart isolates.
 /// Its inode deliberately survives release: unlinking it can split contenders
 /// between two different locks. It is not a lease on arbitrary author edits.
@@ -190,15 +200,8 @@ final class PackageLock {
   final File file;
 
   static PackageLock acquire(Directory output) {
+    checkOutputLockPath(output);
     final normalized = path.normalize(output.absolute.path);
-    if (path
-        .split(normalized)
-        .any((segment) => segment.toLowerCase() == '.napi-locks')) {
-      throw FileSystemException(
-        'Package output conflicts with the private lock directory.',
-        normalized,
-      );
-    }
     final locks = Directory(path.join(path.dirname(normalized), '.napi-locks'));
     var directoryType = FileSystemEntity.typeSync(
       locks.path,

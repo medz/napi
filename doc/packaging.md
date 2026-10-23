@@ -102,9 +102,9 @@ build, not during npm installation.
 
 ## Managed rebuilds
 
-Call the build or assembly API again with the same output directory. On local
-macOS APFS and supported 64-bit Linux ext-family filesystems or tmpfs, the builder
-replaces its own managed output atomically.
+Call `buildPackage`, `buildLibrary` or the assembly API again with the same output
+directory. The builder replaces its own managed output atomically on local macOS
+APFS and supported 64-bit Linux ext-family filesystems or tmpfs.
 
 Generated files are replaced and obsolete artifacts are removed. Other author
 files and metadata are retained, including permissions, ownership, ACLs and
@@ -121,7 +121,12 @@ Compilation or merge failures leave the previous package in place. A cleanup
 failure after successful replacement reports the retained temporary path;
 the new package is still usable.
 
+Raw modules built by `buildLibrary` have their own ownership record. They can
+be rebuilt, but cannot replace an npm package directory or adopt older raw output
+without an ownership record. Package assembly copies only runtime artifacts;
+the raw module's record stays outside the npm package.
+
 Linux requires `statx` and extended-attribute support, and the builder must have
 permission to preserve retained metadata. Rebuilding on Windows, network or
-other unsupported filesystems, adopting legacy output, and replacing raw module
-output are not supported. Use a fresh output directory in those cases.
+other unsupported filesystems, and adopting legacy output are not supported.
+Use a fresh output directory in those cases.

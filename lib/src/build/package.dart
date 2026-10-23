@@ -1,8 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:path/path.dart' as path;
-
 import '../compiler/front_end/external.dart';
 import '../compiler/ir/model.dart';
 import '../compiler/native/declarations.dart';
@@ -11,7 +9,8 @@ import 'build.dart';
 import 'contract.dart';
 import 'metadata.dart';
 import 'publish.dart';
-import 'package_ownership.dart';
+import 'output_ownership.dart';
+import 'output.dart';
 import 'native_bundle.dart';
 import 'native_runtime.dart';
 
@@ -54,7 +53,7 @@ Future<Directory> buildPackage({
   }
   final destination = output.absolute;
   final packages = libraryPackagesPath(packagesPath, external);
-  await _checkInputs(destination, [
+  await checkOutputInputs(destination, [
     if (library.scheme == 'file') File.fromUri(library),
     if (packages != null) File(packages),
     ?nativeRuntime,
@@ -63,10 +62,10 @@ Future<Directory> buildPackage({
   await _checkAssets(assets);
   // Reject unsupported existing output before analysis. Fresh dual contracts
   // still fail before creating an output parent or a stable lock inode.
-  _PackageUpdate? update;
+  OutputUpdate? update;
   if (await FileSystemEntity.type(destination.path, followLinks: false) !=
       FileSystemEntityType.notFound) {
-    update = await _PackageUpdate.open(destination);
+    update = await OutputUpdate.open(destination);
   }
   Directory? staging;
   var committed = false;
@@ -87,7 +86,7 @@ Future<Directory> buildPackage({
     }
     // External package: entrypoints resolve to physical files in the existing
     // frontend. Reuse that result instead of duplicating package resolution.
-    await _checkInputs(destination, [
+    await checkOutputInputs(destination, [
       for (final binding in bindings.values) File.fromUri(binding.source),
     ]);
     if (selected.length > 1) {
@@ -107,7 +106,7 @@ Future<Directory> buildPackage({
         output: destination,
       )).directory;
     }
-    update ??= await _PackageUpdate.open(destination);
+    update ??= await OutputUpdate.open(destination);
     await destination.parent.create(recursive: true);
     staging = await destination.parent.createTemp('.napi-package-build-');
     final modules = <BuiltModule>[];
@@ -146,7 +145,7 @@ Future<Directory> buildPackage({
   } finally {
     try {
       if (staging != null) {
-        await cleanPackageStaging(staging, committed: committed);
+        await cleanBuildStaging(staging, committed: committed);
       }
     } finally {
       update?.close();
@@ -207,14 +206,14 @@ Future<Directory> _assemblePackage({
   required Directory output,
   required Map<String, Object?> metadata,
   required Map<String, File> assets,
-  _PackageUpdate? update,
+  OutputUpdate? update,
 }) async {
   final supplied = packageMetadata(metadata);
   final nativeOnly = modules.length == 1 && rootTarget == BuildTarget.native;
   packageMetadata(supplied, native: nativeOnly);
   final dual = modules.length > 1;
   final target = output.absolute;
-  await _checkInputs(target, [
+  await checkOutputInputs(target, [
     for (final module in modules) module.directory,
     ...assets.values,
   ]);
@@ -224,7 +223,7 @@ Future<Directory> _assemblePackage({
   var calls = false;
   for (final module in modules) {
     final source = module.directory.absolute;
-    await _checkPath(source.path);
+    await checkOutputPath(source.path);
     if (await FileSystemEntity.type(source.path, followLinks: false) !=
         FileSystemEntityType.directory) {
       throw ArgumentError('Built module is not a directory: ${source.path}');
@@ -272,7 +271,7 @@ Future<Directory> _assemblePackage({
   }
 
   final ownsUpdate = update == null;
-  update ??= await _PackageUpdate.open(target);
+  update ??= await OutputUpdate.open(target);
   Directory? staging;
   var published = false;
   var exchangeAttempted = false;
@@ -313,8 +312,9 @@ Future<Directory> _assemblePackage({
     await File(
       '${staging.path}/package.json',
     ).writeAsString('${const JsonEncoder.withIndent('  ').convert(package)}\n');
-    await writePackageOwnership(
+    await writeOutputOwnership(
       staging,
+      kind: OutputKind.package,
       targets: targets,
       root: rootTarget.name,
       runtime: runtime,
@@ -332,7 +332,7 @@ Future<Directory> _assemblePackage({
     }
     published = true;
     if (previous != null) {
-      await cleanPackageStaging(staging, committed: true);
+      await cleanBuildStaging(staging, committed: true);
     }
     return target;
   } finally {
@@ -340,87 +340,11 @@ Future<Directory> _assemblePackage({
       // Exchange errors retain both names for inspection; there is no fallback
       // rename and no assumption that an ambiguous error means no commit.
       if (!published && !exchangeAttempted && staging != null) {
-        await cleanPackageStaging(staging, committed: false);
+        await cleanBuildStaging(staging, committed: false);
       }
     } finally {
       if (ownsUpdate) update.close();
     }
-  }
-}
-
-final class _PackageUpdate {
-  _PackageUpdate(this.previous, this.lock);
-  final PackageOwnership? previous;
-  final PackageLock? lock;
-
-  static Future<_PackageUpdate> open(Directory output) async {
-    await _checkPath(output.path);
-    final type = await FileSystemEntity.type(output.path, followLinks: false);
-    if (type != FileSystemEntityType.notFound) {
-      if (type != FileSystemEntityType.directory ||
-          await FileSystemEntity.type(
-                '${output.path}/$packageOwnershipFile',
-                followLinks: false,
-              ) !=
-              FileSystemEntityType.file) {
-        throw ArgumentError(
-          'Package output already exists without managed ownership: ${output.path}',
-        );
-      }
-      checkPackageRebuildFilesystem(output);
-    }
-    await output.parent.create(recursive: true);
-    final lock = Platform.isWindows ? null : PackageLock.acquire(output);
-    try {
-      final previous = await PackageOwnership.read(output);
-      if (previous != null) checkPackageRebuildFilesystem(output);
-      return _PackageUpdate(previous, lock);
-    } catch (_) {
-      lock?.release();
-      rethrow;
-    }
-  }
-
-  void close() => lock?.release();
-}
-
-Future<void> _checkInputs(
-  Directory output,
-  Iterable<FileSystemEntity> inputs,
-) async {
-  await _checkPath(output.absolute.path);
-  for (final input in inputs) {
-    final source = input.absolute.path;
-    await _checkPath(source);
-    if (path.equals(source, output.path) ||
-        path.isWithin(source, output.path) ||
-        path.isWithin(output.path, source) ||
-        await _containsExistingPath(source, output.absolute.path) ||
-        await _containsExistingPath(output.absolute.path, source)) {
-      throw ArgumentError(
-        'Package inputs and output must not contain one another: $source',
-      );
-    }
-  }
-}
-
-Future<bool> _containsExistingPath(String parent, String child) async {
-  if (await FileSystemEntity.type(parent, followLinks: false) ==
-      FileSystemEntityType.notFound) {
-    return false;
-  }
-  // realpath alone can preserve an alias's case/Unicode spelling. Identity of
-  // existing ancestors also covers outputs whose final segments do not exist.
-  var current = path.normalize(child);
-  while (true) {
-    if (await FileSystemEntity.type(current, followLinks: false) !=
-            FileSystemEntityType.notFound &&
-        await FileSystemEntity.identical(parent, current)) {
-      return true;
-    }
-    final next = path.dirname(current);
-    if (next == current) return false;
-    current = next;
   }
 }
 
@@ -434,26 +358,10 @@ Future<void> _checkAssets(Map<String, File> assets) async {
 }
 
 Future<File> _regularFile(File file) async {
-  await _checkPath(file.absolute.path);
+  await checkOutputPath(file.absolute.path);
   if (await FileSystemEntity.type(file.path, followLinks: false) !=
       FileSystemEntityType.file) {
     throw ArgumentError('Package input is not a regular file: ${file.path}');
   }
   return file;
-}
-
-Future<void> _checkPath(String value) async {
-  if (value.contains('\x00') || path.split(value).contains('..')) {
-    throw ArgumentError(
-      'Package paths must not contain NUL or traversal: $value',
-    );
-  }
-  var current = path.rootPrefix(value);
-  for (final segment in path.split(value).skip(1)) {
-    current = path.join(current, segment);
-    if (await FileSystemEntity.type(current, followLinks: false) ==
-        FileSystemEntityType.link) {
-      throw ArgumentError('Package paths must not contain symlinks: $current');
-    }
-  }
 }
