@@ -41,17 +41,22 @@ void main() {
     final tsc =
         Platform.environment['NAPI_TSC'] ??
         '${Directory.current.path}/.dart_tool/js/node_modules/typescript/bin/tsc';
-    final result = await Process.run(Platform.environment['NODE'] ?? 'node', [
-      tsc,
-      '--ignoreConfig',
-      '--strict',
-      '--noEmit',
-      '--target',
-      'ES2022',
-      '--module',
-      'NodeNext',
-      file.path,
-    ]);
+    final result = await Process.run(
+      Platform.environment['NAPI_TEST_NODE'] ??
+          Platform.environment['NODE'] ??
+          'node',
+      [
+        tsc,
+        '--ignoreConfig',
+        '--strict',
+        '--noEmit',
+        '--target',
+        'ES2022',
+        '--module',
+        'NodeNext',
+        file.path,
+      ],
+    );
     expect(result.exitCode, 0, reason: '${result.stdout}\n${result.stderr}');
   }
 
