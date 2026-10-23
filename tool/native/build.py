@@ -21,7 +21,7 @@ SDK_VERSION = '3.13.5'
 SDK_REVISION = '04bcd1036cdc799ac6564988f159ee454d42c822'
 ABI = 15
 MINIMUM_OS = '14.0'
-MINIMUM_LIBC = '2.17'
+MINIMUM_LIBC = '2.28'
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE_FILES = [
     'tool/native/build.py', 'native/bridge/bridge.cc', 'native/bridge/abi.h',

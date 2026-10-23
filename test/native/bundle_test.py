@@ -105,7 +105,7 @@ class BundleTest(unittest.TestCase):
         (self.directory/old_runtime).rename(self.directory/runtime)
         self.manifest['files'][runtime] = self.manifest['files'].pop(old_runtime)
         self.manifest.update(platform='linux', architecture='x64', libc='glibc',
-                             minimumLibcVersion='2.17', identity=identity, runtime=runtime)
+                             minimumLibcVersion='2.28', identity=identity, runtime=runtime)
         del self.manifest['minimumOsVersion']
         compiler = self.manifest['build']['provenance']['compiler']
         del compiler['macosSdkVersion']
@@ -118,7 +118,7 @@ class BundleTest(unittest.TestCase):
         lock = bundle.pack(self.directory, self.archive, self.lock, self.dart,
                            repository=self.repository)
         self.assertEqual(lock['profile']['libc'], 'glibc')
-        self.assertEqual(lock['profile']['minimumLibcVersion'], '2.17')
+        self.assertEqual(lock['profile']['minimumLibcVersion'], '2.28')
         self.assertNotIn('minimumOsVersion', lock['profile'])
         fetched = bundle.fetch(self.lock, self.cache, self.dart, self.archive, self.repository)
         self.assertTrue((fetched/runtime).is_file())
@@ -445,7 +445,7 @@ class BuildInputsTest(unittest.TestCase):
                                 '(NEEDED) Shared library: [libc.so.6]\n' +
                                 (f'(NEEDED) Shared library: [{runtime}]' if binary.suffix == '.node' else ''))
                     if '--version-info' in command:
-                        return 'Name: GLIBC_2.2.5\nName: GLIBC_2.17'
+                        return 'Name: GLIBC_2.2.5\nName: GLIBC_2.28'
                     output = Path(command[command.index('-o')+1])
                     if ('-shared' in command and output.name != 'link-probe.so' and changed and
                             not initial_change and changed != 'bridge-extra'):
@@ -504,7 +504,7 @@ class BuildInputsTest(unittest.TestCase):
                                 self.assertEqual(manifest['identity'], original_identity)
                             else:
                                 original_identity = manifest['identity']
-                            self.assertEqual(manifest['minimumLibcVersion'], '2.17')
+                            self.assertEqual(manifest['minimumLibcVersion'], '2.28')
                             self.assertEqual(manifest['libc'], 'glibc')
                             self.assertNotIn('minimumOsVersion', manifest)
                             self.assertEqual(manifest['build']['provenance']['compiler']['sysrootSha256'],
@@ -581,10 +581,10 @@ class BuildInputsTest(unittest.TestCase):
                     if '--file-header' in command:
                         return 'Class: ELF64\nMachine: ' + ('AArch64' if changed == 'machine' else 'AMD x86-64')
                     if '--version-info' in command:
-                        return 'Name: GLIBC_' + ('2.28' if changed == 'glibc' else
-                                                'PRIVATE' if changed == 'private-glibc' else '2.17')
+                        return 'Name: GLIBC_' + ('2.29' if changed == 'glibc' else
+                                                'PRIVATE' if changed == 'private-glibc' else '2.28')
                     if '--dyn-syms' in command:
-                        return '1: 0 0 FUNC GLOBAL DEFAULT UND getrandom@GLIBC_2.28 (2)'
+                        return '1: 0 0 FUNC GLOBAL DEFAULT UND future_api@GLIBC_2.29 (2)'
                     value = dynamic
                     if changed == 'absolute-path':
                         value += '(NEEDED) Shared library: [/build/libhelper.so]'
@@ -596,7 +596,7 @@ class BuildInputsTest(unittest.TestCase):
 
                 with patch.object(build, 'run', readelf):
                     if changed:
-                        with self.assertRaisesRegex(ValueError, 'getrandom@GLIBC_2.28' if changed == 'glibc' else '.'):
+                        with self.assertRaisesRegex(ValueError, 'future_api@GLIBC_2.29' if changed == 'glibc' else '.'):
                             build.validate_elf('readelf', Path('bridge.node'), 'runtime.so')
                     else:
                         build.validate_elf('readelf', Path('bridge.node'), 'runtime.so')

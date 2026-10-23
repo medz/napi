@@ -10,7 +10,7 @@ and no sanitizers or dynamic modules:
 | Profile | Toolchain | Runtime baseline |
 | --- | --- | --- |
 | macOS arm64 | System Apple clang | macOS 14 |
-| Linux x64 | Pinned SDK clang and Debian sysroot | glibc 2.17 |
+| Linux x64 | Pinned SDK clang and Debian sysroot | glibc 2.28 |
 
 Other profiles fail explicitly. Node.js has its own host requirements.
 
@@ -78,7 +78,7 @@ The manifest has `format: 1`, `sdkVersion`, `sdkRevision`, `platform: "macos"`,
 Its `build` metadata records the cache arguments hash, combined input-object
 digest/count, and runtime/ABI source hash. It contains no local SDK paths.
 The Linux profile instead uses `platform: "linux"`, `architecture: "x64"`,
-`libc: "glibc"` and `minimumLibcVersion: "2.17"`, with no `minimumOsVersion`.
+`libc: "glibc"` and `minimumLibcVersion: "2.28"`, with no `minimumOsVersion`.
 The consumer build validates this manifest and hashes before copying its exact
 file whitelist. File hashes validate the distributed assets; runtime identity is described below.
 

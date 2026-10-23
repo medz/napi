@@ -143,7 +143,7 @@ The macOS binaries target macOS 14. Execution has been tested on macOS 14.8.9
 and 27.0.1 arm64, Node 24.19.0 and 26.11.1, with TypeScript 7.0.2 declarations.
 The macOS bundle was built with Apple clang 21.0.0. The Linux bundle uses the
 pinned Dart SDK clang toolchain and Debian sysroot; its runtime and bridge must
-require no newer than glibc 2.17. Node.js has its own operating-system requirements.
+require no newer than glibc 2.28. Node.js has its own operating-system requirements.
 Windows, Intel Macs, Linux arm64 and other Node-API hosts are not qualified.
 
 See [the runtime bundle guide](../native/README.md) to build a new runtime

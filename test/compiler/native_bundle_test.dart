@@ -114,7 +114,7 @@ void main() {
         {'libc': null},
         {'minimumLibcVersion': '2.9'},
         {'minimumLibcVersion': null},
-        {'minimumOsVersion': '2.17'},
+        {'minimumOsVersion': '2.28'},
       ]) {
         final original = Map<String, Object?>.of(manifest);
         manifest.addAll(change);

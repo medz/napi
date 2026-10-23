@@ -7,7 +7,7 @@ enum NativePlatform {
     'linux',
     'so',
     libc: 'glibc',
-    minimumLibcVersion: '2.17',
+    minimumLibcVersion: '2.28',
   );
 
   final String platform;
