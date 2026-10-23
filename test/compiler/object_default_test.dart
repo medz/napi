@@ -314,23 +314,28 @@ import 'package:napi/napi.dart';
       'Point.kind(Kind.one)',
     ),
   ]) {
-    test('rejects a $name default', () async {
-      final input = source('entry.dart', '''
+    test(
+      'Dart supplies a $name default with supported stored fields',
+      () async {
+        final input = source('entry.dart', '''
 import 'package:napi/napi.dart';
 $declaration
 @NAPI() bool run([Point point = const $defaultValue]) => true;
 ''');
-      for (final native in [false, true]) {
-        await expectLater(() async {
+        for (final native in [false, true]) {
           final module = await read(input, native: native);
+          expect(
+            module.functions.single.parameters.single.defaultOmissionKey,
+            isNotNull,
+          );
           if (native) {
-            validateNative(module);
+            emitNativeDart(validateNative(module));
           } else {
-            validate(module);
+            emitDart(lower(validate(module)));
           }
-        }, throwsA(defaultDiagnostic()));
-      }
-    });
+        }
+      },
+    );
   }
 
   for (final (name, declaration) in [

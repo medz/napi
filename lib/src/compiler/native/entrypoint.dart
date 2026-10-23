@@ -103,6 +103,9 @@ String emitNativeDart(NativeModulePlan plan) {
   final hasOpaqueStructuralInputs = plan.calls.any(
     (call) => hasNestedOpaque(call.inputs),
   );
+  final hasOmittedDefaults = plan.calls.any(
+    (call) => call.parameters.any((p) => p.defaultOmissionKey != null),
+  );
   final needsOpaqueReadState =
       hasOpaqueStructuralInputs ||
       hasNestedOpaque(conversionDependencies(plan.jsCollections));
@@ -139,6 +142,7 @@ String emitNativeDart(NativeModulePlan plan) {
   }
   if (hasStructures ||
       hasFutures ||
+      hasOmittedDefaults ||
       hasOpaque ||
       hasCallbacks ||
       plan.functionValues.isNotEmpty ||
@@ -274,6 +278,10 @@ ${tests.declarations}  int? canonical;''');
         !(call.isConstructor && call.member == null);
     final retainsResources = plan.needsResourceOperation(call);
     final parameters = call.parameters;
+    bool omitDefault(ParameterBinding parameter) =>
+        _optional(parameter) &&
+        (functionValue != null || parameter.defaultOmissionKey != null);
+    final appliesDefaults = parameters.any(omitDefault);
     final tracksInputOwners = functionValue != null
         ? conversionGraph(call.inputs).any((value) => value is OpaqueConversion)
         : hasNestedOpaque(call.inputs);
@@ -362,6 +370,7 @@ ${tests.declarations}  int? canonical;''');
     }
     final preflight =
         functionValue != null ||
+        appliesDefaults ||
         !rawStructuralArguments &&
             (retainsResources ||
                 hasOpaqueInputs ||
@@ -418,17 +427,17 @@ ${tests.declarations}  int? canonical;''');
         final conversion = call.inputs[index];
         if (conversion is! ReferenceConversion) continue;
         code.writeln(
-          '    ${functionValue != null && _optional(parameter) ? 'late ' : ''}final ${conversion.dartType} reference$index;',
+          '    ${omitDefault(parameter) ? 'late ' : ''}final ${conversion.dartType} reference$index;',
         );
         if (_optional(parameter)) {
-          if (functionValue != null) {
+          if (omitDefault(parameter)) {
             code.writeln('    if (!default$index) {');
           } else {
             code.writeln(
               '    if (default$index) {\n      reference$index = ${renderDartDefault(parameter, conversion, declarationSource: declarationSource)};',
             );
           }
-          if (retainsResources && functionValue == null) {
+          if (retainsResources && !omitDefault(parameter)) {
             code.write(
               emitDartDefaultResourceRetains(
                 conversion,
@@ -440,7 +449,7 @@ ${tests.declarations}  int? canonical;''');
               ),
             );
           }
-          if (functionValue == null) code.writeln('    } else {');
+          if (!omitDefault(parameter)) code.writeln('    } else {');
         }
         _readReference(
           code,
@@ -513,14 +522,14 @@ ${tests.declarations}  int? canonical;''');
           : _requiredValue(parameter, index, option, path);
       if (preflight && conversion is ReferenceConversion) {
         code.writeln(
-          functionValue != null && _optional(parameter)
+          omitDefault(parameter)
               ? '    late final ${conversion.dartType} a$index;\n    if (!default$index) a$index = reference$index;'
               : '    final ${conversion.dartType} a$index = reference$index;',
         );
         continue;
       }
       code.writeln(
-        '    ${functionValue != null && _optional(parameter) ? 'late ' : ''}final ${conversion.dartType} a$index;',
+        '    ${omitDefault(parameter) ? 'late ' : ''}final ${conversion.dartType} a$index;',
       );
       if (_optional(parameter)) {
         final defaulted = preflight
@@ -533,7 +542,7 @@ ${tests.declarations}  int? canonical;''');
             ? '_api.defaultOption(call.env, options, $option)'
             : '_api.omittedOrUndefined(call, $index)';
         code.writeln(
-          functionValue != null
+          omitDefault(parameter)
               ? '    if (!$defaulted) {'
               : '    if ($defaulted) {\n      a$index = ${renderDartDefault(parameter, conversion, declarationSource: declarationSource)};\n    } else {',
         );
@@ -603,19 +612,8 @@ ${tests.declarations}  int? canonical;''');
         call.function?.callPath ??
         call.member?.callPath ??
         call.member?.declaration.name;
-    final invocation = switch (call.kind) {
-      NativeCallKind.functionValue =>
-        parameters.any(_optional)
-            ? 'Function.apply(object, [${[for (final (i, p) in parameters.indexed)
-                if (!_named(p)) '${_optional(p) ? 'if (!default$i) ' : ''}a$i'].join(', ')}], {${[for (final (i, p) in parameters.indexed)
-                if (_named(p)) '${_optional(p) ? 'if (!default$i) ' : ''}#${p.name}: a$i'].join(', ')}})${call.returnsFuture
-                  ? ' as Future<${call.output?.dartType ?? 'void'}>'
-                  : call.returnsStream
-                  ? ' as Stream<${call.output?.dartType ?? 'void'}>'
-                  : call.output == null
-                  ? ''
-                  : ' as ${call.output!.dartType}'}'
-            : 'object($arguments)',
+    var invocation = switch (call.kind) {
+      NativeCallKind.functionValue => 'object($arguments)',
       NativeCallKind.function =>
         'target.$path${dartOpaqueTypeArguments(call.function!.typeParameters)}($arguments)',
       NativeCallKind.constructor => '$receiver($arguments)',
@@ -624,6 +622,35 @@ ${tests.declarations}  int? canonical;''');
       NativeCallKind.getter => '$receiver.$path',
       NativeCallKind.setter => '$receiver.$path = a0',
     };
+    if (appliesDefaults) {
+      final callable = switch (call.kind) {
+        NativeCallKind.functionValue => 'object',
+        NativeCallKind.function =>
+          'target.$path${dartOpaqueTypeArguments(call.function!.typeParameters)}',
+        NativeCallKind.constructor => '$receiver.new',
+        NativeCallKind.method =>
+          '$receiver.$path${dartOpaqueTypeArguments(call.member!.typeParameters)}',
+        _ => throw StateError('Default omission requires a callable'),
+      };
+      final positional = [
+        for (final (i, p) in parameters.indexed)
+          if (!_named(p)) '${omitDefault(p) ? 'if (!default$i) ' : ''}a$i',
+      ];
+      final named = [
+        for (final (i, p) in parameters.indexed)
+          if (_named(p))
+            '${omitDefault(p) ? 'if (!default$i) ' : ''}#${p.name}: a$i',
+      ];
+      final type = call.returnsFuture
+          ? 'Future<${call.output?.dartType ?? 'void'}>'
+          : call.returnsStream
+          ? 'Stream<${call.output?.dartType ?? 'void'}>'
+          : call.isConstructor
+          ? dartReferenceClassType(call.owner!)
+          : call.output?.dartType;
+      invocation =
+          'Function.apply($callable, [${positional.join(', ')}], {${named.join(', ')}})${type == null ? '' : ' as $type'}';
+    }
     if (call.returnsFuture) {
       if (call.isCleanup) {
         if (hasSignalInputs) {
@@ -635,7 +662,7 @@ ${tests.declarations}  int? canonical;''');
     if (!first) return promise;''');
       }
       code.writeln(
-        '    _api.retainFuture(token, [${[if (call.owner != null && !call.isStatic || functionValue != null) 'object', for (var i = 0; i < parameters.length; i++) '${functionValue != null && _optional(parameters[i]) ? 'if (!default$i) ' : ''}a$i'].join(', ')}]${retainsResources && call.output != null && call.output is! ScalarConversion ? ', observeEnv: envAddress${scopedOperation ? ', observeEmpty: true' : ''}' : ''});',
+        '    _api.retainFuture(token, [${[if (call.owner != null && !call.isStatic || functionValue != null) 'object', for (var i = 0; i < parameters.length; i++) '${omitDefault(parameters[i]) ? 'if (!default$i) ' : ''}a$i'].join(', ')}]${retainsResources && call.output != null && call.output is! ScalarConversion ? ', observeEnv: envAddress${scopedOperation ? ', observeEmpty: true' : ''}' : ''});',
       );
       code.writeln('    final env = Pointer<Void>.fromAddress(envAddress);');
       if (!call.isCleanup) _checkSignals(code, call);
@@ -662,7 +689,7 @@ ${tests.declarations}  int? canonical;''');
         );
         _writeResult(code, call.output, structures, 'streamEnv');
         code.writeln(
-          '    }), releaseSnapshot: (value) => value.release(), roots: [${[if (hasReceiver || functionValue != null) 'object', for (var i = 0; i < parameters.length; i++) '${functionValue != null && _optional(parameters[i]) ? 'if (!default$i) ' : ''}a$i'].join(', ')}]${retainsResources ? ', operation: operation' : ''}${hasSignalInputs ? ', signals: [${[for (final (i, input) in call.inputs.indexed)
+          '    }), releaseSnapshot: (value) => value.release(), roots: [${[if (hasReceiver || functionValue != null) 'object', for (var i = 0; i < parameters.length; i++) '${omitDefault(parameters[i]) ? 'if (!default$i) ' : ''}a$i'].join(', ')}]${retainsResources ? ', operation: operation' : ''}${hasSignalInputs ? ', signals: [${[for (final (i, input) in call.inputs.indexed)
                   if (input is AbortSignalConversion) '${input.nullable ? 'if (a$i != null) ' : ''}a$i'].join(', ')}]' : ''});',
         );
         if (retainsResources) {

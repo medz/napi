@@ -267,13 +267,14 @@ ${emitDartDefaultResourceRetains(call.inputs[i], value, indent: '    ', paramete
     // Raw externrefs are validated before Dart can erase undefined into null.
     for (var i = 0; i < parameters.length; i++) {
       final conversion = call.inputs[i];
+      final omittedDefault = _omitsDefault(call, parameters[i]);
       result.writeln(
-        '  final ${functionValue && _optional(parameters[i]) ? 'Object?' : conversion.dartType} a$i;',
+        '  final ${omittedDefault ? 'Object?' : conversion.dartType} a$i;',
       );
       if (_optional(parameters[i])) {
         result.writeln('  if (d$i.toIntSigned() != 0) {');
         result.writeln(
-          '    a$i = ${functionValue ? 'null' : renderDartDefault(parameters[i], conversion, declarationSource: declarationSource)};',
+          '    a$i = ${omittedDefault ? 'null' : renderDartDefault(parameters[i], conversion, declarationSource: declarationSource)};',
         );
         result.writeln('  } else {');
       }
@@ -760,12 +761,13 @@ void _emitResourceCall(
   }
   for (final (i, parameter) in call.parameters.indexed) {
     final conversion = call.inputs[i];
+    final omittedDefault = _omitsDefault(call, parameter);
     result.writeln(
-      '  final ${functionValue && _optional(parameter) ? 'Object?' : conversion.dartType} a$i;',
+      '  final ${omittedDefault ? 'Object?' : conversion.dartType} a$i;',
     );
     if (_optional(parameter)) {
       result.writeln(
-        '  if (d$i.toIntSigned() != 0) {\n    a$i = ${functionValue ? 'null' : renderDartDefault(parameter, conversion, declarationSource: structural.defaultDeclarationSource)};\n  } else {',
+        '  if (d$i.toIntSigned() != 0) {\n    a$i = ${omittedDefault ? 'null' : renderDartDefault(parameter, conversion, declarationSource: structural.defaultDeclarationSource)};\n  } else {',
       );
     }
     if (conversion is CallbackConversion) {
@@ -917,23 +919,38 @@ void _emitResourceOutput(
 }
 
 String _invocation(CallPlan call) {
-  if (call is FunctionValueCallPlan && call.parameters.any(_optional)) {
+  if (call.parameters.any((parameter) => _omitsDefault(call, parameter))) {
     final positional = [
       for (final (index, parameter) in call.parameters.indexed)
         if (!_named(parameter))
-          '${_optional(parameter) ? 'if (d$index.toIntSigned() == 0) ' : ''}a$index',
+          '${_omitsDefault(call, parameter) ? 'if (d$index.toIntSigned() == 0) ' : ''}a$index',
     ];
     final named = [
       for (final (index, parameter) in call.parameters.indexed)
         if (_named(parameter))
-          '${_optional(parameter) ? 'if (d$index.toIntSigned() == 0) ' : ''}#${parameter.name}: a$index',
+          '${_omitsDefault(call, parameter) ? 'if (d$index.toIntSigned() == 0) ' : ''}#${parameter.name}: a$index',
     ];
     final type = call.returnsFuture
         ? 'Future<${call.output?.dartType ?? 'void'}>'
         : call.returnsStream
         ? 'Stream<${call.output?.dartType ?? 'void'}>'
+        : call is MemberCallPlan && call.kind == MemberCallKind.constructor
+        ? dartReferenceClassType(call.owner)
         : call.output?.dartType;
-    return 'Function.apply(object, <Object?>[${positional.join(', ')}]${named.isEmpty ? '' : ', <Symbol, Object?>{${named.join(', ')}}'})${type == null ? '' : ' as $type'}';
+    final String callable;
+    if (call is FunctionPlan) {
+      callable =
+          'target.${call.binding.callPath}${dartOpaqueTypeArguments(call.binding.typeParameters)}';
+    } else if (call is FunctionValueCallPlan) {
+      callable = 'object';
+    } else {
+      final member = call as MemberCallPlan;
+      final path = member.binding.callPath ?? member.binding.declaration.name;
+      callable = member.kind == MemberCallKind.constructor
+          ? '${dartReferenceClassType(member.owner)}.$path'
+          : '${member.isStatic ? 'target.${member.owner.callPath}' : 'object'}.$path${dartOpaqueTypeArguments(member.binding.typeParameters)}';
+    }
+    return 'Function.apply($callable, <Object?>[${positional.join(', ')}]${named.isEmpty ? '' : ', <Symbol, Object?>{${named.join(', ')}}'})${type == null ? '' : ' as $type'}';
   }
   final arguments = [
     for (final (index, parameter) in call.parameters.indexed)
@@ -961,6 +978,10 @@ String _invocation(CallPlan call) {
     MemberCallKind.setter => '$receiver.$path = a0',
   };
 }
+
+bool _omitsDefault(CallPlan call, ParameterBinding parameter) =>
+    _optional(parameter) &&
+    (call is FunctionValueCallPlan || parameter.defaultOmissionKey != null);
 
 bool _optional(ParameterBinding p) =>
     p.kind == ParameterKind.optionalPositional ||

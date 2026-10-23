@@ -18,6 +18,7 @@ import '../../api/annotation.dart';
 import '../analysis/validate.dart';
 import '../ir/model.dart';
 import '../ir/defaults.dart';
+import 'constant_key.dart';
 import 'external.dart';
 import 'sdk_analysis.dart';
 
@@ -1182,6 +1183,9 @@ final class _Reader {
           : ParameterKind.requiredPositional,
       defaultSource: element.defaultValueCode,
       defaultValue: representedDefault,
+      defaultOmissionKey: representedDefault == null && defaultValue != null
+          ? _defaultOmissionKey(element, defaultValue)
+          : null,
       defaultObjects: element.hasDefaultValue
           ? _parameterDefaultObjects(element, defaultValue, representedDefault)
           : null,
@@ -1201,6 +1205,21 @@ final class _Reader {
       isSuperFormal: element is a.SuperFormalParameterElement,
       isCovariant: element.isCovariant,
     );
+  }
+
+  String? _defaultOmissionKey(
+    a.FormalParameterElement element,
+    DartObject value,
+  ) {
+    try {
+      return constantStorageKey(value);
+    } on ConstantDefaultLimit catch (error) {
+      throw BindingDiagnostic(
+        'NAPI_DEFAULT',
+        error.toString(),
+        _source(element),
+      );
+    }
   }
 
   ConstantDefault? _parameterDefault(

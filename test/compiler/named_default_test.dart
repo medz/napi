@@ -159,16 +159,149 @@ class Second {
           'const _private = _Private.origin;',
     ),
   ]) {
-    test('a $name stays diagnosed', () async {
+    test('a $name is checked from its stored value', () async {
       final input = source('entry.dart', '''
 $_model
 $declaration
 @NAPI() int take([Point point = _private]) => point.value;
 ''');
-      await expectLater(
-        () async => validate(await read(input)),
-        rejectedDefault(),
-      );
+      for (final native in [false, true]) {
+        if (name == 'computed private alias') {
+          await expectLater(() async {
+            final module = await read(input, native: native);
+            native ? validateNative(module) : validate(module);
+          }, rejectedDefault());
+        } else {
+          final module = await read(input, native: native);
+          expect(
+            module.functions.single.parameters.single.defaultOmissionKey,
+            isNotNull,
+          );
+          if (native) {
+            emitNativeDart(validateNative(module));
+          } else {
+            emitDart(lower(validate(module)));
+          }
+        }
+      }
+    });
+  }
+
+  const privateModel = """
+import 'package:napi/napi.dart';
+@NAPI() class PrivatePoint {
+  final int value;
+  const PrivatePoint._(this.value);
+}
+const _origin = PrivatePoint._(7);
+""";
+  for (final (name, declaration) in [
+    (
+      'last positional',
+      '@NAPI() PrivatePoint take([PrivatePoint point = _origin]) => point;',
+    ),
+    (
+      'named',
+      '@NAPI() PrivatePoint take({PrivatePoint point = _origin}) => point;',
+    ),
+    (
+      'private list',
+      '@NAPI() int take({List<PrivatePoint> points = const [_origin]}) => points.length;',
+    ),
+    (
+      'private map',
+      "@NAPI() int take({Map<String, PrivatePoint> points = const {'origin': _origin}}) => points.length;",
+    ),
+    (
+      'private record',
+      '@NAPI() int take({(PrivatePoint, {int label}) point = (_origin, label: 3)}) => point.\$1.value;',
+    ),
+    (
+      'reference constructors and methods',
+      '''
+@NAPI() class Owner {
+  final PrivatePoint point;
+  Owner([this.point = _origin]);
+  Owner.named({this.point = _origin});
+  PrivatePoint read({PrivatePoint value = _origin}) => value;
+  static PrivatePoint create([PrivatePoint value = _origin]) => value;
+}''',
+    ),
+  ]) {
+    test('an inaccessible $name default can be supplied by Dart', () async {
+      final input = source('entry.dart', '$privateModel\n$declaration');
+      for (final native in [false, true]) {
+        final module = await read(input, native: native);
+        final parameters = [
+          for (final function in module.functions) ...function.parameters,
+          for (final binding in module.classes)
+            for (final member in binding.members) ...member.parameters,
+        ];
+        expect(parameters, isNotEmpty);
+        for (final parameter in parameters) {
+          expect(parameter.defaultValue, isNull);
+          expect(parameter.defaultOmissionKey, isNotNull);
+        }
+        if (native) {
+          emitNativeDart(validateNative(module));
+        } else {
+          emitDart(lower(validate(module)));
+        }
+      }
+    });
+  }
+
+  for (final (name, declaration) in [
+    (
+      'middle positional',
+      '@NAPI() int take([PrivatePoint point = _origin, int after = 3]) => point.value + after;',
+    ),
+    (
+      'value input constructor',
+      '''
+@NAPI(classPolicy: ClassPolicy.value)
+class Envelope {
+  final PrivatePoint point;
+  const Envelope({this.point = _origin});
+}
+@NAPI() int take(Envelope value) => value.point.value;''',
+    ),
+  ]) {
+    test('an inaccessible $name default stays diagnosed', () async {
+      final input = source('entry.dart', '$privateModel\n$declaration');
+      for (final native in [false, true]) {
+        await expectLater(() async {
+          final module = await read(input, native: native);
+          native ? validateNative(module) : validate(module);
+        }, rejectedDefault());
+      }
+    });
+  }
+
+  for (final nested in [false, true]) {
+    test('an inaccessible ${nested ? 'nested' : 'direct'} resource default '
+        'stays diagnosed', () async {
+      final input = source('entry.dart', '''
+import 'package:napi/napi.dart';
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+class Resource {
+  const Resource._();
+  void close() {}
+}
+@NAPI() class Holder {
+  final Resource _resource;
+  const Holder._(this._resource);
+  int get value => 7;
+}
+const _origin = ${nested ? 'Holder._(Resource._())' : 'Resource._()'};
+@NAPI() int take({${nested ? 'Holder' : 'Resource'} value = _origin}) => 7;
+''');
+      for (final native in [false, true]) {
+        await expectLater(() async {
+          final module = await read(input, native: native);
+          native ? validateNative(module) : validate(module);
+        }, rejectedDefault());
+      }
     });
   }
 

@@ -233,6 +233,7 @@ ParameterBinding projectOpaqueParameter(
   kind: parameter.kind,
   defaultSource: parameter.defaultSource,
   defaultValue: parameter.defaultValue,
+  defaultOmissionKey: parameter.defaultOmissionKey,
   defaultIdentity: parameter.defaultIdentity,
   defaultObjects: parameter.defaultObjects,
   defaultTypeIsAssignable: parameter.defaultTypeIsAssignable,
@@ -2541,6 +2542,7 @@ void validateCallParameters(
   bool scalarOnly = false,
   bool validateTypes = true,
   bool allowResourceDefaults = true,
+  bool allowOmittedDefaults = true,
   List<ClassBinding> referenceClasses = const [],
   Set<DeclarationId> opaqueParameters = const {},
 }) {
@@ -2618,6 +2620,15 @@ void validateCallParameters(
       reject('NAPI_DEFAULT', 'Required parameters cannot have defaults.');
     }
     if (optional) {
+      if (parameter.defaultOmissionKey != null &&
+          (!allowOmittedDefaults ||
+              parameter.kind == ParameterKind.optionalPositional &&
+                  !identical(parameter, parameters.last))) {
+        reject(
+          'NAPI_DEFAULT',
+          'An inaccessible default requires a named parameter or the last optional positional parameter of an exported callable.',
+        );
+      }
       validateParameterDefault(
         parameter,
         source,
@@ -2640,6 +2651,27 @@ void validateParameterDefault(
   final constant = parameter.defaultValue;
   final value = constant is ScalarDefault ? constant.value : null;
   final type = parameter.type;
+  if (parameter.defaultOmissionKey != null) {
+    if (constant != null ||
+        !parameter.hasDefault ||
+        !parameter.defaultTypeIsAssignable ||
+        parameter.defaultObjects == null ||
+        _containsOpaque(type, opaqueParameters) ||
+        !_portableDefaultParameter(
+          type,
+          referenceClasses,
+          completeGraph: true,
+        ) ||
+        defaultResourceObjects(parameter, referenceClasses).isNotEmpty) {
+      throw BindingDiagnostic(
+        'NAPI_DEFAULT',
+        'An inaccessible default requires a complete resource-free constant graph and a compatible non-opaque parameter type.',
+        parameter.source ?? source,
+      );
+    }
+    _validateCustomCollectionDefaults(parameter, source);
+    return;
+  }
   if (constant != null && constant is! ScalarDefault) {
     try {
       constantDefaultSource(
@@ -2665,20 +2697,7 @@ void validateParameterDefault(
                 !isValueClassType(type, referenceClasses) ||
             _resourceContainerDefault(type, referenceClasses));
     final completeGraph = parameter.defaultObjects != null;
-    for (final object
-        in parameter.defaultObjects ?? const <DefaultObjectBinding>[]) {
-      for (final view in object.supertypes) {
-        if (view.declaration.library == Uri.parse('dart:core') &&
-            const {'List', 'Map', 'Set'}.contains(view.declaration.name) &&
-            !view.typeArguments.every(_customCollectionData)) {
-          throw BindingDiagnostic(
-            'NAPI_DEFAULT',
-            'Custom const collections require scalar or structural data elements; computed reference, value-class and opaque elements cannot be discovered from stored fields.',
-            parameter.source ?? source,
-          );
-        }
-      }
-    }
+    _validateCustomCollectionDefaults(parameter, source);
     final resourceObjects = defaultResourceObjects(parameter, referenceClasses);
     for (final object in resourceObjects) {
       final expression = object.expression;
@@ -2847,6 +2866,7 @@ void _validateValueConstructorInputs(
     referenceClasses: classes,
     opaqueParameters: opaqueParameterIds(binding.typeParameters),
     allowResourceDefaults: true,
+    allowOmittedDefaults: false,
     validateTypes: false,
   );
 }
@@ -3203,6 +3223,26 @@ bool _resourceContainerDefault(BindingType type, List<ClassBinding> classes) {
       ((type.declaration.name == 'List' && type.typeArguments.length == 1) ||
           (type.declaration.name == 'Map' && type.typeArguments.length == 2)) &&
       type.typeArguments.every(child);
+}
+
+void _validateCustomCollectionDefaults(
+  ParameterBinding parameter,
+  SourceLocation source,
+) {
+  for (final object
+      in parameter.defaultObjects ?? const <DefaultObjectBinding>[]) {
+    for (final view in object.supertypes) {
+      if (view.declaration.library == Uri.parse('dart:core') &&
+          const {'List', 'Map', 'Set'}.contains(view.declaration.name) &&
+          !view.typeArguments.every(_customCollectionData)) {
+        throw BindingDiagnostic(
+          'NAPI_DEFAULT',
+          'Custom const collections require scalar or structural data elements; computed reference, value-class and opaque elements cannot be discovered from stored fields.',
+          parameter.source ?? source,
+        );
+      }
+    }
+  }
 }
 
 bool _customCollectionData(BindingType type) =>

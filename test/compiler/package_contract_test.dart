@@ -340,6 +340,42 @@ class Box<T> { Box(this.value); final T value; }''',
     }
   });
 
+  test('inaccessible defaults compare their evaluated stored fields', () async {
+    await File('${root.path}/model.dart').writeAsString('''
+import 'package:napi/napi.dart';
+@NAPI() class Point {
+  final int value;
+  const Point._(this.value);
+}
+const first = Point._(7);
+const second = Point._(8);
+''');
+    String source(String expression) =>
+        '''
+import 'model.dart';
+export 'model.dart';
+const _origin = $expression;
+@NAPI() int run({Point point = _origin}) => point.value;
+''';
+    await compare(
+      source('true ? first : second'),
+      source('false ? second : first'),
+    );
+    await expectLater(
+      compare(
+        source('true ? first : second'),
+        source('false ? first : second'),
+      ),
+      throwsA(
+        isA<BindingDiagnostic>().having(
+          (error) => error.code,
+          'code',
+          'NAPI_PACKAGE_CONTRACT',
+        ),
+      ),
+    );
+  });
+
   test('copied opaque and nested handle contracts agree across targets', () async {
     const source =
         '@NAPI() JsArray<List<({T payload, JsMap<String,T?> handle})>> run<T>('

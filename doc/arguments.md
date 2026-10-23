@@ -70,11 +70,36 @@ first({values: new Map([['small', [7]]])}); // 7
 ```
 
 Lists, Maps, Dictionaries and records can contain scalars, null and selected
-reference or value objects. An object default needs a public const constructor
+reference or value objects. An object default can use a public const constructor
 or a public const binding. For example, an exported `Point` can use
 `Point point = const Point(0, 0)`. A public const binding can also name an object
 whose constructor or implementation class is private. Helper classes used only
 inside a default do not need to be exported to JavaScript.
+
+Named parameters and the last optional positional parameter can also use a
+private constant or constructor. When that argument is omitted, the binding
+lets the original Dart callable supply its default:
+
+```dart
+@NAPI()
+class Point {
+  const Point._(this.x);
+  final int x;
+}
+
+@NAPI()
+int coordinate({Point point = const Point._(7)}) => point.x;
+```
+
+```javascript
+coordinate(); // 7
+coordinate({ point: undefined }); // 7
+```
+
+This also works for exported methods and reference-class constructors. These
+inaccessible defaults must contain no resources, function values, type literals
+or symbols. Defaults in value-class input constructors and earlier optional
+positional parameters still need a public constructor or const binding.
 
 Defaults preserve the actual Dart constant, including its type, insertion order
 and canonical identity. Returning a default uses the normal result conversion.
