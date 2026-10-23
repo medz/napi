@@ -1,3 +1,75 @@
+## 0.21.0
+
+This release lets native and Wasm bindings use objects with private const
+constructors as defaults, including defaults in value-class input properties.
+
+### 📦 Keep private Dart defaults
+
+You no longer need to expose a public constructor or constant solely to make
+these defaults available to JavaScript:
+
+```dart
+@NAPI()
+class Point {
+  const Point._(this.x);
+  final int x;
+}
+
+const _origin = Point._(7);
+
+@NAPI()
+int coordinate({Point point = _origin}) => point.x;
+
+@NAPI(classPolicy: ClassPolicy.value)
+class Selection {
+  Selection({this.point = _origin});
+  final Point point;
+}
+
+@NAPI()
+int selectedCoordinate(Selection selection) => selection.point.x;
+```
+
+```js
+coordinate();                          // 7
+coordinate({point: undefined});        // 7
+selectedCoordinate({});                // 7
+selectedCoordinate({point: undefined}); // 7
+```
+
+The original Dart constant supplies the default. This works for named parameters
+and the last optional positional parameter of exported functions, static methods,
+reference-class constructors and value-class input constructors.
+
+Instance methods still require a public constructor or const binding, preserving
+the selected declaration's defaults when a subclass overrides the method. Earlier
+optional positional parameters have the same restriction. Function values, type
+literals and symbols inside inaccessible defaults remain unsupported.
+
+[Argument defaults](https://github.com/medz/napi/blob/v0.21.0/doc/arguments.md#constant-defaults)
+
+### 🔒 Retain resources inside private defaults
+
+A private default object can now contain resources when each stored resource has
+a selected resource view and an accessible const expression or public stored-field
+path. The enclosing object itself can keep its constructor private.
+
+These defaults receive the same operation leases as explicit inputs, including
+Future and Stream calls and value-class construction. Resources are retained
+before later constructors, getters or callbacks run; failures release accepted
+uses.
+
+A const default is shared across calls. Once its resource is closing or closed,
+omitted calls fail; supply another open resource explicitly. Resource leaves
+without an accessible expression remain unsupported.
+
+[Resource defaults](https://github.com/medz/napi/blob/v0.21.0/doc/resources.md#constant-defaults)
+
+Regenerate bindings to use the new defaults. Both targets require Dart 3.13.5;
+native packages support macOS arm64 with bridge ABI 15.
+
+[Release on GitHub](https://github.com/medz/napi/releases/tag/v0.21.0)
+
 ## 0.20.0
 
 This release lets `buildLibrary` rebuild its own generated modules, bringing
