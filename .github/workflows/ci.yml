@@ -203,15 +203,24 @@ jobs:
           if-no-files-found: error
           retention-days: 7
       - name: Obtain runtime archive for download tests
-        if: runner.os == 'macOS'
         run: |
+          cat > "$RUNNER_TEMP/runtime-url.dart" <<'DART'
+          import 'package:napi/src/build/native_runtime.dart';
+          void main() => print(nativeRuntimeArchive.url);
+          DART
+          url="$(dart --packages=.dart_tool/package_config.json "$RUNNER_TEMP/runtime-url.dart")"
           curl --fail --location --retry 2 --max-time 120 \
-            'https://github.com/medz/napi/releases/download/runtime-dart-3.13.5-abi15/napi-runtime-dart-3.13.5-macos-arm64-abi15-b07f81272d03.zip' \
-            --output "$RUNNER_TEMP/runtime.zip"
+            "$url" --output "$RUNNER_TEMP/runtime.zip"
           echo "NAPI_TEST_RUNTIME_ARCHIVE=$RUNNER_TEMP/runtime.zip" >> "$GITHUB_ENV"
           echo "NAPI_RUNTIME_CACHE=$RUNNER_TEMP/napi-runtime" >> "$GITHUB_ENV"
       - run: dart test test/compiler/native_runtime_test.dart test/compiler/native_bundle_test.dart
       - run: dart test -P native-consumers --fail-fast
+      - name: Verify automatic Linux runtime download
+        if: runner.os == 'Linux'
+        run: |
+          test ! -e "$NAPI_RUNTIME_CACHE"
+          env -u NAPI_TEST_NATIVE_RUNTIME dart test test/consumers/native_test.dart \
+            --plain-name 'Native installed package' --fail-fast
 
   publication:
     needs: scope

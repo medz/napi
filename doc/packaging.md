@@ -66,8 +66,8 @@ again.
 ## Choose native or Wasm
 
 Wasm is the default. For a native package, pass `target: BuildTarget.native`.
-Native packages support macOS arm64 and Linux x64 glibc. macOS obtains its
-runtime automatically; Linux uses a local bundle. See [native builds](native.md).
+Native packages support macOS arm64 and Linux x64 with glibc 2.28 or later. Both
+platforms obtain their runtime automatically. See [native builds](native.md).
 
 To ship both backends in one package:
 
@@ -78,9 +78,6 @@ await buildPackage(
   metadata: {'name': '@scope/counter', 'version': '1.0.0'},
   targets: {BuildTarget.wasm, BuildTarget.native},
   target: BuildTarget.wasm,
-  nativeRuntime: Platform.isLinux
-      ? Directory('/absolute/path/to/linux-runtime-bundle')
-      : null,
 );
 ```
 
@@ -100,8 +97,8 @@ automatic platform selection are not supported.
 Both targets must expose the same declarations, conversions, defaults and
 cleanup methods. Conditional imports can change private implementations, but a
 mismatched public API fails the build. Building both targets requires a
-supported native host: macOS arm64, or Linux x64 glibc with a local runtime
-bundle. Including both backends increases package size. Runtime downloads
+supported native host: macOS arm64, or Linux x64 with glibc 2.28 or later.
+Including both backends increases package size. Runtime downloads
 happen during the author's build, not during npm installation.
 
 ## Managed rebuilds

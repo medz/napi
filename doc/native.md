@@ -2,8 +2,8 @@
 
 The experimental native target runs Dart business code through a precompiled
 Node-API bridge and a matching Dart AOT runtime. It supports macOS arm64 and
-Linux x64 with glibc, using Dart **3.13.5**. macOS downloads and caches its runtime
-on first use. Linux currently requires a local runtime bundle.
+Linux x64 with glibc 2.28 or later, using Dart **3.13.5**. Both platforms download
+and cache their precompiled runtime on first use.
 
 ## Build a package
 
@@ -45,15 +45,9 @@ counter.increment(); // 1, executed in Dart
 counter.value = 10;
 ```
 
-Application builds use the ordinary Dart SDK. C/C++ tools and SDK sources are
-needed only to produce a new runtime bundle; see the
-[maintainer guide](../native/README.md).
-
-On Linux x64, supply a matching bundle in the build call:
-
-```dart
-nativeRuntime: Directory('/absolute/path/to/linux-runtime-bundle'),
-```
+Application builds use the ordinary Dart SDK; Linux also needs `/usr/bin/unzip`.
+C/C++ tools and SDK sources are needed only to produce a new runtime bundle;
+see the [maintainer guide](../native/README.md).
 
 The bundle and the Dart AOT compiler must match the build host. Cross-compiling
 and musl-based distributions such as Alpine are not supported. npm consumers
@@ -61,17 +55,24 @@ need only the generated package and Node.js.
 
 ## Runtime download and offline builds
 
-The macOS runtime download is about 1.9 MB. Its full archive SHA-256, size and manifest
-hash are pinned in napi; cached payload files are verified on every use. The
-cache defaults to `~/Library/Caches/napi`. Set `NAPI_RUNTIME_CACHE` to select
-another directory. A corrupt entry fails with its path so it can be removed
-before retrying. Download failures leave package output unchanged.
+Runtime archive SHA-256, size and manifest hash are pinned in napi; cached
+payload files are verified on every use. The cache defaults to:
+
+- macOS: `~/Library/Caches/napi`.
+- Linux: `$XDG_CACHE_HOME/napi` when `XDG_CACHE_HOME` is an absolute path,
+  otherwise `~/.cache/napi`.
+
+Set `NAPI_RUNTIME_CACHE` to select another directory on either platform. A
+populated cache supports offline builds. A corrupt entry fails with its path
+so it can be removed before retrying. Download failures leave package output
+unchanged.
 
 For an offline build without a populated cache, pass
 `nativeRuntime: Directory('/absolute/path/to/runtime-bundle')` to `buildPackage`
 or `buildLibrary`. This override reads only that bundle. Runtime downloads
 happen during the author's build, never during npm installation or import.
-The builder uses macOS's system `ditto` to extract the pinned archive.
+The builder extracts the pinned archive with macOS's system `ditto` or Linux's
+`unzip`. A local bundle does not need an archive extractor.
 
 ## Package contents
 

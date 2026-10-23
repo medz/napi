@@ -25,121 +25,153 @@ import '../support/fixtures/module_rebuilds.dart';
 void main() {
   final configured = Platform.environment['NAPI_TEST_NATIVE_RUNTIME'];
   final supplied = configured == null ? null : Directory(configured);
-  late Directory runtime;
+  Future<Directory>? resolved;
+  Future<Directory> runtime() => resolved ??= () async {
+    late Directory directory;
+    await consumer((root) async {
+      directory = (await resolveNativeRuntime(
+        runtime: supplied,
+        output: root,
+      )).directory;
+    });
+    return directory;
+  }();
   setUpAll(() async {
     if (configured != null && configured.isEmpty) {
       throw StateError('NAPI_TEST_NATIVE_RUNTIME must not be empty.');
     }
     await reportNodeVersions();
-    await consumer((root) async {
-      runtime = (await resolveNativeRuntime(
-        runtime: supplied,
-        output: root,
-      )).directory;
-    });
   });
   group('Native', () {
     test(
       'module rebuilds',
-      () =>
-          consumer((root) => verifyModuleRebuild(root, nativeRuntime: runtime)),
+      () => consumer(
+        (root) async =>
+            verifyModuleRebuild(root, nativeRuntime: await runtime()),
+      ),
     );
     test(
       'installed package',
-      () => consumer(
-        (root) => verifyNativePackage(root, nativeRuntime: supplied),
-      ),
+      () => consumer((root) async {
+        await verifyNativePackage(root, nativeRuntime: supplied);
+        await HttpOverrides.runWithHttpOverrides(
+          () => resolveNativeRuntime(runtime: supplied, output: root),
+          _OfflineRuntime(),
+        );
+      }),
     );
     test(
       'dual-target package',
-      () => consumer(
-        (root) => HttpOverrides.runWithHttpOverrides(
+      () => consumer((root) async {
+        await runtime();
+        await HttpOverrides.runWithHttpOverrides(
           () => verifyDualTargetFixture(root, supplied),
           _OfflineRuntime(),
-        ),
-      ),
+        );
+      }),
     );
     test(
       'scalars',
       () => consumer(
-        (root) => verifyNativeFunctionPackage(root, runtime, 'scalar'),
+        (root) async =>
+            verifyNativeFunctionPackage(root, await runtime(), 'scalar'),
       ),
     );
     test(
       'arguments',
       () => consumer(
-        (root) => verifyNativeFunctionPackage(root, runtime, 'argument'),
+        (root) async =>
+            verifyNativeFunctionPackage(root, await runtime(), 'argument'),
       ),
     );
     test(
       'value classes',
       () => consumer(
-        (root) => verifyValueOnlyFixture(root, nativeRuntime: runtime),
+        (root) async =>
+            verifyValueOnlyFixture(root, nativeRuntime: await runtime()),
       ),
     );
     test(
       'events',
-      () =>
-          consumer((root) => verifyNativeEvents(root, nativeRuntime: runtime)),
+      () => consumer(
+        (root) async =>
+            verifyNativeEvents(root, nativeRuntime: await runtime()),
+      ),
     );
     test(
       'host values',
       () => consumer(
-        (root) => verifyNativeHostValues(root, nativeRuntime: runtime),
+        (root) async =>
+            verifyNativeHostValues(root, nativeRuntime: await runtime()),
       ),
     );
     test(
       'Futures',
-      () =>
-          consumer((root) => verifyFutureFixture(root, nativeRuntime: runtime)),
+      () => consumer(
+        (root) async =>
+            verifyFutureFixture(root, nativeRuntime: await runtime()),
+      ),
     );
     test(
       'void',
-      () => consumer((root) => verifyVoidFixture(root, nativeRuntime: runtime)),
+      () => consumer(
+        (root) async => verifyVoidFixture(root, nativeRuntime: await runtime()),
+      ),
     );
     test(
       'resources',
       () => consumer(
-        (root) => verifyResourceFixture(root, nativeRuntime: runtime),
+        (root) async =>
+            verifyResourceFixture(root, nativeRuntime: await runtime()),
       ),
     );
     test(
       'opaque payloads',
-      () =>
-          consumer((root) => verifyOpaqueFixture(root, nativeRuntime: runtime)),
+      () => consumer(
+        (root) async =>
+            verifyOpaqueFixture(root, nativeRuntime: await runtime()),
+      ),
     );
     test(
       'Streams',
-      () =>
-          consumer((root) => verifyStreamFixture(root, nativeRuntime: runtime)),
+      () => consumer(
+        (root) async =>
+            verifyStreamFixture(root, nativeRuntime: await runtime()),
+      ),
     );
     test(
       'cancellation',
       () => consumer(
-        (root) => verifyCancellationFixture(root, nativeRuntime: runtime),
+        (root) async =>
+            verifyCancellationFixture(root, nativeRuntime: await runtime()),
       ),
     );
     test(
       'binary',
-      () =>
-          consumer((root) => verifyBinaryFixture(root, nativeRuntime: runtime)),
+      () => consumer(
+        (root) async =>
+            verifyBinaryFixture(root, nativeRuntime: await runtime()),
+      ),
     );
     test(
       'concrete generics',
       () => consumer(
-        (root) => verifyConcreteFixture(root, nativeRuntime: runtime),
+        (root) async =>
+            verifyConcreteFixture(root, nativeRuntime: await runtime()),
       ),
     );
     test(
       'shared bytes',
       () => consumer(
-        (root) => verifySharedBytesFixture(root, nativeRuntime: runtime),
+        (root) async =>
+            verifySharedBytesFixture(root, nativeRuntime: await runtime()),
       ),
     );
     test(
       'JS collections',
       () => consumer(
-        (root) => verifyJsCollectionsFixture(root, nativeRuntime: runtime),
+        (root) async =>
+            verifyJsCollectionsFixture(root, nativeRuntime: await runtime()),
       ),
     );
   }, timeout: const Timeout(Duration(minutes: 3)));
@@ -148,6 +180,6 @@ void main() {
 final class _OfflineRuntime extends HttpOverrides {
   @override
   HttpClient createHttpClient(SecurityContext? context) => throw StateError(
-    'Dual packages must reuse the verified native runtime cache offline.',
+    'Packages must reuse the verified native runtime cache offline.',
   );
 }

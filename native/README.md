@@ -133,15 +133,19 @@ or download failure is an error; it never triggers a VM build or selects another
 runtime. Existing corrupt entries are preserved for diagnosis, not overwritten.
 Archives are bounded and restricted to the exact flat regular-file inventory.
 
-The [Dart 3.13.5 ABI 15 release](https://github.com/medz/napi/releases/tag/runtime-dart-3.13.5-abi15)
-contains the macOS arm64 ZIP and its matching lock. Set `--url` when packing a
-new release to record its fixed asset URL. A lock with a `null` URL requires
+The Dart 3.13.5 ABI 15 runtime ZIPs and matching locks are available in the
+[macOS arm64 release](https://github.com/medz/napi/releases/tag/runtime-dart-3.13.5-abi15)
+and [Linux x64 release](https://github.com/medz/napi/releases/tag/runtime-dart-3.13.5-linux-x64-abi15).
+Set `--url` when packing a new release to record its fixed asset URL.
+A lock with a `null` URL requires
 `--archive` on an empty cache; a verified cache hit can still be reused.
 
-Application builds use a Dart downloader with the archive size/hash and manifest
-hash pinned in the package, followed by the same payload validator. They do not
-invoke this Python tool or require a source checkout. See [native builds](../doc/native.md)
-for caching and the explicit local-bundle override.
+Application builds on macOS arm64 and Linux x64 use a Dart downloader with the
+archive size/hash and manifest hash pinned for each platform, followed by the
+same payload validator. They do not invoke this Python tool or require a source
+checkout. Archive extraction uses system `ditto` on macOS and `unzip` on Linux.
+See [native builds](../doc/native.md) for caching and the explicit local-bundle
+override.
 
 Bridge or runtime builds reuse Product VM objects through `build.py`. A change
 to the complete source fingerprint does not itself change the ABI or require
