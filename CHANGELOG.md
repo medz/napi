@@ -1,3 +1,41 @@
+## 0.20.0
+
+This release lets `buildLibrary` rebuild its own generated modules, bringing
+raw bindings into the same repeated-build workflow as generated npm packages.
+
+### 📦 Rebuild raw native and Wasm modules
+
+Run the same build script again after changing your Dart API:
+
+```dart
+await buildLibrary(
+  library: File('lib/counter.dart').absolute.uri,
+  packagesPath: File('.dart_tool/package_config.json').absolute.path,
+  output: Directory('bindings'),
+);
+```
+
+The builder publishes a complete compiled replacement, removes obsolete generated
+artifacts, and retains other author files and metadata. This works for Wasm and
+native modules. Package and module ownership are separate, so neither build API
+can replace the other's output.
+
+Rebuilding requires local macOS APFS or a supported 64-bit Linux ext-family
+filesystem or tmpfs. Native builds still require macOS arm64. Windows, network
+filesystems and raw output from earlier releases require a fresh directory.
+Generated files and the ownership record must remain unmodified.
+
+[Managed rebuilds](https://github.com/medz/napi/blob/v0.20.0/doc/packaging.md#managed-rebuilds)
+
+### Other improvements
+
+- The quick start now walks through building and importing a complete npm package.
+  Class and resource guides include runnable usage examples.
+
+Both targets require Dart 3.13.5; native packages use bridge ABI 15.
+
+[Release on GitHub](https://github.com/medz/napi/releases/tag/v0.20.0)
+
 ## 0.19.0
 
 This release lets Dart consume JavaScript async iterables returned by callbacks,
