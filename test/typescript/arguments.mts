@@ -3,7 +3,20 @@ import {
   optionalNull, optionalValues, optionalText, optionalDouble, optionalNaN,
   optionalInfinity, optionalNegativeInfinity, optionalWide, optionalBigInt,
   namedValues, requiredNamed, namedWide, manyNamed, optionalFailure,
+  customListDefault, customMapDefault, customNestedDefault, customDefaultIdentity,
 } from './module.wasm';
+
+const customList: number[] = customListDefault();
+const customMap: Map<string, number> = customMapDefault({values: undefined});
+const customNested: number[][] = customNestedDefault();
+const customIdentity: boolean = customDefaultIdentity(undefined);
+// @ts-expect-error custom defaults preserve ordinary element validation
+customListDefault(['2']);
+// @ts-expect-error nonnullable defaults do not permit null
+customListDefault(null);
+// @ts-expect-error custom Map defaults retain their declared value type
+customMapDefault({values: new Map([['one', '7']])});
+void [customList, customMap, customNested, customIdentity];
 
 const calls: number = argumentCalls();
 const nullable: number | null = requiredNullable(null);

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 
 import 'package:napi/napi.dart';
 
@@ -180,6 +181,37 @@ class ValueDefaultResource {
   void close() => _cleanup(id, 41);
 }
 
+class _CollectionOwner extends ValueDefaultResource {
+  const _CollectionOwner() : super(610);
+}
+
+class ProbeResourceList with ListMixin<int> {
+  const ProbeResourceList._() : held = const _CollectionOwner();
+  final ValueDefaultResource held;
+  @override
+  int get length => throw StateError('collection getter executed');
+  @override
+  set length(int value) => throw UnsupportedError('const list');
+  @override
+  int operator [](int index) => throw StateError('collection index executed');
+  @override
+  void operator []=(int index, int value) =>
+      throw UnsupportedError('const list');
+}
+
+const collectionDefault = ProbeResourceList._();
+
+@NAPI()
+Future<int> resourceCollectionHold(
+  int token, [
+  List<int> values = collectionDefault,
+]) {
+  _events.add('collection-default-business');
+  final gate = Completer<int>();
+  _gates[token] = gate;
+  return gate.future;
+}
+
 @NAPI(classPolicy: ClassPolicy.value)
 class ResourceDefaultValue {
   final ValueDefaultResource? owner;
@@ -234,6 +266,7 @@ ValueDefaultResource resourceGraphOwner(int id) => switch (id) {
   600 => const ValueDefaultResource(600),
   601 => const ValueDefaultResource(601),
   602 => const ValueDefaultResource(602),
+  610 => collectionDefault.held,
   _ => throw ArgumentError.value(id),
 };
 

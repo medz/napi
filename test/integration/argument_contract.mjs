@@ -9,6 +9,20 @@ export function verifyArguments(api) {
   } = api;
   assert.equal(argumentCalls(), 0, 'import never invokes business main or exports');
 
+  assert.deepEqual(api.customListDefault(), [2, 3]);
+  assert.deepEqual(api.customListDefault(undefined), [2, 3]);
+  assert.deepEqual(api.customListDefault([9]), [9]);
+  assert.deepEqual(api.customMapDefault(), new Map([['one', 7]]));
+  assert.deepEqual(api.customMapDefault({values: undefined}), new Map([['one', 7]]));
+  assert.deepEqual(api.customMapDefault({values: new Map([['two', 8]])}), new Map([['two', 8]]));
+  assert.deepEqual(api.customNestedDefault(), [[4, 5]]);
+  assert.equal(api.customDefaultIdentity(), true);
+  assert.equal(api.customDefaultIdentity(undefined), true);
+  assert.equal(api.customDefaultIdentity([2, 3]), false);
+  assert.throws(() => api.customListDefault(null), TypeError);
+  assert.throws(() => api.customListDefault(['2']), TypeError);
+  assert.throws(() => api.customMapDefault({values: new Map([['one', '7']])}), TypeError);
+
   function rejectsBeforeCall(call, errorType = TypeError) {
     const before = argumentCalls();
     assert.throws(call, error => error instanceof errorType &&

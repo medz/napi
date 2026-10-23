@@ -237,6 +237,18 @@ async function valueResourceDefaultFailure(api) {
 }
 
 async function actualDefaultGraphs(api) {
+  const collectionOwner = api.resourceGraphOwner(610);
+  const collectionUse = promise(() => api.resourceCollectionHold(624));
+  const collectionClose = promise(() => collectionOwner.close());
+  assert.equal(api.resourceCleanupCalls(610), 0, 'custom collection storage retains its private resource without invoking iterators');
+  api.resourceComplete(624, 17);
+  assert.equal(await collectionUse, 17);
+  await collectionClose;
+  assert.equal(api.resourceCleanupCalls(610), 1);
+  const collectionEvents = api.resourceEvents();
+  await rejects(() => api.resourceCollectionHold(625));
+  assert.deepEqual(api.resourceEvents(), collectionEvents, 'closed custom collection defaults fail before business code');
+
   const owner = api.resourceGraphOwner(600);
   let closing;
   const later = new Proxy([1], {

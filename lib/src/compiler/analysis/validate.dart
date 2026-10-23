@@ -2665,6 +2665,20 @@ void validateParameterDefault(
                 !isValueClassType(type, referenceClasses) ||
             _resourceContainerDefault(type, referenceClasses));
     final completeGraph = parameter.defaultObjects != null;
+    for (final object
+        in parameter.defaultObjects ?? const <DefaultObjectBinding>[]) {
+      for (final view in object.supertypes) {
+        if (view.declaration.library == Uri.parse('dart:core') &&
+            const {'List', 'Map', 'Set'}.contains(view.declaration.name) &&
+            !view.typeArguments.every(_customCollectionData)) {
+          throw BindingDiagnostic(
+            'NAPI_DEFAULT',
+            'Custom const collections require scalar or structural data elements; computed reference, value-class and opaque elements cannot be discovered from stored fields.',
+            parameter.source ?? source,
+          );
+        }
+      }
+    }
     final resourceObjects = defaultResourceObjects(parameter, referenceClasses);
     for (final object in resourceObjects) {
       final expression = object.expression;
@@ -2716,6 +2730,7 @@ void validateParameterDefault(
           constant,
           type,
           referenceClasses,
+          completeGraph: completeGraph,
           rootTypeIsAssignable:
               parameter.defaultTypeIsAssignable &&
               !_containsOpaque(type, opaqueParameters),
@@ -3190,6 +3205,26 @@ bool _resourceContainerDefault(BindingType type, List<ClassBinding> classes) {
       type.typeArguments.every(child);
 }
 
+bool _customCollectionData(BindingType type) =>
+    type.nullability != TypeNullability.legacy &&
+    switch (type) {
+      NeverType() => true,
+      RecordTypeBinding(:final positional, :final named) =>
+        positional.every(_customCollectionData) &&
+            named.values.every(_customCollectionData),
+      DeclaredType(:final declaration, :final typeArguments)
+          when declaration == dictionaryDeclaration ||
+              declaration.library == Uri.parse('dart:core') &&
+                  const {
+                    'Null',
+                    'List',
+                    'Map',
+                    'Set',
+                  }.contains(declaration.name) =>
+        typeArguments.every(_customCollectionData),
+      _ => _isBackendScalar(type),
+    };
+
 bool _portableDefaultParameter(
   BindingType type,
   List<ClassBinding> classes, {
@@ -3425,6 +3460,7 @@ bool _structuralDefaultFits(
   BindingType expected,
   List<ClassBinding> classes, {
   bool rootTypeIsAssignable = false,
+  bool completeGraph = false,
 }) {
   switch (value) {
     case ScalarDefault(:final value):
@@ -3449,8 +3485,12 @@ bool _structuralDefaultFits(
           type.typeArguments.length == 1 &&
           (rootTypeIsAssignable || _defaultTypeFits(type, expected, classes)) &&
           elements.every(
-            (v) =>
-                _structuralDefaultFits(v, type.typeArguments.single, classes),
+            (v) => _structuralDefaultFits(
+              v,
+              type.typeArguments.single,
+              classes,
+              completeGraph: completeGraph,
+            ),
           );
     case MapDefault(:final type, :final entries):
       return type is DeclaredType &&
@@ -3460,8 +3500,18 @@ bool _structuralDefaultFits(
           (rootTypeIsAssignable || _defaultTypeFits(type, expected, classes)) &&
           entries.every(
             (e) =>
-                _structuralDefaultFits(e.$1, type.typeArguments[0], classes) &&
-                _structuralDefaultFits(e.$2, type.typeArguments[1], classes),
+                _structuralDefaultFits(
+                  e.$1,
+                  type.typeArguments[0],
+                  classes,
+                  completeGraph: completeGraph,
+                ) &&
+                _structuralDefaultFits(
+                  e.$2,
+                  type.typeArguments[1],
+                  classes,
+                  completeGraph: completeGraph,
+                ),
           );
     case RecordDefault(:final type, :final positional, :final named):
       return type is RecordTypeBinding &&
@@ -3469,17 +3519,29 @@ bool _structuralDefaultFits(
           positional.length == type.positional.length &&
           named.length == type.named.length &&
           positional.indexed.every(
-            (e) => _structuralDefaultFits(e.$2, type.positional[e.$1], classes),
+            (e) => _structuralDefaultFits(
+              e.$2,
+              type.positional[e.$1],
+              classes,
+              completeGraph: completeGraph,
+            ),
           ) &&
           named.entries.every(
             (e) =>
                 type.named.containsKey(e.key) &&
-                _structuralDefaultFits(e.value, type.named[e.key]!, classes),
+                _structuralDefaultFits(
+                  e.value,
+                  type.named[e.key]!,
+                  classes,
+                  completeGraph: completeGraph,
+                ),
           );
     case ObjectDefault(:final type, :final supertypes) ||
         NamedObjectDefault(:final type, :final supertypes):
       return expected is DeclaredType &&
-          expected.semantics == ValueSemantics.reference &&
+          (expected.semantics == ValueSemantics.reference ||
+              expected.semantics == ValueSemantics.structural &&
+                  completeGraph) &&
           (rootTypeIsAssignable ||
               [
                 type,

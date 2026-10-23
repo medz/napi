@@ -60,6 +60,9 @@ Future<void> main(List<String> args) async {
     if (kind == 'scalar') {
       await File('test/fixtures/scalars.dart')
           .copy('${business.path}/scalars.dart');
+    } else {
+      await File('test/fixtures/constant_collections.dart')
+          .copy('${business.path}/constant_collections.dart');
     }
     final name = '@napi/native-$kind';
     final package = await buildPackage(

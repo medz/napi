@@ -1390,14 +1390,8 @@ final class _Reader {
         complete = false;
         return;
       }
-      if (actual.allSupertypes.any(
-        (type) =>
-            type.isDartCoreList || type.isDartCoreMap || type.isDartCoreSet,
-      )) {
-        // Storage does not describe values produced by custom collection code.
-        complete = false;
-        return;
-      }
+      // Custom collections retain ordinary const object storage. Visit stored
+      // fields without executing their getters, iterators or indexing methods.
       final own = expressions.containsKey(value)
           ? expressions[value]
           : expressions[value] = _constantDefault(value, budget, depth);
