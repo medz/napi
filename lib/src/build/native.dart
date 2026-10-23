@@ -14,6 +14,7 @@ import 'native_bundle.dart';
 import 'native_runtime.dart';
 import 'publish.dart';
 import 'output_ownership.dart';
+import 'contract.dart';
 
 Future<BuiltModule> buildNativeModule({
   required BindingModule bindings,
@@ -88,6 +89,13 @@ Future<BuiltModule> buildNativeModule({
       root: 'native',
       runtime: bundle.runtime,
       calls: false,
+      moduleContract: await createModuleContract(
+        plan.bindings,
+        plan.classes.map((c) => c.shape).toList(),
+        plan.valueSchemas,
+        declarations,
+        packagesPath: packagesPath,
+      ),
     );
     publishDirectory(artifact, target);
     return BuiltModule(

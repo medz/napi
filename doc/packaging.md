@@ -61,13 +61,35 @@ symlinks are rejected.
 
 Use `buildLibrary` for raw artifacts. `assembleWasmPackage` and
 `assembleNativePackage` package an existing `BuiltModule` without compiling it
-again.
+again. `assemblePackage` combines modules built on separate hosts.
 
 ## Choose native or Wasm
 
-Wasm is the default. For a native package, pass `target: BuildTarget.native`.
-Native packages support macOS arm64 and Linux x64 with glibc 2.28 or later. Both
-platforms obtain their runtime automatically. See [native builds](native.md).
+Wasm is the default. Native and Wasm packages can be built and published
+independently:
+
+```dart
+await buildPackage(
+  library: File('lib/counter.dart').absolute.uri,
+  output: Directory('npm-native'),
+  metadata: {'name': '@scope/counter-native', 'version': '1.0.0'},
+  target: BuildTarget.native,
+);
+
+await buildPackage(
+  library: File('lib/counter.dart').absolute.uri,
+  output: Directory('npm-wasm'),
+  metadata: {'name': '@scope/counter-wasm', 'version': '1.0.0'},
+  target: BuildTarget.wasm,
+);
+```
+
+Each output is a complete npm package: use `npm pack ./npm-native` or
+`npm pack ./npm-wasm`, and publish from the corresponding directory. The native
+package contains only native artifacts; the Wasm package needs no native
+runtime. Native builds support macOS 14 or later on arm64 and Linux x64 with
+glibc 2.28 or later. Both platforms obtain their runtime automatically. See
+[native builds](native.md).
 
 To ship both backends in one package:
 
@@ -91,8 +113,8 @@ import {Counter as WasmCounter} from '@scope/counter/wasm';
 
 The root and its selected subpath share the same constructors and state. The
 other backend has separate Dart state; objects and resources cannot cross
-between them. A broken native entry does not fall back to Wasm. CommonJS and
-automatic platform selection are not supported.
+between them. A broken native entry does not fall back to Wasm. CommonJS is not
+supported.
 
 Both targets must expose the same declarations, conversions, defaults and
 cleanup methods. Conditional imports can change private implementations, but a
@@ -100,6 +122,45 @@ mismatched public API fails the build. Building both targets requires a
 supported native host: macOS arm64, or Linux x64 with glibc 2.28 or later.
 Including both backends increases package size. Runtime downloads
 happen during the author's build, not during npm installation.
+
+## Include multiple native platforms
+
+`buildPackage` builds native code for its current host. To publish one package
+for both native platforms, run `buildLibrary` on macOS arm64 and Linux x64, each
+with `target: BuildTarget.native`. Transfer the complete output directories,
+including their `.napi-output.json` records, to the machine assembling the npm
+package:
+
+```dart
+await assemblePackage(
+  modules: [
+    BuiltModule(
+      Directory('artifacts/macos'),
+      '3.13.5',
+      target: BuildTarget.native,
+    ),
+    BuiltModule(
+      Directory('artifacts/linux'),
+      '3.13.5',
+      target: BuildTarget.native,
+    ),
+  ],
+  target: BuildTarget.native,
+  output: Directory('npm-package'),
+  metadata: {'name': '@scope/counter', 'version': '1.0.0'},
+);
+```
+
+Assembly copies existing artifacts and can run on a different host from either
+build. The modules must have matching public APIs and use the same supported
+Dart SDK. Consumers import from the package root; it selects the matching
+native artifact for their OS, architecture and libc. Unsupported platforms,
+missing artifacts and native loading failures produce an error.
+
+All included platforms ship in the same tarball, increasing its download size.
+There are no platform-specific npm dependencies or install scripts. Add a Wasm
+`BuiltModule` to `modules` to expose `/wasm` alongside `/native`; `target` still
+chooses the root backend, and native loading failures never switch to Wasm.
 
 ## Managed rebuilds
 

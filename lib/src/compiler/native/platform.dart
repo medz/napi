@@ -33,6 +33,9 @@ enum NativePlatform {
     linuxX64 => 'Linux x64 with glibc $minimumLibcVersion or newer',
   };
 
+  String get packageId =>
+      '$platform-$architecture${libc == null ? '' : '-$libc'}';
+
   static NativePlatform? fromManifest(Map<String, dynamic> manifest) => values
       .where(
         (profile) =>

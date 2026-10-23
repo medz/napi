@@ -18,6 +18,7 @@ import 'native.dart';
 import 'native_runtime.dart';
 import 'output.dart';
 import 'output_ownership.dart';
+import 'contract.dart';
 
 enum BuildTarget { wasm, native }
 
@@ -193,7 +194,8 @@ Future<BuiltModule> buildModule({
   if (nativeRuntime != null) {
     throw ArgumentError('nativeRuntime is only valid for BuildTarget.native.');
   }
-  final plan = lower(validate(bindings));
+  final analysis = validate(bindings);
+  final plan = lower(analysis);
   final declarations = emitDeclarations(plan);
   final callableGlobals = plan.functions
       .where((f) => f.representation == ExportRepresentation.callableGlobal)
@@ -266,6 +268,13 @@ Future<BuiltModule> buildModule({
       root: 'wasm',
       runtime: null,
       calls: hasCalls,
+      moduleContract: await createModuleContract(
+        analysis.bindings,
+        analysis.classes,
+        analysis.valueSchemas,
+        declarations,
+        packagesPath: packagesPath,
+      ),
     );
     publishDirectory(artifact, destination);
     return BuiltModule(destination, compiled.version);

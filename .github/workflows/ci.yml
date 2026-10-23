@@ -134,7 +134,7 @@ jobs:
           - os: macos-14
             platform: macos-arm64
           - os: ubuntu-24.04
-            platform: linux-x64
+            platform: linux-x64-glibc
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
@@ -221,6 +221,84 @@ jobs:
           test ! -e "$NAPI_RUNTIME_CACHE"
           env -u NAPI_TEST_NATIVE_RUNTIME dart test test/consumers/native_test.dart \
             --plain-name 'Native installed package' --fail-fast
+      - name: Build platform package input
+        run: dart run test/support/fixtures/platform_packages.dart build-native "$RUNNER_TEMP/platform-module"
+      - name: Upload platform package input
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: platform-module-${{ matrix.platform }}
+          path: ${{ runner.temp }}/platform-module
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+
+  platform-package:
+    needs: [scope, native]
+    if: ${{ always() && needs.scope.result == 'success' && needs.scope.outputs.scope == 'full' && needs.native.result == 'success' }}
+    name: Cross-platform package (Linux)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: 3.13.5
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26.11.1
+          package-manager-cache: false
+      - run: node -p '"NAPI_NODE_26=" + process.execPath' >> "$GITHUB_ENV"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.19.0
+          package-manager-cache: false
+      - run: node -p '"NAPI_NODE_EXECUTABLES=" + JSON.stringify([process.execPath, process.env.NAPI_NODE_26])' >> "$GITHUB_ENV"
+      - run: dart pub get
+      - run: npm install --prefix .dart_tool/js --no-save --no-package-lock --ignore-scripts --no-audit --no-fund typescript@7.0.2
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: platform-module-*
+          path: ${{ runner.temp }}/platform-modules
+      - name: Assemble one package from both native builds and Wasm
+        run: |
+          dart run test/support/fixtures/platform_packages.dart assemble \
+            "$RUNNER_TEMP/platform-modules" "$RUNNER_TEMP/platform-package/fixture.tgz"
+      - name: Consume the assembled package on Linux
+        run: dart run test/support/fixtures/platform_packages.dart consume "$RUNNER_TEMP/platform-package/fixture.tgz"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: platform-package
+          path: ${{ runner.temp }}/platform-package/fixture.tgz
+          if-no-files-found: error
+          retention-days: 1
+
+  platform-package-macos:
+    needs: [scope, platform-package]
+    if: ${{ always() && needs.scope.result == 'success' && needs.scope.outputs.scope == 'full' && needs.platform-package.result == 'success' }}
+    name: Cross-platform package (macOS)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: 3.13.5
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26.11.1
+          package-manager-cache: false
+      - run: node -p '"NAPI_NODE_26=" + process.execPath' >> "$GITHUB_ENV"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.19.0
+          package-manager-cache: false
+      - run: node -p '"NAPI_NODE_EXECUTABLES=" + JSON.stringify([process.execPath, process.env.NAPI_NODE_26])' >> "$GITHUB_ENV"
+      - run: dart pub get
+      - run: npm install --prefix .dart_tool/js --no-save --no-package-lock --ignore-scripts --no-audit --no-fund typescript@7.0.2
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: platform-package
+          path: ${{ runner.temp }}/platform-package
+      - name: Consume the same package on macOS without rebuilding
+        run: dart run test/support/fixtures/platform_packages.dart consume "$RUNNER_TEMP/platform-package/fixture.tgz"
 
   publication:
     needs: scope
@@ -243,7 +321,7 @@ jobs:
   # jobs; static/package checks and classifier regression tests always run.
   check:
     if: ${{ always() }}
-    needs: [scope, static, tests, wasm-runtime, consumers, native, publication]
+    needs: [scope, static, tests, wasm-runtime, consumers, native, platform-package, platform-package-macos, publication]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

@@ -12,7 +12,11 @@ import 'src/compiler/front_end/external.dart';
 
 export 'src/build/build.dart' show BuiltModule, BuildTarget;
 export 'src/build/package.dart'
-    show buildPackage, assembleWasmPackage, assembleNativePackage;
+    show
+        buildPackage,
+        assemblePackage,
+        assembleWasmPackage,
+        assembleNativePackage;
 export 'src/api/annotation.dart' show NAPI, ClassPolicy;
 export 'src/compiler/analysis/validate.dart' show BindingDiagnostic;
 export 'src/compiler/front_end/external.dart';
