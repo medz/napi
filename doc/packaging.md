@@ -78,6 +78,9 @@ await buildPackage(
   metadata: {'name': '@scope/counter', 'version': '1.0.0'},
   targets: {BuildTarget.wasm, BuildTarget.native},
   target: BuildTarget.wasm,
+  nativeRuntime: Platform.isLinux
+      ? Directory('/absolute/path/to/linux-runtime-bundle')
+      : null,
 );
 ```
 
@@ -96,9 +99,10 @@ automatic platform selection are not supported.
 
 Both targets must expose the same declarations, conversions, defaults and
 cleanup methods. Conditional imports can change private implementations, but a
-mismatched public API fails the build. Including both targets requires macOS
-arm64 and increases package size. Runtime downloads happen during the author's
-build, not during npm installation.
+mismatched public API fails the build. Building both targets requires a
+supported native host: macOS arm64, or Linux x64 glibc with a local runtime
+bundle. Including both backends increases package size. Runtime downloads
+happen during the author's build, not during npm installation.
 
 ## Managed rebuilds
 

@@ -93,6 +93,26 @@ def dependency_inputs(depfiles, roots):
     return dict(sorted(result.items()))
 
 
+def linux_toolchain_inputs(depfile, sdk, cache, clang, linker, ignored=()):
+    # lld records every opened input, including linker scripts and their
+    # transitive libraries. Only the first rule contains dependencies; the
+    # remaining rules are phony targets for make.
+    rule = depfile.read_text().replace('\\\n', ' ').splitlines()[0]
+    paths = [Path(clang), Path(linker),
+             *(cache/name.replace('$$', '$') for name in shlex.split(rule.split(':', 1)[1]))]
+    ignored = {Path(path).resolve() for path in ignored}
+    sdk = sdk.resolve()
+    result = {}
+    for path in paths:
+        path = path.resolve(strict=True)
+        if path in ignored:
+            continue
+        if not path.is_relative_to(sdk):
+            raise ValueError(f'Linux link input is outside the pinned SDK: {path}')
+        result[path.relative_to(sdk).as_posix()] = digest(path)
+    return dict(sorted(result.items()))
+
+
 def validate_cache(sdk, cache):
     linux = host_profile() == 'linux-x64'
     if run(['git', '-C', str(sdk), 'rev-parse', 'HEAD']) != SDK_REVISION:
@@ -192,7 +212,8 @@ def validate_elf(readelf, binary, runtime):
     maximum = tuple(map(int, MINIMUM_LIBC.split('.')))
     if not required or any(not re.fullmatch(r'[0-9]+(?:\.[0-9]+)+', value) or
                            tuple(map(int, value.split('.'))) > maximum for value in required):
-        raise ValueError(f'{binary.name} requires newer than glibc {MINIMUM_LIBC}')
+        raise ValueError(f'{binary.name} requires newer than glibc {MINIMUM_LIBC}: '
+                         f'{", ".join(sorted(set(required)))}')
 
 
 def build(sdk, headers, output, cache):
@@ -234,10 +255,6 @@ def build(sdk, headers, output, cache):
     # never trusted as an implementation of this source/identity.
     objects = [path for path in objects if not path.endswith('/napi_runtime_set.runtime.o')]
     vm_inputs_hash = vm_inputs(cache, objects)
-    identity_hash = hashlib.sha256(
-        (source_hash + '\0' + vm_inputs_hash).encode()).hexdigest()
-    identity = f'dart-{SDK_REVISION}-product-{profile}-abi{ABI}-id{identity_hash}'
-    filename = f'libnapi_runtime_{identity}' + ('.so' if linux else '.dylib')
     compile_vars = variables(compile_target)
     flags = [flag for key in ['defines', 'include_dirs', 'cflags', 'cflags_cc']
              for flag in shlex.split(compile_vars.get(key, ''))]
@@ -246,6 +263,7 @@ def build(sdk, headers, output, cache):
     compiler_packages = {}
     if linux:
         clang = str(sdk/'buildtools/linux-x64/clang/bin/clang++')
+        linker = str(sdk/'buildtools/linux-x64/clang/bin/ld.lld')
         sysroot = str(sdk/'buildtools/sysroot/linux')
         compiler_packages = {
             'clangPackageSha256': sdk/'buildtools/linux-x64/clang/.versions/clang.cipd_version',
@@ -256,17 +274,21 @@ def build(sdk, headers, output, cache):
         link_vars = variables(target)
         link_flags = [flag for flag in shlex.split(link_vars.get('ldflags', ''))
                       if not flag.startswith(('-Wl,-rpath=', '-Wl,-rpath,', '-Wl,-soname='))]
-        link_flags += ['-Wl,--enable-new-dtags', '-Wl,-rpath,$ORIGIN']
+        link_flags += ['--ld-path='+linker, '-Wl,--enable-new-dtags', '-Wl,-rpath,$ORIGIN']
         libraries = shlex.split(link_vars.get('libs', ''))
     else:
         clang = run(['xcrun', '--find', 'clang++'])
         sysroot = run(['xcrun', '--show-sdk-path'])
         compiler_profile = {'macosSdkVersion': run(['xcrun', '--show-sdk-version'])}
         compile_prefix = ['-isysroot', sysroot, f'-mmacosx-version-min={MINIMUM_OS}']
+    compiler_version = run([clang, '--version'])
+    if linux:
+        compiler_version = '\n'.join(line for line in compiler_version.splitlines()
+                                     if not line.startswith('InstalledDir:'))
     provenance = {
         'format': 1,
         'producer': producer,
-        'compiler': {'version': run([clang, '--version']), 'sha256': digest(Path(clang)),
+        'compiler': {'version': compiler_version, 'sha256': digest(Path(clang)),
                      **compiler_profile},
         'cacheRecipe': recipe_hashes,
     }
@@ -275,6 +297,21 @@ def build(sdk, headers, output, cache):
         stage = Path(temp)
         artifact = stage/'bundle'
         artifact.mkdir()
+        identity_inputs = source_hash + '\0' + vm_inputs_hash
+        if linux:
+            link_probe = stage/'link-probe.d'
+            # Discover CRT and library inputs without compiling another source
+            # file. Final links must open exactly the same toolchain inputs.
+            run([clang, '-shared', *link_flags, *libraries,
+                 '-Wl,--dependency-file='+str(link_probe), '-o', str(stage/'link-probe.so')], cwd=cache)
+            toolchain_inputs = linux_toolchain_inputs(link_probe, sdk, cache, clang, linker)
+            toolchain_hash = hashlib.sha256(
+                json.dumps(toolchain_inputs, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+            identity_inputs += '\0' + toolchain_hash
+            provenance['toolchainInputs'] = toolchain_inputs
+        identity_hash = hashlib.sha256(identity_inputs.encode()).hexdigest()
+        identity = f'dart-{SDK_REVISION}-product-{profile}-abi{ABI}-id{identity_hash}'
+        filename = f'libnapi_runtime_{identity}' + ('.so' if linux else '.dylib')
         runtime_objects = []
         depfiles = []
         header_roots = {
@@ -309,10 +346,20 @@ def build(sdk, headers, output, cache):
         object_paths = [str((cache/path).resolve()) for path in objects] + runtime_objects
         filelist.write_text('\n'.join(map(shlex.quote, object_paths) if linux else object_paths)+'\n')
         runtime = artifact/filename
+        link_dependencies = []
+
+        def check_link_inputs(depfile, ignored):
+            if linux_toolchain_inputs(depfile, sdk, cache, clang, linker, ignored) != toolchain_inputs:
+                raise ValueError('Native toolchain inputs changed during the build')
+
         if linux:
+            runtime_link = stage/'runtime-link.d'
+            link_dependencies.append((runtime_link, object_paths))
             run([clang, '-shared', *link_flags, '-Wl,-soname,'+filename,
+                 '-Wl,--dependency-file='+str(runtime_link),
                  '-Wl,--whole-archive', '@'+str(filelist), '-Wl,--no-whole-archive',
                  *libraries, '-o', str(runtime)], cwd=cache)
+            check_link_inputs(runtime_link, object_paths)
         else:
             run([clang, '-shared', '-isysroot', sysroot, f'-mmacosx-version-min={MINIMUM_OS}',
                  '--target=arm64-apple-macos', '-Wl,-dead_strip', '-undefined', 'dynamic_lookup',
@@ -323,18 +370,26 @@ def build(sdk, headers, output, cache):
         bridge = artifact/'bridge.node'
         bridge_dependencies = stage/'bridge.d'
         depfiles.append(bridge_dependencies)
-        bridge_flags = (['-fPIC', '-shared', *link_flags] if linux else
+        bridge_flags = (['-fPIC', '--sysroot='+sysroot, '--target=x86_64-linux-gnu'] if linux else
                         ['-dynamiclib', '-undefined', 'dynamic_lookup'])
-        bridge_link = (['-Wl,-soname,bridge.node', *libraries] if linux else
-                       ['-Wl,-install_name,@rpath/bridge.node', '-Wl,-rpath,@loader_path'])
+        bridge_object = stage/'bridge.o'
+        bridge_link = (['-c', '-o', str(bridge_object)] if linux else
+                       [str(runtime), '-Wl,-install_name,@rpath/bridge.node',
+                        '-Wl,-rpath,@loader_path', '-o', str(bridge)])
         compile_source([clang, '-std=c++17', '-O2', *bridge_flags,
              '-MMD', '-MF', str(bridge_dependencies), *compile_prefix,
              '-I'+str(headers), '-I'+str(uv_headers),
              '-I'+str(sdk/'runtime'), '-I'+str(sdk/'runtime/include'),
              '-I'+str(ROOT/'native/runtime'), '-I'+str(stage),
-             str(ROOT/'native/bridge/bridge.cc'), str(runtime),
-             *bridge_link, '-o', str(bridge)],
+             str(ROOT/'native/bridge/bridge.cc'), *bridge_link],
             bridge_dependencies)
+        if linux:
+            bridge_link = stage/'bridge-link.d'
+            link_dependencies.append((bridge_link, [bridge_object, runtime]))
+            run([clang, '-shared', *link_flags, str(bridge_object), str(runtime),
+                 '-Wl,-soname,bridge.node', '-Wl,--dependency-file='+str(bridge_link),
+                 *libraries, '-o', str(bridge)], cwd=cache)
+            check_link_inputs(bridge_link, [bridge_object, runtime])
         provenance['headers'] = header_hashes
         for binary in [runtime, bridge]:
             if linux:
@@ -353,6 +408,7 @@ def build(sdk, headers, output, cache):
             'files': {file.name: digest(file) for file in sorted(artifact.iterdir())},
             'build': {'cacheArgumentsSha256': digest(cache/'args.gn'),
                       'vmInputsSha256': vm_inputs_hash, 'vmInputCount': len(objects),
+                      **({'toolchainInputsSha256': toolchain_hash} if linux else {}),
                       'sourceSha256': source_hash, 'provenance': provenance},
         }
         (artifact/'manifest.json').write_text(json.dumps(manifest, indent=2)+'\n')
@@ -368,6 +424,8 @@ def build(sdk, headers, output, cache):
             raise ValueError('Native compiler changed during the build')
         if any(digest(path) != compiler_profile[name] for name, path in compiler_packages.items()):
             raise ValueError('Native compiler packages changed during the build')
+        for depfile, ignored in link_dependencies:
+            check_link_inputs(depfile, ignored)
         publish(artifact, output)
     return manifest
 

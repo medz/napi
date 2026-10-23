@@ -57,7 +57,6 @@ import 'package:napi/napi.dart';
     () async {
       final linux = await directory.createTemp('linux-loader-');
       final loader = emitNativeLoader([], platform: NativePlatform.linuxX64);
-      expect(loader, isNot(contains('process.report')));
       await File('${linux.path}/module.mjs').writeAsString(loader);
       await File('${linux.path}/bridge.node').writeAsString('''
 globalThis.bridgeLoaded = true;
@@ -71,11 +70,14 @@ exports.load = () => ({});
         await File('${linux.path}/preload.cjs').writeAsString('''
 Object.defineProperty(process, 'platform', {value: ${jsonEncode(platform)}});
 Object.defineProperty(process, 'arch', {value: ${jsonEncode(architecture)}});
+globalThis.diagnosticReports = 0;
+process.report.getReport = () => { globalThis.diagnosticReports++; return {}; };
 require.extensions['.node'] = require.extensions['.js'];
 ''');
         await File('${linux.path}/check.mjs').writeAsString('''
 import assert from 'node:assert/strict';
 ${accepted ? "await import('./module.mjs');\nassert.equal(globalThis.bridgeLoaded, true);" : "await assert.rejects(import('./module.mjs'), /requires Linux x64/);\nassert.equal(globalThis.bridgeLoaded, undefined);"}
+assert.equal(globalThis.diagnosticReports, 0);
 ''');
         final result = await Process.run('node', [
           '--require',
@@ -88,7 +90,6 @@ ${accepted ? "await import('./module.mjs');\nassert.equal(globalThis.bridgeLoade
           reason: '$platform/$architecture: ${result.stdout}${result.stderr}',
         );
       }
-      expect(emitNativeLoader([]), isNot(contains('process.report')));
     },
   );
 

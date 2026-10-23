@@ -265,7 +265,7 @@ never revokes a retained callback or cancels a JavaScript Promise returned by it
 A generic payload that happens to be a JS function stays an opaque
 value; it is never inferred to be a callback.
 
-Native callbacks currently support macOS arm64. See [native requirements](native.md)
+Native callbacks use the supported [native runtime profiles](native.md)
 and [supported toolchains](../README.md#requirements).
 
 ## Performance

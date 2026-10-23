@@ -110,6 +110,10 @@ class BundleTest(unittest.TestCase):
         compiler = self.manifest['build']['provenance']['compiler']
         del compiler['macosSdkVersion']
         compiler.update(sysrootSha256='5'*64, clangPackageSha256='6'*64)
+        self.manifest['build']['toolchainInputsSha256'] = '7'*64
+        self.manifest['build']['provenance']['toolchainInputs'] = {
+            'buildtools/linux-x64/clang/bin/ld.lld': '8'*64,
+        }
         self.save()
         lock = bundle.pack(self.directory, self.archive, self.lock, self.dart,
                            repository=self.repository)
@@ -348,6 +352,11 @@ class BuildInputsTest(unittest.TestCase):
         cases = [(profile, changed) for profile in ['macos-arm64', 'linux-x64']
                  for changed in [None, 'vm', 'recipe', 'header', 'source', 'compiler']]
         cases += [('linux-x64', 'sysroot'), ('linux-x64', 'clang-package')]
+        link_changes = ['linker', 'crt', 'static-library', 'linker-script', 'indirect-library']
+        cases += [('linux-x64', name) for name in link_changes]
+        cases += [('linux-x64', 'initial-'+name) for name in link_changes]
+        cases += [('linux-x64', None)]  # The same inputs in another SDK directory.
+        original_identity = None
         for profile, changed in cases:
             with self.subTest(profile=profile, changed=changed), tempfile.TemporaryDirectory() as tmp:
                 linux = profile == 'linux-x64'
@@ -373,6 +382,19 @@ class BuildInputsTest(unittest.TestCase):
                 for path in packages.values():
                     path.parent.mkdir(parents=True, exist_ok=True)
                     path.write_text('pinned package')
+                link_inputs = {
+                    'linker': sdk/'buildtools/linux-x64/clang/bin/ld.lld',
+                    'crt': sdk/'buildtools/sysroot/linux/usr/lib/crti.o',
+                    'static-library': sdk/'buildtools/linux-x64/clang/lib/libc++.a',
+                    'linker-script': sdk/'buildtools/sysroot/linux/usr/lib/libc.so',
+                    'indirect-library': sdk/'buildtools/sysroot/linux/lib/libc.so.6',
+                }
+                for path in link_inputs.values():
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text('GROUP ( /lib/libc.so.6 )' if path.name == 'libc.so' else 'original link input')
+                initial_change = changed is not None and changed.startswith('initial-')
+                if initial_change:
+                    link_inputs[changed.removeprefix('initial-')].write_text('updated before build')
                 (cache/'args.gn').write_text('arguments')
                 toolchain_name = 'clang_x64_shared' if linux else 'clang_arm64_shared'
                 toolchain = cache/toolchain_name/'toolchain.ninja'
@@ -401,7 +423,7 @@ class BuildInputsTest(unittest.TestCase):
                     if command[:2] == ['xcrun', '--show-sdk-version']:
                         return '27.0'
                     if '--version' in command:
-                        return 'test compiler'
+                        return 'test compiler\nInstalledDir: '+str(clang.parent)
                     if command[0] == 'codesign':
                         return ''
                     if '--file-header' in command:
@@ -416,15 +438,27 @@ class BuildInputsTest(unittest.TestCase):
                     if '--version-info' in command:
                         return 'Name: GLIBC_2.2.5\nName: GLIBC_2.17'
                     output = Path(command[command.index('-o')+1])
-                    if '-shared' in command and changed:
+                    if '-shared' in command and output.name != 'link-probe.so' and changed and not initial_change:
                         {'vm': vm, 'recipe': target, 'header': header,
                          'source': repo/'native/runtime/runtime.cc',
-                         'compiler': clang, **packages}[changed].write_text('changed during build')
+                         'compiler': clang, **packages, **link_inputs}[changed].write_text('changed during build')
                     if '-MM' not in command:
                         output.write_bytes(b'test artifact')
                     if '-MF' in command:
                         Path(command[command.index('-MF')+1]).write_text(
                             f'{output}: {shlex.quote(str(header))}\n')
+                    link_dep = next((arg.removeprefix('-Wl,--dependency-file=') for arg in command
+                                     if arg.startswith('-Wl,--dependency-file=')), None)
+                    if link_dep:
+                        inputs = list(link_inputs.values())
+                        for arg in command:
+                            if arg.startswith('@'):
+                                inputs += [Path(name) for name in shlex.split(Path(arg[1:]).read_text())]
+                        if output.suffix == '.node':
+                            inputs += [output.parent.parent/'bridge.o', next(output.parent.glob('*.so'))]
+                        Path(link_dep).write_text(
+                            str(output)+': '+ ' '.join(map(str, inputs))+'\n\n'+
+                            '\n'.join(str(path)+':' for path in inputs)+'\n')
                     return ''
 
                 output = root/'bundle'
@@ -433,7 +467,7 @@ class BuildInputsTest(unittest.TestCase):
                      patch.object(build.platform, 'machine', return_value='x86_64' if linux else 'arm64'), \
                      patch.object(build, 'validate_cache', return_value=(target, compile_target)), \
                      patch.object(build, 'publish', side_effect=lambda a, b: a.rename(b)):
-                    if changed:
+                    if changed and not initial_change:
                         with self.assertRaisesRegex(ValueError, 'changed during the build'):
                             build.build(sdk, node, output, cache)
                         self.assertFalse(output.exists())
@@ -444,20 +478,31 @@ class BuildInputsTest(unittest.TestCase):
                                          {'sdk/actual.h': build.digest(header)})
                         self.assertIn(f'-product-{profile}-abi15-id', manifest['identity'])
                         if linux:
+                            if initial_change:
+                                self.assertNotEqual(manifest['identity'], original_identity)
+                            elif original_identity is not None:
+                                self.assertEqual(manifest['identity'], original_identity)
+                            else:
+                                original_identity = manifest['identity']
                             self.assertEqual(manifest['minimumLibcVersion'], '2.17')
                             self.assertEqual(manifest['libc'], 'glibc')
                             self.assertNotIn('minimumOsVersion', manifest)
                             self.assertEqual(manifest['build']['provenance']['compiler']['sysrootSha256'],
                                              build.digest(packages['sysroot']))
+                            self.assertEqual(manifest['build']['provenance']['compiler']['version'], 'test compiler')
+                            self.assertEqual(manifest['build']['provenance']['toolchainInputs'],
+                                             {path.relative_to(sdk).as_posix(): build.digest(path)
+                                              for path in [clang, *link_inputs.values()]})
                             links = [command for command in commands if '-shared' in command and '-MM' not in command]
-                            self.assertEqual(len(links), 2)
+                            self.assertEqual(len(links), 3)
                             for command in links:
                                 self.assertIn('-static-libstdc++', command)
                                 self.assertIn(f'--sysroot={sdk}/buildtools/sysroot/linux', command)
                                 self.assertIn('-Wl,-rpath,$ORIGIN', command)
                                 self.assertNotIn('-Wl,-rpath=$$ORIGIN/', command)
-                            self.assertIn('-Wl,-soname,'+manifest['runtime'], links[0])
-                            self.assertIn('-Wl,-soname,bridge.node', links[1])
+                                self.assertIn('--ld-path='+str(link_inputs['linker']), command)
+                            self.assertIn('-Wl,-soname,'+manifest['runtime'], links[1])
+                            self.assertIn('-Wl,-soname,bridge.node', links[2])
                             self.assertFalse(any(command[0] in ['xcrun', 'codesign'] for command in commands))
 
     def test_linux_cache_requires_pinned_target_and_sysroot(self):

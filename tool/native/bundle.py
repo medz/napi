@@ -83,6 +83,11 @@ def provenance(manifest, repository):
     if manifest.get('platform') == 'linux':
         if not all(sha(compiler.get(key)) for key in ['sysrootSha256', 'clangPackageSha256']):
             raise ValueError('Missing native Linux toolchain provenance')
+        inputs = proof.get('toolchainInputs')
+        if (not isinstance(inputs, dict) or not inputs or
+                not all(sha(value) for value in inputs.values()) or
+                not sha(manifest['build'].get('toolchainInputsSha256'))):
+            raise ValueError('Missing native Linux linker input provenance')
     elif not compiler.get('macosSdkVersion'):
         raise ValueError('Missing native compiler provenance')
     for key in ['headers', 'cacheRecipe']:
