@@ -1,4 +1,8 @@
 import 'dart:convert';
+import 'dart:io';
+
+import 'package:crypto/crypto.dart';
+import 'package:path/path.dart' as path;
 
 import '../compiler/analysis/reference_views.dart';
 import '../compiler/analysis/result.dart';
@@ -8,6 +12,46 @@ import '../compiler/ir/model.dart';
 import '../compiler/ir/defaults.dart';
 import '../compiler/lowering/plan.dart';
 import '../compiler/native/plan.dart';
+
+/// A portable public-contract fingerprint for separately built artifacts.
+/// Native platform selection must not change defaults or conversion policies
+/// that are invisible in the shared TypeScript declarations.
+Future<Map<String, Object?>> createModuleContract(
+  BindingModule bindings,
+  List<ReferenceClassShape> classes,
+  List<ValueClassSchema> values,
+  String declarations, {
+  String? packagesPath,
+}) async {
+  final uris = await _ContractUris.read(
+    bindings.source,
+    bindings.packageConfigPath ?? packagesPath,
+  );
+  String declaration(DeclarationId value) => value.owner == null
+      ? '${uris.key(value.library)}#${value.name}'
+      : '${declaration(value.owner!)}.${value.name}';
+  final exports = [
+    for (final function in bindings.functions) function.exportName,
+    for (final binding in classes) binding.binding.exportName,
+  ];
+  final contract = _contract(
+    bindings,
+    classes,
+    values,
+    parameterKey: (parameter) => parameterDefaultKey(
+      parameter,
+      declarationSource: declaration,
+      omissionKey: (key) => _portableOmissionKey(key, uris.key),
+    ),
+  );
+  return {
+    'format': 1,
+    'exports': exports,
+    'sha256': sha256
+        .convert(utf8.encode(jsonEncode([contract, declarations, exports])))
+        .toString(),
+  };
+}
 
 /// Compare public behavior after resolving each target's conditional imports.
 /// Declaration locations and private implementation names need not agree.
@@ -65,8 +109,9 @@ SourceLocation _location(BindingModule module, String key) {
 Map<String, Object?> _contract(
   BindingModule bindings,
   List<ReferenceClassShape> classes,
-  List<ValueClassSchema> values,
-) {
+  List<ValueClassSchema> values, {
+  String Function(ParameterBinding) parameterKey = parameterDefaultKey,
+}) {
   Object call(
     List<ParameterBinding> parameters,
     BindingType? result,
@@ -79,8 +124,8 @@ Map<String, Object?> _contract(
     return [
       cleanup || isFutureType(result),
       isStreamType(result),
-      for (final parameter in parameters) _parameter(parameter),
-      _Values().encodeAll([
+      for (final parameter in parameters) _parameter(parameter, parameterKey),
+      _Values(parameterKey).encodeAll([
         for (final parameter in parameters)
           conversionFor(
             parameter.type,
@@ -149,7 +194,7 @@ Map<String, Object?> _contract(
       ],
     'reference views': _views(classes),
     for (final schema in values)
-      'value ${schema.binding.exportName}': _Values().encode(
+      'value ${schema.binding.exportName}': _Values(parameterKey).encode(
         conversionFor(
           schema.binding.instantiatedType ??
               DeclaredType(
@@ -205,16 +250,21 @@ Object _views(List<ReferenceClassShape> classes) {
   ];
 }
 
-Object _parameter(ParameterBinding parameter) => [
+Object _parameter(
+  ParameterBinding parameter,
+  String Function(ParameterBinding) key,
+) => [
   parameter.name,
   parameter.kind.name,
   parameter.presence.name,
-  parameterDefaultKey(parameter),
+  key(parameter),
 ];
 
 /// Finite conversion nodes keep recursive value classes bounded. This is a
-/// build-time comparison only, not a persisted schema or runtime registry.
+/// build-time comparison; persisted artifacts retain only its fingerprint.
 final class _Values {
+  final String Function(ParameterBinding) parameterKey;
+  _Values(this.parameterKey);
   final _seen = <ValueConversion, int>{};
   Object encodeAll(List<ValueConversion?> values) => [
     for (final value in values) encode(value),
@@ -269,11 +319,114 @@ final class _Values {
           for (final field in value.fields)
             [
               field.name,
-              field.parameter == null ? null : _parameter(field.parameter!),
+              field.parameter == null
+                  ? null
+                  : _parameter(field.parameter!, parameterKey),
               encode(field.conversion),
             ],
         ],
       },
     ];
   }
+}
+
+final class _ContractUris {
+  final Uri source;
+  final List<(String, Uri)> packages;
+  _ContractUris(this.source, this.packages);
+
+  static Future<_ContractUris> read(Uri source, String? packagesPath) async {
+    final config = packagesPath == null ? null : File(packagesPath).absolute;
+    final packages = <(String, Uri)>[];
+    if (config != null && await config.exists()) {
+      final value = jsonDecode(await config.readAsString()) as Map;
+      for (final package in value['packages'] as List) {
+        final root = config.uri.resolve(package['rootUri'] as String);
+        final directory = root.path.endsWith('/')
+            ? root
+            : root.replace(path: '${root.path}/');
+        var library = directory.resolve(package['packageUri'] as String? ?? '');
+        if (library.scheme == 'file') {
+          if (!library.path.endsWith('/')) {
+            library = library.replace(path: '${library.path}/');
+          }
+          packages.add((package['name'] as String, library));
+        }
+      }
+      packages.sort((a, b) => b.$2.path.length.compareTo(a.$2.path.length));
+    }
+    return _ContractUris(source, packages);
+  }
+
+  String key(Uri uri) {
+    if (uri.scheme != 'file') return uri.toString();
+    for (final (name, root) in packages) {
+      if (uri.authority == root.authority && uri.path.startsWith(root.path)) {
+        // Keep file imports distinct from package imports of the same library.
+        return 'file-package:$name/${uri.path.substring(root.path.length)}';
+      }
+    }
+    if (uri.authority != source.authority) return uri.toString();
+    return 'file:${path.posix.relative(uri.path, from: source.resolve('.').path)}';
+  }
+}
+
+// constantStorageKey contains user strings as well as library URIs. Rewrite
+// only type identities so a string default resembling a path stays observable.
+String _portableOmissionKey(String key, String Function(Uri) library) {
+  Object type(Object value) {
+    if (value is! List) return value;
+    if (value.first == 'Never') return value;
+    if (value.first == 'record') {
+      return [
+        ...value.take(2),
+        for (final field in value.skip(2))
+          if (field is List && field.length == 2 && field[1] is! bool)
+            [field[0], type(field[1] as Object)]
+          else
+            type(field as Object),
+      ];
+    }
+    return [
+      library(Uri.parse(value[0] as String)),
+      ...value.skip(1).take(2),
+      for (final argument in value.skip(3)) type(argument as Object),
+    ];
+  }
+
+  Object? constant(Object? value) {
+    if (value is! List) return value;
+    return switch (value[0]) {
+      'type' => ['type', type(value[1] as Object)],
+      'list' || 'set' => [
+        value[0],
+        type(value[1] as Object),
+        for (final child in value.skip(2)) constant(child),
+      ],
+      'map' => [
+        'map',
+        type(value[1] as Object),
+        for (final pair in value.skip(2))
+          [constant((pair as List)[0]), constant(pair[1])],
+      ],
+      'record' => [
+        'record',
+        type(value[1] as Object),
+        [for (final child in value[2] as List) constant(child)],
+        [
+          for (final pair in value[3] as List)
+            [(pair as List)[0], constant(pair[1])],
+        ],
+      ],
+      'object' => [
+        'object',
+        type(value[1] as Object),
+        for (final pair in value.skip(2))
+          [(pair as List)[0], constant(pair[1])],
+      ],
+      _ => value,
+    };
+  }
+
+  return jsonEncode(constant(jsonDecode(key)));
 }

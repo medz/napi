@@ -14,6 +14,8 @@ import 'output_ownership.dart';
 import 'output.dart';
 import 'native_bundle.dart';
 import 'native_runtime.dart';
+import 'native_package.dart';
+import '../compiler/sdk_adapter/dart_sdk_adapter.dart';
 
 /// Build and assemble an npm package, or atomically rebuild a managed package.
 ///
@@ -207,6 +209,31 @@ Future<Directory> assembleNativePackage({
   );
 }
 
+/// Assemble separately built platforms and optional Wasm into one npm package.
+///
+/// Build each native module on its target host with [buildLibrary], then copy
+/// the complete output directory, including its ownership record. Modules must
+/// have matching public declarations, conversions and defaults. Assembly does
+/// not load native code or require a native build host.
+///
+/// [target] selects the root backend. The native entry selects the current
+/// platform from the bundled artifacts and never falls back to Wasm. All
+/// selected artifacts ship in the package; there are no install-time downloads.
+Future<Directory> assemblePackage({
+  required List<BuiltModule> modules,
+  required Directory output,
+  required Map<String, Object?> metadata,
+  BuildTarget target = BuildTarget.native,
+  Map<String, File> assets = const {},
+}) => _assemblePackage(
+  modules: List.of(modules),
+  rootTarget: target,
+  output: output,
+  metadata: metadata,
+  assets: assets,
+  platformSelection: true,
+);
+
 Future<Directory> _assemblePackage({
   required List<BuiltModule> modules,
   required BuildTarget rootTarget,
@@ -214,11 +241,22 @@ Future<Directory> _assemblePackage({
   required Map<String, Object?> metadata,
   required Map<String, File> assets,
   OutputUpdate? update,
+  bool platformSelection = false,
 }) async {
+  final targets = modules.map((module) => module.target.name).toSet();
+  if (modules.isEmpty || !targets.contains(rootTarget.name)) {
+    throw ArgumentError('Package modules must contain the root target.');
+  }
+  if (modules.where((module) => module.target == BuildTarget.wasm).length > 1) {
+    throw ArgumentError('A package can contain only one Wasm module.');
+  }
   final supplied = packageMetadata(metadata);
-  final nativeOnly = modules.length == 1 && rootTarget == BuildTarget.native;
+  final nativeOnly =
+      !platformSelection &&
+      targets.length == 1 &&
+      rootTarget == BuildTarget.native;
   packageMetadata(supplied, native: nativeOnly);
-  final dual = modules.length > 1;
+  final dual = targets.length > 1;
   final target = output.absolute;
   await checkOutputInputs(target, [
     for (final module in modules) module.directory,
@@ -226,6 +264,13 @@ Future<Directory> _assemblePackage({
   ]);
   await _checkAssets(assets);
   final files = <String, File>{};
+  final generated = <String, String>{};
+  final nativeModules = <NativePlatform, String>{};
+  final nativeRuntimes = <String, String>{};
+  final nativePrefixes = <String>[];
+  final moduleOwnership = <String, OutputOwnership>{};
+  Map<String, Object?>? contract;
+  String? declarations;
   String? runtime;
   NativePlatform? nativePlatform;
   var calls = false;
@@ -236,7 +281,6 @@ Future<Directory> _assemblePackage({
         FileSystemEntityType.directory) {
       throw ArgumentError('Built module is not a directory: ${source.path}');
     }
-    final prefix = dual ? '${module.target.name}/' : '';
     final native = module.target == BuildTarget.native;
     final bundle = native
         ? await NativeRuntimeBundle.read(source, built: true)
@@ -244,6 +288,60 @@ Future<Directory> _assemblePackage({
     if (bundle != null) {
       runtime = bundle.runtime;
       nativePlatform = bundle.platform;
+      if (nativeRuntimes.containsKey(bundle.platform.packageId)) {
+        throw ArgumentError(
+          'Duplicate native platform: ${bundle.platform.packageId}',
+        );
+      }
+      nativeRuntimes[bundle.platform.packageId] = bundle.runtime;
+    }
+    final prefix = platformSelection && bundle != null
+        ? 'native/${bundle.platform.packageId}/'
+        : dual
+        ? '${module.target.name}/'
+        : '';
+    if (native) nativePrefixes.add(prefix);
+    if (platformSelection) {
+      if (module.sdkVersion != supportedDartSdkVersion) {
+        throw ArgumentError(
+          'Module SDK version must be $supportedDartSdkVersion.',
+        );
+      }
+      final ownership = await OutputOwnership.read(
+        source,
+        kind: OutputKind.module,
+      );
+      final actual = ownership?.moduleContract;
+      final exports = actual?['exports'];
+      if (actual == null ||
+          actual['format'] != 1 ||
+          actual['sha256'] is! String ||
+          !RegExp(r'^[a-f0-9]{64}$').hasMatch(actual['sha256'] as String) ||
+          exports is! List ||
+          exports.any((name) => name is! String || name == 'then') ||
+          exports.toSet().length != exports.length) {
+        throw ArgumentError(
+          'Module has no compatible package contract; rebuild it with buildLibrary: ${source.path}',
+        );
+      }
+      final text = await File(
+        '${source.path}/${native ? 'module.d.mts' : 'module.d.wasm.ts'}',
+      ).readAsString();
+      if (contract != null &&
+          (contract['sha256'] != actual['sha256'] ||
+              jsonEncode(contract['exports']) != jsonEncode(exports) ||
+              declarations != text)) {
+        throw ArgumentError(
+          'Module public declarations, conversions or defaults differ: ${source.path}',
+        );
+      }
+      contract = actual;
+      declarations = text;
+      moduleOwnership[prefix] = ownership!;
+      if (bundle != null) {
+        nativeModules[bundle.platform] =
+            './${bundle.platform.packageId}/module.mjs';
+      }
     }
     final requiredFiles = bundle == null
         ? wasmPackageFiles
@@ -273,7 +371,14 @@ Future<Directory> _assemblePackage({
     calls = calls || callFiles.isNotEmpty;
     files.addAll(callFiles);
   }
-  final artifactNames = files.keys.toSet();
+  if (platformSelection && nativeModules.isNotEmpty) {
+    generated['native/module.mjs'] = emitNativePackageLoader(
+      nativeModules,
+      (contract!['exports'] as List).cast<String>(),
+    );
+    generated['native/module.d.mts'] = declarations!;
+  }
+  final artifactNames = {...files.keys, ...generated.keys};
   for (final name in assets.keys.toList()..sort()) {
     if (!packageAssetNames.contains(name)) {
       throw ArgumentError('Unsupported package asset name: $name');
@@ -303,11 +408,14 @@ Future<Directory> _assemblePackage({
       author,
       nativePlatform: nativeOnly ? nativePlatform : null,
     );
-    final targets = modules.map((module) => module.target.name).toSet();
     package.addAll({
       'type': 'module',
       'files': [...artifactNames, ...selectedAssets],
-      'exports': packageEntrypoints(targets, rootTarget.name),
+      'exports': packageEntrypoints(
+        targets,
+        rootTarget.name,
+        nativePlatforms: platformSelection && nativeModules.isNotEmpty,
+      ),
     });
     staging = await target.parent.createTemp('.napi-package-');
     if (previous != null) {
@@ -321,10 +429,20 @@ Future<Directory> _assemblePackage({
       await destination.parent.create(recursive: true);
       await entry.value.copy(destination.path);
     }
-    for (final module in modules.where((m) => m.target == BuildTarget.native)) {
+    for (final entry in generated.entries) {
+      final file = File('${staging.path}/${entry.key}');
+      await file.parent.create(recursive: true);
+      await file.writeAsString(entry.value);
+    }
+    for (final prefix in nativePrefixes) {
       await NativeRuntimeBundle.read(
-        dual ? Directory('${staging.path}/${module.target.name}') : staging,
+        Directory('${staging.path}/$prefix'),
         built: true,
+      );
+    }
+    for (final entry in moduleOwnership.entries) {
+      await entry.value.verifyArtifacts(
+        Directory('${staging.path}/${entry.key}'),
       );
     }
     await File(
@@ -335,12 +453,16 @@ Future<Directory> _assemblePackage({
       kind: OutputKind.package,
       targets: targets,
       root: rootTarget.name,
-      runtime: runtime,
+      runtime: platformSelection ? null : runtime,
       calls: calls,
       assets: selectedAssets,
       autoPlatform: autoPlatform,
+      nativeRuntimes: platformSelection ? nativeRuntimes : const {},
     );
-    previous?.copyMetadata(staging, replacedFiles: files.keys.toSet());
+    previous?.copyMetadata(
+      staging,
+      replacedFiles: {...files.keys, ...generated.keys},
+    );
     await previous?.checkUnchanged();
     if (previous == null) {
       publishDirectory(staging, target);

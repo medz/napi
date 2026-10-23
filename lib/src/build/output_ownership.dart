@@ -7,6 +7,7 @@ import 'package:path/path.dart' as path;
 import 'metadata.dart';
 import 'native_bundle.dart';
 import 'publish.dart';
+import '../compiler/native/platform.dart';
 
 const outputOwnershipFile = '.napi-output.json';
 
@@ -37,31 +38,49 @@ Set<String> packageArtifactNames(
   Set<String> targets,
   String? runtime, {
   required bool calls,
+  Map<String, String> nativeRuntimes = const {},
 }) {
   final dual = targets.length > 1;
   return {
     for (final target in targets)
-      for (final name
-          in target == 'wasm'
-              ? [...wasmPackageFiles, if (calls) ...wasmCallFiles]
-              : [
-                  'module.mjs',
-                  'module.d.mts',
-                  'module.aot',
-                  'runtime.json',
-                  'bridge.node',
-                  runtime!,
-                  'DART_LICENSE',
-                  'DART_AUTHORS',
-                  'NAPI_LICENSE',
-                ])
-        '${dual ? '$target/' : ''}$name',
+      if (target == 'native' && nativeRuntimes.isNotEmpty) ...{
+        'native/module.mjs',
+        'native/module.d.mts',
+        for (final entry in nativeRuntimes.entries)
+          for (final name in packageArtifactNames(
+            {'native'},
+            entry.value,
+            calls: false,
+          ))
+            'native/${entry.key}/$name',
+      } else
+        for (final name
+            in target == 'wasm'
+                ? [...wasmPackageFiles, if (calls) ...wasmCallFiles]
+                : [
+                    'module.mjs',
+                    'module.d.mts',
+                    'module.aot',
+                    'runtime.json',
+                    'bridge.node',
+                    runtime!,
+                    'DART_LICENSE',
+                    'DART_AUTHORS',
+                    'NAPI_LICENSE',
+                  ])
+          '${dual ? '$target/' : ''}$name',
   };
 }
 
-Map<String, Object?> packageEntrypoints(Set<String> targets, String root) {
+Map<String, Object?> packageEntrypoints(
+  Set<String> targets,
+  String root, {
+  bool nativePlatforms = false,
+}) {
   Map<String, String> entry(String target) {
-    final prefix = targets.length > 1 ? './$target/' : './';
+    final prefix = targets.length > 1 || (target == 'native' && nativePlatforms)
+        ? './$target/'
+        : './';
     return {
       'types':
           '$prefix${target == 'native' ? 'module.d.mts' : 'module.d.wasm.ts'}',
@@ -87,6 +106,7 @@ final class OutputOwnership {
     this.artifacts,
     this.assets,
     this.metadata,
+    this.moduleContract,
   );
 
   final OutputKind kind;
@@ -95,6 +115,7 @@ final class OutputOwnership {
   final Set<String> artifacts;
   final Set<String> assets;
   final Map<String, Object?> metadata;
+  final Map<String, Object?>? moduleContract;
 
   static Future<OutputOwnership?> read(
     Directory directory, {
@@ -124,6 +145,26 @@ final class OutputOwnership {
     final targets = _names(manifest['targets']);
     final root = manifest['root'];
     final runtime = manifest['runtime'];
+    final rawRuntimes = manifest['nativeRuntimes'] ?? <String, dynamic>{};
+    if (rawRuntimes is! Map<String, dynamic> ||
+        rawRuntimes.values.any(
+          (value) =>
+              value is! String ||
+              !RegExp(r'^libnapi_runtime_[A-Za-z0-9_.-]+\.(?:dylib|so)$')
+                  .hasMatch(value),
+        ) ||
+        !NativePlatform.values
+            .map((p) => p.packageId)
+            .toSet()
+            .containsAll(rawRuntimes.keys)) {
+      throw const FormatException('Invalid native platform layout.');
+    }
+    final nativeRuntimes = rawRuntimes.cast<String, String>();
+    final contract = manifest['moduleContract'];
+    if (contract != null &&
+        (kind != OutputKind.module || contract is! Map<String, dynamic>)) {
+      throw const FormatException('Invalid module contract.');
+    }
     final calls = manifest['calls'];
     final assets = _names(manifest['assets']);
     final auto = _names(manifest['autoPlatform']);
@@ -138,7 +179,12 @@ final class OutputOwnership {
         !packageAssetNames.containsAll(assets) ||
         !{'os', 'cpu', 'libc'}.containsAll(auto) ||
         (auto.isNotEmpty && (targets.length != 1 || root != 'native')) ||
-        (targets.contains('native')
+        (nativeRuntimes.isNotEmpty &&
+            (kind != OutputKind.package ||
+                !targets.contains('native') ||
+                auto.isNotEmpty ||
+                runtime != null)) ||
+        (targets.contains('native') && nativeRuntimes.isEmpty
             ? runtime is! String ||
                   !RegExp(r'^libnapi_runtime_[A-Za-z0-9_.-]+\.(?:dylib|so)$')
                       .hasMatch(runtime)
@@ -150,6 +196,7 @@ final class OutputOwnership {
       targets,
       runtime as String?,
       calls: calls,
+      nativeRuntimes: nativeRuntimes,
     );
     if (hashes.length != artifacts.length ||
         !artifacts.containsAll(hashes.keys)) {
@@ -167,7 +214,20 @@ final class OutputOwnership {
       }
     }
     NativeRuntimeBundle? bundle;
-    if (targets.contains('native')) {
+    if (nativeRuntimes.isNotEmpty) {
+      for (final entry in nativeRuntimes.entries) {
+        final bundle = await NativeRuntimeBundle.read(
+          Directory('${directory.path}/native/${entry.key}'),
+          built: true,
+        );
+        if (bundle.platform.packageId != entry.key ||
+            bundle.runtime != entry.value) {
+          throw const FormatException(
+            'Native platform ownership does not match runtime.json.',
+          );
+        }
+      }
+    } else if (targets.contains('native')) {
       bundle = await NativeRuntimeBundle.read(
         targets.length > 1 ? Directory('${directory.path}/native') : directory,
         built: true,
@@ -186,7 +246,15 @@ final class OutputOwnership {
       }
     }
     if (kind == OutputKind.module) {
-      return OutputOwnership._(kind, directory, entries, artifacts, {}, {});
+      return OutputOwnership._(
+        kind,
+        directory,
+        entries,
+        artifacts,
+        {},
+        {},
+        (contract as Map<String, dynamic>?)?.cast<String, Object?>(),
+      );
     }
     final package = await _json(File('${directory.path}/package.json'));
     final files = _names(package['files']);
@@ -195,7 +263,11 @@ final class OutputOwnership {
         package['type'] != 'module' ||
         !_sameJson(
           package['exports'],
-          packageEntrypoints(targets, root as String),
+          packageEntrypoints(
+            targets,
+            root as String,
+            nativePlatforms: nativeRuntimes.isNotEmpty,
+          ),
         )) {
       throw ArgumentError(
         'Generated package metadata changed: type, files or exports.',
@@ -230,6 +302,7 @@ final class OutputOwnership {
       artifacts,
       assets,
       package,
+      null,
     );
   }
 
@@ -314,6 +387,16 @@ final class OutputOwnership {
     }
   }
 
+  /// Assembly must copy the same artifact bytes whose contract was checked.
+  Future<void> verifyArtifacts(Directory copied) async {
+    for (final name in artifacts) {
+      if (await _hash(File(path.join(copied.path, name))) !=
+          _entries[name]!.hash) {
+        throw ArgumentError('Module artifact changed during assembly: $name');
+      }
+    }
+  }
+
   /// Restore retained metadata after writes, with directories after children.
   void copyMetadata(Directory staging, {required Set<String> replacedFiles}) {
     for (final entry in _entries.entries.toList().reversed) {
@@ -347,14 +430,21 @@ Future<void> writeOutputOwnership(
   required bool calls,
   Set<String> assets = const {},
   Set<String> autoPlatform = const {},
+  Map<String, String> nativeRuntimes = const {},
+  Map<String, Object?>? moduleContract,
 }) async {
-  final names = packageArtifactNames(targets, runtime, calls: calls);
+  final names = packageArtifactNames(
+    targets,
+    runtime,
+    calls: calls,
+    nativeRuntimes: nativeRuntimes,
+  );
   final hashes = <String, String>{};
   for (final name in names) {
     hashes[name] = await _hash(File(path.join(staging.path, name)));
   }
   await File('${staging.path}/$outputOwnershipFile').writeAsString(
-    '${const JsonEncoder.withIndent('  ').convert({'format': 1, 'kind': 'napi-${kind.name}', 'targets': targets.toList(), 'root': root, 'runtime': runtime, 'calls': calls, 'artifacts': hashes, 'assets': assets.toList(), 'autoPlatform': autoPlatform.toList()})}\n',
+    '${const JsonEncoder.withIndent('  ').convert({'format': 1, 'kind': 'napi-${kind.name}', 'targets': targets.toList(), 'root': root, 'runtime': runtime, 'calls': calls, 'artifacts': hashes, 'assets': assets.toList(), 'autoPlatform': autoPlatform.toList(), if (nativeRuntimes.isNotEmpty) 'nativeRuntimes': nativeRuntimes, 'moduleContract': ?moduleContract})}\n',
   );
 }
 

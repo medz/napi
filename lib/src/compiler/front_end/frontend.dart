@@ -60,7 +60,8 @@ final class AnnotationFrontend implements BindingFrontend {
           : p.normalize(File(packagesPath!).absolute.path),
     );
     try {
-      final session = contexts.contextFor(path).currentSession;
+      final context = contexts.contextFor(path);
+      final session = context.currentSession;
       final result = await session.getResolvedLibrary(path);
       if (result is! ResolvedLibraryResult) {
         throw BindingDiagnostic('NAPI_INPUT', 'Input must be a Dart library.');
@@ -78,6 +79,7 @@ final class AnnotationFrontend implements BindingFrontend {
       return await _Reader(
         entry,
         annotation.element.getClass('NAPI')!,
+        packageConfigPath: context.contextRoot.packagesFile?.path,
       ).read(result);
     } finally {
       await contexts.dispose();
@@ -124,7 +126,8 @@ final class ExternalFrontend implements BindingFrontend {
       packageConfigFile: File(packages).existsSync() ? packages : null,
     );
     try {
-      final session = contexts.contextFor(anchor).currentSession;
+      final context = contexts.contextFor(anchor);
+      final session = context.currentSession;
       final path = session.uriConverter.uriToPath(library);
       if (path == null || !File(path).existsSync()) {
         throw BindingDiagnostic(
@@ -142,6 +145,7 @@ final class ExternalFrontend implements BindingFrontend {
       return await _Reader(
         File(path).absolute.uri,
         null,
+        packageConfigPath: context.contextRoot.packagesFile?.path,
       ).readExternal(result, selections);
     } finally {
       await contexts.dispose();
@@ -159,6 +163,7 @@ typedef _DefaultAccess = ({
 final class _Reader {
   final Uri entry;
   final a.ClassElement? annotationClass;
+  final String? packageConfigPath;
   final _externalConfigs = <a.Element, NAPI>{};
   final _aliasMemberConfigs = <a.TypeAliasElement, Map<a.Element, NAPI>>{};
   final _selectedClasses = <a.ClassElement>{};
@@ -170,7 +175,7 @@ final class _Reader {
   final _defaultIdentities = <DartObject, Object>{};
   final _defaultVariableTypes = <DeclarationId, a.DartType>{};
   final _libraryImportUris = <a.LibraryElement, Set<Uri>>{};
-  _Reader(this.entry, this.annotationClass);
+  _Reader(this.entry, this.annotationClass, {this.packageConfigPath});
 
   Future<BindingModule> readExternal(
     ResolvedLibraryResult root,
@@ -262,6 +267,7 @@ final class _Reader {
     final module = BindingModule(
       source: entry,
       importUri: root.element.uri,
+      packageConfigPath: packageConfigPath,
       functions: functions,
       classes: classes,
     );
@@ -567,6 +573,7 @@ final class _Reader {
     final module = BindingModule(
       source: entry,
       importUri: root.element.uri,
+      packageConfigPath: packageConfigPath,
       functions: functions,
       classes: classes,
     );
