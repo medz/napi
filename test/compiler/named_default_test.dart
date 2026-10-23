@@ -226,15 +226,27 @@ const _origin = PrivatePoint._(7);
   static PrivatePoint create([PrivatePoint value = _origin]) => value;
 }''',
     ),
+    (
+      'value input constructor',
+      '''
+@NAPI(classPolicy: ClassPolicy.value)
+class Envelope {
+  final PrivatePoint point;
+  const Envelope({this.point = _origin});
+}
+@NAPI() int take(Envelope value) => value.point.value;''',
+    ),
   ]) {
     test('an inaccessible $name default can be supplied by Dart', () async {
       final input = source('entry.dart', '$privateModel\n$declaration');
       for (final native in [false, true]) {
         final module = await read(input, native: native);
         final parameters = [
-          for (final function in module.functions) ...function.parameters,
+          for (final function in module.functions)
+            ...function.parameters.where((parameter) => parameter.hasDefault),
           for (final binding in module.classes)
-            for (final member in binding.members) ...member.parameters,
+            for (final member in binding.members)
+              ...member.parameters.where((parameter) => parameter.hasDefault),
         ];
         expect(parameters, isNotEmpty);
         for (final parameter in parameters) {
@@ -268,12 +280,13 @@ class _Other extends Owner {
 @NAPI() Owner owner() => _Other();''',
     ),
     (
-      'value input constructor',
+      'middle positional value input constructor',
       '''
 @NAPI(classPolicy: ClassPolicy.value)
 class Envelope {
   final PrivatePoint point;
-  const Envelope({this.point = _origin});
+  final int after;
+  const Envelope([this.point = _origin, this.after = 3]);
 }
 @NAPI() int take(Envelope value) => value.point.value;''',
     ),

@@ -347,12 +347,20 @@ final class DartStructuralEmitter {
             final path = field.name.replaceAll(r'$', r'\$');
             final read =
                 "${functions[index]}(fields[${2 * index + 1}], '\$path.$path')";
-            final value = field.optional
-                ? '(fields[${2 * index}] as JSBoolean).toDart ? ${renderDartDefault(parameter, field.conversion, declarationSource: defaultDeclarationSource)} : $read'
-                : read;
-            _code.writeln(
-              '  final ${field.conversion.dartType} a$index = $value;',
-            );
+            if (parameter.defaultOmissionKey != null) {
+              _code.writeln(
+                '  final d$index = (fields[${2 * index}] as JSBoolean).toDart;\n'
+                '  late final ${field.conversion.dartType} a$index;\n'
+                '  if (!d$index) a$index = $read;',
+              );
+            } else {
+              final value = field.optional
+                  ? '(fields[${2 * index}] as JSBoolean).toDart ? ${renderDartDefault(parameter, field.conversion, declarationSource: defaultDeclarationSource)} : $read'
+                  : read;
+              _code.writeln(
+                '  final ${field.conversion.dartType} a$index = $value;',
+              );
+            }
             final named =
                 parameter.kind == ParameterKind.requiredNamed ||
                 parameter.kind == ParameterKind.optionalNamed;
@@ -362,9 +370,31 @@ final class DartStructuralEmitter {
           final suffix = constructor.declaration.name == 'new'
               ? ''
               : '.${constructor.declaration.name}';
-          _code.writeln(
-            '  return ${conversion.dartConstructorType}$suffix(${arguments.join(', ')});',
-          );
+          if (conversion.fields.any(
+            (field) => field.parameter!.defaultOmissionKey != null,
+          )) {
+            final positional = <String>[];
+            final named = <String>[];
+            for (final (index, field) in conversion.fields.indexed) {
+              final parameter = field.parameter!;
+              final omit = parameter.defaultOmissionKey != null
+                  ? 'if (!d$index) '
+                  : '';
+              if (parameter.kind == ParameterKind.requiredNamed ||
+                  parameter.kind == ParameterKind.optionalNamed) {
+                named.add('$omit#${parameter.name}: a$index');
+              } else {
+                positional.add('${omit}a$index');
+              }
+            }
+            _code.writeln(
+              '  return Function.apply(${conversion.dartConstructorType}${suffix.isEmpty ? '.new' : suffix}, <Object?>[${positional.join(', ')}]${named.isEmpty ? '' : ', <Symbol, Object?>{${named.join(', ')}}'}) as ${conversion.dartConstructorType};',
+            );
+          } else {
+            _code.writeln(
+              '  return ${conversion.dartConstructorType}$suffix(${arguments.join(', ')});',
+            );
+          }
         }
       case RecordConversion():
         if (output) {

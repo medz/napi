@@ -176,6 +176,7 @@ async function check(name, selected) {
     assert.equal(originResource.close(), originClosed);
     assert.throws(() => current.originResourceDefault(), /closing|closed/i);
     await hiddenDefaults(current);
+    await hiddenValueDefaults(current);
     await resourceDefaults(current, callback => { onSignalRead = callback; });
     assert.throws(() => current.identity({value: 4}), TypeError);
   }
@@ -242,6 +243,42 @@ async function hiddenDefaults(current) {
   assert.equal(await pending, 44);
   await asyncClosing;
   assert.equal(current.cleanups(), cleanups + 2);
+}
+
+async function hiddenValueDefaults(current) {
+  const point = current.hiddenDefault();
+  for (const value of [{}, {origin: undefined}, {origin: point}]) {
+    assert.deepEqual(current.hiddenNamedValue(value), {origin: point, count: 3});
+  }
+  assert.deepEqual(current.hiddenNamedValue({origin: null, count: 4}), {origin: null, count: 4});
+  assert.throws(() => current.hiddenNamedValue({origin: {value: 41}}), TypeError);
+  assert.deepEqual(current.hiddenPositionalValue({}), {offset: 3, point});
+  assert.deepEqual(current.hiddenPositionalValue({offset: undefined, point}), {offset: 3, point});
+  assert.deepEqual(current.hiddenPositionalValue({offset: 4, point: undefined}), {offset: 4, point});
+  assert.throws(() => current.hiddenPositionalValue({point: null}), TypeError);
+
+  const resource = new current.Resource(3);
+  const payload = {tag: 'opaque'};
+  const input = {payload, resource};
+  const output = current.hiddenFactoryValue(input);
+  assert.notEqual(output, input);
+  assert.equal(output.payload, payload);
+  assert.equal(output.resource, resource);
+  assert.equal(output.point, point);
+  assert.equal(current.hiddenFactoryValue({payload: undefined, resource}).payload, undefined);
+  assert.deepEqual(current.hiddenIntValue({payload: 7, resource}), {payload: 7, resource, point});
+  assert.throws(() => current.hiddenIntValue({payload: '7', resource}), TypeError);
+  const calls = current.calls();
+  assert.throws(() => current.hiddenFactoryValue({payload, resource, point: null}), TypeError);
+  assert.equal(current.calls(), calls);
+  await resource.close();
+
+  const failing = new current.Resource(-1);
+  const cleanups = current.cleanups();
+  assert.throws(() => current.hiddenFactoryValue({payload, resource: failing}), /hidden value constructor failed/);
+  assert.equal(current.calls(), calls);
+  await failing.close();
+  assert.equal(current.cleanups(), cleanups + 1);
 }
 
 async function resourceDefaults(api, onSignalRead) {

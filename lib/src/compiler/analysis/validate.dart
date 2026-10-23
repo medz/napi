@@ -2551,7 +2551,6 @@ void validateCallParameters(
   bool scalarOnly = false,
   bool validateTypes = true,
   bool allowResourceDefaults = true,
-  bool allowOmittedDefaults = true,
   List<ClassBinding> referenceClasses = const [],
   Set<DeclarationId> opaqueParameters = const {},
 }) {
@@ -2630,9 +2629,8 @@ void validateCallParameters(
     }
     if (optional) {
       if (parameter.defaultOmissionKey != null &&
-          (!allowOmittedDefaults ||
-              parameter.kind == ParameterKind.optionalPositional &&
-                  !identical(parameter, parameters.last))) {
+          parameter.kind == ParameterKind.optionalPositional &&
+          !identical(parameter, parameters.last)) {
         reject(
           'NAPI_DEFAULT',
           'An inaccessible default requires a named parameter or the last optional positional parameter of an exported callable.',
@@ -2875,7 +2873,6 @@ void _validateValueConstructorInputs(
     referenceClasses: classes,
     opaqueParameters: opaqueParameterIds(binding.typeParameters),
     allowResourceDefaults: true,
-    allowOmittedDefaults: false,
     validateTypes: false,
   );
 }

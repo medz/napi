@@ -560,3 +560,56 @@ Future<int> hiddenResourceLater(
   await Future<void>.delayed(const Duration(milliseconds: 2));
   return resource.value + point.value;
 }
+
+@NAPI(classPolicy: ClassPolicy.value, valueFields: {'source': 'point'})
+class HiddenNamedValue {
+  @NAPI(name: 'origin')
+  final HiddenPoint? point;
+  final int count;
+  HiddenNamedValue.read({HiddenPoint? source = _hiddenPoint, this.count = 3})
+    : point = source;
+}
+
+@NAPI()
+HiddenNamedValue hiddenNamedValue(HiddenNamedValue value) => value;
+
+@NAPI(classPolicy: ClassPolicy.value)
+class HiddenPositionalValue {
+  final int offset;
+  final HiddenPoint point;
+  HiddenPositionalValue([this.offset = 3, this.point = _hiddenPoint]);
+}
+
+@NAPI()
+HiddenPositionalValue hiddenPositionalValue(HiddenPositionalValue value) =>
+    value;
+
+class GenericHiddenValue<T> {
+  final T payload;
+  final Resource resource;
+  final HiddenPoint point;
+  GenericHiddenValue._(this.payload, this.resource, this.point);
+  factory GenericHiddenValue.checked(
+    T payload,
+    Resource resource, {
+    HiddenPoint point = _hiddenPoint,
+  }) {
+    if (resource.value < 0) throw StateError('hidden value constructor failed');
+    return GenericHiddenValue._(payload, resource, point);
+  }
+}
+
+@NAPI(classPolicy: ClassPolicy.value)
+typedef HiddenFactoryValue<T> = GenericHiddenValue<T>;
+
+@NAPI()
+HiddenFactoryValue<T> hiddenFactoryValue<T>(HiddenFactoryValue<T> value) {
+  _calls++;
+  return value;
+}
+
+@NAPI(classPolicy: ClassPolicy.value)
+typedef HiddenIntValue = GenericHiddenValue<int>;
+
+@NAPI()
+HiddenIntValue hiddenIntValue(HiddenIntValue value) => value;
