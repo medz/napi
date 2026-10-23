@@ -106,7 +106,7 @@ Wasm bridge work and any structural admission copies are real costs; these APIs
 do not make a zero-copy claim.
 
 Both backends require the pinned Dart SDK and supported Node runtime. See
-[native requirements](native.md) and [supported toolchains](../README.md#verify).
+[native requirements](native.md) and [supported toolchains](../README.md#requirements).
 
 Use [SharedBytes](shared-bytes.md) for explicit live shared views. Its checked
 adapter preserves host storage and handles later detachment/resizing without

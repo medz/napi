@@ -1,173 +1,102 @@
-# Selecting bindings
+# Export Dart APIs
 
-The source frontend resolves a Dart library and its public export namespace.
-Only the resolved `NAPI` class from this package selects a declaration. Prefixes,
-reexports of the annotation, and typedefs are resolved through the analyzer;
-a different class also named `NAPI` does not select anything.
-
-## Selection syntax
-
-| Placement | Syntax | Selection |
-| --- | --- | --- |
-| Public top-level function | `@NAPI()` | Function, using its Dart name |
-| Public top-level function | `@NAPI(bigint: true)` | Function, mapping all Dart `int` parameters/results to JavaScript `bigint` |
-| Generic public function or ordinary reference class | `@NAPI()` | Generic parameters come from the Dart declaration and carry unchanged JS payloads |
-| Public function or class | `@NAPI(name: 'PublicName')` | Declaration, with an explicit export name |
-| Public class | `@NAPI()` | Class and its own public constructors, fields, accessors and methods |
-| Public concrete class typedef | `@NAPI()` | A class with fixed Dart type arguments |
-| Public const generic function instantiation | `@NAPI()` | A function with fixed Dart type arguments |
-| Member of an annotated class | `@NAPI(name: 'publicName')` | Override that member's name |
-| Member of an annotated class | `@NAPI(exclude: true)` | Exclude that member from the JavaScript API |
-
-There is one uppercase annotation class, with no lowercase constant. A typedef
-alias of the constructor is resolved normally; a constant object used as an
-annotation is diagnosed rather than silently ignored. Private
-annotated declarations, multiple annotations, `name` together with `exclude`,
-member annotations without an annotated owning class, and annotations on other
-syntax are diagnosed at source. An annotated field declaration must declare one
-field. `exclude` is only valid on class members.
-
-Generated classes inherit the supported contracts of their selected ancestors;
-unselected ancestors do not automatically add exports. See
-[reference classes](classes.md) and [concrete hierarchies](concrete-generics.md).
-An explicit override is an own declaration and is selected normally. Static and
-instance members retain that distinction. A getter/setter pair for the same
-property may share its public name. Excluding one accessor
-leaves the other selected. Inconsistent renames of a selected accessor pair and
-unrelated members with colliding names are rejected.
-
-Both backends generate selected unnamed generative/factory reference constructors
-with `new`; named constructors/factories become static methods using their Dart
-name unless renamed. [Concrete aliases](concrete-generics.md) select fixed class
-or callable type arguments without adding configuration to the original source.
-
-## Class policies
-
-`@NAPI()` classes default to `ClassPolicy.reference`. Explicit policies use the
-same annotation and external configuration:
+Add `@NAPI()` to a public Dart function or class:
 
 ```dart
-@NAPI(classPolicy: ClassPolicy.value)
-class Point { Point(this.x); final int x; }
+import 'package:napi/napi.dart';
 
-@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
-class Resource { Future<void> close() async {} }
-```
+@NAPI()
+int add(int left, int right) => left + right;
 
-`ExternalClass('Resource', config: NAPI(classPolicy: ClassPolicy.resource,
-cleanup: 'close'))` describes the same policy without modifying the dependency.
-`cleanup` is required only for resources and selects an own public instance
-method by its original Dart name. Renaming the method changes its JavaScript name,
-not which Dart method performs cleanup. The method must have a supported cleanup
-signature and remain selected for export.
-
-Both targets generate [reference classes](classes.md), including
-[Future-returning calls](futures.md), and
-[structural value classes](values.md). Value inputs use an explicitly selected
-public constructor or factory first. Otherwise they use the public unnamed
-constructor, or the sole public named constructor/factory. Parameters determine
-input properties; matching readable members supply their public renames, with
-optional `valueFields` overrides for different names. Without an unambiguous
-callable constructor, a value class is output-only. Runtime generation
-validates these mappings before compilation. Ordinary reference classes do not
-gain disposal. Both targets generate [resource bindings](resources.md): cleanup
-uses the selected method's export name and supported parameters, returns
-`Promise<void>` for Dart `void` or `Future<void>`, and waits for accepted operation
-leases. Excluding the cleanup method prevents a resource build.
-
-Typed Dart functions generate [callbacks and callable facades](callbacks.md) on
-both targets. They can be arguments, results, class members and leaves in
-supported structural containers and JS collection handles. Dart reachability
-retains a JS callback; a weak cache preserves compatible adapter identity across
-calls. Required, optional positional and named parameters use the function
-mapping described in the callback guide. Enclosing opaque type parameters may
-appear in supported callback signatures. JavaScript callbacks can return
-Promises or async iterables for Dart Future or Stream results. Generic function
-types remain unsupported.
-
-## Library resolution
-
-The selected entry is a file library. Ordinary imports do not select exports.
-Reexports respect `show`/`hide`, including declarations in parts. Generated calls
-use that public Dart surface; diagnostics identify the original declaration.
-Dartdoc is retained in TypeScript declarations. Defaults are evaluated in their
-declaring library, including private and imported constants; see
-[argument defaults](arguments.md).
-
-`typedef Count = int` remains an int; `double` is not accepted as int.
-Conditional imports and exports resolve for the
-requested Dart Wasm or native AOT target. A [dual-target build](packaging.md)
-resolves both independently and compares their public contracts.
-
-## Building
-
-Building checks supported signatures before creating output. Functions support
-positional/named parameters and results using `bool`, `String`, `double`,
-`int`, `BigInt`, and their nullable forms, plus recursively nested `List`, `Map`, explicit `Dictionary` and
-record values with supported leaves.
-Generic parameters are read directly from the Dart declaration. Supported
-direct generic payloads and matching generic references preserve unchanged JS
-values using a private carrier; business code must follow the storage/forwarding
-contract. No repeated type-parameter list is required.
-See [opaque eligibility, presence and ownership](opaque.md) for supported bounds,
-signature positions and remaining generic combinations. External selections use
-the same inferred mapping without extra configuration.
-`@NAPI(bigint: true)` selects fixed JavaScript `bigint` representation for every
-Dart `int` parameter/result of that function, including nullable ints and typedefs.
-It does not change other scalar types; Dart `BigInt` always uses JavaScript
-`bigint`. This policy also applies inside supported callback signatures.
-See [scalar conversion semantics](scalars.md) and
-[optional/named arguments and defaults](arguments.md). Other types, external
-functions and unsupported class shapes produce source diagnostics; selected
-unsupported declarations are never dropped.
-
-Use `buildPackage` for a fresh npm package, as shown in [package assembly](packaging.md).
-`buildLibrary` produces raw artifacts and defaults to Wasm. Run either build API
-in a separate Dart VM script; this example selects the direct-Wasm path:
-
-```dart
-import 'dart:io';
-import 'package:napi/build.dart';
-
-Future<void> main() async {
-  await buildLibrary(
-    library: File('lib/bindings.dart').absolute.uri,
-    output: Directory('output'),
-    packagesPath: File('.dart_tool/package_config.json').absolute.path,
-  );
+@NAPI()
+class Counter {
+  Counter([this.value = 0]);
+  int value;
+  int increment() => ++value;
 }
 ```
 
-The source library imports only `package:napi/napi.dart` for `NAPI`. The separate
-build entrypoint exposes the command, its result and source diagnostics without
-pulling analyzer or host-only build dependencies into the Wasm source graph.
-
-Direct-Wasm consumers import generated exports normally:
-
 ```js
-import { add } from './module.wasm';
+import {add, Counter} from 'your-package';
+
+add(1, 2); // 3
+new Counter().increment(); // 1
 ```
 
-The direct-Wasm path supports normal imports without consumer initialization.
-Both targets implement [reference classes](classes.md), [resource cleanup](resources.md),
-[Future](futures.md), [callback](callbacks.md) and [Stream](streams.md) contracts.
-Their remaining unsupported combinations produce build diagnostics.
+Build the library with `buildPackage`, as shown in the
+[quick start](../README.md#build-a-package). Keep the build script separate from
+the source library: source files import `package:napi/napi.dart`, and the build
+script imports `package:napi/build.dart`.
 
-## External selections
+Public members of an annotated class are exported automatically. Reexported
+annotated declarations are also selected, respecting Dart's `show` and `hide`.
+Ordinary imports do not add exports. Private declarations cannot be exported.
+Dart documentation comments appear in the generated TypeScript declarations.
 
-Select declarations from an installed dependency in the build script. Its source
-stays unchanged: no annotations, wrapper signatures or copied defaults are needed.
-For example, with `collection` in the consumer's dependencies:
+## Rename or exclude a member
+
+Use `name` to choose a JavaScript name, and `exclude` to hide a class member:
+
+```dart
+@NAPI(name: 'Counter')
+class DartCounter {
+  DartCounter();
+
+  @NAPI(name: 'increment')
+  int next() => ++_value;
+
+  @NAPI(exclude: true)
+  void reset() => _value = 0;
+
+  int _value = 0;
+}
+```
+
+Member annotations require an annotated class. Do not combine `name` and
+`exclude`. Getter and setter names for one property must agree; unrelated
+members cannot share an exported name. The build reports invalid selections at
+the original declaration.
+
+## Choose a class representation
+
+| Annotation | JavaScript API | Use for |
+| --- | --- | --- |
+| `@NAPI()` | Class instance | State, methods and object identity |
+| `@NAPI(classPolicy: ClassPolicy.value)` | Plain object | Copied input and output data |
+| `@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')` | Class with asynchronous cleanup | Files, connections and other resources |
+
+See [classes](classes.md), [value objects](values.md) and [resources](resources.md)
+for examples. Resource cleanup names the original Dart method, even if its JS
+export is renamed.
+
+## Numbers and generic parameters
+
+Dart `int` uses JavaScript `number` and checks the safe-integer range. Use
+`@NAPI(bigint: true)` to map every `int` in that callable's supported signature
+to signed 64-bit JavaScript `bigint`. Dart `BigInt` always uses `bigint`.
+See [numbers and strings](scalars.md).
+
+Generic parameters come from the Dart declaration; no extra name list is
+needed. Open generics store and forward [opaque JS payloads](opaque.md).
+Use [class aliases or const callable instantiations](concrete-generics.md) when
+an export needs specific Dart type arguments.
+
+## Bind an existing library
+
+Select public declarations in the build script when you cannot annotate the
+source. For example, add `collection` to your Dart dependencies and build its
+natural-order comparator:
 
 ```dart
 import 'dart:io';
 import 'package:napi/build.dart';
 
 Future<void> main() async {
-  await buildLibrary(
+  await buildPackage(
     library: Uri.parse('package:collection/collection.dart'),
-    output: Directory('output'),
+    output: Directory('npm-package'),
     packagesPath: File('.dart_tool/package_config.json').absolute.path,
+    metadata: {'name': '@scope/natural-sort', 'version': '0.0.0'},
     external: const ExternalLibrary([
       ExternalFunction('compareNatural', config: NAPI(name: 'compareNames')),
     ]),
@@ -175,49 +104,35 @@ Future<void> main() async {
 }
 ```
 
-Run `dart run build.dart`, then import the generated API normally:
-
 ```js
-import { compareNames } from './output/module.wasm';
-console.log(compareNames('item2', 'item10') < 0); // true
+import {compareNames} from '@scope/natural-sort';
+compareNames('item2', 'item10') < 0; // true
 ```
 
-External selections use the same `NAPI` configuration, resolved signatures,
-defaults, documentation and semantic IR as annotations. Public reexports respect
-`show`/`hide`; missing, private, ambiguous and colliding selections are diagnosed.
-`ExternalClass` and `ExternalMember.constructor`/`method`/`getter`/`setter`/`field`
-also describe class selections and overrides. Both annotation and external
-selections support scalar and structural functions, reference classes and value
-classes and resources on both backends. Value construction and resource cleanup
-use the explicit mappings described above.
+`ExternalClass` selects a class. Its `members` can use
+`ExternalMember.constructor`, `.method`, `.getter`, `.setter` or `.field` to
+apply member configuration. External selections use the same `NAPI` options,
+types and defaults as annotated sources. The original library stays unchanged.
+Both backends resolve conditional imports for their own target; dual-target
+packages require matching public APIs.
 
-## Migrating earlier bindings
+<a id="migrating-earlier-bindings"></a>
 
-When upgrading from 0.14.x, change the Dart dependency to `napi: ^0.16.0` and
-use Dart **3.13.5** exactly. The compiler adapter now pins that SDK version.
+## Migrating from 0.14
 
-1. Replace `@napi` with `@NAPI()`. Keep importing `package:napi/napi.dart` in
-   business sources. Use [external selections](#external-selections) when the
-   original dependency cannot be edited.
-2. Replace `dart run napi:build ...` with a separate `tool/build.dart` that imports
-   `package:napi/build.dart` and calls `buildPackage`. Pass the source URI, output
-   directory, package configuration and npm `name`/`version` metadata, then run
-   `dart run tool/build.dart`. See the [complete build example](../README.md#build-a-package).
-3. Review `Map<String, T>` boundaries: they now accept and return JavaScript
-   `Map`, rather than plain objects. To retain an object-shaped API, declare
-   `Dictionary<T>` instead and wrap Dart map results with `Dictionary<T>(map)`.
-   It implements Dart `Map<String, T>`; both mappings copy their contents.
-   See [structural values](structural.md).
-4. Build into a fresh output directory for the first upgrade. A 0.14 output lacks
-   the ownership record required for [managed rebuilds](packaging.md#managed-rebuilds)
-   and is rejected rather than overwritten. Repackage all generated files and
-   declarations; do not retain the old `module.imports.mjs` filename in custom
-   copying or bundling rules.
-5. Existing Wasm package-root, `package-name/module.wasm` and relative
-   `./module.wasm` imports remain supported, with the generated companion files.
-   Wasm is still the default target. Choose `target: BuildTarget.native` for
-   native, or include both `targets` and select their package root with `target`.
-   Dual packages also expose `/native` and `/wasm`; imports initialize the chosen
-   backend without an application setup call or automatic fallback. See
-   [dual-target packages](packaging.md#explicit-dual-target-packages) and the
-   currently supported [native platform](native.md).
+Upgrade napi and use Dart 3.13.5, then:
+
+1. Replace `@napi` with `@NAPI()`.
+2. Replace `dart run napi:build ...` with a build script calling `buildPackage`.
+3. Use JavaScript `Map` for Dart `Map` parameters and results. For plain objects,
+   use `Dictionary<T>`; see [structural values](structural.md).
+4. Build into a fresh directory. Older output lacks the ownership record used
+   by managed rebuilds. Repackage the complete generated output.
+
+Wasm remains the default. Existing package-root, `/module.wasm` and relative
+`.wasm` imports remain supported. See [packaging](packaging.md) to select native
+or include both targets.
+
+`valueConstructor` was removed in 0.17. Constructors are now inferred from the
+Dart declaration or selected by annotating the constructor itself. See
+[value-class constructors](values.md).

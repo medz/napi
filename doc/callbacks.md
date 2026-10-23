@@ -266,7 +266,7 @@ A generic payload that happens to be a JS function stays an opaque
 value; it is never inferred to be a callback.
 
 Native callbacks currently support macOS arm64. See [native requirements](native.md)
-and [supported toolchains](../README.md#verify).
+and [supported toolchains](../README.md#requirements).
 
 ## Performance
 

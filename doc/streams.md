@@ -105,4 +105,4 @@ corresponding host memory.
 
 Both backends require the pinned Dart SDK. Native currently supports macOS
 arm64; Wasm uses Dart WasmGC. See [native builds](native.md) and
-[supported toolchains](../README.md#verify).
+[supported toolchains](../README.md#requirements).

@@ -14,7 +14,7 @@ functions. Its host wrapper calls `core.wasm`, where Dart constructs and mutates
 
 ## Run
 
-From the repository root, with the [test dependencies](../../../doc/testing.md):
+From the repository root, with the [test dependencies](../../../CONTRIBUTING.md):
 
 ```sh
 dart run tool/export_kind_fixture.dart

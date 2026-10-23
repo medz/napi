@@ -125,4 +125,4 @@ This type is a checked host adapter, not a `Uint8List` subclass; arbitrary ordin
 Dart storage cannot be reinterpreted as shared host backing. Allocator support
 is included in generated modules even when their exported signatures contain
 no `SharedBytes`. See [native requirements](native.md) and
-[supported toolchains](../README.md#verify).
+[supported toolchains](../README.md#requirements).

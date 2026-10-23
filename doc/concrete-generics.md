@@ -273,4 +273,4 @@ value projections do not use that runtime classification.
 
 Native `.node` and Dart Wasm share these substitutions and declarations. Future returns
 use standard Promise resolution. Stream values keep their usual identity and
-retention rules. See the [compatibility requirements](../README.md#verify).
+retention rules. See the [compatibility requirements](../README.md#requirements).
