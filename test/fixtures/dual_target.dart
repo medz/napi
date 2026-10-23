@@ -290,6 +290,10 @@ class ConstResource {
     27 => _containerSignalResource,
     28 => _containerFailedResource,
     29 => _containerStreamResource,
+    61 => _hiddenSyncBox.resource,
+    62 => _hiddenFutureBox.resource,
+    63 => _hiddenStreamBox.resource,
+    64 => _hiddenFailureBox.resource,
     _ => throw ArgumentError.value(value),
   };
 }
@@ -613,3 +617,66 @@ typedef HiddenIntValue = GenericHiddenValue<int>;
 
 @NAPI()
 HiddenIntValue hiddenIntValue(HiddenIntValue value) => value;
+
+@NAPI()
+class HiddenResourceBox {
+  final ConstResource resource;
+  HiddenResourceBox(this.resource);
+  const HiddenResourceBox._(this.resource);
+}
+
+const _hiddenSyncBox = HiddenResourceBox._(ConstResource(61));
+const _hiddenFutureBox = HiddenResourceBox._(ConstResource(62));
+const _hiddenStreamBox = HiddenResourceBox._(ConstResource(63));
+const _hiddenFailureBox = HiddenResourceBox._(ConstResource(64));
+
+@NAPI()
+HiddenResourceBox hiddenResourceDefault([
+  HiddenResourceBox box = _hiddenSyncBox,
+]) => box;
+
+@NAPI()
+int hiddenResourceDefaultSignal(
+  AbortSignal signal, {
+  HiddenResourceBox box = _hiddenSyncBox,
+}) {
+  signal.throwIfAborted();
+  return box.resource.value;
+}
+
+@NAPI()
+Future<int> hiddenResourceDefaultLater(
+  void Function() callback, {
+  HiddenResourceBox box = _hiddenFutureBox,
+  bool fail = false,
+}) async {
+  callback();
+  await Future<void>.delayed(const Duration(milliseconds: 2));
+  if (fail) throw StateError('hidden resource Future failed');
+  return box.resource.value;
+}
+
+@NAPI()
+Stream<int> hiddenResourceDefaultSequence({
+  HiddenResourceBox box = _hiddenStreamBox,
+  bool fail = false,
+}) async* {
+  yield box.resource.value;
+  if (fail) throw StateError('hidden resource Stream failed');
+  yield box.resource.value + 1;
+}
+
+@NAPI(classPolicy: ClassPolicy.value)
+class HiddenResourceValue {
+  final HiddenResourceBox box;
+  final int amount;
+  HiddenResourceValue({this.box = _hiddenFailureBox, this.amount = 1}) {
+    if (amount < 0) throw StateError('hidden resource constructor failed');
+  }
+}
+
+@NAPI()
+int hiddenResourceValue(HiddenResourceValue value) {
+  _calls++;
+  return value.box.resource.value + value.amount;
+}

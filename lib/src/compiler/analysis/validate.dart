@@ -2658,6 +2658,7 @@ void validateParameterDefault(
   final constant = parameter.defaultValue;
   final value = constant is ScalarDefault ? constant.value : null;
   final type = parameter.type;
+  final resourceObjects = defaultResourceObjects(parameter, referenceClasses);
   if (parameter.defaultOmissionKey != null) {
     if (constant != null ||
         !parameter.hasDefault ||
@@ -2669,14 +2670,19 @@ void validateParameterDefault(
           referenceClasses,
           completeGraph: true,
         ) ||
-        defaultResourceObjects(parameter, referenceClasses).isNotEmpty) {
+        (resourceObjects.isNotEmpty && !allowResourceDefaults)) {
       throw BindingDiagnostic(
         'NAPI_DEFAULT',
-        'An inaccessible default requires a complete resource-free constant graph and a compatible non-opaque parameter type.',
+        'An inaccessible default requires a complete constant graph and a compatible non-opaque parameter type; resources require an owned call scope.',
         parameter.source ?? source,
       );
     }
     _validateCustomCollectionDefaults(parameter, source);
+    _validateDefaultResourceObjects(
+      resourceObjects,
+      parameter.source ?? source,
+      referenceClasses,
+    );
     return;
   }
   if (constant != null && constant is! ScalarDefault) {
@@ -2705,42 +2711,11 @@ void validateParameterDefault(
             _resourceContainerDefault(type, referenceClasses));
     final completeGraph = parameter.defaultObjects != null;
     _validateCustomCollectionDefaults(parameter, source);
-    final resourceObjects = defaultResourceObjects(parameter, referenceClasses);
-    for (final object in resourceObjects) {
-      final expression = object.expression;
-      if (expression == null ||
-          object.fieldPath.any((field) {
-            final name = field.endsWith('!')
-                ? field.substring(0, field.length - 1)
-                : field;
-            return name.startsWith('_') || !_dartIdentifier.hasMatch(name);
-          }) ||
-          !_defaultResourceHasRuntimeView(object, referenceClasses)) {
-        throw BindingDiagnostic(
-          'NAPI_DEFAULT',
-          'A resource stored in a default requires an accessible constant or public stored field path and a selected concrete resource view.',
-          parameter.source ?? source,
-        );
-      }
-      try {
-        constantDefaultSource(
-          expression,
-          declarationSource: constantDeclarationKey,
-        );
-      } on ConstantDefaultLimit catch (error) {
-        throw BindingDiagnostic(
-          'NAPI_DEFAULT',
-          error.toString(),
-          parameter.source ?? source,
-        );
-      } on FormatException catch (error) {
-        throw BindingDiagnostic(
-          'NAPI_DEFAULT',
-          error.message,
-          parameter.source ?? source,
-        );
-      }
-    }
+    _validateDefaultResourceObjects(
+      resourceObjects,
+      parameter.source ?? source,
+      referenceClasses,
+    );
     if ((admittedResourceDefault ||
             _portableDefaultParameter(
               type,
@@ -2806,6 +2781,40 @@ void validateParameterDefault(
           'are never copied into generated calls.',
       parameter.source ?? source,
     );
+  }
+}
+
+void _validateDefaultResourceObjects(
+  List<DefaultObjectBinding> objects,
+  SourceLocation source,
+  List<ClassBinding> classes,
+) {
+  for (final object in objects) {
+    final expression = object.expression;
+    if (expression == null ||
+        object.fieldPath.any((field) {
+          final name = field.endsWith('!')
+              ? field.substring(0, field.length - 1)
+              : field;
+          return name.startsWith('_') || !_dartIdentifier.hasMatch(name);
+        }) ||
+        !_defaultResourceHasRuntimeView(object, classes)) {
+      throw BindingDiagnostic(
+        'NAPI_DEFAULT',
+        'A resource stored in a default requires an accessible constant or public stored field path and a selected concrete resource view.',
+        source,
+      );
+    }
+    try {
+      constantDefaultSource(
+        expression,
+        declarationSource: constantDeclarationKey,
+      );
+    } on ConstantDefaultLimit catch (error) {
+      throw BindingDiagnostic('NAPI_DEFAULT', error.toString(), source);
+    } on FormatException catch (error) {
+      throw BindingDiagnostic('NAPI_DEFAULT', error.message, source);
+    }
   }
 }
 

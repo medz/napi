@@ -74,12 +74,11 @@ bool hasDartDefaultResourceRetains(
   ParameterBinding parameter,
   ValueConversion conversion,
   List<ClassBinding> classes,
-) =>
-    parameter.defaultValue != null &&
-    parameter.defaultValue is! ScalarDefault &&
-    (parameter.defaultObjects != null
-        ? defaultResourceObjects(parameter, classes).isNotEmpty
-        : containsDefaultReference(conversion));
+) => parameter.defaultObjects != null
+    ? defaultResourceObjects(parameter, classes).isNotEmpty
+    : parameter.defaultValue != null &&
+          parameter.defaultValue is! ScalarDefault &&
+          containsDefaultReference(conversion);
 
 String emitDartDefaultResourceRetains(
   ValueConversion conversion,

@@ -139,6 +139,14 @@ wasm.hiddenPositionalValue({point: null});
 // @ts-expect-error Concrete factory aliases retain their scalar input type.
 wasm.hiddenIntValue({payload: '3', resource: hiddenResource});
 
+const hiddenResourceBox: wasm.HiddenResourceBox = wasm.hiddenResourceDefault(undefined);
+const hiddenResourceFuture: Promise<number> = native.hiddenResourceDefaultLater(() => {}, {box: undefined});
+const hiddenResourceStream: AsyncIterableIterator<number, undefined, undefined> = wasm.hiddenResourceDefaultSequence();
+const hiddenResourceAmount: number = native.hiddenResourceValue({amount: 3});
+void [hiddenResourceBox, hiddenResourceFuture, hiddenResourceStream, hiddenResourceAmount];
+// @ts-expect-error The inaccessible default does not change reference ownership.
+native.hiddenResourceValue({box: hiddenResourceBox});
+
 const resourceContainers: boolean = wasm.resourceContainerDefaults(undefined,
   new Map([['both', [constResource]]]), {both: [constResource]},
   {$1: [constResource], resource: constResource});

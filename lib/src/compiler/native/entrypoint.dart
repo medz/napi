@@ -464,7 +464,8 @@ ${tests.declarations}  int? canonical;''');
         for (final (index, parameter) in parameters.indexed) {
           final conversion = call.inputs[index];
           if (!_optional(parameter) ||
-              conversion is ReferenceConversion ||
+              conversion is ReferenceConversion &&
+                  parameter.defaultOmissionKey == null ||
               !hasDartDefaultResourceRetains(
                 parameter,
                 conversion,
@@ -476,11 +477,13 @@ ${tests.declarations}  int? canonical;''');
           code.write(
             emitDartDefaultResourceRetains(
               conversion,
-              renderDartDefault(
-                parameter,
-                conversion,
-                declarationSource: declarationSource,
-              ),
+              parameter.defaultOmissionKey != null
+                  ? 'null'
+                  : renderDartDefault(
+                      parameter,
+                      conversion,
+                      declarationSource: declarationSource,
+                    ),
               indent: '      ',
               parameter: parameter,
               classes: plan.bindings.classes,
