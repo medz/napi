@@ -20,6 +20,7 @@ import '../support/fixtures/binary.dart';
 import '../support/fixtures/concrete.dart';
 import '../support/fixtures/shared_bytes.dart';
 import '../support/fixtures/js_collections.dart';
+import '../support/fixtures/module_rebuilds.dart';
 
 void main() {
   final configured = Platform.environment['NAPI_TEST_NATIVE_RUNTIME'];
@@ -38,6 +39,11 @@ void main() {
     });
   });
   group('Native', () {
+    test(
+      'module rebuilds',
+      () =>
+          consumer((root) => verifyModuleRebuild(root, nativeRuntime: runtime)),
+    );
     test(
       'installed package',
       () => consumer(

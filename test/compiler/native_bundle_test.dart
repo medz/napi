@@ -6,7 +6,7 @@ import 'package:crypto/crypto.dart';
 import 'package:napi/src/build/build.dart' as builder;
 import 'package:napi/src/build/native_bundle.dart';
 import 'package:napi/src/build/metadata.dart';
-import 'package:napi/src/build/package_ownership.dart';
+import 'package:napi/src/build/output_ownership.dart';
 import 'package:napi/src/build/publish.dart' show checkPackageRebuildFilesystem;
 import 'package:napi/build.dart';
 import 'package:napi/src/compiler/native/loader.dart';
@@ -353,7 +353,7 @@ import 'package:napi/napi.dart';
             if (explicit) 'cpu': ['arm64'],
           },
         );
-        final ownership = (await PackageOwnership.read(output))!;
+        final ownership = (await OutputOwnership.read(output))!;
         // Dual assembly and single Wasm assembly both use this author metadata
         // with native:false. The implicit native restrictions must not survive.
         final dual = packageMetadata(ownership.metadata);
@@ -383,7 +383,7 @@ import 'package:napi/napi.dart';
           await File('${output.path}/module.wasm').readAsString(),
           'wasm module.wasm',
         );
-        await PackageOwnership.read(output);
+        await OutputOwnership.read(output);
       },
       skip: unsupportedRebuild ?? false,
     );

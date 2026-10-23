@@ -59,7 +59,7 @@ void exchangeDirectories(Directory source, Directory destination) {
 
 /// Once committed, auxiliary cleanup is best effort, never a failed build or
 /// a reason to roll back. Retain its path even if the diagnostic stream closed.
-Future<void> cleanPackageStaging(
+Future<void> cleanBuildStaging(
   Directory directory, {
   required bool committed,
 }) async {
@@ -68,9 +68,7 @@ Future<void> cleanPackageStaging(
   } catch (error) {
     if (!committed) rethrow;
     try {
-      stderr.writeln(
-        'Package committed; cleanup left ${directory.path}: $error',
-      );
+      stderr.writeln('Build committed; cleanup left ${directory.path}: $error');
     } catch (_) {
       /* Publication remains successful. */
     }

@@ -8,7 +8,10 @@ import 'metadata.dart';
 import 'native_bundle.dart';
 import 'publish.dart';
 
-const packageOwnershipFile = '.napi-output.json';
+const outputOwnershipFile = '.napi-output.json';
+
+enum OutputKind { package, module }
+
 const wasmPackageFiles = [
   'module.wasm',
   'module.d.wasm.ts',
@@ -74,10 +77,11 @@ Map<String, Object?> packageEntrypoints(Set<String> targets, String root) {
   };
 }
 
-/// Package-local bookkeeping, not a general output ownership mechanism.
+/// Ownership for the supported package and raw-module layouts.
 /// No manifest supplied by an author can claim paths outside known layouts.
-final class PackageOwnership {
-  PackageOwnership._(
+final class OutputOwnership {
+  OutputOwnership._(
+    this.kind,
     this.directory,
     this._entries,
     this.artifacts,
@@ -85,13 +89,17 @@ final class PackageOwnership {
     this.metadata,
   );
 
+  final OutputKind kind;
   final Directory directory;
   final Map<String, _Entry> _entries;
   final Set<String> artifacts;
   final Set<String> assets;
   final Map<String, Object?> metadata;
 
-  static Future<PackageOwnership?> read(Directory directory) async {
+  static Future<OutputOwnership?> read(
+    Directory directory, {
+    OutputKind kind = OutputKind.package,
+  }) async {
     final type = await FileSystemEntity.type(
       directory.path,
       followLinks: false,
@@ -99,19 +107,19 @@ final class PackageOwnership {
     if (type == FileSystemEntityType.notFound) return null;
     if (type != FileSystemEntityType.directory) {
       throw ArgumentError(
-        'Package output is not a managed directory: ${directory.path}',
+        'Build output is not a managed directory: ${directory.path}',
       );
     }
-    final marker = File('${directory.path}/$packageOwnershipFile');
+    final marker = File('${directory.path}/$outputOwnershipFile');
     if (await FileSystemEntity.type(marker.path, followLinks: false) !=
         FileSystemEntityType.file) {
       throw ArgumentError(
-        'Existing output has no package ownership manifest: ${directory.path}',
+        'Existing output has no ownership manifest: ${directory.path}',
       );
     }
     final manifest = await _json(marker, ownership: true);
-    if (manifest['format'] != 1 || manifest['kind'] != 'napi-package') {
-      throw const FormatException('Unsupported package ownership manifest.');
+    if (manifest['format'] != 1 || manifest['kind'] != 'napi-${kind.name}') {
+      throw const FormatException('Unsupported output ownership manifest.');
     }
     final targets = _names(manifest['targets']);
     final root = manifest['root'];
@@ -123,6 +131,8 @@ final class PackageOwnership {
     if (targets.isEmpty ||
         !{'wasm', 'native'}.containsAll(targets) ||
         !targets.contains(root) ||
+        (kind == OutputKind.module &&
+            (targets.length != 1 || assets.isNotEmpty || auto.isNotEmpty)) ||
         calls is! bool ||
         (calls && !targets.contains('wasm')) ||
         !packageAssetNames.containsAll(assets) ||
@@ -134,7 +144,7 @@ final class PackageOwnership {
                       .hasMatch(runtime)
             : runtime != null) ||
         hashes is! Map<String, dynamic>) {
-      throw const FormatException('Invalid package ownership layout.');
+      throw const FormatException('Invalid output ownership layout.');
     }
     final artifacts = packageArtifactNames(
       targets,
@@ -144,7 +154,7 @@ final class PackageOwnership {
     if (hashes.length != artifacts.length ||
         !artifacts.containsAll(hashes.keys)) {
       throw const FormatException(
-        'Ownership may only claim known package artifacts.',
+        'Ownership may only claim known output artifacts.',
       );
     }
     final entries = await _scan(directory);
@@ -153,7 +163,7 @@ final class PackageOwnership {
       if (hash is! String ||
           !RegExp(r'^[a-f0-9]{64}$').hasMatch(hash) ||
           entries[name]?.hash != hash) {
-        throw ArgumentError('Generated package artifact changed: $name');
+        throw ArgumentError('Generated output artifact changed: $name');
       }
     }
     if (targets.contains('native')) {
@@ -173,6 +183,9 @@ final class PackageOwnership {
           'Selected package asset is no longer a file: $name',
         );
       }
+    }
+    if (kind == OutputKind.module) {
+      return OutputOwnership._(kind, directory, entries, artifacts, {}, {});
     }
     final package = await _json(File('${directory.path}/package.json'));
     final files = _names(package['files']);
@@ -204,7 +217,14 @@ final class PackageOwnership {
     }
     // Also validates author metadata edited since the previous build.
     packageMetadata(package);
-    return PackageOwnership._(directory, entries, artifacts, assets, package);
+    return OutputOwnership._(
+      kind,
+      directory,
+      entries,
+      artifacts,
+      assets,
+      package,
+    );
   }
 
   Future<void> copyAuthors(
@@ -216,7 +236,7 @@ final class PackageOwnership {
       final name = entry.key;
       if (name.isEmpty ||
           artifacts.contains(name) ||
-          name == packageOwnershipFile) {
+          name == outputOwnershipFile) {
         continue;
       }
       final destination = path.join(staging.path, name);
@@ -225,7 +245,9 @@ final class PackageOwnership {
       } else {
         // Linux restores package.json metadata after rewriting its contents.
         // Explicitly replaced assets should receive a fresh destination inode.
-        if ((name == 'package.json' && Platform.isLinux) ||
+        if ((kind == OutputKind.package &&
+                name == 'package.json' &&
+                Platform.isLinux) ||
             (assets.contains(name) && replacedAssets.contains(name))) {
           continue;
         }
@@ -280,7 +302,7 @@ final class PackageOwnership {
               before.changed != after.changed;
         })) {
       throw FileSystemException(
-        'Package output changed during rebuild.',
+        'Build output changed during rebuild.',
         directory.path,
       );
     }
@@ -296,12 +318,13 @@ final class PackageOwnership {
           accessTime: entry.value.accessed,
         );
       } else if (!artifacts.contains(entry.key) &&
-          entry.key != packageOwnershipFile &&
+          entry.key != outputOwnershipFile &&
           !replacedFiles.contains(entry.key)) {
         copyPackageFileMetadata(
           File(path.join(directory.path, entry.key)),
           File(path.join(staging.path, entry.key)),
-          preserveTimes: entry.key != 'package.json',
+          preserveTimes:
+              kind != OutputKind.package || entry.key != 'package.json',
           accessTime: entry.value.accessed,
         );
       }
@@ -309,22 +332,23 @@ final class PackageOwnership {
   }
 }
 
-Future<void> writePackageOwnership(
+Future<void> writeOutputOwnership(
   Directory staging, {
+  required OutputKind kind,
   required Set<String> targets,
   required String root,
   required String? runtime,
   required bool calls,
-  required Set<String> assets,
-  required Set<String> autoPlatform,
+  Set<String> assets = const {},
+  Set<String> autoPlatform = const {},
 }) async {
   final names = packageArtifactNames(targets, runtime, calls: calls);
   final hashes = <String, String>{};
   for (final name in names) {
     hashes[name] = await _hash(File(path.join(staging.path, name)));
   }
-  await File('${staging.path}/$packageOwnershipFile').writeAsString(
-    '${const JsonEncoder.withIndent('  ').convert({'format': 1, 'kind': 'napi-package', 'targets': targets.toList(), 'root': root, 'runtime': runtime, 'calls': calls, 'artifacts': hashes, 'assets': assets.toList(), 'autoPlatform': autoPlatform.toList()})}\n',
+  await File('${staging.path}/$outputOwnershipFile').writeAsString(
+    '${const JsonEncoder.withIndent('  ').convert({'format': 1, 'kind': 'napi-${kind.name}', 'targets': targets.toList(), 'root': root, 'runtime': runtime, 'calls': calls, 'artifacts': hashes, 'assets': assets.toList(), 'autoPlatform': autoPlatform.toList()})}\n',
   );
 }
 
@@ -400,7 +424,7 @@ Future<Map<String, _Entry>> _scan(Directory directory) async {
     if (type != FileSystemEntityType.file &&
         type != FileSystemEntityType.directory) {
       throw ArgumentError(
-        'Managed packages cannot contain links or special files: ${entity.path}',
+        'Managed output cannot contain links or special files: ${entity.path}',
       );
     }
     // Capture before reading a file or listing this directory's children.

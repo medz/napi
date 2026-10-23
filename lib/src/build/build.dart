@@ -11,9 +11,12 @@ import '../compiler/front_end/external.dart';
 import '../compiler/ir/model.dart';
 import '../compiler/linker/dart_module_linker.dart';
 import '../compiler/lowering/plan.dart';
+import '../compiler/native/plan.dart';
 import '../compiler/sdk_adapter/dart_sdk_adapter.dart';
 import 'publish.dart';
 import 'native.dart';
+import 'output.dart';
+import 'output_ownership.dart';
 
 enum BuildTarget { wasm, native }
 
@@ -46,20 +49,86 @@ Future<BuiltModule> buildLibrary({
   Directory? nativeRuntime,
 }) async {
   final effectivePackages = libraryPackagesPath(packagesPath, external);
-  return buildModule(
-    bindings: await readLibraryBindings(
-      library: library,
-      packagesPath: effectivePackages,
-      external: external,
-      frontend: frontend,
-      target: target,
-    ),
-    output: output,
-    sdk: sdk,
+  final bindings = await readLibraryBindings(
+    library: library,
     packagesPath: effectivePackages,
+    external: external,
+    frontend: frontend,
     target: target,
-    nativeRuntime: nativeRuntime,
   );
+  final destination = output.absolute;
+  if (await FileSystemEntity.type(destination.path, followLinks: false) ==
+      FileSystemEntityType.notFound) {
+    return buildModule(
+      bindings: bindings,
+      output: destination,
+      sdk: sdk,
+      packagesPath: effectivePackages,
+      target: target,
+      nativeRuntime: nativeRuntime,
+    );
+  }
+  if (target == BuildTarget.native) {
+    validateNative(bindings);
+  } else {
+    validate(bindings);
+  }
+  await checkOutputInputs(destination, [
+    File.fromUri(bindings.source),
+    if (effectivePackages != null) File(effectivePackages),
+    ?nativeRuntime,
+  ]);
+  final update = await OutputUpdate.open(destination, kind: OutputKind.module);
+  Directory? staging;
+  var committed = false;
+  var exchangeAttempted = false;
+  try {
+    staging = await destination.parent.createTemp('.napi-module-rebuild-');
+    final module = await buildModule(
+      bindings: bindings,
+      output: Directory('${staging.path}/compiled'),
+      sdk: sdk,
+      packagesPath: effectivePackages,
+      target: target,
+      nativeRuntime: nativeRuntime,
+    );
+    final ownership = (await OutputOwnership.read(
+      module.directory,
+      kind: OutputKind.module,
+    ))!;
+    final merged = await Directory('${staging.path}/merged').create();
+    final previous = update.previous;
+    await previous?.copyAuthors(merged, ownership.artifacts);
+    for (final name in [...ownership.artifacts, outputOwnershipFile]) {
+      await File('${module.directory.path}/$name').copy('${merged.path}/$name');
+    }
+    previous?.copyMetadata(merged, replacedFiles: ownership.artifacts);
+    await previous?.checkUnchanged();
+    if (previous == null) {
+      publishDirectory(merged, destination);
+    } else {
+      exchangeAttempted = true;
+      try {
+        exchangeDirectories(merged, destination);
+      } on FileSystemException catch (error) {
+        throw FileSystemException(
+          '${error.message} Rebuild files retained at ${staging.path}.',
+          error.path,
+          error.osError,
+        );
+      }
+    }
+    committed = true;
+    return BuiltModule(destination, module.sdkVersion, target: module.target);
+  } finally {
+    try {
+      if (staging != null && (committed || !exchangeAttempted)) {
+        await cleanBuildStaging(staging, committed: committed);
+      }
+    } finally {
+      update.close();
+    }
+  }
 }
 
 String? libraryPackagesPath(String? packagesPath, ExternalLibrary? external) {
@@ -186,6 +255,14 @@ Future<BuiltModule> buildModule({
         .writeAsString(emitBoundary(plan));
     await File('${artifact.path}/module.d.wasm.ts').writeAsString(declarations);
     await File(compiled.sdkLicensePath).copy('${artifact.path}/DART_LICENSE');
+    await writeOutputOwnership(
+      artifact,
+      kind: OutputKind.module,
+      targets: {'wasm'},
+      root: 'wasm',
+      runtime: null,
+      calls: hasCalls,
+    );
     publishDirectory(artifact, destination);
     return BuiltModule(destination, compiled.version);
   } finally {

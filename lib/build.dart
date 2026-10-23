@@ -18,10 +18,12 @@ export 'src/compiler/analysis/validate.dart' show BindingDiagnostic;
 export 'src/compiler/front_end/external.dart';
 export 'src/compiler/ir/model.dart' show SourceLocation;
 
-/// Build a library's selected declarations into a fresh output directory.
+/// Build a library's selected declarations or rebuild a managed module.
 ///
 /// Unsupported declarations raise [BindingDiagnostic] before output or staging
-/// is created. Existing output is never replaced. [packagesPath] selects the
+/// is created. Existing managed modules can be rebuilt on qualified macOS and
+/// Linux filesystems; author files are retained. Older, unowned output and npm
+/// package directories are not replaced. [packagesPath] selects the
 /// package configuration shared by source analysis and compilation.
 /// [external] selects declarations without changing their library or copying
 /// signatures. With external selections, [library] can also be a package URI.
