@@ -1,3 +1,82 @@
+## 0.22.0
+
+This release brings native Dart addons to Linux x64 with automatic runtime
+downloads, and lets generic subclasses carry additional JavaScript payloads.
+
+### 🐧 Build native addons on Linux
+
+Use the same build API on Linux x64 and macOS arm64:
+
+```dart
+await buildPackage(
+  library: File('lib/counter.dart').absolute.uri,
+  output: Directory('npm-package'),
+  packagesPath: File('.dart_tool/package_config.json').absolute.path,
+  target: BuildTarget.native,
+  metadata: {'name': '@scope/counter', 'version': '1.0.0'},
+);
+```
+
+The first build downloads a precompiled runtime. Application authors need the
+ordinary Dart SDK, without a C/C++ toolchain or Dart SDK sources. npm consumers
+need only Node.js and the generated package; installation and import do not
+perform runtime downloads.
+
+Linux requires x64, glibc 2.28 or later, and `/usr/bin/unzip`. Cached runtimes
+support offline builds; `NAPI_RUNTIME_CACHE` selects a custom cache, and
+`nativeRuntime` still accepts a local bundle. Downloads and cached files are
+verified against pinned hashes.
+
+Each native package targets one platform. Automatic platform selection,
+cross-compiling and musl distributions such as Alpine remain unsupported.
+Both backends require Dart 3.13.5; native runtimes use ABI 15.
+
+[Native builds and offline use](https://github.com/medz/napi/blob/v0.22.0/doc/native.md)
+
+### 🧩 Add payload parameters in subclasses
+
+A subclass can now introduce independent generic parameters:
+
+```dart
+@NAPI()
+class Box<T> {
+  Box(this.value);
+  T value;
+}
+
+@NAPI()
+class Tagged<T, Meta> extends Box<T> {
+  Tagged(super.value, this.metadata);
+  Meta metadata;
+}
+```
+
+```js
+const metadata = {source: 'cache'};
+const box = new Tagged('value', metadata);
+box instanceof Box;         // true
+box.metadata === metadata;  // true
+```
+
+Parent and child views share the same JavaScript object. Generic subclasses can
+also inherit selected non-generic classes, including resource classes. Each
+ancestor parameter must still map to a distinct, non-nullable child parameter;
+fixed, repeated or nested mappings remain unsupported.
+
+[Generic inheritance](https://github.com/medz/napi/blob/v0.22.0/doc/opaque.md#reference-inheritance)
+
+### Other improvements and fixes
+
+- Private constant defaults can contain Dart type values such as `String`,
+  `List<int>` and record types. These values stay inside Dart; `Type` is not a
+  JavaScript-facing type. Function types and `void` remain unsupported inside
+  inaccessible defaults.
+- Preserve the canonical identity of constant defaults containing `NaN` on x64.
+
+[Constant defaults](https://github.com/medz/napi/blob/v0.22.0/doc/arguments.md#constant-defaults)
+
+[Release on GitHub](https://github.com/medz/napi/releases/tag/v0.22.0)
+
 ## 0.21.0
 
 This release lets native and Wasm bindings use objects with private const
