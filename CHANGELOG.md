@@ -22,8 +22,9 @@ ordinary Dart SDK, without a C/C++ toolchain or Dart SDK sources. npm consumers
 need only Node.js and the generated package; installation and import do not
 perform runtime downloads.
 
-Linux requires x64, glibc 2.28 or later, and `/usr/bin/unzip`. Cached runtimes
-support offline builds; `NAPI_RUNTIME_CACHE` selects a custom cache, and
+Linux requires x64 and glibc 2.28 or later. `/usr/bin/unzip` is needed only
+when downloading and extracting an uncached runtime. Cached runtimes support
+offline builds; `NAPI_RUNTIME_CACHE` selects a custom cache, and
 `nativeRuntime` still accepts a local bundle. Downloads and cached files are
 verified against pinned hashes.
 
