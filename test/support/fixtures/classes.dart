@@ -3,8 +3,8 @@ import 'dart:io';
 
 import 'package:napi/build.dart';
 
-import 'verify.dart' show run, typescript;
-import 'value_fixture.dart';
+import '../commands.dart' show run, typescript;
+import 'values.dart';
 
 Future<void> verifyClassFixture(Directory root) async {
   final canonical = await Directory(root.resolveSymbolicLinksSync())
@@ -207,12 +207,4 @@ console.log('Class-only Wasm module with renamed export: passed');
 ''');
   await run('node', ['test.mjs'], cwd: only.directory.path);
   await verifyValueOnlyFixture(root);
-  stdout.writeln('Generated Wasm classes and fresh package: passed');
-}
-
-Future<void> main(List<String> args) async {
-  final root = args.isEmpty
-      ? await Directory('.dart_tool').createTemp('classes ')
-      : await Directory(args.single).create(recursive: true);
-  await verifyClassFixture(root);
 }

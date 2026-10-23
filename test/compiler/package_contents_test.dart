@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:test/test.dart';
 
-import '../../tool/package_contents.dart';
+import '../support/fixtures/package_contents.dart';
 
 void main() {
   const expected = {'package.json', 'module.wasm', 'DART_LICENSE'};

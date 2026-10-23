@@ -2,8 +2,7 @@ import 'dart:io';
 
 import 'package:napi/build.dart';
 
-import 'command.dart';
-import 'verify.dart' show typescript;
+import '../commands.dart';
 
 /// Verify the same void-only package through both selectors and Node runtimes.
 Future<void> verifyVoidFixture(
@@ -85,20 +84,4 @@ Future<void> verifyVoidFixture(
   );
   await run('node', ['test.mjs'], cwd: consumer.path);
   await typescript(consumer, 'consumer.mts');
-  stdout.writeln('Void $backend fresh packages and TypeScript: passed');
-  stdout.writeln('Consumer: ${consumer.path}');
-}
-
-Future<void> main(List<String> args) async {
-  if (args.length > 1) {
-    throw ArgumentError(
-      'Usage: dart run tool/void_fixture.dart [native-runtime-bundle]',
-    );
-  }
-  await reportNodeVersions();
-  final root = await Directory('.dart_tool').createTemp('napi void ');
-  await verifyVoidFixture(
-    root,
-    nativeRuntime: args.isEmpty ? null : Directory(args.single),
-  );
 }

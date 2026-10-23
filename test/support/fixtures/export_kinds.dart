@@ -1,25 +1,18 @@
 import 'dart:io';
 
-import 'command.dart';
-
 import 'package:napi/src/compiler/linker/dart_module_linker.dart';
 import 'package:napi/src/compiler/emit/js/arguments.dart';
 import 'package:napi/src/compiler/sdk_adapter/dart_sdk_adapter.dart';
 
-/// Builds the handwritten class/presence regression through the real adapter.
-///
-/// This is evidence for the backend export representations, not an implemented
-/// class frontend or generator. Private Dart imports stay in a text fixture
-/// until materialized under .dart_tool, outside ordinary analysis.
+/// Build the class and argument-presence Wasm regression fixture.
 Future<Directory> buildExportKindFixture({
+  required Directory output,
   String? dartExecutable,
   Directory? repositoryRoot,
 }) async {
   final root = (repositoryRoot ?? Directory.current).absolute;
   final fixture = Directory('${root.path}/test/fixtures/export_kinds');
-  final buildRoot = Directory('${root.path}/.dart_tool')
-    ..createSync(recursive: true);
-  final output = await buildRoot.createTemp('export-kind-fixture-');
+  await output.create();
   final entrypoint = File('${output.path}/fixture.dart');
   await File('${fixture.path}/fixture.dart.txt').copy(entrypoint.path);
   final compilation = await DartSdkAdapter(
@@ -69,13 +62,4 @@ Future<Directory> buildExportKindFixture({
     await File('${output.path}/$name').copy('${second.path}/$name');
   }
   return output;
-}
-
-Future<void> main() async {
-  await reportNodeVersions();
-  final output = await buildExportKindFixture(
-    repositoryRoot: File.fromUri(Platform.script).parent.parent,
-  );
-  await run('node', ['${output.path}/test.mjs']);
-  stdout.writeln('Export-kind fixture artifacts: ${output.path}');
 }

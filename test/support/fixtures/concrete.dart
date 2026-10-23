@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'verify.dart' show run;
+import '../commands.dart' show run, typecheck;
 
 /// Verifies generated concrete generic substitutions and declarations in relocated, installed packages.
 Future<void> verifyConcreteFixture(
@@ -257,9 +257,6 @@ Future<void> main() async {
   final declarations = await File('test/typescript/concrete.mts')
       .readAsString();
   await run('node', ['--expose-gc', 'test.mjs'], cwd: consumer.path);
-  final tsc =
-      Platform.environment['NAPI_TSC'] ??
-      '${Directory.current.path}/.dart_tool/js/node_modules/typescript/bin/tsc';
   for (final mode in ['NodeNext', 'Bundler']) {
     for (final exact in ['true', 'false']) {
       await File('${consumer.path}/consumer.mts').writeAsString(
@@ -269,8 +266,7 @@ Future<void> main() async {
         ),
       );
       for (final unchecked in ['true', 'false']) {
-        await run('node', [
-          File(tsc).absolute.path,
+        await typecheck([
           '--ignoreConfig',
           '--strict',
           '--exactOptionalPropertyTypes',
@@ -290,19 +286,4 @@ Future<void> main() async {
       }
     }
   }
-  stdout.writeln('Concrete $backend fresh packages and TypeScript: passed');
-}
-
-Future<void> main(List<String> args) async {
-  if (args.length > 1) {
-    throw ArgumentError(
-      'Usage: dart run tool/concrete_fixture.dart [native-runtime-bundle]',
-    );
-  }
-  final root = await Directory('.dart_tool').createTemp('napi concrete ');
-  stdout.writeln('Concrete verification artifacts: ${root.absolute.path}');
-  await verifyConcreteFixture(
-    root,
-    nativeRuntime: args.isEmpty ? null : Directory(args.single),
-  );
 }

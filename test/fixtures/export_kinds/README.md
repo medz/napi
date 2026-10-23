@@ -17,13 +17,9 @@ functions. Its host wrapper calls `core.wasm`, where Dart constructs and mutates
 From the repository root, with the [test dependencies](../../../CONTRIBUTING.md):
 
 ```sh
-dart run tool/export_kind_fixture.dart
-tsc --project test/fixtures/export_kinds/tsconfig.json
+dart test -P wasm-consumers --name 'Wasm export kinds'
 ```
 
-The helper links the fixture under `.dart_tool`, runs the Node consumer and
-prints its artifact directory. `buildExportKindFixture` returns that directory
-for other test drivers; `repositoryRoot` can select a different source tree.
 The declarations and host wrapper are handwritten.
 
 The fixture covers import identity, construction and receiver brands, required

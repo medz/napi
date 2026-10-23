@@ -3,147 +3,10 @@ import 'dart:io';
 
 import 'package:napi/build.dart';
 import 'package:napi/src/build/native_bundle.dart';
-import 'package:napi/src/build/native_runtime.dart';
 
-import 'verify.dart' show run, typescript;
-import 'command.dart' show reportNodeVersions;
-import 'value_fixture.dart';
-import 'native_event_fixture.dart';
-import 'native_host_value_fixture.dart';
-import 'dual_target_fixture.dart';
-import 'future_fixture.dart';
-import 'void_fixture.dart';
-import 'resource_fixture.dart';
-import 'opaque_fixture.dart';
-import 'stream_fixture.dart';
-import 'cancellation_fixture.dart';
-import 'binary_fixture.dart';
-import 'concrete_fixture.dart';
-import 'shared_bytes_fixture.dart';
-import 'js_collections_fixture.dart';
+import '../commands.dart';
 import 'package_contents.dart';
 
-/// Verify installed native consumers, with an optional offline runtime bundle.
-Future<void> main(List<String> args) async {
-  final packageOnly = args.isNotEmpty && args.first == '--packages-only';
-  final paths = packageOnly ? args.skip(1).toList() : args;
-  if (paths.length > 1 || paths.any((path) => path.startsWith('--'))) {
-    throw ArgumentError(
-      'Usage: dart run tool/native_verify.dart [runtime-bundle]\n'
-      '   or: dart run tool/native_verify.dart --packages-only [runtime-bundle]',
-    );
-  }
-  await reportNodeVersions();
-  final supplied = paths.isEmpty ? null : Directory(paths.single).absolute;
-  final temporary = await Directory.systemTemp.createTemp('napi native 中文 ');
-  final root = Directory(temporary.resolveSymbolicLinksSync());
-  stdout.writeln('Native verification artifacts: ${root.path}');
-  // Preserve failed runs for diagnosis. Successful runs remove only this root.
-  await verifyNativePackage(root, nativeRuntime: supplied);
-  if (packageOnly) {
-    await HttpOverrides.runWithHttpOverrides(
-      () => verifyDualTargetFixture(root, supplied),
-      _OfflineRuntime(),
-    );
-    await root.delete(recursive: true);
-    return;
-  }
-  final bundle = (await resolveNativeRuntime(
-    runtime: supplied,
-    output: Directory('${root.path}/runtime-output'),
-  )).directory;
-  for (final kind in ['scalar', 'argument']) {
-    final business = await Directory('${root.path}/$kind-business').create();
-    final source = await File(
-      'test/fixtures/${kind == 'scalar' ? 'scalar_exports' : 'arguments'}.dart',
-    ).copy('${business.path}/business.dart');
-    if (kind == 'scalar') {
-      await File('test/fixtures/scalars.dart')
-          .copy('${business.path}/scalars.dart');
-    } else {
-      await File('test/fixtures/constant_collections.dart')
-          .copy('${business.path}/constant_collections.dart');
-    }
-    final name = '@napi/native-$kind';
-    final package = await buildPackage(
-      library: source.uri,
-      output: Directory('${business.path}/package'),
-      metadata: {'name': name, 'version': '0.0.0'},
-      packagesPath: File('.dart_tool/package_config.json').absolute.path,
-      target: BuildTarget.native,
-      nativeRuntime: bundle,
-    );
-    await run('npm', [
-      'pack',
-      '--ignore-scripts',
-      '--silent',
-    ], cwd: package.path);
-    final archive = await File('${package.path}/napi-native-$kind-0.0.0.tgz')
-        .copy('${root.path}/$kind.tgz');
-    await business.delete(recursive: true);
-    final consumer = await Directory('${root.path}/$kind').create();
-    await File('${consumer.path}/package.json')
-        .writeAsString('{"private":true,"type":"module"}');
-    await run('npm', [
-      'install',
-      '--offline',
-      '--ignore-scripts',
-      '--no-audit',
-      '--no-fund',
-      archive.path,
-    ], cwd: consumer.path);
-    final contract = '${kind}_contract.mjs';
-    await File('test/integration/$contract').copy('${consumer.path}/$contract');
-    final verify = kind == 'scalar' ? 'verifyScalars' : 'verifyArguments';
-    await File('${consumer.path}/test.mjs').writeAsString('''
-import * as api from '$name';
-import {$verify} from './$contract';
-$verify(api);
-console.log('Native $kind installed package: passed');
-''');
-    await run('node', ['test.mjs'], cwd: consumer.path);
-    final declarations = await File(
-      'test/typescript/${kind == 'scalar' ? 'scalars' : 'arguments'}.mts',
-    ).readAsString();
-    await File('${consumer.path}/consumer.mts')
-        .writeAsString(declarations.replaceAll('./module.wasm', name));
-    await typescript(consumer, 'consumer.mts');
-  }
-  await verifyValueOnlyFixture(root, nativeRuntime: bundle);
-  await verifyNativeEvents(root, nativeRuntime: bundle);
-  await verifyNativeHostValues(root, nativeRuntime: bundle);
-  await verifyFutureFixture(root, nativeRuntime: bundle);
-  await verifyVoidFixture(root, nativeRuntime: bundle);
-  await verifyResourceFixture(root, nativeRuntime: bundle);
-  await verifyOpaqueFixture(root, nativeRuntime: bundle);
-  await verifyStreamFixture(root, nativeRuntime: bundle);
-  await verifyCancellationFixture(root, nativeRuntime: bundle);
-  await verifyBinaryFixture(root, nativeRuntime: bundle);
-  await verifyConcreteFixture(root, nativeRuntime: bundle);
-  await verifySharedBytesFixture(root, nativeRuntime: bundle);
-  await verifyJsCollectionsFixture(root, nativeRuntime: bundle);
-  await HttpOverrides.runWithHttpOverrides(
-    () => verifyDualTargetFixture(root, supplied),
-    _OfflineRuntime(),
-  );
-  final callbacks = await Process.run(
-    Platform.resolvedExecutable,
-    ['test', '-P', 'callback-native'],
-    environment: {'NAPI_TEST_NATIVE_RUNTIME': bundle.path},
-  );
-  stdout.write(callbacks.stdout);
-  stderr.write(callbacks.stderr);
-  if (callbacks.exitCode != 0) {
-    throw StateError('Native callback consumers exited ${callbacks.exitCode}');
-  }
-  await root.delete(recursive: true);
-  stdout.writeln(
-    'Generated native bindings, fresh npm install and TypeScript: passed',
-  );
-}
-
-/// Build once, relocate the npm archive, and exercise its native API and types.
-/// Omitting [nativeRuntime] exercises automatic runtime acquisition.
 Future<void> verifyNativePackage(
   Directory root, {
   Directory? nativeRuntime,
@@ -224,7 +87,6 @@ Future<void> main() async {
       (jsonDecode(pack.stdout as String) as List).single
           as Map<String, dynamic>;
   verifyPackedFiles(packed, expectedFiles);
-  stdout.writeln('Native tarball files: ${jsonEncode(packed['files'])}');
   final archive = await File('${project.path}/package/${packed['filename']}')
       .copy('${root.path}/native.tgz');
   await project.delete(recursive: true);
@@ -244,9 +106,6 @@ Future<void> main() async {
     Directory('${consumer.path}/node_modules/@napi/path'),
     expectedFiles,
     notices,
-  );
-  stdout.writeln(
-    'Native installed file inventory and exact license notices: passed',
   );
   await File('test/integration/native_classes.mjs')
       .copy('${consumer.path}/test.mjs');
@@ -328,9 +187,60 @@ console.log('Native Worker-only unload and reload: passed');
   await run('node', ['workers-only.mjs'], cwd: consumer.path);
 }
 
-final class _OfflineRuntime extends HttpOverrides {
-  @override
-  HttpClient createHttpClient(SecurityContext? context) => throw StateError(
-    'Dual packages must reuse the verified native runtime cache offline.',
+Future<void> verifyNativeFunctionPackage(
+  Directory root,
+  Directory bundle,
+  String kind,
+) async {
+  final business = await Directory('${root.path}/$kind-business').create();
+  final source = await File(
+    'test/fixtures/${kind == 'scalar' ? 'scalar_exports' : 'arguments'}.dart',
+  ).copy('${business.path}/business.dart');
+  if (kind == 'scalar') {
+    await File('test/fixtures/scalars.dart')
+        .copy('${business.path}/scalars.dart');
+  } else {
+    await File('test/fixtures/constant_collections.dart')
+        .copy('${business.path}/constant_collections.dart');
+  }
+  final name = '@napi/native-$kind';
+  final package = await buildPackage(
+    library: source.uri,
+    output: Directory('${business.path}/package'),
+    metadata: {'name': name, 'version': '0.0.0'},
+    packagesPath: File('.dart_tool/package_config.json').absolute.path,
+    target: BuildTarget.native,
+    nativeRuntime: bundle,
   );
+  await run('npm', ['pack', '--ignore-scripts', '--silent'], cwd: package.path);
+  final archive = await File('${package.path}/napi-native-$kind-0.0.0.tgz')
+      .copy('${root.path}/$kind.tgz');
+  await business.delete(recursive: true);
+  final consumer = await Directory('${root.path}/$kind').create();
+  await File('${consumer.path}/package.json')
+      .writeAsString('{"private":true,"type":"module"}');
+  await run('npm', [
+    'install',
+    '--offline',
+    '--ignore-scripts',
+    '--no-audit',
+    '--no-fund',
+    archive.path,
+  ], cwd: consumer.path);
+  final contract = '${kind}_contract.mjs';
+  await File('test/integration/$contract').copy('${consumer.path}/$contract');
+  final verify = kind == 'scalar' ? 'verifyScalars' : 'verifyArguments';
+  await File('${consumer.path}/test.mjs').writeAsString('''
+import * as api from '$name';
+import {$verify} from './$contract';
+$verify(api);
+console.log('Native $kind installed package: passed');
+''');
+  await run('node', ['test.mjs'], cwd: consumer.path);
+  final declarations = await File(
+    'test/typescript/${kind == 'scalar' ? 'scalars' : 'arguments'}.mts',
+  ).readAsString();
+  await File('${consumer.path}/consumer.mts')
+      .writeAsString(declarations.replaceAll('./module.wasm', name));
+  await typescript(consumer, 'consumer.mts');
 }

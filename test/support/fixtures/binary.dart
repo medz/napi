@@ -1,28 +1,27 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'verify.dart' show run;
+import '../commands.dart' show run, typecheck;
 
-/// Verifies generated cancellation declarations in relocated, installed packages.
-Future<void> verifyCancellationFixture(
+/// Verifies generated binary snapshots and declarations in relocated, installed packages.
+Future<void> verifyBinaryFixture(
   Directory root, {
   Directory? nativeRuntime,
 }) async {
   final native = nativeRuntime != null;
   final backend = native ? 'native' : 'wasm';
   final canonical = await Directory(root.resolveSymbolicLinksSync())
-      .createTemp('cancellation $backend 雪 ');
+      .createTemp('binary $backend 雪 ');
   final project = await Directory('${canonical.path}/business 中文').create();
   await File('${project.path}/pubspec.yaml').writeAsString('''
-name: cancellation_business
+name: binary_business
 environment:
   sdk: ^3.13.5
 dependencies:
   napi:
     path: ${jsonEncode(Directory.current.path)}
 ''');
-  await File('test/fixtures/cancellation.dart')
-      .copy('${project.path}/business.dart');
+  await File('test/fixtures/binary.dart').copy('${project.path}/business.dart');
   await File('${project.path}/build.dart').writeAsString('''
 import 'dart:io';
 import 'package:napi/build.dart';
@@ -32,34 +31,45 @@ Future<void> main() async {
     await buildPackage(
       library: File('business.dart').absolute.uri,
       output: Directory(external ? 'external' : 'package'),
-      metadata: {'name': external ? '@napi/cancellation-external' : '@napi/cancellation-fixture', 'version': '0.0.0'},
+      metadata: {'name': external ? '@napi/binary-external' : '@napi/binary-fixture', 'version': '0.0.0'},
       packagesPath: File('.dart_tool/package_config.json').absolute.path,
       external: external ? const ExternalLibrary([
         ExternalFunction('entries'),
         ExternalFunction('events'),
-        ExternalFunction('check'),
-        ExternalFunction('peekAfter'),
-        ExternalFunction('checkAfter'),
-        ExternalFunction('guarded'),
-        ExternalFunction('setConversion'),
-        ExternalFunction('immediate'),
+        ExternalFunction('bytes'),
+        ExternalFunction('buffer'),
+        ExternalFunction('nullable'),
         ExternalFunction('optional'),
         ExternalFunction('named'),
-        ExternalFunction('resolved'),
-        ExternalFunction('completeWork'),
-        ExternalFunction('work'),
-        ExternalFunction('timerWork'),
-        ExternalFunction('remember'),
-        ExternalFunction('tokenAlive'),
-        ExternalFunction('removeRetained'),
+        ExternalFunction('requiredNamed'),
+        ExternalFunction('opaque'),
+        ExternalFunction('window'),
+        ExternalFunction('windowBuffer'),
+        ExternalFunction('empty'),
+        ExternalFunction('repeated'),
+        ExternalFunction('repeatedBuffers'),
+        ExternalFunction('lists'),
+        ExternalFunction('maps'),
+        ExternalFunction('keyed'),
+        ExternalFunction('dictionary'),
+        ExternalFunction('record'),
+        ExternalFunction('setConversion'),
+        ExternalFunction('packet'),
+        ExternalFunction('packets'),
+        ExternalFunction('afterPacket'),
+        ExternalFunction('hold'),
+        ExternalFunction('complete'),
+        ExternalFunction('futureBuffer'),
+        ExternalFunction('futureWindow'),
+        ExternalFunction('futureRows'),
+        ExternalFunction('changeOutput'),
         ExternalFunction('pressure'),
-        ExternalFunction('cancelComplete'),
-        ExternalFunction('once'),
-        ExternalClass('WorkOwner', config: NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')),
-        ExternalClass('CleanupSignal', config: NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')),
-        ExternalClass('SavedSignal'),
-        ExternalClass('GuardValue', config: NAPI(classPolicy: ClassPolicy.value)),
-        ExternalClass('SignalFeed', config: NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')),
+        ExternalClass('BinaryKey', members: [
+          ExternalMember.getter('hashCode', config: NAPI(exclude: true)),
+        ]),
+        ExternalClass('BinaryBox'),
+        ExternalClass('Packet', config: NAPI(classPolicy: ClassPolicy.value)),
+        ExternalClass('BinaryOwner', config: NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')),
       ]) : null,
       ${native ? 'target: BuildTarget.native,\n      nativeRuntime: Directory(${jsonEncode(nativeRuntime.absolute.path)}),' : ''}
     );
@@ -75,6 +85,11 @@ Future<void> main() async {
     'run',
     'build.dart',
   ], cwd: project.path);
+  final declaration = native ? 'module.d.mts' : 'module.d.wasm.ts';
+  if (await File('${project.path}/package/$declaration').readAsString() !=
+      await File('${project.path}/external/$declaration').readAsString()) {
+    throw StateError('Annotation and external binary declarations differ.');
+  }
   final archives = <String>[];
   for (final (directory, name) in [
     ('package', 'fixture'),
@@ -82,7 +97,7 @@ Future<void> main() async {
   ]) {
     final package = '${project.path}/$directory';
     await run('npm', ['pack', '--ignore-scripts', '--silent'], cwd: package);
-    final archive = await File('$package/napi-cancellation-$name-0.0.0.tgz')
+    final archive = await File('$package/napi-binary-$name-0.0.0.tgz')
         .copy('${canonical.path}/$name.tgz');
     archives.add(archive.path);
   }
@@ -99,14 +114,9 @@ Future<void> main() async {
     '--no-fund',
     ...archives,
   ], cwd: consumer.path);
-  await File('test/integration/cancellation.mjs')
-      .copy('${consumer.path}/test.mjs');
-  final declarations = await File('test/typescript/cancellation.mts')
-      .readAsString();
+  await File('test/integration/binary.mjs').copy('${consumer.path}/test.mjs');
+  final declarations = await File('test/typescript/binary.mts').readAsString();
   await run('node', ['--expose-gc', 'test.mjs'], cwd: consumer.path);
-  final tsc =
-      Platform.environment['NAPI_TSC'] ??
-      '${Directory.current.path}/.dart_tool/js/node_modules/typescript/bin/tsc';
   for (final mode in ['NodeNext', 'Bundler']) {
     for (final exact in ['true', 'false']) {
       await File('${consumer.path}/consumer.mts').writeAsString(
@@ -115,15 +125,14 @@ Future<void> main() async {
           native ? '/native' : '/module.wasm',
         ),
       );
-      for (final strictFunctions in ['true', 'false']) {
-        await run('node', [
-          File(tsc).absolute.path,
+      for (final unchecked in ['true', 'false']) {
+        await typecheck([
           '--ignoreConfig',
           '--strict',
           '--exactOptionalPropertyTypes',
           exact,
-          '--strictFunctionTypes',
-          strictFunctions,
+          '--noUncheckedIndexedAccess',
+          unchecked,
           '--noEmit',
           '--target',
           'ES2022',
@@ -137,19 +146,4 @@ Future<void> main() async {
       }
     }
   }
-  stdout.writeln('Cancellation $backend fresh packages and TypeScript: passed');
-}
-
-Future<void> main(List<String> args) async {
-  if (args.length > 1) {
-    throw ArgumentError(
-      'Usage: dart run tool/cancellation_fixture.dart [native-runtime-bundle]',
-    );
-  }
-  final root = await Directory('.dart_tool').createTemp('napi cancellation ');
-  stdout.writeln('Cancellation verification artifacts: ${root.absolute.path}');
-  await verifyCancellationFixture(
-    root,
-    nativeRuntime: args.isEmpty ? null : Directory(args.single),
-  );
 }

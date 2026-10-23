@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'verify.dart' show run, typescript;
+import '../commands.dart' show run, typescript;
 
 /// Runs the same Future contract against independently packed backend modules.
 Future<void> verifyFutureFixture(
@@ -74,19 +74,4 @@ Future<void> main() async {
   );
   await run('node', ['--expose-gc', 'test.mjs'], cwd: consumer.path);
   await typescript(consumer, 'consumer.mts');
-  stdout.writeln('Future $backend fresh package and TypeScript: passed');
-}
-
-Future<void> main(List<String> args) async {
-  if (args.length > 1) {
-    throw ArgumentError(
-      'Usage: dart run tool/future_fixture.dart [native-runtime-bundle]',
-    );
-  }
-  final root = await Directory('.dart_tool').createTemp('napi futures ');
-  stdout.writeln('Future verification artifacts: ${root.absolute.path}');
-  await verifyFutureFixture(
-    root,
-    nativeRuntime: args.isEmpty ? null : Directory(args.single),
-  );
 }

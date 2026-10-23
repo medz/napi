@@ -5,7 +5,7 @@ import 'package:napi/build.dart';
 import 'package:napi/src/build/native_bundle.dart';
 import 'package:napi/src/compiler/sdk_adapter/dart_sdk_adapter.dart';
 
-import 'command.dart';
+import '../commands.dart';
 import 'package_contents.dart';
 
 /// One tarball contains both targets; every selected Node consumes the same bits.
@@ -198,7 +198,6 @@ Future<void> verifyDualTargetFixture(
         (jsonDecode(pack.stdout as String) as List).single
             as Map<String, dynamic>;
     verifyPackedFiles(packed, expected);
-    stdout.writeln('Dual $name packed: ${jsonEncode(packed)}');
     final archive = await File('${package.path}/${packed['filename']}')
         .copy('${directory.path}/$name.tgz');
     archives.add(archive.path);
@@ -232,14 +231,10 @@ Future<void> verifyDualTargetFixture(
   await File('test/typescript/dual_target.mts')
       .copy('${consumer.path}/consumer.mts');
   await run('node', ['--expose-gc', 'test.mjs'], cwd: consumer.path);
-  final tsc =
-      Platform.environment['NAPI_TSC'] ??
-      '${Directory.current.path}/.dart_tool/js/node_modules/typescript/bin/tsc';
   for (final mode in ['NodeNext', 'Bundler']) {
     for (final exact in ['true', 'false']) {
       for (final unchecked in ['true', 'false']) {
-        await run('node', [
-          File(tsc).absolute.path,
+        await typecheck([
           '--ignoreConfig',
           '--strict',
           '--noEmit',
@@ -259,8 +254,6 @@ Future<void> verifyDualTargetFixture(
       }
     }
   }
-  stdout.writeln('Dual target fresh packages and TypeScript: passed');
-  stdout.writeln('Consumer: ${consumer.path}');
 }
 
 Future<void> _verifyFailureCleanup(Directory root, Directory? runtime) async {
@@ -325,21 +318,4 @@ import 'package:napi/napi.dart';
       'Failed second target must preserve author files and its stable lock.',
     );
   }
-  stdout.writeln(
-    'Dual contract preflight and second-target failure cleanup: passed',
-  );
-}
-
-Future<void> main(List<String> args) async {
-  if (args.length > 1) {
-    throw ArgumentError(
-      'Usage: dart run tool/dual_target_fixture.dart [native-runtime-bundle]',
-    );
-  }
-  await reportNodeVersions();
-  final root = await Directory('.dart_tool').createTemp('napi dual ');
-  await verifyDualTargetFixture(
-    root,
-    args.isEmpty ? null : Directory(args.single).absolute,
-  );
 }

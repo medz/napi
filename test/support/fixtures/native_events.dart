@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'verify.dart' show run, typescript;
+import '../commands.dart' show run, typescript;
 
 /// Exercises the native owner-thread event pump through a fresh npm consumer.
 /// All exported declarations are synchronous; this does not expose Futures.
@@ -72,5 +72,4 @@ Future<void> main() async {
       .copy('${consumer.path}/consumer.mts');
   await run('node', ['--expose-gc', 'test.mjs'], cwd: consumer.path);
   await typescript(consumer, 'consumer.mts');
-  stdout.writeln('Native event fresh package and TypeScript: passed');
 }

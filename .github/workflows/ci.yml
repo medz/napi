@@ -121,10 +121,7 @@ jobs:
       - run: node -p '"NAPI_NODE_EXECUTABLES=" + JSON.stringify([process.execPath, process.env.NAPI_NODE_26])' >> "$GITHUB_ENV"
       - run: dart pub get
       - run: npm install --prefix .dart_tool/js --no-save --no-package-lock --ignore-scripts --no-audit --no-fund typescript@7.0.2
-      - name: Callback consumer suite
-        if: matrix.shard == 0
-        run: dart test -P callback-wasm
-      - run: dart run tool/verify.dart --total-shards 2 --shard-index ${{ matrix.shard }}
+      - run: dart test -P wasm-consumers --total-shards 2 --shard-index ${{ matrix.shard }} --shard-by-suite
 
   native:
     needs: scope
@@ -157,7 +154,7 @@ jobs:
           echo "NAPI_TEST_RUNTIME_ARCHIVE=$RUNNER_TEMP/runtime.zip" >> "$GITHUB_ENV"
           echo "NAPI_RUNTIME_CACHE=$RUNNER_TEMP/napi-runtime" >> "$GITHUB_ENV"
       - run: dart test test/compiler/native_runtime_test.dart test/compiler/native_bundle_test.dart
-      - run: dart run tool/native_verify.dart
+      - run: dart test -P native-consumers
 
   publication:
     needs: scope

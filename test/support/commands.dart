@@ -5,7 +5,7 @@ import 'package:path/path.dart' as path;
 
 final _nodeExecutables = _readNodeExecutables();
 
-/// Select the Node runtimes before compiling a conformance fixture.
+/// Validate the selected Node runtimes before building packages.
 Future<void> reportNodeVersions() async {
   await _nodeExecutables;
 }
@@ -61,19 +61,54 @@ Future<List<String>> _readNodeExecutables() async {
   return executables;
 }
 
-/// Reuse the same generated artifacts for every selected Node runtime.
-/// Dart compilation and npm packing/installing still execute once.
 Future<void> run(String command, List<String> args, {String? cwd}) async {
   final executables = command == 'node' ? await _nodeExecutables : [command];
   for (final executable in executables) {
-    if (command == 'node') stdout.writeln('Running Node: $executable');
-    final result = await Process.run(executable, args, workingDirectory: cwd);
-    stdout.write(result.stdout);
-    stderr.write(result.stderr);
-    if (result.exitCode != 0) {
-      throw StateError(
-        '$executable ${args.join(' ')} exited ${result.exitCode}',
-      );
-    }
+    await _run(executable, args, cwd: cwd);
+  }
+}
+
+Future<void> _run(String executable, List<String> args, {String? cwd}) async {
+  final result = await Process.run(executable, args, workingDirectory: cwd);
+  if (result.exitCode != 0) {
+    throw StateError(
+      '$executable ${args.join(' ')} exited ${result.exitCode}\n'
+      'Working directory: ${cwd ?? Directory.current.path}\n'
+      'stdout:\n${result.stdout}\nstderr:\n${result.stderr}',
+    );
+  }
+}
+
+Future<void> typecheck(List<String> args, {required String cwd}) async {
+  final tsc =
+      Platform.environment['NAPI_TSC'] ??
+      '${Directory.current.path}/.dart_tool/js/node_modules/typescript/bin/tsc';
+  if (!File(tsc).existsSync()) {
+    throw StateError(
+      'Install TypeScript 7.0.2 under .dart_tool/js, or set NAPI_TSC.',
+    );
+  }
+  await _run(Platform.environment['NAPI_TEST_NODE'] ?? 'node', [
+    File(tsc).absolute.path,
+    ...args,
+  ], cwd: cwd);
+}
+
+Future<void> typescript(Directory directory, String consumer) async {
+  for (final mode in ['NodeNext', 'Bundler']) {
+    await typecheck([
+      '--ignoreConfig',
+      '--strict',
+      '--exactOptionalPropertyTypes',
+      '--noEmit',
+      '--target',
+      'ES2022',
+      '--module',
+      mode == 'NodeNext' ? 'NodeNext' : 'ESNext',
+      '--moduleResolution',
+      mode,
+      '--allowArbitraryExtensions',
+      consumer,
+    ], cwd: directory.path);
   }
 }

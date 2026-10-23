@@ -1,9 +1,9 @@
 import 'dart:io';
 
-import 'package:napi/src/build/native_bundle.dart';
+import 'package:napi/src/build/native_runtime.dart';
 import 'package:test/test.dart';
 
-import '../../tool/command.dart' show nodeExecutables;
+import '../support/commands.dart' show nodeExecutables;
 import '../support/callback_package.dart';
 import '../support/process.dart';
 
@@ -42,7 +42,6 @@ const _scenarios = [
   'workers-with-main',
 ];
 
-/// Register one backend's installed-package checks without a custom runner.
 void callbackTests({required bool native}) {
   final backend = native ? 'native' : 'wasm';
   final nodes = nodeExecutables();
@@ -59,18 +58,6 @@ void callbackTests({required bool native}) {
 
   group('callback $backend', () {
     setUpAll(() async {
-      Directory? bundle;
-      if (native) {
-        final configured = Platform.environment['NAPI_TEST_NATIVE_RUNTIME'];
-        if (configured == null || configured.isEmpty) {
-          throw StateError(
-            'callback-native requires NAPI_TEST_NATIVE_RUNTIME; '
-            'provide a qualified bundle, no download or native skip is performed.',
-          );
-        }
-        bundle = Directory(configured).absolute;
-        await NativeRuntimeBundle.read(bundle);
-      }
       if (!tsc.existsSync()) {
         throw StateError(
           'Install TypeScript 7.0.2 under .dart_tool/js, or set NAPI_TSC.',
@@ -86,10 +73,19 @@ void callbackTests({required bool native}) {
         );
         print('Node ${result.stdout.toString().trim()}: $node');
       }
-      print('TypeScript host: $typescriptNode');
       root = await Directory('.dart_tool').createTemp('napi callback suite ');
-      print('Callback $backend artifacts: ${root!.absolute.path}');
       try {
+        Directory? bundle;
+        if (native) {
+          final configured = Platform.environment['NAPI_TEST_NATIVE_RUNTIME'];
+          if (configured != null && configured.isEmpty) {
+            throw StateError('NAPI_TEST_NATIVE_RUNTIME must not be empty.');
+          }
+          bundle = (await resolveNativeRuntime(
+            runtime: configured == null ? null : Directory(configured),
+            output: root!.absolute,
+          )).directory;
+        }
         consumer = await buildCallbackPackage(
           root!.absolute,
           nativeRuntime: bundle,
@@ -97,20 +93,14 @@ void callbackTests({required bool native}) {
       } finally {
         buildSettled = true;
       }
-      print(
-        'Callback $backend: source/external built once, packed and installed offline.',
-      );
     });
 
     tearDownAll(() async {
       final directory = root;
       if (directory == null) return;
       if (!buildSettled || pendingTypechecks != 0) {
-        // A package:test timeout does not cancel a compiler/npm/TS tree.
-        print(
-          'Build/typecheck has not settled; preserving ${directory.path}. '
-          'Subprocess-tree cancellation remains unresolved in #200.',
-        );
+        // A test timeout does not cancel compiler/npm/TS descendants.
+        print('Build/typecheck still running; keeping ${directory.path}.');
         return;
       }
       if (await directory.exists()) await directory.delete(recursive: true);
@@ -147,8 +137,7 @@ void callbackTests({required bool native}) {
         for (final exact in ['true', 'false']) {
           for (final strictFunctions in ['true', 'false']) {
             test('$mode exact=$exact strictFunctions=$strictFunctions', () async {
-              // TS 7 may execFileSync its native compiler (notably on Windows).
-              // Keep the existing tree-spawning path until #200 owns such trees.
+              // TS 7 can spawn its native compiler; wait before deleting files.
               final arguments = [
                 tsc.absolute.path,
                 '--ignoreConfig',
