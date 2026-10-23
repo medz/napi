@@ -1,8 +1,10 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:napi/src/compiler/front_end/frontend.dart';
 import 'package:napi/src/compiler/native/loader.dart';
 import 'package:napi/src/compiler/native/plan.dart';
+import 'package:napi/src/compiler/native/platform.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -49,6 +51,47 @@ import 'package:napi/napi.dart';
     expect(loader, isNot(contains(r'$napiObserveCallbackPromise')));
     expect(loader, contains('node:util'));
   });
+
+  test(
+    'Linux loaders check OS and architecture before loading native code',
+    () async {
+      final linux = await directory.createTemp('linux-loader-');
+      final loader = emitNativeLoader([], platform: NativePlatform.linuxX64);
+      await File('${linux.path}/module.mjs').writeAsString(loader);
+      await File('${linux.path}/bridge.node').writeAsString('''
+globalThis.bridgeLoaded = true;
+exports.load = () => ({});
+''');
+      for (final (platform, architecture, accepted) in [
+        ('linux', 'x64', true),
+        ('linux', 'arm64', false),
+        ('darwin', 'x64', false),
+      ]) {
+        await File('${linux.path}/preload.cjs').writeAsString('''
+Object.defineProperty(process, 'platform', {value: ${jsonEncode(platform)}});
+Object.defineProperty(process, 'arch', {value: ${jsonEncode(architecture)}});
+globalThis.diagnosticReports = 0;
+process.report.getReport = () => { globalThis.diagnosticReports++; return {}; };
+require.extensions['.node'] = require.extensions['.js'];
+''');
+        await File('${linux.path}/check.mjs').writeAsString('''
+import assert from 'node:assert/strict';
+${accepted ? "await import('./module.mjs');\nassert.equal(globalThis.bridgeLoaded, true);" : "await assert.rejects(import('./module.mjs'), /requires Linux x64/);\nassert.equal(globalThis.bridgeLoaded, undefined);"}
+assert.equal(globalThis.diagnosticReports, 0);
+''');
+        final result = await Process.run('node', [
+          '--require',
+          '${linux.path}/preload.cjs',
+          '${linux.path}/check.mjs',
+        ]);
+        expect(
+          result.exitCode,
+          0,
+          reason: '$platform/$architecture: ${result.stdout}${result.stderr}',
+        );
+      }
+    },
+  );
 
   test(
     'private helpers preserve identity and strict Promise admission',

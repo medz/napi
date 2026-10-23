@@ -1,9 +1,9 @@
 # Native Dart AOT bindings
 
 The experimental native target runs Dart business code through a precompiled
-Node-API bridge and a matching Dart AOT runtime. It currently supports macOS
-arm64 with Dart **3.13.5**. The builder downloads and caches the runtime on first
-use; subsequent builds can use it offline.
+Node-API bridge and a matching Dart AOT runtime. It supports macOS arm64 and
+Linux x64 with glibc, using Dart **3.13.5**. macOS downloads and caches its runtime
+on first use. Linux currently requires a local runtime bundle.
 
 ## Build a package
 
@@ -49,9 +49,19 @@ Application builds use the ordinary Dart SDK. C/C++ tools and SDK sources are
 needed only to produce a new runtime bundle; see the
 [maintainer guide](../native/README.md).
 
+On Linux x64, supply a matching bundle in the build call:
+
+```dart
+nativeRuntime: Directory('/absolute/path/to/linux-runtime-bundle'),
+```
+
+The bundle and the Dart AOT compiler must match the build host. Cross-compiling
+and musl-based distributions such as Alpine are not supported. npm consumers
+need only the generated package and Node.js.
+
 ## Runtime download and offline builds
 
-The runtime download is about 1.9 MB. Its full archive SHA-256, size and manifest
+The macOS runtime download is about 1.9 MB. Its full archive SHA-256, size and manifest
 hash are pinned in napi; cached payload files are verified on every use. The
 cache defaults to `~/Library/Caches/napi`. Set `NAPI_RUNTIME_CACHE` to select
 another directory. A corrupt entry fails with its path so it can be removed
@@ -68,7 +78,8 @@ The builder uses macOS's system `ditto` to extract the pinned archive.
 Native outputs contain `module.mjs`, `module.d.mts`, business `module.aot`,
 `bridge.node`, the identity-qualified runtime, its manifest and licenses.
 Single-target npm root and `./native` exports point to the same entry. Assembly
-sets `os: ["darwin"]` and `cpu: ["arm64"]` and rejects conflicting metadata.
+sets `os` and `cpu` from the runtime bundle, plus `libc: ["glibc"]` for Linux,
+and rejects conflicting metadata.
 Keep the complete file set and the Dart/napi licenses when redistributing.
 
 The builder validates the exact compiler revision and runtime bundle before
@@ -128,10 +139,15 @@ The current bundle uses ABI 15 with Dart 3.13.5. Its embedding API and runtime
 layout depend on experimental Dart internals; Node-API compatibility alone does
 not make another Dart SDK or host interchangeable.
 
-Both native binaries target macOS 14. Execution has been tested on macOS 14.8.9
+The macOS binaries target macOS 14. Execution has been tested on macOS 14.8.9
 and 27.0.1 arm64, Node 24.19.0 and 26.11.1, with TypeScript 7.0.2 declarations.
-The bundle was built with Apple clang 21.0.0. Other macOS versions, Linux,
-Windows, Intel Macs and other Node-API hosts are not qualified.
+The macOS bundle was built with Apple clang 21.0.0.
+
+Linux x64 bundles target glibc 2.28 and use the pinned Dart SDK clang 23.0.0git
+toolchain and Debian sysroot. Execution has been tested on Ubuntu 24.04 x64
+with Node 24.19.0 and 26.11.1 and TypeScript 7.0.2. Node.js has its own
+operating-system requirements.
+Windows, Intel Macs, Linux arm64 and other Node-API hosts are not qualified.
 
 See [the runtime bundle guide](../native/README.md) to build a new runtime
 profile, and [CONTRIBUTING.md](../CONTRIBUTING.md) to run native tests.

@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import '../compiler/native/platform.dart';
+
 const generatedPackageFields = {
   'type',
   'files',
@@ -65,6 +67,7 @@ const _bareBuiltins = {
 Map<String, Object?> packageMetadata(
   Map<String, Object?> metadata, {
   bool native = false,
+  NativePlatform? nativePlatform,
 }) {
   // Detach caller-owned nested data before analysis or compilation can yield.
   final package = (jsonDecode(jsonEncode(metadata)) as Map)
@@ -111,18 +114,34 @@ Map<String, Object?> packageMetadata(
       })) {
     throw ArgumentError('Invalid npm package version: $version');
   }
-  if (native) {
-    for (final entry in {
-      'os': ['darwin'],
-      'cpu': ['arm64'],
-    }.entries) {
-      if (package.containsKey(entry.key) &&
-          jsonEncode(package[entry.key]) != jsonEncode(entry.value)) {
-        throw ArgumentError(
-          'Native package metadata ${entry.key} must match ${entry.value}.',
-        );
+  if (native || nativePlatform != null) {
+    var candidates = nativePlatform == null
+        ? NativePlatform.values
+        : [nativePlatform];
+    for (final field in ['os', 'cpu', 'libc']) {
+      List<String>? value(NativePlatform profile) => switch (field) {
+        'os' => [profile.nodePlatform],
+        'cpu' => [profile.architecture],
+        _ => profile.libc == null ? null : [profile.libc!],
+      };
+      if (package.containsKey(field)) {
+        candidates = candidates
+            .where(
+              (profile) =>
+                  jsonEncode(package[field]) == jsonEncode(value(profile)),
+            )
+            .toList();
+        if (candidates.isEmpty) {
+          throw ArgumentError(
+            'Native package metadata $field must match ${nativePlatform == null ? 'a supported native target' : value(nativePlatform)}.',
+          );
+        }
       }
-      package[entry.key] = entry.value;
+      // An unresolved build may validate platform restrictions, but only the
+      // actual bundle can supply the generated package's target fields.
+      if (nativePlatform != null && value(nativePlatform) != null) {
+        package[field] = value(nativePlatform);
+      }
     }
   }
   return package;

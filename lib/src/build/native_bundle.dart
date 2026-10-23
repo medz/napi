@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'dart:ffi' show Abi;
+import 'dart:ffi';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
@@ -7,18 +7,21 @@ import 'package:path/path.dart' as path;
 
 import '../compiler/sdk_adapter/dart_sdk_adapter.dart';
 import '../compiler/sdk_adapter/dart_aot_adapter.dart' show nativeSdkRevision;
+import '../compiler/native/platform.dart';
 
 /// A maintainer-built bundle. Reading never loads native code in the builder.
 final class NativeRuntimeBundle {
   final Directory directory;
   final String identity;
   final String runtime;
+  final NativePlatform platform;
   final Map<String, String> hashes;
   final String manifestJson;
   NativeRuntimeBundle._(
     this.directory,
     this.identity,
     this.runtime,
+    this.platform,
     this.hashes,
     this.manifestJson,
   );
@@ -47,18 +50,19 @@ final class NativeRuntimeBundle {
     } on FormatException {
       throw const FormatException('Invalid native runtime manifest JSON.');
     }
+    final platform = manifest is Map<String, dynamic>
+        ? NativePlatform.fromManifest(manifest)
+        : null;
     if (manifest is! Map<String, dynamic> ||
         manifest['format'] != 1 ||
         manifest['sdkVersion'] != supportedDartSdkVersion ||
         manifest['sdkRevision'] != nativeSdkRevision ||
-        manifest['platform'] != 'macos' ||
-        manifest['architecture'] != 'arm64' ||
-        manifest['minimumOsVersion'] != '14.0' ||
+        platform == null ||
         manifest['abi'] != 15 ||
         manifest['bridge'] != 'bridge.node') {
       throw const SdkCompatibilityException(
         'NAPI_NATIVE_BUNDLE',
-        'Expected a Dart 3.13.5 Product macOS arm64 ABI 15 runtime bundle.',
+        'Expected a Dart 3.13.5 Product ABI 15 runtime bundle for macOS arm64 or Linux x64 glibc.',
       );
     }
     final identity = manifest['identity'];
@@ -67,7 +71,7 @@ final class NativeRuntimeBundle {
     if (identity is! String ||
         !RegExp(r'^[A-Za-z0-9_.-]+$').hasMatch(identity) ||
         runtime is! String ||
-        runtime != 'libnapi_runtime_$identity.dylib' ||
+        runtime != 'libnapi_runtime_$identity.${platform.runtimeExtension}' ||
         files is! Map<String, dynamic>) {
       throw const FormatException('Invalid native runtime identity or files.');
     }
@@ -100,12 +104,13 @@ final class NativeRuntimeBundle {
       root,
       identity,
       runtime,
+      platform,
       Map.unmodifiable(hashes),
       jsonEncode(manifest),
     );
   }
 
-  void verifyHost() => verifyNativeHost();
+  void verifyHost() => verifyNativeHost(expected: platform);
 
   /// Verify the copied bytes too, so changing a bundle during a build cannot
   /// silently publish assets different from the validated manifest.
@@ -124,13 +129,53 @@ final class NativeRuntimeBundle {
   }
 }
 
-void verifyNativeHost() {
-  if (!Platform.isMacOS || Abi.current() != Abi.macosArm64) {
+NativePlatform verifyNativeHost({NativePlatform? expected}) {
+  final NativePlatform platform;
+  if (Platform.isMacOS && Abi.current() == Abi.macosArm64) {
+    platform = NativePlatform.macosArm64;
+  } else if (Platform.isLinux && Abi.current() == Abi.linuxX64) {
+    platform = NativePlatform.linuxX64;
+    final version = _glibcVersion();
+    if (version == null ||
+        !nativeVersionAtLeast(version, platform.minimumLibcVersion!)) {
+      throw SdkCompatibilityException(
+        'NAPI_NATIVE_PLATFORM',
+        'Native Linux builds require ${platform.description}.',
+      );
+    }
+  } else {
     throw const SdkCompatibilityException(
       'NAPI_NATIVE_PLATFORM',
-      'Native builds currently require macOS arm64; other targets are not yet supported.',
+      'Native builds require macOS arm64 or Linux x64 glibc.',
     );
   }
+  if (expected != null && expected != platform) {
+    throw SdkCompatibilityException(
+      'NAPI_NATIVE_PLATFORM',
+      'The native runtime requires ${expected.description}; this host is ${platform.description}.',
+    );
+  }
+  return platform;
+}
+
+String? _glibcVersion() {
+  try {
+    final value = DynamicLibrary.process()
+        .lookupFunction<Pointer<Uint8> Function(), Pointer<Uint8> Function()>(
+          'gnu_get_libc_version',
+        )();
+    if (value == nullptr) return null;
+    final bytes = <int>[];
+    for (var index = 0; index < 64; index++) {
+      final byte = value[index];
+      if (byte == 0) return String.fromCharCodes(bytes);
+      bytes.add(byte);
+    }
+  } on ArgumentError {
+    // musl and other libc implementations do not export this glibc symbol.
+    return null;
+  }
+  return null;
 }
 
 Future<String> _hash(File file) async =>

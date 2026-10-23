@@ -120,6 +120,6 @@ ordinary byte snapshots are not shared implicitly.
 
 ## Compatibility
 
-Both backends require the pinned Dart SDK. Native currently supports macOS
-arm64; Wasm uses Dart WasmGC. See [native requirements](native.md) and
+Both backends require the pinned Dart SDK. Wasm uses Dart WasmGC.
+See [native requirements](native.md) and
 [supported toolchains](../README.md#requirements).

@@ -103,6 +103,6 @@ Each queued item retains its converted value until delivery or cancellation.
 The 64-item bound does not limit an item's size, so large snapshots still consume
 corresponding host memory.
 
-Both backends require the pinned Dart SDK. Native currently supports macOS
-arm64; Wasm uses Dart WasmGC. See [native builds](native.md) and
+Both backends require the pinned Dart SDK. Wasm uses Dart WasmGC.
+See [native builds](native.md) and
 [supported toolchains](../README.md#requirements).

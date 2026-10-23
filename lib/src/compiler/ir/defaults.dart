@@ -343,8 +343,13 @@ String _scalarSource(Object? value) {
   if (value is String) return jsonEncode(value).replaceAll(r'$', r'\$');
   if (value is double) {
     if (value.isNaN) {
-      final bytes = ByteData(8)..setFloat64(0, value);
-      return bytes.getUint8(0) & 0x80 == 0 ? 'double.nan' : '-double.nan';
+      // double.nan itself can have either sign, depending on the host.
+      final bytes = ByteData(16)
+        ..setFloat64(0, value)
+        ..setFloat64(8, double.nan);
+      return (bytes.getUint8(0) ^ bytes.getUint8(8)) & 0x80 == 0
+          ? 'double.nan'
+          : '-double.nan';
     }
     if (value.isInfinite) {
       return value.isNegative ? 'double.negativeInfinity' : 'double.infinity';

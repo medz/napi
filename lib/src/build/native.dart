@@ -53,6 +53,7 @@ Future<BuiltModule> buildNativeModule({
     await File('${artifact.path}/module.mjs').writeAsString(
       emitNativeLoader(
         exports,
+        platform: bundle.platform,
         classes: plan.classes,
         functionValues: plan.functionValues,
         hasBinary: plan.hasBinary,
