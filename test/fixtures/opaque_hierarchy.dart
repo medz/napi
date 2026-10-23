@@ -44,6 +44,48 @@ class OpaqueChild<U> extends OpaqueBase<U> {
 }
 
 @NAPI()
+class OpaqueTagged<T, Meta> extends OpaqueBase<T> {
+  Meta meta;
+  OpaqueTagged(super.value, this.meta);
+  @override
+  OpaqueTagged<T, Meta> self() => this;
+}
+
+@NAPI()
+class OpaqueTaggedLeaf<Meta, Extra, T> extends OpaqueTagged<T, Meta> {
+  Extra extra;
+  OpaqueTaggedLeaf(super.value, super.meta, this.extra);
+}
+
+@NAPI()
+OpaqueBase<T> opaqueTaggedBase<T, Meta>(OpaqueTagged<T, Meta> value) => value;
+
+int _resourceCleanups = 0;
+
+@NAPI(classPolicy: ClassPolicy.resource, cleanup: 'close')
+class OpaqueResourceBase {
+  OpaqueResourceBase();
+  Future<int> wait() {
+    _waiting = Completer<int>();
+    return _waiting!.future;
+  }
+
+  void close() => _resourceCleanups++;
+}
+
+@NAPI()
+class OpaqueResourceChild<T> extends OpaqueResourceBase {
+  T value;
+  OpaqueResourceChild(this.value);
+  T read() => value;
+}
+
+@NAPI()
+OpaqueResourceBase opaqueAsResource<T>(OpaqueResourceChild<T> value) => value;
+@NAPI()
+int opaqueResourceCleanups() => _resourceCleanups;
+
+@NAPI()
 class OpaquePair<A, B> {
   A first;
   B second;

@@ -164,7 +164,7 @@ follow the contracts below. Selected class aliases and non-cleanup methods on
 resource classes also support method parameters; resource operations
 keep their existing settlement/cancellation leases.
 
-Selected instance methods also work through inheritance, overrides and full-bijection
+Selected instance methods also work through inheritance, overrides and supported
 class parameter mappings. Corresponding method parameters are compared by position,
 so `echo<U>(U value)` and `echo<V>(V value)` can share an interface contract. Class
 parameters remain separate from method parameters; projected TypeScript names are
@@ -183,7 +183,7 @@ parameters; see [typed callbacks](callbacks.md).
 
 ## Reference inheritance
 
-Selected ordinary reference classes may rename or permute all opaque parameters:
+Selected reference classes may rename or permute opaque parameters:
 
 ```dart
 @NAPI()
@@ -205,12 +205,26 @@ payload carriers. TypeScript preserves the parameter order, invariant payload
 types and nominal brands. Static members and named constructors belong to their
 own exported class.
 
-Every selected generic ancestor must use each child's parameter exactly once,
-without nesting or nullable arguments, and have the same parameter count.
+Subclasses can introduce independent payload parameters:
+
+```dart
+@NAPI()
+class Tagged<A, B, Meta> extends Pair<A, B> {
+  Tagged(super.first, super.second, this.metadata);
+  Meta metadata;
+}
+```
+
+`Tagged<A, B, Meta>` is also a `Pair<A, B>` view of the same object; its metadata
+retains the original JS payload. A generic class can also extend or implement a
+selected non-generic class, including a resource base.
+
+Each selected ancestor parameter must map to a distinct, non-nullable child
+parameter. The ancestor does not need to use every parameter of the child.
 This applies through unselected intermediate classes and to selected interfaces.
 Own and inherited overrides retain their declaring defaults and argument presence.
-Fixed, repeated, omitted, extra or nullable ancestor arguments still receive build
-diagnostics. Resource classes support the same bijective parameter mappings.
+Fixed, repeated, nested or nullable ancestor arguments still receive build
+diagnostics. Resource classes support the same parameter mappings.
 An ordinary selected subclass inherits its ancestor's resource contract; all
 selected views must agree on the cleanup method's call shape and defaults.
 Closing through any view waits for active operations and releases the object once.
@@ -270,8 +284,7 @@ getter outputs. Nested value classes can rename, permute or repeat those paramet
 their TypeScript aliases retain each use site's parameter order. Each occurrence
 creates a copied JS object; opaque leaves retain their original JS payloads.
 
-Non-bijective open hierarchies remain unsupported. Concrete or erased specializations
-such as `Router<String>` or raw `Router` are not interchangeable with
+Concrete or erased specializations such as `Router<String>` or raw `Router` are not interchangeable with
 `Router<T>` under this carrier policy. They receive build diagnostics.
 
 `Future<T>` and `Future<Generic<T>>` hand the converted root value to a genuine

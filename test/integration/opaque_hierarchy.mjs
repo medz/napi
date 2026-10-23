@@ -26,6 +26,51 @@ export async function hierarchy(api) {
     assert.throws(() => api.OpaqueBase.prototype.write.call(child), TypeError);
   }
   const first = {first: true}, second = {second: true};
+  const extra = Symbol('extra');
+  for (const tagged of [new api.OpaqueTagged(first, second), new api.OpaqueTaggedLeaf(first, second, extra)]) {
+    assert(tagged instanceof api.OpaqueBase);
+    assert(tagged instanceof api.OpaqueTagged);
+    assert.equal(api.opaqueTaggedBase(tagged), tagged);
+    assert.equal(tagged.self(), tagged);
+    assert.equal(api.OpaqueBase.prototype.self.call(tagged), tagged);
+    assert.equal(tagged.read(), first);
+    assert.equal(tagged.meta, second);
+    api.OpaqueBase.prototype.write.call(tagged, undefined);
+    assert.equal(tagged.value, undefined);
+    assert.equal(tagged.meta, second);
+    tagged.meta = null;
+    assert.equal(tagged.meta, null);
+    tagged.meta = undefined;
+    assert.equal(tagged.meta, undefined);
+    if (tagged instanceof api.OpaqueTaggedLeaf) {
+      assert.equal(tagged.extra, extra);
+      tagged.extra = first;
+      assert.equal(tagged.extra, first);
+      assert.equal(tagged.meta, undefined);
+    }
+  }
+  assert.throws(() => new api.OpaqueTagged(first), TypeError);
+  assert.throws(() => new api.OpaqueTaggedLeaf(first, second), TypeError);
+
+  const cleanups = api.opaqueResourceCleanups();
+  const resource = new api.OpaqueResourceChild(first);
+  assert(resource instanceof api.OpaqueResourceBase);
+  assert.equal(api.opaqueAsResource(resource), resource);
+  assert.equal(resource.read(), first);
+  const pendingResource = api.OpaqueResourceBase.prototype.wait.call(resource);
+  const closingResource = api.OpaqueResourceBase.prototype.close.call(resource);
+  assert.equal(resource.close(), closingResource);
+  await Promise.resolve();
+  assert.equal(api.opaqueResourceCleanups(), cleanups);
+  assert.throws(() => resource.read(), /closing|closed/);
+  assert.throws(() => { resource.value = second; }, /closing|closed/);
+  await assert.rejects(resource.wait(), /closing|closed/);
+  api.opaqueComplete(74);
+  assert.equal(await pendingResource, 74);
+  await closingResource;
+  assert.equal(api.opaqueResourceCleanups(), cleanups + 1);
+  assert.throws(() => resource.read(), /closed/);
+
   for (const Child of [api.OpaquePairChild, api.OpaqueLeaf]) {
     const pair = new Child(first, second);
     assert(pair instanceof api.OpaquePair);

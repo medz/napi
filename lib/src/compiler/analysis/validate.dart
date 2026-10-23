@@ -162,7 +162,7 @@ final class ReferenceClassShape {
   final int? superclassId;
 
   /// For each selected generic ancestor, its parameter slots in this scope.
-  /// Only full bijections are supported; runtime carriers keep their own owner.
+  /// Slots are distinct; a child may have additional independent parameters.
   final Map<int, List<int>> ancestorArguments;
   final List<ReferencePropertyShape> prototypeProperties;
   ReferenceMemberShape? get cleanup =>
@@ -206,6 +206,27 @@ ReferenceMemberShape? referenceMemberInScope(
     for (final (index, slot) in slots.indexed) {
       parameters[owner.binding.typeParameters[slot].declaration] =
           scope.binding.typeParameters[index].declaration;
+    }
+    final missing = {
+      for (final parameter in owner.binding.typeParameters)
+        if (!parameters.containsKey(parameter.declaration))
+          parameter.declaration,
+    };
+    bool unbound(BindingType type) => switch (type) {
+      TypeParameterType() => missing.contains(type.declaration),
+      DeclaredType() => type.typeArguments.any(unbound),
+      RecordTypeBinding() =>
+        type.positional.any(unbound) || type.named.values.any(unbound),
+      FunctionTypeBinding() =>
+        unbound(type.result) ||
+            type.parameters.any((parameter) => unbound(parameter.type)),
+      _ => false,
+    };
+    // An ancestor view cannot name a child's independent payload parameters.
+    if (missing.isNotEmpty &&
+        (member.parameters.any((parameter) => unbound(parameter.type)) ||
+            member.result != null && unbound(member.result!))) {
+      return null;
     }
   } else if (!scope.memberships.contains(owner.classId) &&
       !owner.memberships.contains(scope.classId)) {
@@ -1419,13 +1440,12 @@ List<ReferenceClassShape> _referenceHierarchy(
                   ? parameters.indexOf(argument.declaration)
                   : -1,
           ];
-          if (parameters.length != parentBinding.typeParameters.length ||
-              slots.length != parameters.length ||
+          if (slots.length != parentBinding.typeParameters.length ||
               slots.contains(-1) ||
-              slots.toSet().length != parameters.length) {
+              slots.toSet().length != slots.length) {
             throw BindingDiagnostic(
               'NAPI_GENERIC',
-              'Selected open ancestors require a full bijection of non-null opaque parameters.',
+              'Selected open ancestors require distinct non-null opaque parameters from the child.',
               binding.source,
             );
           }
