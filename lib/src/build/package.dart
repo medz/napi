@@ -23,7 +23,8 @@ import 'native_runtime.dart';
 /// Wasm is the default. Intermediate build files are
 /// cleaned up; a postcommit cleanup failure reports the retained path without
 /// changing the successful result. Managed output can be rebuilt on
-/// qualified macOS filesystems; legacy or unsupported output is preserved.
+/// qualified macOS and Linux filesystems; legacy or unsupported output is
+/// preserved.
 /// With [targets], include both backends in one package; [target] chooses the
 /// root entrypoint. Explicit native/wasm subpaths never fall back to one another.
 Future<Directory> buildPackage({

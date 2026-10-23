@@ -1,3 +1,74 @@
+## 0.19.0
+
+This release lets Dart consume JavaScript async iterables returned by callbacks,
+preserves custom const collection defaults, and supports rebuilding generated
+npm packages on Linux.
+
+### 🔁 Consume async iterables from Dart callbacks
+
+A callback declared with a Dart `Stream` result now accepts a JavaScript
+`AsyncIterable`, including an async generator:
+
+```dart
+@NAPI()
+Future<List<int>> read(Stream<int> Function(int) source) => source(3).toList();
+```
+
+```js
+await read(async function* (start) {
+  yield start;
+  yield start + 1;
+}); // [3, 4]
+```
+
+Dart pulls one item at a time and validates each yielded value. Pausing stops
+further pulls; cancelling or failing conversion calls the iterator's optional
+`return()` once. Original JavaScript iteration errors retain their identity.
+
+Resource payloads stay retained through iteration. Closing a resource requests
+cancellation and waits for accepted iterator work; it cannot force an unresolved
+JavaScript Promise to settle. Both native and Wasm use the same mapping.
+
+[Stream callback behavior](https://github.com/medz/napi/blob/v0.19.0/doc/callbacks.md#stream-results)
+
+### 📦 Keep custom const collection defaults
+
+Optional parameters can now use custom const `List` and `Map` implementations
+with scalar or structural data elements. Omitting a parameter or supplying
+`undefined` preserves the original Dart constant, including nested collections.
+Explicit JavaScript inputs keep the ordinary declared collection conversions.
+
+The constant needs an accessible constructor or public const binding. Resources
+stored in its fields retain their normal operation leases without evaluating
+collection getters or iterators. Reference, value-class and opaque element types
+remain unsupported because computed elements need not appear in stored fields.
+
+[Argument defaults and limits](https://github.com/medz/napi/blob/v0.19.0/doc/arguments.md)
+
+### 🐧 Rebuild generated npm packages on Linux
+
+Build and assembly calls can now replace their own managed output on supported
+64-bit Linux ext-family filesystems and tmpfs. Replacement uses an atomic
+directory exchange and preserves retained author files, permissions, ownership,
+ACLs, extended attributes and timestamps for unchanged files. Linux requires
+`statx` and extended attribute support; legacy or unsupported output remains
+unchanged.
+
+This extends package rebuilding. Native `.node` addons still support macOS
+arm64.
+
+[Managed rebuild rules](https://github.com/medz/napi/blob/v0.19.0/doc/packaging.md#managed-rebuilds)
+
+### Other improvements and fixes
+
+- Managed rebuilds can replace explicitly supplied read-only documentation assets
+  and preserve read-only `package.json` permissions on Linux.
+
+Regenerate bindings to use the new conversions. Both build targets still require
+Dart 3.13.5; native packages use bridge ABI 15.
+
+[Release on GitHub](https://github.com/medz/napi/releases/tag/v0.19.0)
+
 ## 0.18.0
 
 This release lets you keep part of a class alias generic, carry JavaScript
