@@ -495,7 +495,13 @@ int namedResourceUse(
 @NAPI()
 class HiddenPoint {
   final int value;
-  const HiddenPoint._(this.value);
+  final Type _type;
+  const HiddenPoint._(this.value, [this._type = String]);
+  String get typeName => _type == String
+      ? 'String'
+      : _type == int
+      ? 'int'
+      : '?';
 }
 
 const _hiddenPoint = HiddenPoint._(41);
@@ -504,6 +510,10 @@ const _hiddenMapping = {'point': _hiddenPoint};
 
 @NAPI()
 HiddenPoint hiddenDefault([HiddenPoint point = _hiddenPoint]) => point;
+@NAPI()
+HiddenPoint hiddenTypedDefault([
+  HiddenPoint point = const HiddenPoint._(42, int),
+]) => point;
 @NAPI()
 HiddenPoint? hiddenNamedDefault({HiddenPoint? point = _hiddenPoint}) => point;
 @NAPI()

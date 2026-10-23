@@ -6,6 +6,8 @@ import 'package:analyzer/dart/element/type.dart';
 // Keep constant storage inspection on the same pinned analyzer as the frontend.
 // ignore: implementation_imports
 import 'package:analyzer/src/dart/constant/value.dart' show DartObjectImpl;
+// ignore: implementation_imports
+import 'package:analyzer/src/dart/element/type.dart' show InterfaceTypeImpl;
 
 import '../ir/defaults.dart';
 import '../ir/model.dart' show ScalarDefault;
@@ -56,6 +58,18 @@ String? constantStorageKey(DartObject value) {
       budget.text(text.length);
       return [scalar is int ? 'int' : scalar.runtimeType.toString(), text];
     }
+    if (value is DartObjectImpl) {
+      if (value.toTypeValue() case final representedType?) {
+        // Bound the raw graph before the analyzer recursively normalizes it.
+        typeKey(representedType, depth + 1);
+        final typeSystem =
+            (value.type as InterfaceTypeImpl).element.library.typeSystem;
+        return [
+          'type',
+          typeKey(typeSystem.normalize(representedType), depth + 1),
+        ];
+      }
+    }
     final type = value.type;
     if (type == null) throw const FormatException('Unknown constant type.');
     final key = typeKey(type, depth);
@@ -92,9 +106,7 @@ String? constantStorageKey(DartObject value) {
         ],
       ];
     }
-    if (value.toFunctionValue() != null ||
-        value.toTypeValue() != null ||
-        value.toSymbolValue() != null) {
+    if (value.toFunctionValue() != null || value.toSymbolValue() != null) {
       throw const FormatException('Unsupported constant storage.');
     }
     if (value is! DartObjectImpl || value.fields == null) {

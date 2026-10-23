@@ -98,11 +98,13 @@ coordinate({ point: undefined }); // 7
 
 This also works for static methods, reference-class constructors and value-class
 input constructors. Stored resources must have an accessible const expression or
-public stored-field path, as described below. Function values, type literals and
-symbols remain unsupported in inaccessible defaults. Instance methods still need
-a public constructor or const binding so overrides cannot change the selected
-declaration's defaults. Earlier optional positional parameters also need a public
-constructor or const binding.
+public stored-field path, as described below. Defaults can store Dart type values
+such as `String`, `List<int>` or record types in internal fields. These values stay
+in Dart; `Type` is not a supported JavaScript parameter or property type. Function
+types, `void`, function values and symbols remain unsupported in inaccessible
+defaults. Instance methods still need a public constructor or const binding so
+overrides cannot change the selected declaration's defaults. Earlier optional
+positional parameters also need a public constructor or const binding.
 
 Defaults preserve the actual Dart constant, including its type, insertion order
 and canonical identity. Returning a default uses the normal result conversion.

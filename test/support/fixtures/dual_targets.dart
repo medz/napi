@@ -79,6 +79,7 @@ Future<void> verifyDualTargetFixture(
                 'originResourceDefault',
                 'namedResourceUse',
                 'hiddenDefault',
+                'hiddenTypedDefault',
                 'hiddenNamedDefault',
                 'hiddenDefaultAfter',
                 'hiddenContainerDefaults',

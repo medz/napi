@@ -340,41 +340,46 @@ class Box<T> { Box(this.value); final T value; }''',
     }
   });
 
-  test('inaccessible defaults compare their evaluated stored fields', () async {
-    await File('${root.path}/model.dart').writeAsString('''
+  for (final (type, first, second) in [
+    ('int', '7', '8'),
+    ('Type', 'String', 'int'),
+  ]) {
+    test('inaccessible defaults compare stored $type values', () async {
+      await File('${root.path}/model.dart').writeAsString('''
 import 'package:napi/napi.dart';
 @NAPI() class Point {
-  final int value;
-  const Point._(this.value);
+  final $type _value;
+  const Point._(this._value);
 }
-const first = Point._(7);
-const second = Point._(8);
+const first = Point._($first);
+const second = Point._($second);
 ''');
-    String source(String expression) =>
-        '''
+      String source(String expression) =>
+          '''
 import 'model.dart';
 export 'model.dart';
 const _origin = $expression;
-@NAPI() int run({Point point = _origin}) => point.value;
+@NAPI() bool run({Point point = _origin}) => true;
 ''';
-    await compare(
-      source('true ? first : second'),
-      source('false ? second : first'),
-    );
-    await expectLater(
-      compare(
+      await compare(
         source('true ? first : second'),
-        source('false ? first : second'),
-      ),
-      throwsA(
-        isA<BindingDiagnostic>().having(
-          (error) => error.code,
-          'code',
-          'NAPI_PACKAGE_CONTRACT',
+        source('false ? second : first'),
+      );
+      await expectLater(
+        compare(
+          source('true ? first : second'),
+          source('false ? first : second'),
         ),
-      ),
-    );
-  });
+        throwsA(
+          isA<BindingDiagnostic>().having(
+            (error) => error.code,
+            'code',
+            'NAPI_PACKAGE_CONTRACT',
+          ),
+        ),
+      );
+    });
+  }
 
   test('copied opaque and nested handle contracts agree across targets', () async {
     const source =
@@ -387,6 +392,35 @@ const _origin = $expression;
       expect(declarations, isNot(contains('ReadonlyArray')));
     }
   });
+
+  test(
+    'stored Type defaults normalize nested runtime-equivalent types',
+    () async {
+      await File('${root.path}/model.dart').writeAsString('''
+import 'dart:async';
+import 'package:napi/napi.dart';
+typedef Original = (List<Never?>, FutureOr<Object?>);
+typedef Normalized = (List<Null>, Object?);
+@NAPI() class Metadata {
+  final Type _type;
+  const Metadata._(this._type);
+}
+const first = Metadata._(Original);
+const second = Metadata._(Normalized);
+''');
+      String source(String expression) =>
+          '''
+import 'model.dart';
+export 'model.dart';
+const _origin = $expression;
+@NAPI() bool run({Metadata value = _origin}) => true;
+''';
+      await compare(
+        source('true ? first : second'),
+        source('false ? first : second'),
+      );
+    },
+  );
 
   test(
     'native call paths use native validation for source and external IR',
@@ -404,6 +438,30 @@ const _origin = $expression;
       }
     },
   );
+
+  test('stored Type defaults erase extension type representations', () async {
+    await File('${root.path}/model.dart').writeAsString('''
+import 'package:napi/napi.dart';
+extension type Count(int value) {}
+@NAPI() class Metadata {
+  final Type _type;
+  const Metadata._(this._type);
+}
+const first = Metadata._(Count);
+const second = Metadata._(int);
+''');
+    String source(String expression) =>
+        '''
+import 'model.dart';
+export 'model.dart';
+const _origin = $expression;
+@NAPI() bool run({Metadata value = _origin}) => true;
+''';
+    await compare(
+      source('true ? first : second'),
+      source('false ? first : second'),
+    );
+  });
 
   test(
     'public cleanup remains equal after private implementation renaming',

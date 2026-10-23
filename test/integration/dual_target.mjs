@@ -191,6 +191,12 @@ async function check(name, selected) {
 async function hiddenDefaults(current) {
   const point = current.hiddenDefault();
   assert.equal(point.value, 41);
+  assert.equal(point.typeName, 'String');
+  const typedPoint = current.hiddenTypedDefault();
+  assert.equal(typedPoint.value, 42);
+  assert.equal(typedPoint.typeName, 'int');
+  assert.equal(current.hiddenTypedDefault(undefined), typedPoint);
+  assert.equal(current.hiddenTypedDefault(point), point);
   assert.equal(current.hiddenDefault(undefined), point);
   assert.equal(current.hiddenDefault(point), point);
   for (const options of [undefined, {}, {point: undefined}, {point}]) {
