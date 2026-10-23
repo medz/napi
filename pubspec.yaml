@@ -1,6 +1,6 @@
 name: napi
 description: Generate Dart bindings for Node-API addons and WebAssembly modules.
-version: 0.19.0
+version: 0.20.0
 repository: https://github.com/medz/napi
 issue_tracker: https://github.com/medz/napi/issues
 topics: [wasm, node, interop]
