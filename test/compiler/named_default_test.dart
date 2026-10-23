@@ -30,6 +30,11 @@ class Defaults {
 ''';
 
 void main() {
+  test('constant source preserves the host NaN sign', () {
+    expect(constantDefaultSource(ScalarDefault(double.nan)), 'double.nan');
+    expect(constantDefaultSource(ScalarDefault(-double.nan)), '-double.nan');
+  });
+
   final packages = File('.dart_tool/package_config.json').absolute.path;
   late Directory directory;
   setUp(() async {

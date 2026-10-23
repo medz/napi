@@ -85,8 +85,8 @@ file whitelist. File hashes validate the distributed assets; runtime identity is
 The builder also writes `build.provenance`: the producer commit and
 explicit dirty-source flag, hashes of the repository's actual build inputs,
 compiler identity and macOS SDK version or Linux toolchain package hashes,
-cache recipe hashes, and non-system headers discovered with the compilation
-flags before compiling and checked
+cache recipe hashes, and headers discovered with the compilation flags
+(including pinned system headers on Linux) before compiling and checked
 again against the actual compiler dependency files. Source, VM objects, cache
 recipes and compiler hashes are also checked again before publication; detected
 input drift fails the build. Keep the prepared cache and toolchain unchanged
@@ -149,8 +149,8 @@ recompiling VM objects.
 
 The stable runtime identity includes the pinned SDK revision, mode, architecture,
 ABI and a combined digest of the runtime/bridge ABI source hash and VM input
-objects digest. On Linux it also includes the compiler, linker, linked toolchain
-files and compilation/link arguments. Distinct VM caches cannot silently share
+objects digest. On Linux it also includes the compiler, linker, runtime headers,
+linked toolchain files and compilation/link arguments. Distinct VM caches cannot silently share
 an identity merely because their Git HEAD matches. The runtime filename/install-name contain
 it. The bridge compares the actual linked `NapiDart_RuntimeIdentity()` result
 with its compiled expected identity before any VM initialization. Compatible

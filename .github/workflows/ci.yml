@@ -211,7 +211,7 @@ jobs:
           echo "NAPI_TEST_RUNTIME_ARCHIVE=$RUNNER_TEMP/runtime.zip" >> "$GITHUB_ENV"
           echo "NAPI_RUNTIME_CACHE=$RUNNER_TEMP/napi-runtime" >> "$GITHUB_ENV"
       - run: dart test test/compiler/native_runtime_test.dart test/compiler/native_bundle_test.dart
-      - run: dart test -P native-consumers
+      - run: dart test -P native-consumers --fail-fast
 
   publication:
     needs: scope

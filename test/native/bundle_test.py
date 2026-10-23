@@ -357,16 +357,20 @@ class BuildInputsTest(unittest.TestCase):
         cases += [('linux-x64', name) for name in link_changes]
         cases += [('linux-x64', 'initial-'+name) for name in link_changes]
         cases += [('linux-x64', 'initial-'+name) for name in
-                  ['link-flags', 'compile-flags', 'library-order']]
+                  ['link-flags', 'compile-flags', 'library-order', 'header', 'system-header', 'cxx-header']]
         cases += [('linux-x64', None)]  # The same inputs in another SDK directory.
+        cases += [('linux-x64', 'nested-sdk')]
         original_identity = None
         for profile, changed in cases:
             with self.subTest(profile=profile, changed=changed), tempfile.TemporaryDirectory() as tmp:
                 linux = profile == 'linux-x64'
                 root = Path(tmp).resolve()
                 repo, cache, sdk, node = [root/name for name in ['repo', 'cache', 'sdk', 'node']]
+                if changed == 'nested-sdk':
+                    sdk = repo/'.dart_tool/sdk'
+                    changed = None
                 for path in [repo, cache, sdk, node]:
-                    path.mkdir()
+                    path.mkdir(parents=True)
                 for name in build.SOURCE_FILES:
                     file = repo/name
                     file.parent.mkdir(parents=True, exist_ok=True)
@@ -375,6 +379,18 @@ class BuildInputsTest(unittest.TestCase):
                     (node/name).write_text('header')
                 header = sdk/'actual.h'
                 header.write_text('header')
+                if changed == 'initial-header':
+                    header.write_text('header changed before build')
+                system_header = sdk/'buildtools/sysroot/linux/usr/include/stdlib.h'
+                system_header.parent.mkdir(parents=True)
+                system_header.write_text('system header')
+                if changed == 'initial-system-header':
+                    system_header.write_text('system header changed before build')
+                cxx_header = sdk/'buildtools/linux-x64/clang/include/c++/v1/string'
+                cxx_header.parent.mkdir(parents=True)
+                cxx_header.write_text('C++ header')
+                if changed == 'initial-cxx-header':
+                    cxx_header.write_text('C++ header changed before build')
                 clang = sdk/'buildtools/linux-x64/clang/bin/clang++' if linux else root/'clang'
                 clang.parent.mkdir(parents=True, exist_ok=True)
                 clang.write_text('compiler')
@@ -452,11 +468,14 @@ class BuildInputsTest(unittest.TestCase):
                         {'vm': vm, 'recipe': target, 'header': header,
                          'source': repo/'native/runtime/runtime.cc',
                          'compiler': clang, **packages, **link_inputs}[changed].write_text('changed during build')
-                    if '-MM' not in command:
+                    if not any(flag in command for flag in ['-M', '-MM']):
                         output.write_bytes(b'test artifact')
                     if '-MF' in command:
+                        dependencies = [Path(arg) for arg in command if arg.endswith('.cc')] + [header]
+                        if any(flag in command for flag in ['-M', '-MD']):
+                            dependencies += [system_header, cxx_header]
                         Path(command[command.index('-MF')+1]).write_text(
-                            f'{output}: {shlex.quote(str(header))}\n')
+                            f'{output}: ' + ' '.join(shlex.quote(str(path)) for path in dependencies)+'\n')
                     link_dep = next((arg.removeprefix('-Wl,--dependency-file=') for arg in command
                                      if arg.startswith('-Wl,--dependency-file=')), None)
                     if link_dep:
@@ -494,8 +513,11 @@ class BuildInputsTest(unittest.TestCase):
                     else:
                         manifest = build.build(sdk, node, output, cache)
                         self.assertEqual(manifest['build']['vmInputsSha256'], original_vm)
-                        self.assertEqual(manifest['build']['provenance']['headers'],
-                                         {'sdk/actual.h': build.digest(header)})
+                        expected_headers = {'sdk/actual.h': build.digest(header)}
+                        if linux:
+                            expected_headers.update({'sdk/'+path.relative_to(sdk).as_posix(): build.digest(path)
+                                                     for path in [system_header, cxx_header]})
+                        self.assertEqual(manifest['build']['provenance']['headers'], expected_headers)
                         self.assertIn(f'-product-{profile}-abi15-id', manifest['identity'])
                         if linux:
                             if initial_change:
@@ -513,6 +535,7 @@ class BuildInputsTest(unittest.TestCase):
                             self.assertEqual(manifest['build']['provenance']['toolchainInputs'],
                                              {path.relative_to(sdk).as_posix(): build.digest(path)
                                               for path in [clang, *link_inputs.values()]})
+                            self.assertEqual(manifest['build']['provenance']['runtimeHeaders'], expected_headers)
                             links = [command for command in commands if '-shared' in command and '-MM' not in command]
                             self.assertEqual(len(links), 3)
                             self.assertIn('-Wl,--strip-debug', manifest['build']['provenance']['arguments']['link'])

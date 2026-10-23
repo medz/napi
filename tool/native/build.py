@@ -72,9 +72,11 @@ def vm_inputs(cache, objects):
     return result.hexdigest()
 
 
-def dependency_inputs(depfiles, roots):
-    """Record actual non-system headers read by these compilations, not a guess."""
+def dependency_inputs(depfiles, roots, include_system=False):
+    """Record headers from compiler depfiles, including extensionless C++ headers."""
     result = {}
+    sources = {(ROOT/name).resolve() for name in SOURCE_FILES if name.endswith('.cc')}
+    locations = sorted(roots.items(), key=lambda item: len(item[1].parts), reverse=True) if include_system else roots.items()
     for depfile in depfiles:
         dependencies = shlex.split(depfile.read_text().replace('\\\n', ' ').split(':', 1)[1])
         for name in dependencies:
@@ -82,9 +84,9 @@ def dependency_inputs(depfiles, roots):
             if not path.is_absolute():
                 path = roots['cache']/path
             path = path.resolve(strict=True)
-            if path.suffix not in ['.h', '.hpp', '.inc']:
+            if path in sources or (not include_system and path.suffix not in ['.h', '.hpp', '.inc']):
                 continue
-            for label, root in roots.items():
+            for label, root in locations:
                 if path.is_relative_to(root):
                     result[label+'/'+path.relative_to(root).as_posix()] = digest(path)
                     break
@@ -305,12 +307,34 @@ def build(sdk, headers, output, cache):
         bridge_flags = (['-fPIC', '--sysroot='+sysroot, '--target=x86_64-linux-gnu'] if linux else
                         ['-dynamiclib', '-undefined', 'dynamic_lookup'])
         bridge_options = ['-std=c++17', '-O2', *bridge_flags,
-                          '-MMD', '-MF', str(stage/'bridge.d'), *compile_prefix,
+                          '-MD' if linux else '-MMD', '-MF', str(stage/'bridge.d'), *compile_prefix,
                           '-I'+str(headers), '-I'+str(uv_headers),
                           '-I'+str(sdk/'runtime'), '-I'+str(sdk/'runtime/include'),
                           '-I'+str(ROOT/'native/runtime'), '-I'+str(stage)]
+        header_roots = {
+            'generated': stage.resolve(), 'repository': ROOT.resolve(),
+            'sdk': sdk.resolve(), 'node': headers.resolve(),
+            'libuv': (uv_headers/'uv.h').resolve().parent, 'cache': cache.resolve(),
+        }
+
+        def source_dependencies(command, depfile):
+            run([*command, '-M' if linux else '-MM', '-Wno-unused-command-line-argument'], cwd=cache)
+            return dependency_inputs([depfile], header_roots, include_system=linux)
+
         identity_inputs = source_hash + '\0' + vm_inputs_hash
         if linux:
+            runtime_header_inputs = {}
+            for name in ['runtime', 'identity']:
+                depfile = stage/f'{name}.d'
+                runtime_header_inputs[name] = source_dependencies(
+                    [clang, *compile_prefix, *flags, '-DNAPI_DART_RUNTIME_ID=""',
+                     '-MD', '-MF', str(depfile),
+                     '-c', str(ROOT/f'native/runtime/{name}.cc'), '-o', str(stage/f'{name}.o')],
+                    depfile)
+            runtime_headers = {path: value for inputs in runtime_header_inputs.values()
+                               for path, value in inputs.items()}
+            runtime_headers_hash = hashlib.sha256(
+                json.dumps(runtime_headers, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
             link_probe = stage/'link-probe.d'
             probe_objects = [str((cache/path).resolve()) for path in objects]
             probe_filelist = stage/'probe-objects.rsp'
@@ -339,26 +363,23 @@ def build(sdk, headers, output, cache):
                 arguments[name] = normalized
             arguments_hash = hashlib.sha256(
                 json.dumps(arguments, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
-            identity_inputs += '\0' + toolchain_hash + '\0' + arguments_hash
+            identity_inputs += '\0' + toolchain_hash + '\0' + arguments_hash + '\0' + runtime_headers_hash
             provenance['toolchainInputs'] = toolchain_inputs
             provenance['arguments'] = arguments
+            provenance['runtimeHeaders'] = runtime_headers
         identity_hash = hashlib.sha256(identity_inputs.encode()).hexdigest()
         identity = f'dart-{SDK_REVISION}-product-{profile}-abi{ABI}-id{identity_hash}'
         filename = f'libnapi_runtime_{identity}' + ('.so' if linux else '.dylib')
         runtime_objects = []
         depfiles = []
-        header_roots = {
-            'generated': stage.resolve(), 'repository': ROOT.resolve(),
-            'sdk': sdk.resolve(), 'node': headers.resolve(),
-            'libuv': (uv_headers/'uv.h').resolve().parent, 'cache': cache.resolve(),
-        }
         header_hashes = {}
 
-        def compile_source(command, depfile):
-            # Discover the actual non-system dependencies before compilation;
+        def compile_source(command, depfile, expected_headers=None):
+            # Discover the actual dependencies before compilation;
             # post-build hashes alone cannot describe the bytes the compiler used.
-            run([*command, '-MM', '-Wno-unused-command-line-argument'], cwd=cache)
-            before = dependency_inputs([depfile], header_roots)
+            before = source_dependencies(command, depfile)
+            if expected_headers is not None and before != expected_headers:
+                raise ValueError('Native headers changed during the build')
             for name, value in before.items():
                 if name in header_hashes and header_hashes[name] != value:
                     raise ValueError('Native headers changed during the build')
@@ -371,9 +392,9 @@ def build(sdk, headers, output, cache):
             depfiles.append(depfile)
             command = [clang, *compile_prefix,
                        *flags, f'-DNAPI_DART_RUNTIME_ID="{identity}"',
-                       '-MMD', '-MF', str(depfile),
+                       '-MD' if linux else '-MMD', '-MF', str(depfile),
                        '-c', str(ROOT/f'native/runtime/{name}.cc'), '-o', str(obj)]
-            compile_source(command, depfile)
+            compile_source(command, depfile, runtime_header_inputs[name] if linux else None)
             runtime_objects.append(str(obj))
         filelist = stage/'objects.rsp'
         object_paths = [str((cache/path).resolve()) for path in objects] + runtime_objects
@@ -444,7 +465,8 @@ def build(sdk, headers, output, cache):
             'build': {'cacheArgumentsSha256': digest(cache/'args.gn'),
                       'vmInputsSha256': vm_inputs_hash, 'vmInputCount': len(objects),
                       **({'toolchainInputsSha256': toolchain_hash,
-                          'argumentsSha256': arguments_hash} if linux else {}),
+                          'argumentsSha256': arguments_hash,
+                          'runtimeHeadersSha256': runtime_headers_hash} if linux else {}),
                       'sourceSha256': source_hash, 'provenance': provenance},
         }
         (artifact/'manifest.json').write_text(json.dumps(manifest, indent=2)+'\n')
@@ -454,7 +476,7 @@ def build(sdk, headers, output, cache):
             raise ValueError('Native VM inputs changed during the build')
         if {name: digest(path) for name, path in recipes.items()} != recipe_hashes:
             raise ValueError('Native cache recipes changed during the build')
-        if dependency_inputs(depfiles, header_roots) != header_hashes:
+        if dependency_inputs(depfiles, header_roots, include_system=linux) != header_hashes:
             raise ValueError('Native headers changed during the build')
         if digest(Path(clang)) != provenance['compiler']['sha256']:
             raise ValueError('Native compiler changed during the build')

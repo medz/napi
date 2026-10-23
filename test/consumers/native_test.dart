@@ -51,6 +51,15 @@ void main() {
       ),
     );
     test(
+      'dual-target package',
+      () => consumer(
+        (root) => HttpOverrides.runWithHttpOverrides(
+          () => verifyDualTargetFixture(root, supplied),
+          _OfflineRuntime(),
+        ),
+      ),
+    );
+    test(
       'scalars',
       () => consumer(
         (root) => verifyNativeFunctionPackage(root, runtime, 'scalar'),
@@ -131,15 +140,6 @@ void main() {
       'JS collections',
       () => consumer(
         (root) => verifyJsCollectionsFixture(root, nativeRuntime: runtime),
-      ),
-    );
-    test(
-      'dual-target package',
-      () => consumer(
-        (root) => HttpOverrides.runWithHttpOverrides(
-          () => verifyDualTargetFixture(root, supplied),
-          _OfflineRuntime(),
-        ),
       ),
     );
   }, timeout: const Timeout(Duration(minutes: 3)));
