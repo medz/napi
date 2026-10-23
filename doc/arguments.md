@@ -77,7 +77,7 @@ value class with a public const constructor. This also applies to optional
 fields in a value class's configured input constructor. Optional positional holes
 still work independently when later arguments are supplied.
 
-Direct resource parameters and built-in List, Map, Dictionary and record
+Direct resource parameters and List, Map, Dictionary and record
 defaults acquire the same operation leases as explicit inputs; see
 [resource defaults](resources.md#constant-defaults). Value-class input properties
 also support these resource defaults, with leases acquired before later fields or
@@ -91,7 +91,12 @@ null. The evaluated constant type must remain compatible with the declared
 container. An object that has neither a reconstructible
 public constructor nor a reachable public const binding produces `NAPI_DEFAULT`.
 Unsupported constant kinds outside those objects are also diagnosed.
-Custom const collection implementations remain unsupported. A resource stored
+Custom const List/Map implementations with scalar or structural data elements
+use the same constructor or public const binding rules. They stay as their
+original Dart objects, including when nested inside other defaults. Computed
+getters and iterators are not evaluated while finding stored resource dependencies.
+Reference, value-class and opaque elements remain unsupported because custom
+collection code can produce values absent from its stored fields. A resource stored
 inside a default must have a matching selected resource view and be reachable
 through an accessible const expression or a safe public stored-field path.
 Otherwise the parameter receives `NAPI_DEFAULT`.

@@ -1,5 +1,7 @@
 import 'package:napi/napi.dart';
 
+import 'constant_collections.dart';
+
 const _number = 2 * 3 + 1;
 const _label = 'fallback';
 const _text = 'a\ud800b\udfffc\$\u0000\u2028\u2029';
@@ -25,6 +27,26 @@ int? optionalNullable([int? value = 11]) => _record(value);
 
 @NAPI()
 int? optionalNull([int? value]) => _record(value);
+
+@NAPI()
+List<int> customListDefault([List<int> values = const ConstList([2, 3])]) =>
+    _record(values);
+
+@NAPI()
+Map<String, int> customMapDefault({
+  Map<String, int> values = const ConstMap({'one': 7}),
+}) => _record(values);
+
+@NAPI()
+List<List<int>> customNestedDefault([
+  List<List<int>> values = const [
+    ConstList([4, 5]),
+  ],
+]) => _record(values);
+
+@NAPI()
+bool customDefaultIdentity([List<int> values = const ConstList([2, 3])]) =>
+    _record(identical(values, const ConstList([2, 3])));
 
 @NAPI()
 String optionalValues([

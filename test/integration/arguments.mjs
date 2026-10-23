@@ -6,6 +6,7 @@ import {
   optionalNull, optionalValues, optionalText, optionalDouble, optionalNaN,
   optionalInfinity, optionalNegativeInfinity, optionalWide, optionalBigInt,
   namedValues, requiredNamed, namedWide, manyNamed, optionalFailure,
+  customListDefault, customMapDefault, customNestedDefault, customDefaultIdentity,
 } from './module.wasm';
 
 const compiled = await WebAssembly.compile(
@@ -21,6 +22,7 @@ const callables = {
   optionalDouble, optionalNaN, optionalInfinity, optionalNegativeInfinity,
   optionalWide, optionalBigInt, namedValues, requiredNamed, namedWide,
   manyNamed, optionalFailure,
+  customListDefault, customMapDefault, customNestedDefault, customDefaultIdentity,
 };
 for (const [name, value] of Object.entries(callables)) {
   assert.deepEqual(exports.find(e => e.name === name), {name, kind: 'global'});

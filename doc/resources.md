@@ -78,7 +78,10 @@ view. Generic resources need the corresponding concrete alias.
 A resource can be named through its public const constructor or binding, or
 through public stored fields of an accessible default. A getter that computes a
 value cannot supply that path. Resources that have no such expression produce
-`NAPI_DEFAULT`; custom const collection implementations remain unsupported.
+`NAPI_DEFAULT`. Custom const collection implementations with scalar or structural
+data elements use the same stored-field rules; resource discovery does not call
+their computed getters or iterators. See [argument defaults](arguments.md)
+for element type restrictions.
 
 ## State and cleanup
 

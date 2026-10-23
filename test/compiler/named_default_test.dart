@@ -194,7 +194,10 @@ const origin = $constructor();
 @NAPI() int take([List<Base> values = origin]) => values.length;
 ''');
       for (final native in [false, true]) {
-        await expectLater(read(input, native: native), rejectedDefault());
+        await expectLater(() async {
+          final module = await read(input, native: native);
+          native ? validateNative(module) : validate(module);
+        }, rejectedDefault());
       }
     });
   }

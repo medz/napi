@@ -41,6 +41,7 @@ Future<void> main() async {
       ExternalClass('HiddenResourceField', config: NAPI(classPolicy: ClassPolicy.value)),
       ExternalClass('IgnoredResourceValue', config: NAPI(classPolicy: ClassPolicy.value, valueFields: {'ignored': 'marker'})),
       ExternalFunction('resourceGraphOwner'),
+      ExternalFunction('resourceCollectionHold'),
       ExternalFunction('resourceHiddenHold'),
       ExternalFunction('resourceHiddenArray'),
       ExternalFunction('resourceIgnoredDefault'),
