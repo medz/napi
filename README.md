@@ -74,7 +74,8 @@ Future<void> main() async {
 
 Run `dart run tool/build.dart`, then pack/install `npm-package` in the Node
 consumer. Use a new output path, or follow the [managed rebuild rules](doc/packaging.md#managed-rebuilds)
-for a package created by this builder on local macOS APFS.
+for a package created by this builder on local macOS APFS or supported 64-bit
+Linux filesystems.
 For native, supply `target: BuildTarget.native`; the builder downloads and caches
 the matching precompiled runtime. See [native prerequisites](doc/native.md) and
 [explicit dual-target builds](doc/packaging.md#explicit-dual-target-packages).
