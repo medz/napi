@@ -57,7 +57,7 @@ void main() {
 
   for (final native in [false, true]) {
     test(
-      'bijections project inherited contracts, not runtime owners ($native)',
+      'inheritance projects contracts, not runtime owners ($native)',
       () async {
         final source = File('test/fixtures/opaque_hierarchy.dart').absolute;
         final module = await AnnotationFrontend(

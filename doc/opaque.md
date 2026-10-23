@@ -284,8 +284,7 @@ getter outputs. Nested value classes can rename, permute or repeat those paramet
 their TypeScript aliases retain each use site's parameter order. Each occurrence
 creates a copied JS object; opaque leaves retain their original JS payloads.
 
-Non-bijective open hierarchies remain unsupported. Concrete or erased specializations
-such as `Router<String>` or raw `Router` are not interchangeable with
+Concrete or erased specializations such as `Router<String>` or raw `Router` are not interchangeable with
 `Router<T>` under this carrier policy. They receive build diagnostics.
 
 `Future<T>` and `Future<Generic<T>>` hand the converted root value to a genuine

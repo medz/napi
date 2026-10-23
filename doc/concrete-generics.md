@@ -266,7 +266,7 @@ when Dart considers the surrounding alias closed. [Open opaque generics](opaque.
 use a separate storage/forwarding contract. Selecting an original class and one of its
 aliases together is rejected, as is selecting multiple aliases for the
 same canonical specialization. Selected hierarchies support ordinary classes,
-class aliases and [bijective opaque parameter mappings](opaque.md#reference-inheritance).
+class aliases and [distinct opaque parameter mappings](opaque.md#reference-inheritance).
 Other open ancestor mappings remain diagnosed. Reference selections
 that Dart type tests cannot distinguish, such as `Marker<void>` with `Marker<Object?>`, are also rejected;
 value projections do not use that runtime classification.
