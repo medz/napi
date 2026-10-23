@@ -45,7 +45,8 @@ counter.increment(); // 1, executed in Dart
 counter.value = 10;
 ```
 
-Application builds use the ordinary Dart SDK; Linux also needs `/usr/bin/unzip`.
+Application builds use the ordinary Dart SDK. Extracting an uncached runtime on
+Linux also needs `/usr/bin/unzip`.
 C/C++ tools and SDK sources are needed only to produce a new runtime bundle;
 see the [maintainer guide](../native/README.md).
 

@@ -29,7 +29,7 @@ consumers with:
 dart test -P native-consumers
 ```
 
-The runtime downloads automatically; Linux needs `/usr/bin/unzip`. To use an
+The runtime downloads automatically; extracting it on Linux needs `/usr/bin/unzip`. To use an
 existing bundle offline, pass a matching bundle:
 
 ```sh
