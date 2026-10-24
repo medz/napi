@@ -224,7 +224,7 @@ jobs:
           path: ${{ runner.temp }}/native-artifact
           if-no-files-found: error
           retention-days: 7
-      - run: dart test -P native-consumers --fail-fast
+      - run: dart test -P native-consumers
       - name: Obtain runtime archive for download tests
         run: |
           cat > "$RUNNER_TEMP/runtime-url.dart" <<'DART'
