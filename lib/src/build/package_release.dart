@@ -229,19 +229,16 @@ final class PackageRelease {
         if (await _integrity(package.tarball) != package.integrity) {
           throw StateError('Prepared tarball changed: ${package.tarball.path}');
         }
-        final process = await Process.start(
-          _npmExecutable,
-          [
-            'publish',
-            package.tarball.path,
-            '--ignore-scripts',
-            ...registryOptions,
-            if (tag != null) '--tag=$tag',
-            if (access != null) '--access=${access.name}',
-          ],
-          mode: ProcessStartMode.inheritStdio,
-          runInShell: Platform.isWindows,
-        );
+        final command = await _npmCommand();
+        final process = await Process.start(command.first, [
+          ...command.skip(1),
+          'publish',
+          package.tarball.path,
+          '--ignore-scripts',
+          ...registryOptions,
+          if (tag != null) '--tag=$tag',
+          if (access != null) '--access=${access.name}',
+        ], mode: ProcessStartMode.inheritStdio);
         final code = await process.exitCode;
         // A network failure can occur after the registry accepted the upload.
         // Read back the digest before deciding whether this package is pending.
@@ -369,17 +366,61 @@ final class _PreparedPackage {
 
 String get _npmExecutable => Platform.isWindows ? 'npm.cmd' : 'npm';
 
+Future<List<String>> _npmCommand({String? cwd}) async {
+  if (!Platform.isWindows) return ['npm'];
+  // cmd.exe would interpret characters in otherwise valid paths and options.
+  // Use the CLI next to the selected npm launcher, with its bundled Node when
+  // present, matching the standard npm.cmd installation layout.
+  final located = await Process.run('where.exe', [
+    'npm.cmd',
+  ], workingDirectory: cwd);
+  if (located.exitCode != 0) {
+    throw ProcessException('npm.cmd', [], 'npm was not found on PATH.');
+  }
+  final launcher = (located.stdout as String)
+      .split(RegExp(r'\r?\n'))
+      .map((line) => line.trim())
+      .firstWhere((line) => line.isNotEmpty);
+  final directory = path.dirname(launcher);
+  var cli = File(
+    path.join(directory, 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+  );
+  final bundledNode = File(path.join(directory, 'node.exe'));
+  final node = await bundledNode.exists() ? bundledNode.path : 'node';
+  final prefixScript = File(path.join(cli.parent.path, 'npm-prefix.js'));
+  if (await prefixScript.exists()) {
+    final prefix = await Process.run(node, [
+      prefixScript.path,
+    ], workingDirectory: cwd);
+    if (prefix.exitCode == 0) {
+      final installed = File(
+        path.join(
+          (prefix.stdout as String).trim(),
+          'node_modules',
+          'npm',
+          'bin',
+          'npm-cli.js',
+        ),
+      );
+      if (await installed.exists()) cli = installed;
+    }
+  }
+  if (!await cli.exists()) {
+    throw ProcessException('npm.cmd', [], 'npm CLI not found: ${cli.path}');
+  }
+  return [node, cli.path];
+}
+
 Future<ProcessResult> _npm(
   List<String> arguments, {
   String? cwd,
   bool check = true,
 }) async {
-  final result = await Process.run(
-    _npmExecutable,
-    arguments,
-    workingDirectory: cwd,
-    runInShell: Platform.isWindows,
-  );
+  final command = await _npmCommand(cwd: cwd);
+  final result = await Process.run(command.first, [
+    ...command.skip(1),
+    ...arguments,
+  ], workingDirectory: cwd);
   if (check && result.exitCode != 0) {
     throw ProcessException(
       _npmExecutable,

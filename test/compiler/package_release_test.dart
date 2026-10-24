@@ -48,8 +48,8 @@ void main() {
 
   setUp(() async {
     root = await Directory(await Directory.systemTemp.resolveSymbolicLinks())
-        .createTemp('napi release ');
-    output = Directory('${root.path}/release');
+        .createTemp('napi-release-');
+    output = Directory('${root.path}/&-%PATH%/release');
     modules = [
       for (final platform in NativePlatform.values)
         await createPackageModule(root, platform, {
