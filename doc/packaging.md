@@ -232,12 +232,19 @@ chooses the root backend, and native loading failures never switch to Wasm.
 ## Managed rebuilds
 
 Call `buildPackage`, `buildLibrary` or the assembly API again with the same output
-directory. The builder replaces its own managed output atomically on local macOS
-APFS and supported 64-bit Linux ext-family filesystems or tmpfs.
+directory. Rebuilds support local macOS APFS, supported 64-bit Linux ext-family
+filesystems or tmpfs, and Windows NTFS.
+
+macOS and Linux replace the directory atomically. Windows moves the previous
+result to a private backup before publishing the new directory, so the output
+may be briefly unavailable. A file or directory held open without delete sharing
+can prevent replacement; the build reports the error and restores the previous
+result. The output stays a normal directory that can be moved on its own.
 
 Generated files are replaced and obsolete artifacts are removed. Other author
 files and metadata are retained, including permissions, ownership, ACLs and
-extended attributes. Unchanged files retain their timestamps. Explicit metadata
+file attributes. POSIX extended attributes are preserved on macOS and Linux.
+Unchanged files retain their timestamps. Explicit metadata
 replaces whole top-level fields; nested objects are not merged. Omitted selected
 documentation assets are retained, while supplying an asset again replaces it.
 
@@ -248,7 +255,11 @@ and special files cause the rebuild to fail before replacement. Keep
 
 Compilation or merge failures leave the previous package in place. A cleanup
 failure after successful replacement reports the retained temporary path;
-the new package is still usable.
+the new package is still usable. On Windows, the next build recovers interrupted
+replacement from `.napi-locks` when the recorded output still matches. Changed
+output or backup content is retained and reported instead of overwritten.
+This recovery handles process interruption; it does not guarantee persistence
+after a power failure.
 
 Raw modules built by `buildLibrary` have their own ownership record. They can
 be rebuilt, but cannot replace an npm package directory or adopt older raw output
@@ -256,6 +267,7 @@ without an ownership record. Package assembly copies only runtime artifacts;
 the raw module's record stays outside the npm package.
 
 Linux requires `statx` and extended-attribute support, and the builder must have
-permission to preserve retained metadata. Rebuilding on Windows, network or
-other unsupported filesystems, and adopting legacy output are not supported.
+permission to preserve retained metadata. Windows requires permission to retain
+file security and rejects path segments ending in a dot or space. Rebuilding on
+network or other unsupported filesystems, and adopting legacy output are not supported.
 Use a fresh output directory in those cases.

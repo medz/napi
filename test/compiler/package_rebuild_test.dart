@@ -261,24 +261,20 @@ void main() {
   }, skip: Platform.isLinux ? unsupportedRebuild ?? false : true);
 
   group('managed replacement', () {
-    test(
-      'a legal 255-byte basename supports fresh publication and rebuilding',
-      () async {
-        output = Directory('${root.path}/${'x' * 255}');
-        await assemble();
-        await File('${source.path}/module.wasm').writeAsString('second');
-        await assemble(overrides: {'version': '1.0.1'});
-        expect(
-          await File('${output.path}/module.wasm').readAsString(),
-          'second',
-        );
-        expect((await package())['version'], '1.0.1');
-        expect(
-          await File('${root.path}/.napi-locks/${'x' * 255}').exists(),
-          isTrue,
-        );
-      },
-    );
+    test('a legal 255-byte basename supports fresh publication and rebuilding', () async {
+      output = Directory('${root.path}/${'x' * 255}');
+      await assemble();
+      await File('${source.path}/module.wasm').writeAsString('second');
+      await assemble(overrides: {'version': '1.0.1'});
+      expect(await File('${output.path}/module.wasm').readAsString(), 'second');
+      expect((await package())['version'], '1.0.1');
+      expect(
+        await File(
+          '${root.path}/.napi-locks/${'x' * 255}${Platform.isWindows ? '/lock' : ''}',
+        ).exists(),
+        isTrue,
+      );
+    });
     test(
       'author JSON larger than the private marker limit remains rebuildable',
       () async {

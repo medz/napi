@@ -113,7 +113,7 @@ Future<BuiltModule> buildLibrary({
     } else {
       exchangeAttempted = true;
       try {
-        exchangeDirectories(merged, destination);
+        await update.replace(merged, destination);
       } on FileSystemException catch (error) {
         throw FileSystemException(
           '${error.message} Rebuild files retained at ${staging.path}.',

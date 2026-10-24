@@ -286,7 +286,6 @@ void main() {
       }
       expect(await lockFile.exists(), isTrue);
     },
-    skip: Platform.isWindows,
   );
 
   test('release unlocks a retained duplicate descriptor', () {
@@ -358,7 +357,7 @@ Future<void> main(List<String> args) async {
     next.release();
     expect(await next.file.exists(), isTrue);
     expect(await next.file.parent.exists(), isTrue);
-  }, skip: Platform.isWindows);
+  });
 
   test('lock names reject symlinks without touching their targets', () async {
     final external = File('${root.path}/external');

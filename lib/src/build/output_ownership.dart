@@ -339,7 +339,7 @@ final class OutputOwnership {
         // Explicitly replaced assets should receive a fresh destination inode.
         if ((kind == OutputKind.package &&
                 name == 'package.json' &&
-                Platform.isLinux) ||
+                (Platform.isLinux || Platform.isWindows)) ||
             (assets.contains(name) && replacedAssets.contains(name))) {
           continue;
         }
@@ -379,6 +379,49 @@ final class OutputOwnership {
     }
   }
 
+  /// Retained in the Windows recovery record so interrupted cleanup can resume.
+  Map<String, String?> get recoveryEntries => {
+    for (final name in _entries.keys.toList()..sort())
+      name: _entries[name]!.hash,
+  };
+
+  /// Content identity remains stable when a prepared directory is renamed.
+  String get recoveryFingerprint => recoveryIdentity(kind, recoveryEntries);
+
+  static String recoveryIdentity(
+    OutputKind kind,
+    Map<String, dynamic> entries,
+  ) {
+    final names = entries.keys.toList()..sort();
+    return sha256
+        .convert(
+          utf8.encode(
+            jsonEncode({
+              'kind': kind.name,
+              'entries': {for (final name in names) name: entries[name]},
+            }),
+          ),
+        )
+        .toString();
+  }
+
+  static Future<void> checkRecoveryRemainder(
+    Directory directory,
+    Map<String, dynamic> entries,
+  ) async {
+    final current = await _scan(directory);
+    if (current.entries.any(
+      (entry) =>
+          !entries.containsKey(entry.key) ||
+          entries[entry.key] != entry.value.hash,
+    )) {
+      throw FileSystemException(
+        'Windows build backup changed; retained without changes.',
+        directory.path,
+      );
+    }
+  }
+
   Future<void> checkUnchanged() async {
     final current = await _scan(directory);
     if (_entries.length != current.length ||
@@ -391,7 +434,8 @@ final class OutputOwnership {
               before.mode != after.mode ||
               before.size != after.size ||
               before.modified != after.modified ||
-              before.changed != after.changed;
+              before.changed != after.changed ||
+              before.windows != after.windows;
         })) {
       throw FileSystemException(
         'Build output changed during rebuild.',
@@ -524,6 +568,7 @@ typedef _Entry = ({
   DateTime modified,
   DateTime changed,
   PackageAccessTime? accessed,
+  ({int changed, int attributes})? windows,
 });
 
 Future<Map<String, _Entry>> _scan(Directory directory) async {
@@ -551,6 +596,7 @@ Future<Map<String, _Entry>> _scan(Directory directory) async {
       modified: stat.modified,
       changed: stat.changed,
       accessed: accessed,
+      windows: packageWindowsMetadata(entity),
     );
     if (type == FileSystemEntityType.directory) {
       await for (final child in Directory(
