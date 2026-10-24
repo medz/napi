@@ -52,7 +52,7 @@ if (mode === 'grandchild') {
 ''');
 
       final suite = File('${directory.path}/timeout_test.dart');
-      final registration = File('test/support/consumer_test.dart').absolute.uri;
+      final registration = File('test/support/consumer_runner.dart').absolute.uri;
       final consumer = File('test/support/consumer.dart').absolute.uri;
       final node = Platform.environment['NODE'] ?? 'node';
       await suite.writeAsString('''

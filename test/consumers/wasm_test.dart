@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:test/test.dart';
 
 import '../support/consumer.dart';
-import '../support/consumer_test.dart' as owned;
+import '../support/consumer_runner.dart' as owned;
 import '../support/commands.dart';
 import '../support/package.dart';
 import '../support/fixtures/arguments.dart';

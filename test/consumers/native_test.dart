@@ -5,7 +5,7 @@ import 'package:test/test.dart';
 
 import '../support/commands.dart';
 import '../support/consumer.dart';
-import '../support/consumer_test.dart' as owned;
+import '../support/consumer_runner.dart' as owned;
 import '../support/fixtures/native_packages.dart';
 import '../support/fixtures/native_events.dart';
 import '../support/fixtures/native_host_values.dart';
