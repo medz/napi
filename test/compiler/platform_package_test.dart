@@ -195,6 +195,23 @@ void main() {
     expect(await author.readAsString(), 'keep');
   });
 
+  test('package sets cannot occupy the reserved lock directory', () async {
+    for (final name in ['.napi-locks', '.NAPI-locks/nested']) {
+      final reserved = Directory('${root.path}/$name');
+      await expectLater(
+        assemblePackageSet(
+          modules: modules,
+          output: reserved,
+          metadata: metadata,
+        ),
+        throwsA(isA<FileSystemException>()),
+      );
+      expect(reserved.existsSync(), isFalse);
+    }
+    await assemblePackage(modules: modules, output: output, metadata: metadata);
+    expect(await OutputOwnership.read(output), isNotNull);
+  });
+
   for (final field in [
     'dependencies',
     'optionalDependencies',
