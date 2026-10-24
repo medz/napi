@@ -24,12 +24,12 @@ Future<void> verifyDualTargetFixture(
   String? declarations;
   for (final external in [false, true]) {
     final name = external ? 'external' : 'fixture';
-    final package = await buildPackage(
+    final declaration = PackageBuild(
       library: source.uri,
       output: Directory('${directory.path}/$name'),
+      name: '@napi/dual-$name',
+      version: '0.0.0',
       metadata: {
-        'name': '@napi/dual-$name',
-        'version': '0.0.0',
         'author': {'name': 'Dual Fixture'},
         'license': 'MIT',
       },
@@ -164,10 +164,18 @@ Future<void> verifyDualTargetFixture(
               ),
             ])
           : null,
-      targets: {BuildTarget.wasm, BuildTarget.native},
+      targets: external ? {BuildTarget.wasm, BuildTarget.native} : null,
       target: external ? BuildTarget.native : BuildTarget.wasm,
       nativeRuntime: runtime,
     );
+    final Directory package;
+    if (external) {
+      package = await declaration.build();
+    } else {
+      await declaration.run(['--target', 'both']);
+      if (exitCode != 0) throw StateError('Dual-target script build failed.');
+      package = declaration.output.absolute;
+    }
     final native = Directory('${package.path}/native');
     final bundle = await NativeRuntimeBundle.read(native, built: true);
     expected ??= {

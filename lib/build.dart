@@ -11,6 +11,7 @@ import 'src/build/build.dart' as builder;
 import 'src/compiler/front_end/external.dart';
 
 export 'src/build/build.dart' show BuiltModule, BuildTarget;
+export 'src/build/package_build.dart' show PackageBuild;
 export 'src/build/package.dart'
     show
         buildPackage,

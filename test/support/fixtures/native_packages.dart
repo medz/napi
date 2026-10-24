@@ -11,7 +11,7 @@ Future<void> verifyNativePackage(
   Directory root, {
   Directory? nativeRuntime,
 }) async {
-  // An independent Dart package invokes only the public build API.
+  // An independent Dart package runs its own typed build script.
   final project = await Directory('${root.path}/business').create();
   await File('${project.path}/pubspec.yaml').writeAsString('''
 name: native_business_consumer
@@ -37,19 +37,18 @@ dependencies:
       .copy('${project.path}/named_list.dart');
   await File('test/fixtures/structural_values.dart')
       .copy('${project.path}/structural_values.dart');
-  await File('${project.path}/build.dart').writeAsString('''
+  await File('${project.path}/ship.dart').writeAsString('''
 import 'dart:io';
 import 'package:napi/build.dart';
-Future<void> main() async {
-  await buildPackage(
-    library: File('business.dart').absolute.uri,
-    output: Directory('package'),
-    metadata: {'name': '@napi/path', 'version': '0.0.0'},
-    packagesPath: File('.dart_tool/package_config.json').absolute.path,
-    target: BuildTarget.native,
-    ${nativeRuntime == null ? '' : 'nativeRuntime: Directory(${jsonEncode(nativeRuntime.path)}),'}
-  );
-}
+final package = PackageBuild(
+  library: File('business.dart').absolute.uri,
+  output: Directory('package'),
+  name: '@napi/path',
+  version: '0.0.0',
+  packagesPath: File('.dart_tool/package_config.json').absolute.path,
+  ${nativeRuntime == null ? '' : 'nativeRuntime: Directory(${jsonEncode(nativeRuntime.path)}),'}
+);
+Future<void> main(List<String> args) => package.run(args);
 ''');
   await run(Platform.resolvedExecutable, [
     'pub',
@@ -58,7 +57,9 @@ Future<void> main() async {
   ], cwd: project.path);
   await run(Platform.resolvedExecutable, [
     'run',
-    'build.dart',
+    'ship.dart',
+    '--target',
+    'native',
   ], cwd: project.path);
   final package = Directory('${project.path}/package');
   final runtimeBundle = await NativeRuntimeBundle.read(package, built: true);
