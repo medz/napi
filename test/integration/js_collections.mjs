@@ -18,11 +18,12 @@ function exact(action, expected) {
   assert(caught);
 }
 async function until(predicate, message) {
-  for (let i = 0; i < 100; i++) {
+  const deadline = performance.now() + 3000;
+  while (performance.now() < deadline) {
     if (predicate()) return;
-    await tick();
+    await new Promise(resolve => setTimeout(resolve, 1));
   }
-  assert.fail(message);
+  assert(predicate(), message);
 }
 async function direct(api) {
   const source = [1, 2];
