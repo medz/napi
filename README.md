@@ -14,7 +14,9 @@ Node-API `.node` addon; both run your application code in Dart.
   Dart SDK sources. See [native builds](doc/native.md) for offline builds.
 
 Wasm is the default target. It depends on experimental Dart compiler and interop
-APIs and is tied to Dart 3.13.5. Browser and Bun support is not yet verified.
+APIs and is tied to Dart 3.13.5. The [browser ESM entry](doc/packaging.md#use-wasm-in-a-browser)
+runs in Chrome 155 without Node.js or a bundler. Resource policies and `JsArray`
+handles require Node. Bun and other browsers have not yet been verified.
 
 ## Build a package
 

@@ -13,7 +13,7 @@ import 'js_collections.dart';
 import 'opaque.dart';
 import 'streams.dart';
 
-String emitBoundary(ModulePlan plan) {
+String emitBoundary(ModulePlan plan, {bool browser = false}) {
   final conversions = plan.conversions;
   final resources = plan.resourcePolicies.isNotEmpty;
   final functionContracts = {
@@ -90,14 +90,18 @@ String emitBoundary(ModulePlan plan) {
         ),
   };
   return '''// Generated JS imports for the Wasm boundary, not a consumer entry.
-${plan.classes.isEmpty ? '' : "import {readReference, writeReference} from './references.mjs';"}
-${callbacks.isEmpty ? '' : "import {writeFunction, registerCallbackSource} from './references.mjs';\nexport {unwrapFunction} from './references.mjs';"}
-${jsCollectionLeaves.isEmpty ? '' : '$jsCollectionsPolicy\nconst \$jcPolicies = ${jsCollectionPolicies(jsCollectionLeaves)};\n$wasmJsCollectionsPolicy\n'}$sharedBytesPolicy
+${plan.classes.isEmpty
+      ? ''
+      : browser
+      ? _browserReferences(plan)
+      : "import {readReference, writeReference} from './references.mjs';"}
+${callbacks.isEmpty ? '' : "import {writeFunction, registerCallbackSource} from './${browser ? 'browser-' : ''}references.mjs';\nexport {unwrapFunction} from './${browser ? 'browser-' : ''}references.mjs';"}
+${jsCollectionLeaves.isEmpty ? '' : '${browser ? browserJsCollectionsPolicy : jsCollectionsPolicy}\nconst \$jcPolicies = ${jsCollectionPolicies(jsCollectionLeaves)};\n$wasmJsCollectionsPolicy\n'}${browser ? browserSharedBytesPolicy : sharedBytesPolicy}
 $wasmSharedBytesPolicy
 ${hasOpaque ? '$opaqueKeyPolicy\n$wasmOpaqueKeyPolicy' : ''}
-${nestedOpaque ? '$opaqueStructuralPolicy\n' : ''}${signals ? '$cancellationPolicy\n$wasmCancellationPolicy' : ''}
-${hasBinary ? '$binaryPolicy\n$wasmBinaryPolicy' : ''}
-${resources ? '$settlementObserver\n' : ''}const policies = ${jsonEncode(policies)};
+${nestedOpaque ? '$opaqueStructuralPolicy\n' : ''}${signals ? '${browser ? browserCancellationPolicy : cancellationPolicy}\n$wasmCancellationPolicy' : ''}
+${hasBinary ? '${browser ? browserBinaryPolicy : binaryPolicy}\n$wasmBinaryPolicy' : ''}
+${resources ? '${browser ? browserSettlementObserver : settlementObserver}\n' : ''}const policies = ${jsonEncode(policies)};
 const scalarIsSafeInteger = Number.isSafeInteger;
 const scalarBigInt = BigInt, scalarBigIntText = BigInt.prototype.toString, scalarApply = Reflect.apply;
 function checkedScalar(value, policy, path) {
@@ -141,7 +145,11 @@ ${[for (final e in structures.entries)
 export function readBigInt(value) { return scalarApply(scalarBigIntText, value, []); }
 export function writeBigInt(value, context) { return checked(scalarBigInt(value), context); }
 export function throwDartError(message) { throw new Error(message); }
-${plan.calls.any((call) => call.returnsFuture) || streams ? '${emitFuturePolicy(resources: resources, streams: streams)}\n' : ''}${resources ? resourcePolicy : ''}${streams ? streamBoundaryPolicy(references: plan.classes.isNotEmpty) : ''}${structures.isEmpty && callbacks.isEmpty && collectionStructures.isEmpty
+${plan.calls.any((call) => call.returnsFuture) || streams ? '${emitFuturePolicy(resources: resources, streams: streams)}\n' : ''}${resources
+      ? browser
+            ? browserResourcePolicy
+            : resourcePolicy
+      : ''}${streams ? streamBoundaryPolicy(references: plan.classes.isNotEmpty) : ''}${structures.isEmpty && callbacks.isEmpty && collectionStructures.isEmpty
       ? hasBinary || sharedBytes.isNotEmpty || jsCollections.isNotEmpty
             ? structuralErrorPolicy
             : ''
@@ -149,7 +157,7 @@ ${plan.calls.any((call) => call.returnsFuture) || streams ? '${emitFuturePolicy(
 ${conversionDependencies(conversions).any((c) => c is MapConversion) ? mapStructuralPolicy : ''}
 ${conversionDependencies(conversions).any((c) => c is DictionaryConversion) ? dictionaryStructuralPolicy : ''}
 $collectionStructures${structures.values.map((s) => s.source).join('\n')}${callbacks.isEmpty ? '' : '\n${_emitCallbacks({for (final entry in callbacks.entries)
-          if (entry.value.direction == ValueDirection.input) entry.key: entry.value}, resources: resources, classes: plan.allClasses, functionContracts: functionContracts)}'}
+          if (entry.value.direction == ValueDirection.input) entry.key: entry.value}, resources: resources, classes: plan.allClasses, functionContracts: functionContracts, browser: browser)}'}
 ${_emitCallbackErrors(futures: plan.calls.any((call) => call.returnsFuture) || streams)}
 ${plan.classes.isNotEmpty || plan.functions.any((f) => f.representation == ExportRepresentation.callableGlobal) ? argumentPolicy : ''}
 ''';
@@ -160,6 +168,7 @@ String _emitCallbacks(
   required bool resources,
   required List<ClassBinding> classes,
   required Map<String, int> functionContracts,
+  bool browser = false,
 }) {
   final asynchronous = callbacks.values.any(
     (callback) => callback.returnsFuture || callback.returnsStream,
@@ -220,7 +229,9 @@ function writeCallbackReference(value, classId, path, state) {
 ''');
   }
   if (asynchronous) {
-    source.writeln(callbackPromisePolicy);
+    source.writeln(
+      browser ? browserCallbackPromisePolicy : callbackPromisePolicy,
+    );
     source.writeln(r'''
 const pendingCallbacks = new Set();
 const pendingCallbackAdd = Set.prototype.add;
@@ -521,7 +532,12 @@ ${resources ? '''    if (capability.observed) {
 }
 ''';
 
-const resourcePolicy = r'''
+const resourcePolicy =
+    _resourcePolicyStart + _resourceActivation + _resourcePolicyEnd;
+const browserResourcePolicy =
+    _resourcePolicyStart + _browserResourceActivation + _resourcePolicyEnd;
+
+const _resourcePolicyStart = r'''
 const resourceSettlements = createSettlementObserver(releasePromise);
 const cleanupPromises = new WeakMap();
 export function resourcePolicyError() { throw new TypeError('Resource has incompatible cleanup policies'); }
@@ -540,10 +556,22 @@ function readResourceReference(value, classId, nullable, path, capability) {
   if (capability !== null) capability.retain(reference);
   return reference;
 }
-export function activateResourceOperation(capability, active) {
+''';
+
+const _resourceActivation =
+    r'''export function activateResourceOperation(capability, active) {
   capability.hasOperation = active !== 0;
 }
-export function finishResourceCall(capability) {
+''';
+
+const _browserResourceActivation =
+    r'''export function activateResourceOperation(capability, active) {
+  if (active !== 0) throw new TypeError('Resource policies are not supported by browser bindings');
+  capability.hasOperation = false;
+}
+''';
+
+const _resourcePolicyEnd = r'''export function finishResourceCall(capability) {
   if ((capability.promise !== undefined && !capability.done) || capability.observed) return;
   releasePromise(capability);
 }
@@ -558,3 +586,23 @@ export function bindCleanup(capability, control) {
   return 1;
 }
 ''';
+
+String _browserReferences(ModulePlan plan) => plan.resourcePolicies.isEmpty
+    ? "import {readReference, writeReference} from './browser-references.mjs';"
+    : """import {readReference as readBrowserReference, writeReference as writeBrowserReference} from './browser-references.mjs';
+const browserResourceClasses = new Set(${jsonEncode(plan.resourcePolicies.keys.toList())});
+const browserResourceHas = Set.prototype.has, browserResourceApply = Reflect.apply;
+function browserReferencePolicy(classId) {
+  if (browserResourceApply(browserResourceHas, browserResourceClasses, [classId])) {
+    throw new TypeError('Resource policies are not supported by browser bindings');
+  }
+}
+function readReference(value, classId, nullable, path) {
+  browserReferencePolicy(classId);
+  return readBrowserReference(value, classId, nullable, path);
+}
+function writeReference(value, classId, path, pending) {
+  browserReferencePolicy(classId);
+  return writeBrowserReference(value, classId, path, pending);
+}
+""";

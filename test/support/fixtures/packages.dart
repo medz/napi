@@ -20,6 +20,12 @@ Future<void> verifyPackageAssembly(Directory root) async {
     'core.wasm',
     'calls.mjs',
     'references.mjs',
+    'browser.mjs',
+    'browser.d.mts',
+    'browser-core.mjs',
+    'browser-boundary.mjs',
+    'browser-calls.mjs',
+    'browser-references.mjs',
     'DART_LICENSE',
     'LICENSE',
   };

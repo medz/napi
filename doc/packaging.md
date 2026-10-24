@@ -97,6 +97,37 @@ from the package root; they do not initialize the runtime manually. `/module.was
 selects the Wasm entry. It shares the root's constructors and state only when
 Wasm is the root target.
 
+## Use Wasm in a browser
+
+Build with `--target wasm`, serve the generated directory over HTTP or HTTPS,
+and import `browser.mjs`:
+
+```html
+<script type="module">
+  import {Counter} from './npm-package/browser.mjs';
+
+  const counter = new Counter(1);
+  console.log(counter.increment()); // 2
+</script>
+```
+
+The import loads and initializes the Wasm automatically. No bundler or Node.js
+runtime is required. Keep the generated files together: the loader fetches its
+Wasm relative to `browser.mjs`. The npm subpath `@scope/counter/browser` selects
+the same entry when your tooling resolves package exports. Dual-backend packages
+place these browser files under `wasm/`.
+
+The browser entry includes TypeScript declarations and uses the same functions,
+constructors, defaults and conversions as the Node Wasm entry. It is tested with
+Chrome 155.0.8059.85; other browsers have not yet been verified. Cancellation uses
+`AbortSignal.any()`.
+
+Resource class policies and `JsArray` handles require the Node entrypoint;
+browser calls that use them throw `TypeError`. Other exports in the same package
+remain usable. Ordinary Dart `List` and `Map` conversions and `JsMap` handles are
+supported. Browser declarations retain the shared API, including these Node-only
+features.
+
 ## Package metadata and files
 
 `metadata` accepts npm fields such as `author`, `contributors`, `repository` and

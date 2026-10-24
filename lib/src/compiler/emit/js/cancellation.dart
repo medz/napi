@@ -89,6 +89,90 @@ function $napiCreateSignalCompanion(signal, notify) {
 }
 ''';
 
+/// A private dependent signal receives real cancellation independently of
+/// listeners or manually dispatched events on the caller's signal.
+const browserCancellationPolicy = r'''
+const $napiSignalApply = Reflect.apply;
+const $napiSignalAborted = Object.getOwnPropertyDescriptor(AbortSignal.prototype, 'aborted').get;
+const $napiSignalReason = Object.getOwnPropertyDescriptor(AbortSignal.prototype, 'reason').get;
+const $napiSignalClass = AbortSignal, $napiSignalAny = AbortSignal.any;
+const $napiSignalAdd = EventTarget.prototype.addEventListener;
+const $napiSignalRemove = EventTarget.prototype.removeEventListener;
+const $napiSignalWeakRef = WeakRef;
+const $napiSignalDeref = WeakRef.prototype.deref;
+const $napiSignalQueue = queueMicrotask;
+const $napiSignalTypeError = TypeError;
+const $napiSignalRegister = FinalizationRegistry.prototype.register;
+const $napiSignalUnregister = FinalizationRegistry.prototype.unregister;
+const $napiSignalFinalizer = new FinalizationRegistry(({source, listener}) => {
+  const signal = $napiSignalApply($napiSignalDeref, source, []);
+  if (signal !== undefined) $napiSignalApply($napiSignalRemove, signal, ['abort', listener]);
+});
+function $napiCheckAbortSignal(value, nullable, path) {
+  if (value === null && nullable) return null;
+  try { $napiSignalApply($napiSignalAborted, value, []); }
+  catch { throw new $napiSignalTypeError(path + ': expected AbortSignal' + (nullable ? ' or null' : '')); }
+  return value;
+}
+function $napiQueueSignal(weak) {
+  $napiSignalQueue(() => {
+    const companion = $napiSignalApply($napiSignalDeref, weak, []);
+    if (companion === undefined || companion.target === null) return;
+    const target = companion.target;
+    companion.target = null;
+    companion.notify(target);
+  });
+}
+function $napiSignalListener(weak) {
+  return () => {
+    const companion = $napiSignalApply($napiSignalDeref, weak, []);
+    if (companion === undefined) return;
+    companion.stopListening();
+    $napiQueueSignal(weak);
+  };
+}
+class $napiSignalCompanion {
+  signal;
+  notify;
+  target = null;
+  listener = null;
+  observed = null;
+  adapter;
+  constructor(signal, notify) {
+    this.signal = signal;
+    this.notify = notify;
+  }
+  aborted() { return $napiSignalApply($napiSignalAborted, this.signal, []); }
+  reason() { return $napiSignalApply($napiSignalReason, this.signal, []); }
+  arm(target) {
+    this.target = target;
+    if (this.listener !== null) return;
+    const weak = new $napiSignalWeakRef(this);
+    if (this.aborted()) { $napiQueueSignal(weak); return; }
+    const observed = $napiSignalApply($napiSignalAny, $napiSignalClass, [[this.signal]]);
+    const listener = $napiSignalListener(weak);
+    this.observed = observed;
+    this.listener = listener;
+    try {
+      $napiSignalApply($napiSignalAdd, observed, ['abort', listener, {__proto__: null, once: true}]);
+      $napiSignalApply($napiSignalRegister, $napiSignalFinalizer,
+          [this, {source: new $napiSignalWeakRef(observed), listener}, this]);
+    } catch (error) { this.detach(); throw error; }
+    if (this.aborted()) { this.stopListening(); $napiQueueSignal(weak); }
+  }
+  stopListening() {
+    const listener = this.listener, observed = this.observed;
+    this.listener = this.observed = null;
+    $napiSignalApply($napiSignalUnregister, $napiSignalFinalizer, [this]);
+    if (listener !== null) $napiSignalApply($napiSignalRemove, observed, ['abort', listener]);
+  }
+  detach() { this.target = null; this.stopListening(); }
+}
+function $napiCreateSignalCompanion(signal, notify) {
+  return new $napiSignalCompanion($napiCheckAbortSignal(signal, false, 'AbortSignal'), notify);
+}
+''';
+
 /// Per-notify identity keeps multiple instances independent without a strong
 /// registry. The Wasm token owns its companion directly through an externref.
 const wasmCancellationPolicy = r'''

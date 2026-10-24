@@ -123,11 +123,28 @@ String jsCollectionStructurePolicies(
 }
 
 /// Operations act on the original container. Admission does not read elements.
-const jsCollectionsPolicy = r'''
+const jsCollectionsPolicy =
+    _nodeCollectionBrands +
+    _collectionIntrinsics +
+    _nodeCollectionAdmission +
+    _collectionOperations;
+const browserJsCollectionsPolicy =
+    _browserCollectionBrands +
+    _collectionIntrinsics +
+    _browserCollectionAdmission +
+    _collectionOperations;
+
+const _nodeCollectionBrands = r'''
 import {types as $jcTypes} from 'node:util';
 const $jcApply = Reflect.apply, $jcGet = Reflect.get, $jcSet = Reflect.set;
 const $jcArray = Array.isArray, $jcMap = $jcTypes.isMap, $jcProxy = $jcTypes.isProxy;
-const $jcOwn = Object.hasOwn;
+''';
+
+const _browserCollectionBrands = r'''
+const $jcApply = Reflect.apply, $jcGet = Reflect.get, $jcSet = Reflect.set;
+''';
+
+const _collectionIntrinsics = r'''const $jcOwn = Object.hasOwn;
 const $jcSize = Object.getOwnPropertyDescriptor(Map.prototype, 'size').get;
 const $jcHas = Map.prototype.has, $jcRead = Map.prototype.get;
 const $jcWrite = Map.prototype.set, $jcDelete = Map.prototype.delete;
@@ -136,14 +153,29 @@ const $jcNext = Object.getPrototypeOf(new Map().entries()).next;
 const $jcInteger = Number.isSafeInteger, $jcString = String, $jcBigInt = BigInt;
 const $jcBigText = BigInt.prototype.toString;
 const $jcTypeError = TypeError, $jcRangeError = RangeError;
-function $jcAdmit(value, map, nullable, path) {
+''';
+
+const _nodeCollectionAdmission =
+    r'''function $jcAdmit(value, map, nullable, path) {
   if (value === null && nullable) return null;
   if ($jcProxy(value) || !(map ? $jcMap(value) : $jcArray(value))) {
     throw new $jcTypeError(path + ': expected a JavaScript ' + (map ? 'Map' : 'Array'));
   }
   return value;
 }
-function $jcScalar(value, policy, path) {
+''';
+
+const _browserCollectionAdmission =
+    r'''function $jcAdmit(value, map, nullable, path) {
+  if (!map) throw new $jcTypeError(path + ': JsArray is not supported by browser bindings');
+  if (value === null && nullable) return null;
+  try { $jcApply($jcSize, value, []); }
+  catch { throw new $jcTypeError(path + ': expected a JavaScript Map'); }
+  return value;
+}
+''';
+
+const _collectionOperations = r'''function $jcScalar(value, policy, path) {
   if (value === null && policy.nullable) return value;
   if (typeof value !== policy.type) throw new $jcTypeError(path + ': expected ' + policy.type + (policy.nullable ? ' or null' : ''));
   if (policy.integer && (policy.type === 'number' ? !$jcInteger(value) : value < -9223372036854775808n || value > 9223372036854775807n)) {
