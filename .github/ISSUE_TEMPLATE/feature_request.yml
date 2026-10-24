@@ -1,6 +1,6 @@
 name: Feature request
 description: Suggest something that would help you use napi.
-labels: ["enhancement"]
+labels: ["feature"]
 body:
   - type: textarea
     id: use-case
