@@ -98,9 +98,26 @@ Future<Map<String, String?>> readBuildInputs(
       }
     }
   }
-  final canonical = <String, String?>{};
+  final canonical = <String, String?>{...inputs};
+  final ancestors = <String>{};
   for (final entry in inputs.entries) {
     final file = File(entry.key);
+    // A directory link can be replaced without touching its old target.
+    // Watch the link itself so retargeting it rediscovers the input graph.
+    var ancestor = file.path;
+    while (ancestors.add(ancestor)) {
+      try {
+        if (await FileSystemEntity.type(ancestor, followLinks: false) ==
+            FileSystemEntityType.link) {
+          canonical[ancestor] = 'link:${await Link(ancestor).target()}';
+        }
+      } on FileSystemException {
+        canonical[ancestor] = null;
+      }
+      final parent = path.dirname(ancestor);
+      if (parent == ancestor) break;
+      ancestor = parent;
+    }
     // macOS may report /private/var events for a /var input, and package roots
     // can point through symlinks. Keep both names for replacement and writes.
     var parent = file.parent;

@@ -15,7 +15,7 @@ void main() {
   tearDown(() => root.delete(recursive: true));
 
   Future<File> write(String name, String contents) async {
-    final file = File('${root.path}/$name');
+    final file = File(path.normalize(path.join(root.path, name)));
     await file.parent.create(recursive: true);
     return file.writeAsString(contents);
   }
@@ -132,6 +132,49 @@ import 'file:///tmp/source.dart?edit';
       await stop.close();
       await starts.cancel();
       await started.close();
+    }
+  });
+
+  test('retargeting a dependency link follows the new directory', () async {
+    final first = await write('first/value.dart', 'const value = 1;');
+    final second = await write('second/value.dart', 'const value = 2;');
+    final link = await Link(path.join(root.path, 'dependency'))
+        .create(first.parent.path);
+    final entry = await write(
+      'counter.dart',
+      "import 'dependency/value.dart';",
+    );
+    final stop = StreamController<void>();
+    final built = StreamController<String>();
+    final builds = StreamIterator(built.stream);
+    final watching = watchBuild(
+      library: entry.uri,
+      output: Directory(path.join(root.path, 'dist')),
+      stop: stop.stream,
+      build: () async => built.add(
+        await File(path.join(link.path, 'value.dart')).readAsString(),
+      ),
+    );
+    Future<void> expectBuild(String contents) async {
+      expect(
+        await builds.moveNext().timeout(const Duration(seconds: 10)),
+        isTrue,
+      );
+      expect(builds.current, contents);
+    }
+
+    try {
+      await expectBuild('const value = 1;');
+      await link.update(second.parent.path);
+      await expectBuild('const value = 2;');
+      await second.writeAsString('const value = 3;');
+      await expectBuild('const value = 3;');
+    } finally {
+      stop.add(null);
+      await watching;
+      await stop.close();
+      await builds.cancel();
+      await built.close();
     }
   });
 }
