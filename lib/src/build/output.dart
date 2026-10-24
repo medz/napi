@@ -172,8 +172,9 @@ Future<void> _recoverWindowsOutput(
         (entry) =>
             (entry.key.isNotEmpty &&
                 (path.isAbsolute(entry.key) ||
-                    path.normalize(entry.key) != entry.key ||
-                    path
+                    entry.key.contains(r'\') ||
+                    path.posix.normalize(entry.key) != entry.key ||
+                    path.posix
                         .split(entry.key)
                         .any((part) => part == '..' || part == '.'))) ||
             (entry.value != null &&

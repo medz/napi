@@ -589,7 +589,9 @@ Future<Map<String, _Entry>> _scan(Directory directory) async {
     final stat = await entity.stat();
     final name = path.equals(entity.path, directory.path)
         ? ''
-        : path.relative(entity.path, from: directory.path);
+        : path
+              .split(path.relative(entity.path, from: directory.path))
+              .join('/');
     result[name] = (
       hash: type == FileSystemEntityType.file
           ? await _hash(File(entity.path))

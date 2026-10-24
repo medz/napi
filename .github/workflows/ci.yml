@@ -331,7 +331,7 @@ jobs:
       - name: Install TypeScript for the relocated Windows consumer
         if: runner.os == 'Windows'
         run: npm install --prefix .dart_tool/js --no-save --no-package-lock --ignore-scripts --no-audit --no-fund typescript@7.0.2
-      - run: dart test test/compiler/publish_test.dart test/compiler/package_rebuild_test.dart test/compiler/module_rebuild_test.dart test/compiler/windows_rebuild_test.dart
+      - run: dart test test/compiler/publish_test.dart test/compiler/package_rebuild_test.dart test/compiler/module_rebuild_test.dart test/compiler/windows_rebuild_test.dart test/compiler/platform_package_test.dart
       - name: Test process ownership on macOS and Windows
         if: runner.os != 'Linux'
         run: dart test test/harness
