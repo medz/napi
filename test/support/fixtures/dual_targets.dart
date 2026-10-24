@@ -253,13 +253,13 @@ Future<void> verifyDualTargetFixture(
         throw StateError('Missing public type or Dartdoc: $text');
       }
     }
-    final pack = await Process.run('npm', [
+    final pack = await npm([
       'pack',
       '--ignore-scripts',
       '--json',
       '--cache',
       '${directory.path}/npm cache',
-    ], workingDirectory: package.path);
+    ], cwd: package.path);
     if (pack.exitCode != 0) throw StateError('${pack.stdout}${pack.stderr}');
     final packed =
         (jsonDecode(pack.stdout as String) as List).single

@@ -201,13 +201,13 @@ Future<void> main(List<String> args) async {
       expect(await module.readAsBytes(), originalModule);
 
       final cache = '${root.path}/npm cache';
-      final pack = await Process.run('npm', [
+      final pack = await npm([
         'pack',
         '--ignore-scripts',
         '--json',
         '--cache',
         cache,
-      ], workingDirectory: output.path);
+      ], cwd: output.path);
       expect(pack.exitCode, 0, reason: '${pack.stdout}${pack.stderr}');
       final packed = (jsonDecode(pack.stdout as String) as List).single as Map;
       final archive = await File('${output.path}/${packed['filename']}')

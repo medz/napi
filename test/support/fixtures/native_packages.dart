@@ -76,11 +76,11 @@ Future<void> main(List<String> args) => package.run(args);
       name: await File('${(nativeRuntime ?? package).path}/$name')
           .readAsBytes(),
   };
-  final pack = await Process.run('npm', [
+  final pack = await npm([
     'pack',
     '--ignore-scripts',
     '--json',
-  ], workingDirectory: '${project.path}/package');
+  ], cwd: '${project.path}/package');
   if (pack.exitCode != 0) {
     throw StateError('npm pack failed: ${pack.stdout}${pack.stderr}');
   }

@@ -47,11 +47,11 @@ Future<void> main(List<String> arguments) async {
           output: Directory('${temporary.path}/package'),
           metadata: {'name': '@napi/platform-fixture', 'version': '0.0.0'},
         );
-        final result = await Process.run('npm', [
+        final result = await npm([
           'pack',
           '--ignore-scripts',
           '--json',
-        ], workingDirectory: package.path);
+        ], cwd: package.path);
         if (result.exitCode != 0) {
           throw StateError('npm pack failed: ${result.stdout}${result.stderr}');
         }
