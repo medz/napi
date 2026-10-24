@@ -1,9 +1,21 @@
 // Generic Node-API bridge for Dart AOT bindings and owner-thread event delivery.
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#endif
 #include <node_api.h>
 #include <uv.h>
 #include <algorithm>
 #include <atomic>
+#if defined(_WIN32)
+#include <windows.h>
+#else
 #include <dlfcn.h>
+#endif
 #include <deque>
 #include <limits>
 #include <cstdint>
@@ -2267,32 +2279,73 @@ static bool register_bindings(Owner* owner, napi_value exports) {
 static void initialize_runtime() {
   // This identity belongs to the maintainer-built runtime/bridge pair. It is
   // independent of consumers and is checked before pinning or VM initialization.
+  std::string runtime_path;
+#if defined(_WIN32)
+  HMODULE module = nullptr;
+  const auto address = reinterpret_cast<LPCWSTR>(&NapiDart_RuntimeIdentity);
+  if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                             GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                         address, &module)) {
+    initialize_error = "Cannot locate identity-qualified Dart runtime: " +
+        std::to_string(GetLastError());
+    return;
+  }
+  std::vector<wchar_t> path(32768);
+  const DWORD length = GetModuleFileNameW(module, path.data(), path.size());
+  if (length == 0 || length >= path.size()) {
+    initialize_error = "Cannot read Dart runtime path: " +
+        std::to_string(GetLastError());
+    return;
+  }
+  const int bytes = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS,
+      path.data(), length, nullptr, 0, nullptr, nullptr);
+  if (bytes == 0) {
+    initialize_error = "Cannot encode Dart runtime path: " +
+        std::to_string(GetLastError());
+    return;
+  }
+  runtime_path.resize(bytes);
+  WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, path.data(), length,
+                     runtime_path.data(), bytes, nullptr, nullptr);
+#else
   Dl_info location = {};
   if (!dladdr(reinterpret_cast<void*>(&NapiDart_RuntimeIdentity), &location) || !location.dli_fname) {
     initialize_error = "Cannot locate identity-qualified Dart runtime";
     return;
   }
+  runtime_path = location.dli_fname;
+#endif
   const char* actual = NapiDart_RuntimeIdentity();
   const bool matches = actual && std::strcmp(actual, kExpectedRuntimeId) == 0;
   const bool trace = std::getenv("NAPI_DART_TRACE_IDENTITY") != nullptr;
   if (trace) {
     std::fprintf(stderr, "NAPI_IDENTITY expected=%s actual=%s runtime=%s accepted=%d\n",
-                 kExpectedRuntimeId, actual ? actual : "<null>", location.dli_fname, matches ? 1 : 0);
+                 kExpectedRuntimeId, actual ? actual : "<null>", runtime_path.c_str(), matches ? 1 : 0);
   }
   if (!matches) {
     initialize_error = std::string("Runtime identity mismatch before VM initialization: expected=") +
         kExpectedRuntimeId + " actual=" + (actual ? actual : "<null>") +
-        " runtime=" + location.dli_fname;
+        " runtime=" + runtime_path;
     return;
   }
   // Compatible copies may resolve to an already loaded matching image. The
   // unselected on-disk copy is outside runtime semantics (pack validation owns it).
-  void* resident = dlopen(location.dli_fname, RTLD_NOW | RTLD_LOCAL | RTLD_NODELETE);
+#if defined(_WIN32)
+  if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                             GET_MODULE_HANDLE_EX_FLAG_PIN,
+                         address, &module)) {
+    initialize_error = "Cannot retain Dart runtime: " +
+        std::to_string(GetLastError());
+    return;
+  }
+#else
+  void* resident = dlopen(runtime_path.c_str(), RTLD_NOW | RTLD_LOCAL | RTLD_NODELETE);
   if (!resident) {
     initialize_error = dlerror();
     return;
   }
-  if (trace) std::fprintf(stderr, "NAPI_VM_INIT runtime=%s\n", location.dli_fname);
+#endif
+  if (trace) std::fprintf(stderr, "NAPI_VM_INIT runtime=%s\n", runtime_path.c_str());
   char* error = nullptr;
   if (!NapiDart_Init(&error)) {
     initialize_error = error ? error : "Cannot initialize Dart runtime";

@@ -15,6 +15,9 @@
 
 #include "bin/dartutils.h"
 #include "bin/platform.h"
+#if defined(_WIN32)
+#include "bin/elf_loader.h"
+#endif
 #include "include/dart_embedder_api.h"
 #include "platform/utils.h"
 
@@ -189,6 +192,19 @@ NapiDart_Snapshot* NapiDart_LoadAotSnapshot(const char* path, char** error) {
   auto found = runtime.snapshots.find(path);
   if (found != runtime.snapshots.end()) return found->second;
 
+#if defined(_WIN32)
+  // The ordinary Dart SDK emits ELF AOT snapshots on Windows. Map them with
+  // Dart's loader instead of requiring consumers to link their own DLL.
+  const char* failure = nullptr;
+  const uint8_t* data = nullptr;
+  const uint8_t* text = nullptr;
+  auto* library = Dart_LoadELF(path, 0, &failure, &data, &text);
+  if (library == nullptr || data == nullptr || text == nullptr) {
+    if (library != nullptr) Dart_UnloadELF(library);
+    Fail(error, failure != nullptr ? failure : "Could not load ELF AOT snapshot");
+    return nullptr;
+  }
+#else
   char* failure = nullptr;
   void* library = dart::Utils::LoadDynamicLibrary(
       path, /*search_dll_load_dir=*/false, &failure);
@@ -218,6 +234,7 @@ NapiDart_Snapshot* NapiDart_LoadAotSnapshot(const char* path, char** error) {
     }
     return nullptr;
   }
+#endif
   auto* snapshot = new NapiDart_Snapshot();
   snapshot->uri = std::string("file://") + path;
   snapshot->library = library;

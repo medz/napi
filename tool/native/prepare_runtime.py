@@ -2,6 +2,7 @@
 """Prepare the pinned Product VM objects for this supported native host."""
 import argparse
 import hashlib
+import json
 import os
 from pathlib import Path
 import re
@@ -11,7 +12,7 @@ import subprocess
 import tempfile
 import urllib.request
 
-from build import host_profile, MINIMUM_OS
+from build import host_profile, MINIMUM_OS, WINDOWS_SDK_VERSION
 
 ROOT = Path(__file__).resolve().parents[2]
 SDK_REVISION = '04bcd1036cdc799ac6564988f159ee454d42c822'
@@ -26,6 +27,7 @@ CIPD_SHA256 = {
     'linux-arm64': 'a0242753a4396d84021ead06d2a4006e9d2f70fcd185bf4c18559780acde6857',
     'mac-amd64': '3ce5c8167cd82fcd89cb7e8229f08673ea76f66f61e4dc205a808f781075794f',
     'mac-arm64': '4ac2fa37f23486d249a2d71ff5084b6207c00cfa55928dad577fe99f0376ab71',
+    'windows-amd64': '453cc58cc06b84f0d6566c112b8e86a4784db391388dd1870065c55e8c369ebf',
 }
 GN_ARGS = '''is_debug=false is_release=false is_product=true dart_debug=false
 dart_runtime_mode="release" dart_use_compressed_pointers=false
@@ -36,10 +38,13 @@ is_asan=false is_lsan=false is_msan=false is_tsan=false is_ubsan=false is_hwasan
 def configuration():
     profile = host_profile()
     cpu = profile.rsplit('-', 1)[1]
-    target = 'linux' if profile.startswith('linux-') else 'mac'
+    target = {'linux': 'linux', 'macos': 'mac', 'windows': 'win'}[profile.split('-')[0]]
     args = (f'target_os="{target}" host_cpu="{cpu}" target_cpu="{cpu}" '
             f'dart_target_arch="{cpu}" is_clang=true\n' + GN_ARGS)
-    args += '\ndart_sysroot="debian"' if target == 'linux' else f'\nmac_sdk_min="{MINIMUM_OS}"'
+    if target == 'linux':
+        args += '\ndart_sysroot="debian"'
+    elif target == 'mac':
+        args += f'\nmac_sdk_min="{MINIMUM_OS}"'
     return profile, cpu, target, args
 
 
@@ -55,6 +60,8 @@ def cache_key():
     digest = hashlib.sha256((SDK_REVISION + '\n' + args).encode())
     if target == 'mac':
         digest.update(subprocess.check_output(['xcrun', '--show-sdk-build-version']))
+    elif target == 'win':
+        digest.update(json.dumps(windows_toolchain(), sort_keys=True).encode())
     for source in [Path(__file__), ROOT/'native/runtime/BUILD.gn']:
         digest.update(source.read_bytes())
     return 'napi-vm-' + profile + '-' + digest.hexdigest()
@@ -69,6 +76,7 @@ def checkout(directory, url, revision, patterns=None):
         return
     directory.mkdir(parents=True, exist_ok=True)
     run(['git', 'init', directory])
+    run(['git', '-C', directory, 'config', 'core.autocrlf', 'false'])
     run(['git', '-C', directory, 'remote', 'add', 'origin', url])
     run(['git', '-C', directory, 'config', 'remote.origin.promisor', 'true'])
     run(['git', '-C', directory, 'config', 'remote.origin.partialclonefilter', 'blob:none'])
@@ -98,7 +106,7 @@ def boringssl_sources(source):
 
 
 def cipd_client(directory, platform):
-    client = directory/'cipd'
+    client = directory/('cipd.exe' if platform.startswith('windows-') else 'cipd')
     expected = CIPD_SHA256[platform]
     if client.exists():
         if hashlib.sha256(client.read_bytes()).hexdigest() != expected:
@@ -106,8 +114,9 @@ def cipd_client(directory, platform):
         return client
     url = (f'https://chrome-infra-packages.appspot.com/client?platform={platform}'
            f'&version=git_revision:{CIPD_REVISION}')
-    with tempfile.NamedTemporaryFile(dir=directory) as temporary:
-        with urllib.request.urlopen(url, timeout=60) as response:
+    with tempfile.TemporaryDirectory(dir=directory) as temporary:
+        payload = Path(temporary)/'client'
+        with payload.open('wb') as destination, urllib.request.urlopen(url, timeout=60) as response:
             digest = hashlib.sha256()
             size = 0
             while block := response.read(1024 * 1024):
@@ -115,11 +124,10 @@ def cipd_client(directory, platform):
                 if size > 64 * 1024 * 1024:
                     raise ValueError('CIPD client exceeds its size limit')
                 digest.update(block)
-                temporary.write(block)
+                destination.write(block)
         if digest.hexdigest() != expected:
             raise ValueError('CIPD client checksum mismatch')
-        temporary.flush()
-        shutil.copyfile(temporary.name, client)
+        shutil.copyfile(payload, client)
     client.chmod(0o755)
     return client
 
@@ -143,9 +151,35 @@ def copy_runtime(sdk):
                 shutil.copyfile(source, target)
 
 
+def windows_toolchain():
+    # Use the installed VS toolchain, never Google's private depot_tools archive.
+    installer = Path(os.environ.get('ProgramFiles(x86)', r'C:\Program Files (x86)'))
+    vswhere = installer/'Microsoft Visual Studio/Installer/vswhere.exe'
+    installations = json.loads(subprocess.check_output([
+        str(vswhere), '-latest', '-products', '*', '-requires',
+        'Microsoft.VisualStudio.Component.VC.Tools.x86.x64', '-format', 'json'], text=True))
+    if not installations:
+        raise ValueError('Visual Studio with the x64 C++ toolchain is required')
+    installation = installations[0]
+    root = Path(installation['installationPath'])
+    msvc = (root/'VC/Auxiliary/Build/Microsoft.VCToolsVersion.default.txt').read_text().strip()
+    sdk = Path(os.environ.get('WINDOWSSDKDIR', str(installer/'Windows Kits/10')))
+    version = WINDOWS_SDK_VERSION  # Pinned by Dart SDK build/toolchain/win/setup_toolchain.py.
+    if not (sdk/f'Include/{version}/um/Windows.h').is_file():
+        raise ValueError(f'Windows SDK {version} is required by the pinned Dart SDK')
+    return {'visualStudioPath': str(root), 'visualStudioVersion': installation['installationVersion'],
+            'msvcVersion': msvc, 'windowsSdkPath': str(sdk), 'windowsSdkVersion': version}
+
+
 def prepare(directory, jobs):
     _, cpu, target, args = configuration()
-    cipd_platform = target + '-' + ('amd64' if cpu == 'x64' else cpu)
+    cipd_platform = ('windows' if target == 'win' else target) + '-' + ('amd64' if cpu == 'x64' else cpu)
+    if target == 'win':
+        toolchain = windows_toolchain()
+        os.environ.update(DEPOT_TOOLS_WIN_TOOLCHAIN='0',
+                          GYP_MSVS_OVERRIDE_PATH=toolchain['visualStudioPath'],
+                          vs2022_install=toolchain['visualStudioPath'],
+                          WINDOWSSDKDIR=toolchain['windowsSdkPath'])
     directory.mkdir(parents=True, exist_ok=True)
     sdk = directory/'sdk'
     checkout(sdk, 'https://github.com/dart-lang/sdk.git', SDK_REVISION,
@@ -177,11 +211,12 @@ fuchsia/third_party/sysroot/linux git_revision:{SYSROOT_REVISION}
     # Normally generated by gclient from the pinned DEPS gclient_gn_args.
     (sdk/'build/config/gclient_args.gni').write_text('build_devtools_from_sources = false\n')
     copy_runtime(sdk)
-    cache = sdk/('out' if target == 'linux' else 'xcodebuild')/('Product'+cpu.upper())
-    run([sdk/'buildtools/gn', 'gen', cache, '--root-target=//runtime/napi:napi_runtime',
+    cache = sdk/('xcodebuild' if target == 'mac' else 'out')/('Product'+cpu.upper())
+    extension = '.exe' if target == 'win' else ''
+    run([sdk/('buildtools/gn'+extension), 'gen', cache, '--root-target=//runtime/napi:napi_runtime',
          '--args=' + args], cwd=sdk)
     # Compile the shared VM/IO dependency closure, not the unused intermediate .so.
-    run([sdk/'buildtools/ninja/ninja', '-C', cache, '-j', str(jobs),
+    run([sdk/('buildtools/ninja/ninja'+extension), '-C', cache, '-j', str(jobs),
          f'clang_{cpu}_shared/phony/runtime/napi/napi_runtime_set'])
     print(f'SDK source: {sdk}\nVM cache: {cache}')
 

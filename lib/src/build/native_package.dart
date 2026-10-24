@@ -35,6 +35,16 @@ if (process.platform === 'darwin') {
 }
 ''');
   }
+  if (modules.containsKey(NativePlatform.windowsX64)) {
+    code.writeln(r'''
+if (process.platform === 'win32') {
+  const version = /^(\d+)\./.exec($napiRelease());
+  if (version === null || Number(version[1]) < 10) {
+    throw new Error('This native artifact requires Windows 10 or Server 2016 or newer.');
+  }
+}
+''');
+  }
   if (modules.keys.any((platform) => platform.nodePlatform == 'linux')) {
     code.writeln(r'''
 if (process.platform === 'linux') {

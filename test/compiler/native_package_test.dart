@@ -8,6 +8,7 @@ import 'package:test/test.dart';
 const _modules = {
   NativePlatform.macosArm64: './macos-arm64/module.mjs',
   NativePlatform.macosX64: './macos-x64/module.mjs',
+  NativePlatform.windowsX64: './windows-x64/module.mjs',
   NativePlatform.linuxX64: './linux-x64-glibc/module.mjs',
   NativePlatform.linuxArm64: './linux-arm64-glibc/module.mjs',
 };
@@ -145,14 +146,14 @@ assert.deepEqual(globalThis.loadedTargets, ['linuxX64']);
     () async {
       await writeModules();
       for (final (platform, architecture) in [
-        ('win32', 'x64'),
+        ('win32', 'arm64'),
         ('linux', 'riscv64'),
       ]) {
         await run(
           '''
 await assert.rejects(import('./index.mjs'), error => {
   assert.ok(error.message.includes(${jsonEncode('no native artifact for $platform/$architecture')}));
-  assert.match(error.message, /Available targets: macOS arm64, macOS x64, Linux x64/);
+  assert.match(error.message, /Available targets: macOS arm64, macOS x64, Windows x64, Linux x64/);
   return true;
 });
 assert.equal(globalThis.loadedTargets, undefined);
@@ -180,6 +181,25 @@ assert.equal(globalThis.reportCalls, 0);
     'rejects unsupported OS and libc versions before loading native code',
     () async {
       await writeModules();
+      for (final kernel in ['6.3.9600', '', 'unknown']) {
+        await run(
+          r'''
+await assert.rejects(import('./native.mjs'), /requires Windows 10 or Server 2016 or newer/);
+assert.equal(globalThis.loadedTargets, undefined);
+''',
+          platform: 'win32',
+          kernel: kernel,
+        );
+      }
+      await run(
+        r'''
+const {Counter} = await import('./native.mjs');
+assert.equal(new Counter(4).increment(), 5);
+assert.deepEqual(globalThis.loadedTargets, ['windowsX64']);
+''',
+        platform: 'win32',
+        kernel: '10.0.26100',
+      );
       const rejectedLinux = r'''
 await assert.rejects(import('./native.mjs'), /requires Linux with glibc 2\.28 or newer/);
 assert.equal(globalThis.loadedTargets, undefined);

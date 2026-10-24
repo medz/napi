@@ -68,6 +68,15 @@ Directory nativeRuntimeCacheDirectory() {
     }
     return Directory(configured).absolute;
   }
+  if (Platform.isWindows) {
+    final local = Platform.environment['LOCALAPPDATA'];
+    if (local == null || local.isEmpty || !path.isAbsolute(local)) {
+      throw StateError(
+        'Set NAPI_RUNTIME_CACHE when LOCALAPPDATA is unavailable.',
+      );
+    }
+    return Directory(path.join(local, 'napi', 'Cache'));
+  }
   if (Platform.isLinux) {
     final xdg = Platform.environment['XDG_CACHE_HOME'];
     if (xdg != null && xdg.isNotEmpty && path.isAbsolute(xdg)) {
@@ -107,7 +116,17 @@ Future<NativeRuntimeBundle> resolveNativeRuntime({
   await checkNativePath(cacheDirectory.path);
   final staging = await cacheDirectory.createTemp('.download-');
   try {
-    final extractor = Platform.isLinux ? '/usr/bin/unzip' : '/usr/bin/ditto';
+    final extractor = Platform.isWindows
+        ? path.join(
+            Platform.environment['SystemRoot'] ?? r'C:\Windows',
+            'System32',
+            'WindowsPowerShell',
+            'v1.0',
+            'powershell.exe',
+          )
+        : Platform.isLinux
+        ? '/usr/bin/unzip'
+        : '/usr/bin/ditto';
     if (Platform.isLinux && !await File(extractor).exists()) {
       throw FileSystemException(
         'Cannot extract the native runtime. Install unzip or supply '
@@ -122,11 +141,27 @@ Future<NativeRuntimeBundle> resolveNativeRuntime({
     // maintainer packer. Never extract before both size and SHA-256 match.
     final result = await Process.run(
       extractor,
-      Platform.isLinux
+      Platform.isWindows
+          ? [
+              '-NoLogo',
+              '-NoProfile',
+              '-NonInteractive',
+              '-Command',
+              r'Expand-Archive -LiteralPath $env:NAPI_RUNTIME_ARCHIVE '
+                  r'-DestinationPath $env:NAPI_RUNTIME_DIRECTORY -ErrorAction Stop',
+            ]
+          : Platform.isLinux
           ? ['-q', archive.path, '-d', extracted.path]
           : ['-x', '-k', archive.path, extracted.path],
       includeParentEnvironment: false,
-      environment: const {'LC_ALL': 'C'},
+      environment: {
+        'LC_ALL': 'C',
+        if (Platform.isWindows) ...{
+          'SystemRoot': Platform.environment['SystemRoot'] ?? r'C:\Windows',
+          'NAPI_RUNTIME_ARCHIVE': archive.path,
+          'NAPI_RUNTIME_DIRECTORY': extracted.path,
+        },
+      },
     );
     if (result.exitCode != 0) {
       throw FileSystemException(
@@ -258,8 +293,12 @@ Future<void> _checkCacheOutput(Directory cache, Directory output) async {
   await checkNativePath(output.absolute.path);
   // Neither leaf need exist yet. Conservatively reject case aliases on the
   // supported host before creating a cache that could occupy the output.
-  final sourceName = Platform.isMacOS ? source.toLowerCase() : source;
-  final targetName = Platform.isMacOS ? target.toLowerCase() : target;
+  final sourceName = (Platform.isMacOS || Platform.isWindows)
+      ? source.toLowerCase()
+      : source;
+  final targetName = (Platform.isMacOS || Platform.isWindows)
+      ? target.toLowerCase()
+      : target;
   if (path.equals(sourceName, targetName) ||
       path.isWithin(sourceName, targetName) ||
       path.isWithin(targetName, sourceName) ||

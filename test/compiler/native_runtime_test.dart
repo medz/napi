@@ -5,6 +5,7 @@ import 'package:napi/src/build/native_bundle.dart';
 import 'package:napi/src/build/native_runtime.dart';
 import 'package:napi/src/compiler/sdk_adapter/dart_sdk_adapter.dart';
 import 'package:test/test.dart';
+import 'package:path/path.dart' as path;
 
 final _supported = _supportsNativeRuntime();
 
@@ -28,21 +29,27 @@ void main() {
 import 'package:napi/src/build/native_runtime.dart';
 void main() => print(nativeRuntimeCacheDirectory().path);
 ''');
-    final fallback = Platform.isLinux
+    final environment = {
+      'HOME': home.path,
+      if (Platform.isWindows) 'LOCALAPPDATA': home.path,
+    };
+    final fallback = Platform.isWindows
+        ? '${home.path}/napi/Cache'
+        : Platform.isLinux
         ? '${home.path}/.cache/napi'
         : '${home.path}/Library/Caches/napi';
     final cases = <({Map<String, String> environment, String? expected})>[
-      (environment: {'HOME': home.path}, expected: fallback),
+      (environment: environment, expected: fallback),
       (
         environment: {
-          'HOME': home.path,
+          ...environment,
           'NAPI_RUNTIME_CACHE': '${root.path}/override',
           'XDG_CACHE_HOME': '${root.path}/xdg',
         },
         expected: '${root.path}/override',
       ),
       (
-        environment: {'HOME': home.path, 'XDG_CACHE_HOME': '${root.path}/xdg'},
+        environment: {...environment, 'XDG_CACHE_HOME': '${root.path}/xdg'},
         expected: Platform.isLinux ? '${root.path}/xdg/napi' : fallback,
       ),
       if (Platform.isLinux) ...[
@@ -55,10 +62,7 @@ void main() => print(nativeRuntimeCacheDirectory().path);
           expected: '${root.path}/xdg/napi',
         ),
       ],
-      (
-        environment: {'HOME': home.path, 'NAPI_RUNTIME_CACHE': ''},
-        expected: null,
-      ),
+      (environment: {...environment, 'NAPI_RUNTIME_CACHE': ''}, expected: null),
     ];
     for (final entry in cases) {
       final result = await Process.run(
@@ -75,7 +79,10 @@ void main() => print(nativeRuntimeCacheDirectory().path);
         expect(result.stderr, contains('NAPI_RUNTIME_CACHE must not be empty'));
       } else {
         expect(result.exitCode, 0, reason: '${result.stderr}');
-        expect((result.stdout as String).trim(), entry.expected);
+        expect(
+          (result.stdout as String).trim(),
+          path.normalize(entry.expected!),
+        );
       }
     }
   }, skip: !_supported);
@@ -124,7 +131,7 @@ void main() => print(nativeRuntimeCacheDirectory().path);
       skip: scenario == 'unsupported'
           ? (_supported ? 'Requires an unsupported native host.' : false)
           : !_supported
-          ? 'Requires macOS arm64/x64 or Linux arm64/x64 glibc.'
+          ? 'Requires a supported native host.'
           : needsArchive && archive == null
           ? 'Set NAPI_TEST_RUNTIME_ARCHIVE to the published locked ZIP.'
           : false,
@@ -195,7 +202,7 @@ Future<void> _scenario(String scenario, Directory root) async {
           cache,
           Directory('${cache.path}/package'),
           root,
-          if (Platform.isMacOS) ...[
+          if (Platform.isMacOS || Platform.isWindows) ...[
             Directory('${root.path}/CACHE'),
             Directory('${root.path}/CACHE/package'),
           ],
@@ -240,7 +247,7 @@ Future<void> _scenario(String scenario, Directory root) async {
       final bundle = bundles.first;
       expect(
         bundle.directory.path,
-        '${cache.path}/${nativeRuntimeArchive.sha256}',
+        path.join(cache.path, nativeRuntimeArchive.sha256),
       );
       expect(urls.first.toString(), nativeRuntimeArchive.url);
       expect(bundle.platform, verifyNativeHost());
