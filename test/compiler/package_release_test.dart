@@ -232,4 +232,40 @@ Future<void> main(List<String> args) => PackageRelease(
     expect(result.stderr, contains('Prepared tarball changed'));
     expect(uploads, isEmpty);
   }, timeout: const Timeout(Duration(minutes: 2)));
+
+  test(
+    'registry override applies to lookup and upload despite publishConfig',
+    () async {
+      final wrong = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      var wrongRequests = 0;
+      wrong.listen((request) async {
+        wrongRequests++;
+        request.response.statusCode = 500;
+        await request.response.close();
+      });
+      try {
+        final wrongRegistry = 'http://127.0.0.1:${wrong.port}/';
+        await PackageRelease(
+          modules: modules,
+          output: output,
+          name: name,
+          version: version,
+          metadata: {
+            'publishConfig': {
+              'registry': wrongRegistry,
+              '@test:registry': wrongRegistry,
+              'access': 'public',
+            },
+          },
+        ).prepare();
+        final result = await publish(['--registry', registry.toString()]);
+        expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
+        expect(wrongRequests, 0);
+        expect(documents.containsKey(name), isTrue);
+      } finally {
+        await wrong.close(force: true);
+      }
+    },
+    timeout: const Timeout(Duration(minutes: 2)),
+  );
 }
