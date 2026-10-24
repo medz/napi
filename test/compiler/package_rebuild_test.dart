@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:napi/build.dart';
+import 'package:path/path.dart' as path;
 import 'package:napi/src/build/output_ownership.dart';
 import 'package:napi/src/build/publish.dart';
 import 'package:test/test.dart';
@@ -261,24 +262,20 @@ void main() {
   }, skip: Platform.isLinux ? unsupportedRebuild ?? false : true);
 
   group('managed replacement', () {
-    test(
-      'a legal 255-byte basename supports fresh publication and rebuilding',
-      () async {
-        output = Directory('${root.path}/${'x' * 255}');
-        await assemble();
-        await File('${source.path}/module.wasm').writeAsString('second');
-        await assemble(overrides: {'version': '1.0.1'});
-        expect(
-          await File('${output.path}/module.wasm').readAsString(),
-          'second',
-        );
-        expect((await package())['version'], '1.0.1');
-        expect(
-          await File('${root.path}/.napi-locks/${'x' * 255}').exists(),
-          isTrue,
-        );
-      },
-    );
+    test('a legal 255-byte basename supports fresh publication and rebuilding', () async {
+      output = Directory('${root.path}/${'x' * 255}');
+      await assemble();
+      await File('${source.path}/module.wasm').writeAsString('second');
+      await assemble(overrides: {'version': '1.0.1'});
+      expect(await File('${output.path}/module.wasm').readAsString(), 'second');
+      expect((await package())['version'], '1.0.1');
+      expect(
+        await File(
+          '${root.path}/.napi-locks/${'x' * 255}${Platform.isWindows ? '/lock' : ''}',
+        ).exists(),
+        isTrue,
+      );
+    });
     test(
       'author JSON larger than the private marker limit remains rebuildable',
       () async {
@@ -619,7 +616,7 @@ void main() {
       await assemble();
       final link = await Link('${output.path}/author').create(source.path);
       await expectLater(assemble(), throwsArgumentError);
-      expect(await link.target(), source.path);
+      expect(path.equals(await link.target(), source.path), isTrue);
     });
 
     test(

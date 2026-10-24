@@ -17,7 +17,7 @@ import 'native_runtime.dart';
 import 'native_package.dart';
 import '../compiler/sdk_adapter/dart_sdk_adapter.dart';
 
-/// Build and assemble an npm package, or atomically rebuild a managed package.
+/// Build and assemble an npm package, or replace a managed package.
 ///
 /// Metadata is validated before source analysis, compilation or staging. Node
 /// is not required to validate package names. Native builds obtain a pinned
@@ -485,7 +485,7 @@ Future<Directory> _assemblePackage({
       publishDirectory(staging, target);
     } else {
       exchangeAttempted = true;
-      exchangeDirectories(staging, target);
+      await update.replace(staging, target);
     }
     published = true;
     if (previous != null) {
@@ -494,8 +494,7 @@ Future<Directory> _assemblePackage({
     return target;
   } finally {
     try {
-      // Exchange errors retain both names for inspection; there is no fallback
-      // rename and no assumption that an ambiguous error means no commit.
+      // Once replacement starts, leave its recovery paths intact on failure.
       if (!published && !exchangeAttempted && staging != null) {
         await cleanBuildStaging(staging, committed: false);
       }

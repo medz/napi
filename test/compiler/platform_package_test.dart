@@ -301,7 +301,16 @@ void main() {
       metadata: metadata,
     );
     await File('${output.path}/author.txt').writeAsString('keep');
+    final nested = await Directory('${output.path}/author/nested')
+        .create(recursive: true);
+    await File('${nested.path}/notes.txt').writeAsString('nested author');
     await assemblePackage(modules: modules, output: output, metadata: metadata);
+    final ownership = (await OutputOwnership.read(output))!;
+    expect(
+      ownership.recoveryEntries,
+      contains('native/macos-arm64/module.aot'),
+    );
+    expect(ownership.recoveryEntries, contains('author/nested/notes.txt'));
     expect(File('${output.path}/module.aot').existsSync(), isFalse);
     final package = jsonDecode(
       await File('${output.path}/package.json').readAsString(),
@@ -318,6 +327,10 @@ void main() {
     );
     expect(File('${output.path}/wasm/module.wasm').existsSync(), isFalse);
     expect(await File('${output.path}/author.txt').readAsString(), 'keep');
+    expect(
+      await File('${nested.path}/notes.txt').readAsString(),
+      'nested author',
+    );
     await assembleWasmPackage(
       module: modules.last,
       output: output,

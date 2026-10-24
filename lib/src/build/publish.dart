@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:path/path.dart' as path;
 
 part 'linux_metadata.dart';
+part 'windows_output.dart';
 
 /// Publish a completed directory in one operation, never replacing a name that
 /// another process owns. Both directories must be on the same filesystem.
@@ -78,6 +79,10 @@ Future<void> cleanBuildStaging(
 /// Rebuild support is narrower than fresh publication. In particular, a local
 /// filesystem is required: a remote rename error need not mean no commit.
 void checkPackageRebuildFilesystem(Directory directory) {
+  if (Platform.isWindows) {
+    _windows.checkFilesystem(directory);
+    return;
+  }
   if (Platform.isLinux) {
     _linuxMetadata.checkFilesystem(directory);
     return;
@@ -136,6 +141,14 @@ void copyPackageFileMetadata(
   bool preserveTimes = true,
   PackageAccessTime? accessTime,
 }) {
+  if (Platform.isWindows) {
+    _windows.copyMetadata(
+      source.path,
+      destination.path,
+      preserveTimes: preserveTimes,
+    );
+    return;
+  }
   if (Platform.isLinux) {
     _linuxMetadata.copy(
       source.path,
@@ -153,6 +166,10 @@ void copyPackageDirectoryMetadata(
   Directory destination, {
   PackageAccessTime? accessTime,
 }) {
+  if (Platform.isWindows) {
+    _windows.copyMetadata(source.path, destination.path);
+    return;
+  }
   if (Platform.isLinux) {
     _linuxMetadata.copy(source.path, destination.path, accessTime: accessTime);
     return;
@@ -179,6 +196,11 @@ void copyPackageDirectoryMetadata(
   });
 }
 
+/// Dart's Windows FileStat.changed reports creation time, not NTFS change time.
+({int changed, int attributes})? packageWindowsMetadata(
+  FileSystemEntity entity,
+) => Platform.isWindows ? _windows.metadata(entity) : null;
+
 void checkOutputLockPath(Directory output) {
   final normalized = path.normalize(output.absolute.path);
   if (path
@@ -192,15 +214,22 @@ void checkOutputLockPath(Directory output) {
 }
 
 /// A stable sibling lock directory, shared by processes and Dart isolates.
-/// Its inode deliberately survives release: unlinking it can split contenders
-/// between two different locks. It is not a lease on arbitrary author edits.
+/// Lock paths survive release so contenders continue to use the same lock.
+/// This coordinates builders, not arbitrary author edits.
 final class PackageLock {
-  PackageLock._(this._descriptor, this.file);
+  PackageLock._(this._descriptor, this.file) : _windowsLock = null;
+  PackageLock._windows(this._windowsLock)
+    : file = File(path.join(_windowsLock!.directory.path, 'lock'));
   int? _descriptor;
+  final _WindowsPackageLock? _windowsLock;
+  Directory? get recoveryDirectory => _windowsLock?.directory;
   final File file;
 
   static PackageLock acquire(Directory output) {
     checkOutputLockPath(output);
+    if (Platform.isWindows) {
+      return PackageLock._windows(_WindowsPackageLock.acquire(output));
+    }
     final normalized = path.normalize(output.absolute.path);
     final locks = Directory(path.join(path.dirname(normalized), '.napi-locks'));
     var directoryType = FileSystemEntity.typeSync(
@@ -257,6 +286,10 @@ final class PackageLock {
   }
 
   void release() {
+    if (_windowsLock case final lock?) {
+      lock.release();
+      return;
+    }
     final descriptor = _descriptor;
     if (descriptor == null) return;
     _descriptor = null;

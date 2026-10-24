@@ -316,7 +316,7 @@ jobs:
   publication:
     needs: scope
     if: ${{ always() && needs.scope.result == 'success' && needs.scope.outputs.scope == 'full' }}
-    name: Atomic publication (${{ matrix.os }})
+    name: Publication and rebuilds (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
@@ -328,12 +328,15 @@ jobs:
         with:
           sdk: 3.13.5
       - run: dart pub get
-      - run: dart test test/compiler/publish_test.dart test/compiler/package_rebuild_test.dart
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         if: runner.os != 'Linux'
         with:
           node-version: 26.11.1
           package-manager-cache: false
+      - name: Install TypeScript for the relocated Windows consumer
+        if: runner.os == 'Windows'
+        run: npm install --prefix .dart_tool/js --no-save --no-package-lock --ignore-scripts --no-audit --no-fund typescript@7.0.2
+      - run: dart test test/compiler/publish_test.dart test/compiler/package_rebuild_test.dart test/compiler/module_rebuild_test.dart test/compiler/windows_rebuild_test.dart test/compiler/platform_package_test.dart
       - name: Test process ownership on macOS and Windows
         if: runner.os != 'Linux'
         run: dart test test/harness
