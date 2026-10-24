@@ -134,23 +134,20 @@ Future<ProcessResult> _process(
         timeout: timeout,
         workingDirectory: cwd,
       );
+
 Future<ProcessResult> npm(List<String> arguments, {String? cwd}) async {
   if (!Platform.isWindows) {
     return _process('npm', arguments, cwd: cwd);
   }
   final command = await _windowsNpm;
-  return _process(command.node, [
-    command.cli,
-    ...arguments,
-  ], cwd: cwd);
+  return _process(command.node, [command.cli, ...arguments], cwd: cwd);
 }
 
 Future<({String node, String cli})> _readWindowsNpm() async {
-  final result = await _process(
-    'node',
-    ['-p', 'process.execPath'],
-    timeout: const Duration(seconds: 10),
-  );
+  final result = await _process('node', [
+    '-p',
+    'process.execPath',
+  ], timeout: const Duration(seconds: 10));
   if (result.exitCode != 0) {
     throw StateError('Cannot locate Node for npm: ${result.stderr}');
   }

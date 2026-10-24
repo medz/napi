@@ -64,7 +64,6 @@ void main() {
         (root) async =>
             verifyModuleRebuild(root, nativeRuntime: await runtime()),
       ),
-      skip: Platform.isWindows ? 'Managed rebuild requires #135.' : false,
     );
     testConsumer(
       'installed package',
