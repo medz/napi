@@ -82,7 +82,8 @@ async function check(name, selected) {
     assert.throws(() => current.structuralDefaults(undefined, new Map([['a', ['bad']]])), TypeError);
     assert.equal(current.calls(), beforeDefaults);
     for (const options of [undefined, {}, {numbers: undefined, wide: undefined}]) {
-      assert.equal(current.namedDefaults(options), true);
+      assert.equal(current.namedDefaults(options), true,
+        `${name} ${current === native ? 'native' : 'wasm'} named defaults`);
     }
     assert.equal(current.namedDefaults({numbers: [1]}), false);
     const base = new current.DefaultBase();

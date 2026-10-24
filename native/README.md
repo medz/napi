@@ -9,7 +9,7 @@ and no sanitizers or dynamic modules:
 
 | Profile | Toolchain | Runtime baseline |
 | --- | --- | --- |
-| macOS arm64 or x64 | Pinned SDK clang and Xcode SDK/linker | macOS 14 |
+| macOS arm64 or x64 | Pinned SDK clang/LLD and Xcode SDK | macOS 14 |
 | Linux x64 | Pinned SDK clang and Debian sysroot | glibc 2.28 |
 
 Other profiles fail explicitly. Node.js has its own host requirements.
@@ -34,7 +34,7 @@ objects. Reuse that directory for subsequent builds. The SDK checkout is
 `.dart_tool/native-vm/sdk`, with its VM cache in `out/ProductX64` on Linux,
 `xcodebuild/ProductX64` on Intel Macs, or `xcodebuild/ProductARM64` on Apple Silicon.
 Use `--jobs` to limit compilation parallelism. macOS builds use the pinned
-SDK clang and its libc++, with the active Xcode SDK and linker.
+SDK clang, LLD and libc++, with the active Xcode SDK.
 
 That first SDK build can compile VM objects. The bundle command below reuses
 them, checks the SDK revision and actual `args.gn` configuration, and checks the

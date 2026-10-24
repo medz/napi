@@ -306,8 +306,8 @@ def build(sdk, headers, output, cache):
         compile_prefix = ['-isysroot', sysroot, f'-mmacosx-version-min={MINIMUM_OS}',
                           f'--target={mac_target}-apple-macos']
         link_vars = variables(target)
-        # The SDK links its own libc++. Keep that compiler/library pairing,
-        # while using Apple's linker, which does not support lld's ICF flag.
+        # Keep the SDK's compiler/libc++ pairing. Omit the optional lld ICF
+        # flag so this link recipe also accepts Xcode's linker.
         link_flags = [flag for flag in shlex.split(link_vars.get('ldflags', ''))
                       if not flag.startswith(('-Wl,-install_name,', '-Wl,-rpath,'))
                       and flag != '-Wl,--icf=all']
