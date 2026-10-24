@@ -32,7 +32,9 @@ The API contains integer addition, a mutable Counter and three byte operations:
 | `allocate(size)` | Allocate zeroed host-owned SharedBytes | Return a zeroed Rust Vec as externally owned Uint8Array |
 
 Both byte operations toggle the first byte. Copying leaves the input unchanged;
-shared access changes it in place. Allocation reads only the first output byte,
+shared access changes it in place. Shared-view measurements use fixed, non-shared
+ArrayBuffers and make no JavaScript callbacks during the Rust mutable borrow.
+Allocation reads only the first output byte,
 so it does not measure the cost of touching every memory page. Externally owned
 Rust storage and host-owned Dart storage have different lifetime and allocation
 costs; neither comparison implies the same implementation. See napi-rs's
