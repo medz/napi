@@ -5,6 +5,7 @@ import 'package:napi/build.dart';
 import 'package:napi/src/compiler/native/platform.dart';
 import 'package:test/test.dart';
 
+import '../support/commands.dart' show nodeExecutables;
 import '../support/package_module.dart';
 import '../support/process.dart';
 
@@ -131,12 +132,64 @@ Future<void> main(List<String> args) => PackageRelease(
     },
   );
 
+  test(
+    'preparation keeps ESM fallback and CommonJS native selection',
+    () async {
+      final wasm = await createPackageModule(root, null, {
+        'format': 1,
+        'exports': ['Counter'],
+        'sha256': '1' * 64,
+      });
+      await PackageRelease(
+        modules: [...modules, wasm],
+        output: output,
+        name: name,
+        version: version,
+        wasmFallback: true,
+      ).prepare();
+      final record = jsonDecode(
+        await File('${output.path}/.napi-release.json').readAsString(),
+      ) as Map;
+      final entry = (record['packages'] as List).last as Map;
+      final check = File('${output.path}/${entry['directory']}/check.mjs');
+      await check.writeAsString(r"""
+import assert from 'node:assert/strict';
+import {createRequire} from 'node:module';
+Object.defineProperty(process, 'platform', {value: 'freebsd'});
+Object.defineProperty(process, 'arch', {value: 'x64'});
+const require = createRequire(import.meta.url);
+const root = await import('@test/release-counter');
+const wasm = await import('@test/release-counter/wasm');
+assert.equal(root.Counter, wasm.Counter);
+assert.equal(new root.Counter().value, 100);
+assert.throws(() => require('@test/release-counter'), /no native artifact for freebsd/);
+""");
+      for (final node in nodeExecutables()) {
+        await runProcess(node, [
+          check.path,
+        ], timeout: const Duration(seconds: 30));
+      }
+    },
+  );
+
   test('Wasm-only preparation has one publishable package', () async {
     final wasm = await createPackageModule(root, null, {
       'format': 1,
       'exports': ['Counter'],
       'sha256': '1' * 64,
     });
+    await expectLater(
+      PackageRelease(
+        modules: [wasm],
+        output: output,
+        name: name,
+        version: version,
+        target: BuildTarget.wasm,
+        wasmFallback: true,
+      ).prepare(),
+      throwsArgumentError,
+    );
+    expect(output.existsSync(), isFalse);
     await PackageRelease(
       modules: [wasm],
       output: output,

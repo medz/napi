@@ -24,6 +24,7 @@ final class PackageRelease {
     required this.name,
     required this.version,
     this.target = BuildTarget.native,
+    this.wasmFallback = false,
     Map<String, Object?> metadata = const {},
     Map<String, File> assets = const {},
   }) : modules = List.unmodifiable(modules),
@@ -35,6 +36,7 @@ final class PackageRelease {
   final String name;
   final String version;
   final BuildTarget target;
+  final bool wasmFallback;
   final Map<String, Object?> metadata;
   final Map<String, File> assets;
 
@@ -71,6 +73,7 @@ final class PackageRelease {
               output: Directory('${staging.path}/packages'),
               metadata: supplied,
               target: target,
+              wasmFallback: wasmFallback,
               assets: assets,
             )
           : [
@@ -79,6 +82,7 @@ final class PackageRelease {
                 output: Directory('${staging.path}/packages/package'),
                 metadata: supplied,
                 target: target,
+                wasmFallback: wasmFallback,
                 assets: assets,
               ),
             ];

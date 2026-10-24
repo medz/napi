@@ -280,9 +280,9 @@ uses Wasm. The root shares constructors and Dart state with its selected backend
 the other backend has independent state, and its objects cannot be passed to the
 selected backend.
 
-`buildPackage`, `assemblePackage` and `assemblePackageSet` accept the same
-`wasmFallback` option. Assembly requires a Wasm module alongside the native
-modules. The default remains a fixed root. A build script's `--target native`
+`buildPackage`, `assemblePackage`, `assemblePackageSet` and `PackageRelease`
+accept the same `wasmFallback` option. Assembly requires a Wasm module alongside
+the native modules. The default remains a fixed root. A build script's `--target native`
 or `--target wasm` override builds that single backend and disables fallback
 for that invocation.
 
