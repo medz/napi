@@ -39,20 +39,21 @@ class Counter {
 }
 ```
 
-Create `tool/build.dart`:
+Create a build script, for example `tool/build.dart`:
 
 ```dart
 import 'dart:io';
 import 'package:napi/build.dart';
 
-Future<void> main() async {
-  await buildPackage(
-    library: File('lib/counter.dart').absolute.uri,
-    output: Directory('npm-package'),
-    packagesPath: File('.dart_tool/package_config.json').absolute.path,
-    metadata: {'name': '@scope/counter', 'version': '0.0.0'},
-  );
-}
+final package = PackageBuild(
+  library: File('lib/counter.dart').absolute.uri,
+  output: Directory('npm-package'),
+  name: '@scope/counter',
+  version: '0.0.0',
+  packagesPath: File('.dart_tool/package_config.json').absolute.path,
+);
+
+Future<void> main(List<String> args) => package.run(args);
 ```
 
 Build and install the generated package in the same directory:
@@ -77,9 +78,12 @@ The package initializes when imported. TypeScript declarations are generated
 alongside the bindings. To use the package in another Node project, run
 `npm pack ./npm-package` and install the resulting tarball there.
 
-For a native package, add `target: BuildTarget.native` to the `buildPackage`
-call. See [native builds](doc/native.md) for runtime caching and offline builds,
-and [packaging](doc/packaging.md) for dual-target packages and rebuilding output.
+The script can have any name or location; relative paths use your working
+directory. For a native package, run `dart run tool/build.dart --target native`,
+or set `target: BuildTarget.native` in the declaration. See
+[native builds](doc/native.md) for runtime caching and offline builds, and
+[packaging](doc/packaging.md) for script options, dual-target packages and custom
+build workflows.
 
 ## Learn more
 

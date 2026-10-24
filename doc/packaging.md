@@ -1,7 +1,60 @@
 # Build and publish an npm package
 
-Use `buildPackage` in a Dart build script to compile a library and assemble its
-npm package. The [quick start](../README.md#build-a-package) has a complete example.
+Declare a `PackageBuild` in your own Dart script. Run that script to compile the
+selected library and assemble its npm package. The
+[quick start](../README.md#build-a-package) has a complete example.
+
+## Declare and run a build
+
+Save this as any Dart file, such as `scripts/package.dart`:
+
+```dart
+import 'dart:io';
+import 'package:napi/build.dart';
+
+final package = PackageBuild(
+  library: File('lib/counter.dart').absolute.uri,
+  output: Directory('npm-package'),
+  name: '@scope/counter',
+  version: '1.0.0',
+  metadata: {'description': 'A counter implemented in Dart', 'license': 'MIT'},
+  assets: {'LICENSE': File('LICENSE')},
+  packagesPath: File('.dart_tool/package_config.json').absolute.path,
+);
+
+Future<void> main(List<String> args) => package.run(args);
+```
+
+Run it from the Dart project directory:
+
+```sh
+dart run scripts/package.dart
+dart run scripts/package.dart --help
+dart run scripts/package.dart --target native --output npm-native
+dart run scripts/package.dart --target wasm --output npm-wasm
+dart run scripts/package.dart --target both --output npm-dual
+```
+
+`--target native` and `--target wasm` build only that backend. `--target both`
+includes both and retains the declaration's `target` as the package root, which
+defaults to `BuildTarget.wasm`. Command-line options apply only to that run;
+the declaration is unchanged. Selecting Wasm alone does not access a configured
+native runtime.
+
+Relative paths, including `--output`, use the working directory. You can use
+ordinary Dart expressions to resolve paths differently. `name` and `version`
+are required constructor arguments; `metadata` supplies additional npm fields
+and must not repeat them. Other options match `buildPackage`, including external
+selections and an [offline native runtime](native.md#runtime-download-and-offline-builds).
+
+`run(args)` prints diagnostics and sets a nonzero process exit code on expected
+failures, without terminating your script. To compose builds or handle errors
+yourself, call `await package.build()` instead. The declaration can also be
+imported by another Dart script.
+
+## Call the build API directly
+
+Existing build scripts can continue using `buildPackage`:
 
 ```dart
 await buildPackage(
@@ -46,9 +99,10 @@ Wasm is the root target.
 
 ## Package metadata and files
 
-`metadata` accepts npm fields such as `name`, `version`, `author`, `contributors`,
-`repository` and `license`. Unscoped Node built-in names such as `path` are
-rejected; use a scoped name such as `@scope/path` instead.
+`metadata` accepts npm fields such as `author`, `contributors`, `repository` and
+`license`. `PackageBuild` takes `name` and `version` as separate arguments;
+direct `buildPackage` calls include them in `metadata`. Unscoped Node built-in
+names such as `path` are rejected; use a scoped name such as `@scope/path` instead.
 
 The builder manages entrypoints and generated files. Supplying `type`, `files`,
 `exports`, `imports`, `main`, `module`, `types`, `typings`, `browser` or `bin` is an
