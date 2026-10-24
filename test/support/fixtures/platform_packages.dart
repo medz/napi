@@ -27,21 +27,22 @@ Future<void> main(List<String> arguments) async {
           output: Directory('${temporary.path}/wasm'),
           packagesPath: File('.dart_tool/package_config.json').absolute.path,
         );
+        final inputs = [
+          for (final platform in [
+            'macos-arm64',
+            'macos-x64',
+            'linux-x64-glibc',
+            'linux-arm64-glibc',
+          ])
+            BuiltModule(
+              Directory('$modules/platform-module-$platform'),
+              wasm.sdkVersion,
+              target: BuildTarget.native,
+            ),
+          wasm,
+        ];
         final package = await assemblePackage(
-          modules: [
-            for (final platform in [
-              'macos-arm64',
-              'macos-x64',
-              'linux-x64-glibc',
-              'linux-arm64-glibc',
-            ])
-              BuiltModule(
-                Directory('$modules/platform-module-$platform'),
-                wasm.sdkVersion,
-                target: BuildTarget.native,
-              ),
-            wasm,
-          ],
+          modules: inputs,
           output: Directory('${temporary.path}/package'),
           metadata: {'name': '@napi/platform-fixture', 'version': '0.0.0'},
         );
@@ -60,19 +61,7 @@ Future<void> main(List<String> arguments) async {
         await output.parent.create(recursive: true);
         await File('${package.path}/${packed['filename']}').copy(output.path);
         await assemblePackageSet(
-          modules: [
-            for (final platform in [
-              'macos-arm64',
-              'macos-x64',
-              'linux-x64-glibc',
-            ])
-              BuiltModule(
-                Directory('$modules/platform-module-$platform'),
-                wasm.sdkVersion,
-                target: BuildTarget.native,
-              ),
-            wasm,
-          ],
+          modules: inputs,
           output: Directory('${output.parent.path}/packages'),
           metadata: {'name': '@napi/platform-fixture', 'version': '0.0.0'},
         );
