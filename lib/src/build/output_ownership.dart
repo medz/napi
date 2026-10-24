@@ -47,11 +47,13 @@ Set<String> packageArtifactNames(
   String? runtime, {
   required bool calls,
   bool browser = false,
+  bool wasmFallback = false,
   Map<String, String> nativeRuntimes = const {},
   Map<String, String> nativePackages = const {},
 }) {
   final dual = targets.length > 1;
   return {
+    if (wasmFallback) 'module.mjs',
     for (final target in targets)
       if (target == 'native' && nativePackages.isNotEmpty) ...{
         'native/module.mjs',
@@ -95,6 +97,7 @@ Map<String, Object?> packageEntrypoints(
   bool nativePlatforms = false,
   bool commonJs = true,
   bool browser = false,
+  bool wasmFallback = false,
 }) {
   Map<String, String> entry(String target) {
     final prefix = targets.length > 1 || (target == 'native' && nativePlatforms)
@@ -109,7 +112,7 @@ Map<String, Object?> packageEntrypoints(
   }
 
   return {
-    '.': entry(root),
+    '.': {...entry(root), if (wasmFallback) 'import': './module.mjs'},
     if (targets.contains('native')) './native': entry('native'),
     if (targets.length > 1) './wasm': entry('wasm'),
     if (targets.contains('wasm')) './module.wasm': entry('wasm'),
@@ -202,6 +205,7 @@ final class OutputOwnership {
     }
     final calls = manifest['calls'];
     final browser = manifest['browser'] ?? false;
+    final wasmFallback = manifest['wasmFallback'] ?? false;
     final assets = _names(manifest['assets']);
     final auto = _names(manifest['autoPlatform']);
     final hashes = manifest['artifacts'];
@@ -210,6 +214,11 @@ final class OutputOwnership {
         !targets.contains(root) ||
         (kind == OutputKind.module &&
             (targets.length != 1 || assets.isNotEmpty || auto.isNotEmpty)) ||
+        wasmFallback is! bool ||
+        (wasmFallback &&
+            (kind != OutputKind.package ||
+                root != 'native' ||
+                targets.length != 2)) ||
         calls is! bool ||
         browser is! bool ||
         (browser && !targets.contains('wasm')) ||
@@ -244,6 +253,7 @@ final class OutputOwnership {
       runtime as String?,
       calls: calls,
       browser: browser,
+      wasmFallback: wasmFallback,
       nativeRuntimes: nativeRuntimes,
       nativePackages: nativePackages,
     );
@@ -315,6 +325,7 @@ final class OutputOwnership {
               packageEntrypoints(
                 targets,
                 root as String,
+                wasmFallback: wasmFallback,
                 nativePlatforms:
                     nativeRuntimes.isNotEmpty || nativePackages.isNotEmpty,
                 browser: browser,
@@ -322,17 +333,18 @@ final class OutputOwnership {
             ) ||
             // Packages built before CommonJS support have the same owned
             // artifacts and import entries. Rebuilding upgrades their exports.
-            _sameJson(
-              package['exports'],
-              packageEntrypoints(
-                targets,
-                root,
-                nativePlatforms:
-                    nativeRuntimes.isNotEmpty || nativePackages.isNotEmpty,
-                browser: browser,
-                commonJs: false,
-              ),
-            ))) {
+            (!wasmFallback &&
+                _sameJson(
+                  package['exports'],
+                  packageEntrypoints(
+                    targets,
+                    root,
+                    nativePlatforms:
+                        nativeRuntimes.isNotEmpty || nativePackages.isNotEmpty,
+                    browser: browser,
+                    commonJs: false,
+                  ),
+                )))) {
       throw ArgumentError(
         'Generated package metadata changed: type, files or exports.',
       );
@@ -566,6 +578,7 @@ Future<void> writeOutputOwnership(
   required String? runtime,
   required bool calls,
   bool browser = false,
+  bool wasmFallback = false,
   Set<String> assets = const {},
   Set<String> autoPlatform = const {},
   Map<String, String> nativeRuntimes = const {},
@@ -577,6 +590,7 @@ Future<void> writeOutputOwnership(
     runtime,
     calls: calls,
     browser: browser,
+    wasmFallback: wasmFallback,
     nativeRuntimes: nativeRuntimes,
     nativePackages: nativePackages,
   );
@@ -585,7 +599,7 @@ Future<void> writeOutputOwnership(
     hashes[name] = await _hash(File(path.join(staging.path, name)));
   }
   await File('${staging.path}/$outputOwnershipFile').writeAsString(
-    '${const JsonEncoder.withIndent('  ').convert({'format': 1, 'kind': 'napi-${kind.name}', 'targets': targets.toList(), 'root': root, 'runtime': runtime, 'calls': calls, if (browser) 'browser': true, 'artifacts': hashes, 'assets': assets.toList(), 'autoPlatform': autoPlatform.toList(), if (nativeRuntimes.isNotEmpty) 'nativeRuntimes': nativeRuntimes, if (nativePackages.isNotEmpty) 'nativePackages': nativePackages, 'moduleContract': ?moduleContract})}\n',
+    '${const JsonEncoder.withIndent('  ').convert({'format': 1, 'kind': 'napi-${kind.name}', 'targets': targets.toList(), 'root': root, 'runtime': runtime, 'calls': calls, if (browser) 'browser': true, if (wasmFallback) 'wasmFallback': true, 'artifacts': hashes, 'assets': assets.toList(), 'autoPlatform': autoPlatform.toList(), if (nativeRuntimes.isNotEmpty) 'nativeRuntimes': nativeRuntimes, if (nativePackages.isNotEmpty) 'nativePackages': nativePackages, 'moduleContract': ?moduleContract})}\n',
   );
 }
 

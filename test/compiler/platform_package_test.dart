@@ -43,6 +43,218 @@ void main() {
   tearDown(() => root.delete(recursive: true));
 
   test(
+    'fallback requires both backends and a native root before creating output',
+    () async {
+      for (final selected in [
+        [modules.first],
+        [modules.last],
+        modules,
+      ]) {
+        for (final set in [false, true]) {
+          await expectLater(
+            set
+                ? assemblePackageSet(
+                    modules: selected,
+                    output: output,
+                    metadata: metadata,
+                    target: selected.length == modules.length
+                        ? BuildTarget.wasm
+                        : selected.first.target,
+                    wasmFallback: true,
+                  )
+                : assemblePackage(
+                    modules: selected,
+                    output: output,
+                    metadata: metadata,
+                    target: selected.length == modules.length
+                        ? BuildTarget.wasm
+                        : selected.first.target,
+                    wasmFallback: true,
+                  ),
+            throwsArgumentError,
+          );
+          expect(output.existsSync(), isFalse);
+        }
+      }
+      await expectLater(
+        buildPackage(
+          library: Uri.file('${root.path}/absent.dart'),
+          output: output,
+          metadata: metadata,
+          wasmFallback: true,
+        ),
+        throwsA(
+          isA<ArgumentError>().having(
+            (error) => error.message,
+            'message',
+            contains('wasmFallback'),
+          ),
+        ),
+      );
+      expect(output.existsSync(), isFalse);
+    },
+  );
+
+  test(
+    'ESM fallback selects only unsupported platforms and keeps require native',
+    () async {
+      await assemblePackage(
+        modules: modules,
+        output: output,
+        metadata: metadata,
+        wasmFallback: true,
+      );
+      expect(await OutputOwnership.read(output), isNotNull);
+      final package = jsonDecode(
+        await File('${output.path}/package.json').readAsString(),
+      ) as Map;
+      expect(package['exports']['.'], {
+        'types': './native/module.d.mts',
+        'import': './module.mjs',
+        'require': './native/module.mjs',
+      });
+      await File('${output.path}/check.mjs').writeAsString(r"""
+import assert from 'node:assert/strict';
+import os from 'node:os';
+import {createRequire, syncBuiltinESMExports} from 'node:module';
+const mode = process.argv[2];
+const require = createRequire(import.meta.url);
+const host = mode === 'platform' ? ['freebsd', 'arm64']
+  : mode === 'architecture' ? ['darwin', 's390x']
+  : mode === 'macos' ? ['darwin', 'arm64']
+  : mode.startsWith('windows-') ? ['win32', 'x64']
+  : ['linux', 'x64'];
+Object.defineProperty(process, 'platform', {value: host[0]});
+Object.defineProperty(process, 'arch', {value: host[1]});
+os.release = () => mode === 'windows-supported' ? '10.0.26100'
+  : mode === 'windows-old' ? '6.3.9600'
+  : mode === 'windows-unknown' ? 'unknown' : '22.0.0';
+syncBuiltinESMExports();
+Object.defineProperty(process, 'report', {value: {getReport: () => ({header: {
+  glibcVersionRuntime: mode === 'supported' ? '2.28' : mode === 'glibc' ? '2.27' : undefined,
+}})}});
+if (mode === 'supported' || mode === 'windows-supported') {
+  const common = require('@test/platforms');
+  const root = await import('@test/platforms');
+  const native = await import('@test/platforms/native');
+  assert.equal(root.Counter, common.Counter);
+  assert.equal(root.Counter, native.Counter);
+  assert.equal(new root.Counter().value, 0);
+} else {
+  const root = await import('@test/platforms');
+  const wasm = await import('@test/platforms/wasm');
+  assert.equal(root.Counter, wasm.Counter);
+  assert.equal(new root.Counter().value, 100);
+  assert.throws(() => require('@test/platforms'), /native artifact/);
+  await assert.rejects(import('@test/platforms/native'), /native artifact/);
+}
+""");
+      for (final node in nodeExecutables()) {
+        for (final mode in [
+          'supported',
+          'platform',
+          'architecture',
+          'macos',
+          'windows-supported',
+          'windows-old',
+          'windows-unknown',
+          'glibc',
+          'musl',
+        ]) {
+          await runProcess(node, [
+            '${output.path}/check.mjs',
+            mode,
+          ], timeout: const Duration(seconds: 20));
+        }
+      }
+    },
+  );
+
+  test('supported native failures are not replaced by Wasm', () async {
+    for (final set in [false, true]) {
+      final Directory package;
+      if (set) {
+        package = (await assemblePackageSet(
+          modules: modules,
+          output: Directory('${root.path}/optional'),
+          metadata: metadata,
+          wasmFallback: true,
+        )).last;
+      } else {
+        package = await assemblePackage(
+          modules: modules,
+          output: output,
+          metadata: metadata,
+          wasmFallback: true,
+        );
+      }
+      await File('${package.path}/check.mjs').writeAsString(r"""
+import assert from 'node:assert/strict';
+import {writeFile, unlink} from 'node:fs/promises';
+Object.defineProperty(process, 'platform', {value: 'linux'});
+Object.defineProperty(process, 'arch', {value: 'x64'});
+Object.defineProperty(process, 'report', {value: {getReport: () => ({header: {glibcVersionRuntime: '2.28'}})}});
+const mode = process.argv[2];
+const failure = globalThis.failure = new Error('native failure must survive');
+const native = new URL('./native/linux-x64-glibc/module.mjs', import.meta.url);
+if (mode === 'broken') await writeFile(native, 'throw globalThis.failure;');
+if (mode === 'missing') await unlink(native);
+let error;
+try { await import('@test/platforms'); } catch (value) { error = value; }
+assert(error instanceof Error);
+if (mode === 'broken') assert.equal(error, failure);
+else if (mode === 'missing') assert.equal(error.code, 'MODULE_NOT_FOUND');
+else assert.match(error.message, /Missing optional native package/);
+await assert.rejects(import('@test/platforms/native'), value => value === error);
+""");
+      for (final mode in set ? ['optional'] : ['broken', 'missing']) {
+        await runProcess(nodeExecutables().first, [
+          '${package.path}/check.mjs',
+          mode,
+        ], timeout: const Duration(seconds: 20));
+      }
+    }
+  });
+
+  test(
+    'rebuild can enable and disable fallback without claiming author files',
+    () async {
+      try {
+        checkPackageRebuildFilesystem(root);
+      } on UnsupportedError catch (error) {
+        markTestSkipped(error.toString());
+        return;
+      }
+      await assemblePackage(
+        modules: modules,
+        output: output,
+        metadata: metadata,
+      );
+      await File('${output.path}/author.txt').writeAsString('keep');
+      for (final enabled in [true, false, true]) {
+        await assemblePackage(
+          modules: modules,
+          output: output,
+          metadata: metadata,
+          wasmFallback: enabled,
+        );
+        expect(await OutputOwnership.read(output), isNotNull);
+        expect(File('${output.path}/module.mjs').existsSync(), enabled);
+        expect(await File('${output.path}/author.txt').readAsString(), 'keep');
+      }
+      await File('${output.path}/module.mjs').writeAsString('author edit');
+      await expectLater(
+        assemblePackage(modules: modules, output: output, metadata: metadata),
+        throwsArgumentError,
+      );
+      expect(
+        await File('${output.path}/module.mjs').readAsString(),
+        'author edit',
+      );
+    },
+  );
+
+  test(
     'platform package set keeps native payloads out of the entry package',
     () async {
       final packages = await assemblePackageSet(

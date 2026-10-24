@@ -28,6 +28,7 @@ final class PackageBuild {
     this.external,
     this.target = BuildTarget.wasm,
     Set<BuildTarget>? targets,
+    this.wasmFallback = false,
     this.nativeRuntime,
   }) : metadata = Map.unmodifiable(metadata),
        assets = Map.unmodifiable(assets),
@@ -45,16 +46,22 @@ final class PackageBuild {
   final ExternalLibrary? external;
   final BuildTarget target;
   final Set<BuildTarget>? targets;
+
+  /// Select Wasm for an unsupported native platform on root ESM imports.
+  /// Requires both targets with a native root. CommonJS remains native-only.
+  final bool wasmFallback;
   final Directory? nativeRuntime;
 
   /// Build once with the declared options. Build failures propagate to the caller.
-  Future<Directory> build() => _build(output, target, targets, nativeRuntime);
+  Future<Directory> build() =>
+      _build(output, target, targets, nativeRuntime, wasmFallback);
 
   Future<Directory> _build(
     Directory destination,
     BuildTarget root,
     Set<BuildTarget>? selected,
     Directory? runtime,
+    bool fallback,
   ) async {
     for (final field in ['name', 'version']) {
       if (metadata.containsKey(field)) {
@@ -73,6 +80,7 @@ final class PackageBuild {
       target: root,
       targets: selected,
       nativeRuntime: runtime,
+      wasmFallback: fallback,
     );
   }
 
@@ -134,6 +142,7 @@ final class PackageBuild {
           root,
           selected,
           override == 'wasm' ? null : nativeRuntime,
+          override == 'wasm' || override == 'native' ? false : wasmFallback,
         );
         stdout.writeln('Built ${result.path}');
       }

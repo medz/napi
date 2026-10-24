@@ -10,6 +10,7 @@ import '../support/fixtures/native_packages.dart';
 import '../support/fixtures/native_events.dart';
 import '../support/fixtures/native_host_values.dart';
 import '../support/fixtures/dual_targets.dart';
+import '../support/fixtures/wasm_fallback.dart';
 import '../support/fixtures/values.dart';
 import '../support/fixtures/futures.dart';
 import '../support/fixtures/void.dart';
@@ -84,6 +85,10 @@ void main() {
           _OfflineRuntime(),
         );
       }),
+    );
+    testConsumer(
+      'Wasm fallback package',
+      () => consumer((root) async => verifyWasmFallback(root, await runtime())),
     );
     testConsumer(
       'scalars',

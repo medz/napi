@@ -117,7 +117,7 @@ npm publish --access public
 Keep the complete generated package and its license notices. Consumers import
 from the package root; they do not initialize the runtime manually. `/module.wasm`
 selects the Wasm entry. It shares the root's constructors and state only when
-Wasm is the root target.
+Wasm is the selected root backend.
 
 ## Use Wasm in a browser
 
@@ -194,9 +194,8 @@ await buildPackage(
 Each output is a complete npm package: use `npm pack ./npm-native` or
 `npm pack ./npm-wasm`, and publish from the corresponding directory. The native
 package contains only native artifacts; the Wasm package needs no native
-runtime. Native builds support arm64 and x64 on macOS 14 or later and Linux with
-glibc 2.28 or later. All supported hosts obtain their runtime automatically. See
-[native builds](native.md).
+runtime. All [supported native hosts](native.md#compatibility) obtain their
+runtime automatically.
 
 To ship both backends in one package:
 
@@ -230,26 +229,69 @@ const {Counter} = require('@scope/counter/native');
 const counter = new Counter();
 ```
 
-For a native-root package, `require('@scope/counter')` selects the same entry.
-`require()` and ESM imports share constructors and Dart state, regardless of
-which loads first. TypeScript CommonJS files can use
+For a native-root package, `require('@scope/counter')` selects the native entry.
+
+When both select native, `require()` and ESM imports share constructors and Dart
+state, regardless of which loads first. TypeScript CommonJS files can use
 `import bindings = require('@scope/counter/native')` with `module: "NodeNext"`.
 Wasm entries continue to require ESM imports.
 
 Both targets must expose the same declarations, conversions, defaults and
 cleanup methods. Conditional imports can change private implementations, but a
 mismatched public API fails the build. Building both targets requires a
-supported native host: macOS or Linux with glibc 2.28 or later, on arm64 or x64.
+[supported native host](native.md).
 Including both backends increases package size. Runtime downloads
 happen during the author's build, not during npm installation.
+
+## Use Wasm on unsupported native platforms
+
+Set `wasmFallback: true` when building both backends with a native root:
+
+```dart
+final package = PackageBuild(
+  library: File('lib/counter.dart').absolute.uri,
+  output: Directory('npm-package'),
+  name: '@scope/counter',
+  version: '1.0.0',
+  target: BuildTarget.native,
+  targets: {BuildTarget.native, BuildTarget.wasm},
+  wasmFallback: true,
+);
+```
+
+Consumers continue using an ordinary ESM import, with automatic initialization:
+
+```js
+import {Counter} from '@scope/counter';
+const counter = new Counter();
+```
+
+The root uses native when the package includes the host's OS and architecture
+and its [minimum OS/libc requirements](native.md#compatibility) are met. Otherwise
+it selects Wasm.
+The Node runtime must support the generated Wasm. A missing optional dependency,
+missing artifact or native initialization error on a supported platform still
+throws the original native loading error.
+
+This policy applies only to the root **ESM import**. `require('@scope/counter')`
+and `/native` always use native and report unsupported platforms. `/wasm` always
+uses Wasm. The root shares constructors and Dart state with its selected backend;
+the other backend has independent state, and its objects cannot be passed to the
+selected backend.
+
+`buildPackage`, `assemblePackage`, `assemblePackageSet` and `PackageRelease`
+accept the same `wasmFallback` option. Assembly requires a Wasm module alongside
+the native modules. The default remains a fixed root. A build script's
+`--target native` or `--target wasm` override builds that single backend and
+disables fallback for that invocation.
 
 ## Include multiple native platforms
 
 `buildPackage` builds native code for its current host. To publish one package
 for several native platforms, run `buildLibrary` on each target host: macOS arm64,
-macOS x64, Linux arm64 or Linux x64, with `target: BuildTarget.native`. Transfer
-the complete output directories, including their `.napi-output.json` records, to the machine
-assembling the npm package:
+macOS x64, Linux arm64, Linux x64 or Windows x64, with `target: BuildTarget.native`.
+Transfer the complete output directories, including their `.napi-output.json`
+records, to the machine assembling the npm package:
 
 ```dart
 await assemblePackage(
@@ -306,7 +348,8 @@ Publish the native packages first, then the entry package. The returned
 directories are in that order. The entry package pins their exact versions.
 Keep optional dependencies enabled when installing; missing packages and
 native loading failures produce errors. No install script downloads code.
-If included, Wasm stays in the entry package and is selected explicitly.
+If included, Wasm stays in the entry package. Select it explicitly, or enable
+`wasmFallback` for root ESM imports on unsupported native platforms.
 
 Prepare each set in a new output directory. An existing directory is never
 replaced, and a failed assembly leaves no partial set. Generated dependency
