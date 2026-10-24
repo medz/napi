@@ -120,6 +120,42 @@ void main() => throw StateError('Business main must not run');
           ),
         );
       }
+      // Scalar modules need no DataView helpers; each tree-shaken subset is
+      // valid, while a changed SDK expression must not escape the capture.
+      for (final expression in [
+        'o => o.buffer',
+        'o => o.byteOffset',
+        '(b, o) => new DataView(b, o)',
+        '(b, o, l) => new DataView(b, o, l)',
+      ]) {
+        String withHelper(String value) => rawHost.replaceFirst(
+          '    const dart2wasm = {\n',
+          '    const dart2wasm = {\n      testHelper: $value\n',
+        );
+        final captured = extractDartHostHelpers(withHelper('$expression,'));
+        expect(captured, isNot(contains('testHelper: $expression,')));
+        expect(captured, contains('testHelper: '));
+        for (final changed in ['$expression /* changed */,', expression]) {
+          expect(
+            () => extractDartHostHelpers(withHelper(changed)),
+            throwsA(
+              isA<SdkCompatibilityException>().having(
+                (error) => error.code,
+                'diagnostic',
+                'NAPI_SDK_HOST_LAYOUT',
+              ),
+            ),
+          );
+        }
+      }
+      final userHelper = rawHost.replaceFirst(
+        '    const dart2wasm = {\n',
+        '    const dart2wasm = {\n      userBuffer: (x0) => x0.buffer,\n',
+      );
+      expect(
+        extractDartHostHelpers(userHelper),
+        contains('userBuffer: (x0) => x0.buffer,'),
+      );
       final linked = linkDartModule(
         rawWasmBytes: original,
         rawMjsText: rawHost,

@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'dart_sdk_adapter.dart';
 
-/// Extracts compiler-owned helpers, without changing their implementation.
+/// Extracts compiler-owned helpers and captures DataView intrinsics.
 ///
 /// This textual dependency is private, version pinned, and checked before any
 /// linked output is published. Deferred loading and unknown loader layouts are
@@ -52,7 +52,41 @@ String extractDartHostHelpers(String source) {
           2) {
     _layoutError();
   }
-  return source.substring(start, baseIndex);
+  return _captureDataViewHelpers(source.substring(start, baseIndex));
+}
+
+// ByteData.view in the pinned SDK otherwise reads replaceable DataView getters
+// and constructors on each copy. Match only these SDK expressions, not arbitrary
+// user interop. Helpers can be absent after tree shaking.
+String _captureDataViewHelpers(String helpers) {
+  const replacements = {
+    'o => o.buffer': "Function.prototype.call.bind(Object.getOwnPropertyDescriptor(DataView.prototype, 'buffer').get)",
+    'o => o.byteOffset': "Function.prototype.call.bind(Object.getOwnPropertyDescriptor(DataView.prototype, 'byteOffset').get)",
+    '(b, o) => new DataView(b, o)': r'(b, o) => new $napiDataView(b, o)',
+    '(b, o, l) => new DataView(b, o, l)':
+        r'(b, o, l) => new $napiDataView(b, o, l)',
+  };
+  final candidate = RegExp(
+    r'^(?:\(?o\)?\s*=>\s*o\.(?:buffer|byteOffset)\b|'
+    r'\(b,\s*o(?:,\s*l)?\)\s*=>)',
+  );
+  var captureConstructor = false;
+  final result = helpers.replaceAllMapped(
+    RegExp(r'^( {6,12}[A-Za-z_$][A-Za-z0-9_$]*: )([^\n]*)$', multiLine: true),
+    (match) {
+      final expression = match[2]!;
+      if (!candidate.hasMatch(expression)) return match[0]!;
+      final replacement = expression.endsWith(',')
+          ? replacements[expression.substring(0, expression.length - 1)]
+          : null;
+      if (replacement == null) _layoutError();
+      if (expression.startsWith('(b,')) captureConstructor = true;
+      return '${match[1]}$replacement,';
+    },
+  );
+  return captureConstructor
+      ? '    const \$napiDataView = DataView;\n$result'
+      : result;
 }
 
 /// The pinned compiler uses indexed strings when UTF-16 cannot fit a UTF-8

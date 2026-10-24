@@ -28,6 +28,20 @@ WasmExternRef? _normalizeError(Object error) {
   return _throwDartError(externRefForJSAny(message.toJS));
 }
 
+// ByteData accepts unaligned windows and avoids one host call per byte. The
+// pinned host adapter captures the DataView metadata used to create JS views.
+void _copyBytes(typed_data.Uint8List source, typed_data.Uint8List destination, int length) {
+  var offset = 0;
+  if (length >= 4) {
+    final input = typed_data.ByteData.view(source.buffer, source.offsetInBytes, length);
+    final output = typed_data.ByteData.view(destination.buffer, destination.offsetInBytes, length);
+    for (; offset + 4 <= length; offset += 4) {
+      output.setUint32(offset, input.getUint32(offset, typed_data.Endian.little), typed_data.Endian.little);
+    }
+  }
+  for (; offset < length; offset++) { destination[offset] = source[offset]; }
+}
+
 // Direct exports are library calls. Application main must never be invoked.
 void main() => throw StateError('napi library entrypoint main was invoked');
 ''';
@@ -49,7 +63,7 @@ JSAny _copyBinary(typed_data.Uint8List value, String path, int kind) {
   final reference = _allocateBinary(WasmI32.fromInt(length));
   final array = reference.toJS as JSUint8Array;
   final destination = array.toDart;
-  for (var i = 0; i < length; i++) { destination[i] = value[i]; }
+  _copyBytes(value, destination, length);
   return _finishBinary(reference, WasmI32.fromInt(kind)).toJS;
 }
 ''';
@@ -123,7 +137,7 @@ final class _SharedBytes implements napi.SharedBytes {
     final length = source.lengthInBytes;
     final staging = _sharedResult(_allocateSharedBytes(_sharedNumber(length), WasmI32.fromInt(1)))!;
     final destination = (staging.toJS as JSUint8Array).toDart;
-    for (var i = 0; i < length; i++) { destination[i] = source[i]; }
+    _copyBytes(source, destination, length);
     invoke(6, staging, _sharedNumber(offset), WasmExternRef.nullRef, WasmExternRef.nullRef);
   }
   @override
