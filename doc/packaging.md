@@ -194,9 +194,8 @@ await buildPackage(
 Each output is a complete npm package: use `npm pack ./npm-native` or
 `npm pack ./npm-wasm`, and publish from the corresponding directory. The native
 package contains only native artifacts; the Wasm package needs no native
-runtime. Native builds support arm64 and x64 on macOS 14 or later and Linux with
-glibc 2.28 or later. All supported hosts obtain their runtime automatically. See
-[native builds](native.md).
+runtime. All [supported native hosts](native.md#compatibility) obtain their
+runtime automatically.
 
 To ship both backends in one package:
 
@@ -232,18 +231,17 @@ const counter = new Counter();
 
 For a native-root package, `require('@scope/counter')` selects the native entry.
 
-`require()` and ESM imports share constructors and Dart state, regardless of
-which loads first. TypeScript CommonJS files can use
+When both select native, `require()` and ESM imports share constructors and Dart
+state, regardless of which loads first. TypeScript CommonJS files can use
 `import bindings = require('@scope/counter/native')` with `module: "NodeNext"`.
 Wasm entries continue to require ESM imports.
 
 Both targets must expose the same declarations, conversions, defaults and
 cleanup methods. Conditional imports can change private implementations, but a
 mismatched public API fails the build. Building both targets requires a
-supported native host: macOS or Linux with glibc 2.28 or later, on arm64 or x64.
+[supported native host](native.md).
 Including both backends increases package size. Runtime downloads
 happen during the author's build, not during npm installation.
-
 
 ## Use Wasm on unsupported native platforms
 
@@ -269,7 +267,8 @@ const counter = new Counter();
 ```
 
 The root uses native when the package includes the host's OS and architecture
-and its minimum OS/libc requirements are met. Otherwise it selects Wasm.
+and its [minimum OS/libc requirements](native.md#compatibility) are met. Otherwise
+it selects Wasm.
 The Node runtime must support the generated Wasm. A missing optional dependency,
 missing artifact or native initialization error on a supported platform still
 throws the original native loading error.
@@ -282,17 +281,17 @@ selected backend.
 
 `buildPackage`, `assemblePackage`, `assemblePackageSet` and `PackageRelease`
 accept the same `wasmFallback` option. Assembly requires a Wasm module alongside
-the native modules. The default remains a fixed root. A build script's `--target native`
-or `--target wasm` override builds that single backend and disables fallback
-for that invocation.
+the native modules. The default remains a fixed root. A build script's
+`--target native` or `--target wasm` override builds that single backend and
+disables fallback for that invocation.
 
 ## Include multiple native platforms
 
 `buildPackage` builds native code for its current host. To publish one package
 for several native platforms, run `buildLibrary` on each target host: macOS arm64,
-macOS x64, Linux arm64 or Linux x64, with `target: BuildTarget.native`. Transfer
-the complete output directories, including their `.napi-output.json` records, to the machine
-assembling the npm package:
+macOS x64, Linux arm64, Linux x64 or Windows x64, with `target: BuildTarget.native`.
+Transfer the complete output directories, including their `.napi-output.json`
+records, to the machine assembling the npm package:
 
 ```dart
 await assemblePackage(

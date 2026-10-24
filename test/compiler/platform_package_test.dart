@@ -122,15 +122,18 @@ const require = createRequire(import.meta.url);
 const host = mode === 'platform' ? ['freebsd', 'arm64']
   : mode === 'architecture' ? ['darwin', 's390x']
   : mode === 'macos' ? ['darwin', 'arm64']
+  : mode.startsWith('windows-') ? ['win32', 'x64']
   : ['linux', 'x64'];
 Object.defineProperty(process, 'platform', {value: host[0]});
 Object.defineProperty(process, 'arch', {value: host[1]});
-os.release = () => '22.0.0';
+os.release = () => mode === 'windows-supported' ? '10.0.26100'
+  : mode === 'windows-old' ? '6.3.9600'
+  : mode === 'windows-unknown' ? 'unknown' : '22.0.0';
 syncBuiltinESMExports();
 Object.defineProperty(process, 'report', {value: {getReport: () => ({header: {
   glibcVersionRuntime: mode === 'supported' ? '2.28' : mode === 'glibc' ? '2.27' : undefined,
 }})}});
-if (mode === 'supported') {
+if (mode === 'supported' || mode === 'windows-supported') {
   const common = require('@test/platforms');
   const root = await import('@test/platforms');
   const native = await import('@test/platforms/native');
@@ -152,6 +155,9 @@ if (mode === 'supported') {
           'platform',
           'architecture',
           'macos',
+          'windows-supported',
+          'windows-old',
+          'windows-unknown',
           'glibc',
           'musl',
         ]) {
