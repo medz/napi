@@ -68,7 +68,7 @@ String _captureDataViewHelpers(String helpers) {
   };
   final candidate = RegExp(
     r'^(?:\(?o\)?\s*=>\s*o\.(?:buffer|byteOffset)\b|'
-    r'\(b,\s*o(?:,\s*l)?\)\s*=>)',
+    r'\(b,\s*o(?:,\s*l)?\)\s*=>\s*new\s+DataView\b)',
   );
   var captureConstructor = false;
   final result = helpers.replaceAllMapped(
