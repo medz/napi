@@ -56,6 +56,7 @@ import 'package:napi/napi.dart';
     NativePlatform.linuxX64,
     NativePlatform.linuxArm64,
     NativePlatform.macosX64,
+    NativePlatform.windowsX64,
   ]) {
     test(
       '${profile.name} loaders check OS and architecture before loading native code',

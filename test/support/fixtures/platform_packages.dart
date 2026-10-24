@@ -8,7 +8,7 @@ import '../commands.dart';
 import '../consumer.dart';
 
 /// CI builds native inputs on each host, then shares one npm archive between
-/// Linux and macOS consumers. No Dart build runs in the consumer step.
+/// native consumers. No Dart build runs in the consumer step.
 Future<void> main(List<String> arguments) async {
   switch (arguments) {
     case ['build-native', final output]:
@@ -33,6 +33,7 @@ Future<void> main(List<String> arguments) async {
             'macos-x64',
             'linux-x64-glibc',
             'linux-arm64-glibc',
+            'windows-x64',
           ])
             BuiltModule(
               Directory('$modules/platform-module-$platform'),
@@ -46,11 +47,11 @@ Future<void> main(List<String> arguments) async {
           output: Directory('${temporary.path}/package'),
           metadata: {'name': '@napi/platform-fixture', 'version': '0.0.0'},
         );
-        final result = await Process.run('npm', [
+        final result = await npm([
           'pack',
           '--ignore-scripts',
           '--json',
-        ], workingDirectory: package.path);
+        ], cwd: package.path);
         if (result.exitCode != 0) {
           throw StateError('npm pack failed: ${result.stdout}${result.stderr}');
         }
@@ -124,6 +125,7 @@ Future<void> verifyPlatformPackage(File archive) => consumer((root) async {
     'native/macos-x64/module.aot',
     'native/linux-x64-glibc/module.aot',
     'native/linux-arm64-glibc/module.aot',
+    'native/windows-x64/module.aot',
     'wasm/module.wasm',
   ]) {
     if (!await File('${package.path}/$artifact').exists()) {
@@ -161,6 +163,7 @@ Future<void> verifyPlatformPackage(File archive) => consumer((root) async {
     Abi.macosX64 => 'macos-x64',
     Abi.linuxX64 => 'linux-x64-glibc',
     Abi.linuxArm64 => 'linux-arm64-glibc',
+    Abi.windowsX64 => 'windows-x64',
     final abi => throw UnsupportedError('Unsupported native platform: $abi'),
   };
   await File('${package.path}/native/$platform/module.aot').delete();

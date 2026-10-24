@@ -91,13 +91,13 @@ Future<void> verifyPackageAssembly(Directory root) async {
       throw StateError('Managed rebuild lost author content or metadata.');
     }
   }
-  final pack = await Process.run('npm', [
+  final pack = await npm([
     'pack',
     '--ignore-scripts',
     '--json',
     '--cache',
     '${canonical.path}/npm cache',
-  ], workingDirectory: packaged.path);
+  ], cwd: packaged.path);
   if (pack.exitCode != 0) {
     throw StateError('npm pack failed: ${pack.stdout}${pack.stderr}');
   }

@@ -6,6 +6,7 @@ import 'package:path/path.dart' as path;
 import 'process.dart';
 
 final _nodeExecutables = _readNodeExecutables();
+final _windowsNpm = _readWindowsNpm();
 
 /// Validate the selected Node runtimes before building packages.
 Future<void> reportNodeVersions() async {
@@ -73,7 +74,9 @@ Future<void> run(String command, List<String> args, {String? cwd}) async {
 }
 
 Future<void> _run(String executable, List<String> args, {String? cwd}) async {
-  final result = await _process(executable, args, cwd: cwd);
+  final result = executable == 'npm'
+      ? await npm(args, cwd: cwd)
+      : await _process(executable, args, cwd: cwd);
   if (result.exitCode != 0) {
     throw StateError(
       '$executable ${args.join(' ')} exited ${result.exitCode}\n'
@@ -131,3 +134,33 @@ Future<ProcessResult> _process(
         timeout: timeout,
         workingDirectory: cwd,
       );
+
+Future<ProcessResult> npm(List<String> arguments, {String? cwd}) async {
+  if (!Platform.isWindows) {
+    return _process('npm', arguments, cwd: cwd);
+  }
+  final command = await _windowsNpm;
+  return _process(command.node, [command.cli, ...arguments], cwd: cwd);
+}
+
+Future<({String node, String cli})> _readWindowsNpm() async {
+  final result = await _process('node', [
+    '-p',
+    'process.execPath',
+  ], timeout: const Duration(seconds: 10));
+  if (result.exitCode != 0) {
+    throw StateError('Cannot locate Node for npm: ${result.stderr}');
+  }
+  final node = result.stdout.toString().trim();
+  final cli = File(
+    path.join(path.dirname(node), 'node_modules/npm/bin/npm-cli.js'),
+  );
+  if (!path.isAbsolute(node) || !cli.existsSync()) {
+    throw StateError(
+      'The selected Windows Node installation is missing npm: $node',
+    );
+  }
+  // npm.cmd cannot be launched as an executable. Use Node's bundled CLI without
+  // a shell so paths with spaces retain their argument boundaries.
+  return (node: node, cli: cli.path);
+}

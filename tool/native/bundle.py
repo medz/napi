@@ -88,6 +88,15 @@ def provenance(manifest, repository):
                 not all(sha(value) for value in inputs.values()) or
                 not sha(manifest['build'].get('toolchainInputsSha256'))):
             raise ValueError('Missing native Linux linker input provenance')
+    elif manifest.get('platform') == 'windows':
+        if (not all(sha(compiler.get(key)) for key in ['clangPackageSha256', 'nodeLibrarySha256'])
+                or not compiler.get('windowsSdkVersion') or not compiler.get('msvcVersion')):
+            raise ValueError('Missing native Windows toolchain provenance')
+        inputs = proof.get('toolchainInputs')
+        if (not isinstance(inputs, dict) or not inputs or
+                not all(sha(value) for value in inputs.values()) or
+                not sha(manifest['build'].get('toolchainInputsSha256'))):
+            raise ValueError('Missing native Windows linker input provenance')
     elif not compiler.get('macosSdkVersion'):
         raise ValueError('Missing native compiler provenance')
     for key in ['headers', 'cacheRecipe']:
@@ -180,7 +189,7 @@ def unpack(archive, destination, lock):
     with zipfile.ZipFile(archive) as zipped:
         entries = zipped.infolist()
         names = [entry.filename for entry in entries]
-        extension = '.so' if lock['profile']['platform'] == 'linux' else '.dylib'
+        extension = {'linux': '.so', 'macos': '.dylib', 'windows': '.dll'}[lock['profile']['platform']]
         runtime = 'libnapi_runtime_'+lock['profile']['identity']+extension
         expected = {'manifest.json', 'bridge.node', runtime,
                     'DART_LICENSE', 'DART_AUTHORS', 'NAPI_LICENSE'}

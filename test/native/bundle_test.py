@@ -127,6 +127,42 @@ class BundleTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'toolchain provenance'):
             bundle.provenance(self.manifest, self.repository)
 
+    def test_windows_archive_retains_dll_profile_and_toolchain_provenance(self):
+        old_runtime = self.manifest['runtime']
+        identity = self.manifest['identity'].replace('macos-arm64', 'windows-x64')
+        runtime = 'libnapi_runtime_'+identity+'.dll'
+        (self.directory/old_runtime).rename(self.directory/runtime)
+        self.manifest['files'][runtime] = self.manifest['files'].pop(old_runtime)
+        self.manifest.update(platform='windows', architecture='x64', minimumOsVersion='10.0',
+                             identity=identity, runtime=runtime)
+        compiler = self.manifest['build']['provenance']['compiler']
+        del compiler['macosSdkVersion']
+        compiler.update(clangPackageSha256='5'*64, nodeLibrarySha256='6'*64,
+                        windowsSdkVersion='10.0.26100.0', msvcVersion='14.44')
+        self.manifest['build']['toolchainInputsSha256'] = '7'*64
+        self.manifest['build']['provenance']['toolchainInputs'] = {
+            'sdk/buildtools/win-x64/clang/bin/lld-link.exe': '8'*64,
+            'nodeLibrary/node.lib': '6'*64,
+        }
+        self.save()
+        lock = bundle.pack(self.directory, self.archive, self.lock, self.dart,
+                           repository=self.repository)
+        self.assertEqual(lock['profile']['platform'], 'windows')
+        self.assertEqual(lock['profile']['architecture'], 'x64')
+        self.assertEqual(lock['profile']['minimumOsVersion'], '10.0')
+        self.assertNotIn('libc', lock['profile'])
+        fetched = bundle.fetch(self.lock, self.cache, self.dart, self.archive, self.repository)
+        self.assertTrue((fetched/runtime).is_file())
+        self.assertFalse((fetched/old_runtime).exists())
+        for field in ['clangPackageSha256', 'nodeLibrarySha256', 'windowsSdkVersion', 'msvcVersion']:
+            missing = copy.deepcopy(self.manifest)
+            del missing['build']['provenance']['compiler'][field]
+            with self.assertRaisesRegex(ValueError, 'toolchain provenance'):
+                bundle.provenance(missing, self.repository)
+        del self.manifest['build']['provenance']['toolchainInputs']
+        with self.assertRaisesRegex(ValueError, 'linker input provenance'):
+            bundle.provenance(self.manifest, self.repository)
+
     def test_local_reads_are_bounded_before_allocating_payloads(self):
         source = io.BytesIO(b'x'*100)
         with patch.object(Path, 'open', return_value=source), patch.object(source, 'read', wraps=source.read) as read:

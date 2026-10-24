@@ -16,6 +16,15 @@ typedef NativeRuntimeArchive = ({
 });
 
 const _runtimeArchives = {
+  NativePlatform.windowsX64: (
+    url:
+        'https://github.com/medz/napi/releases/download/runtime-dart-3.13.5-windows-x64-abi15/'
+        'napi-runtime-dart-3.13.5-windows-x64-abi15-b0803900c1da.zip',
+    sha256: 'b0803900c1da3e42c88aab2213e37f019c0beba3e9306480ba07def01609ad2e',
+    bytes: 2036646,
+    manifestSha256:
+        '5202f4f75f0477fbc7873896411fc105aa115e1c79fdb49157bfa6dfa70b1bed',
+  ),
   NativePlatform.macosArm64: (
     url:
         'https://github.com/medz/napi/releases/download/runtime-dart-3.13.5-abi15/'
@@ -68,6 +77,15 @@ Directory nativeRuntimeCacheDirectory() {
     }
     return Directory(configured).absolute;
   }
+  if (Platform.isWindows) {
+    final local = Platform.environment['LOCALAPPDATA'];
+    if (local == null || local.isEmpty || !path.isAbsolute(local)) {
+      throw StateError(
+        'Set NAPI_RUNTIME_CACHE when LOCALAPPDATA is unavailable.',
+      );
+    }
+    return Directory(path.join(local, 'napi', 'Cache'));
+  }
   if (Platform.isLinux) {
     final xdg = Platform.environment['XDG_CACHE_HOME'];
     if (xdg != null && xdg.isNotEmpty && path.isAbsolute(xdg)) {
@@ -97,9 +115,9 @@ Future<NativeRuntimeBundle> resolveNativeRuntime({
     bundle.verifyHost();
     return bundle;
   }
-  final lock = nativeRuntimeArchive;
   final cacheDirectory = (cache ?? nativeRuntimeCacheDirectory()).absolute;
   await _checkCacheOutput(cacheDirectory, output);
+  final lock = nativeRuntimeArchive;
   final entry = Directory(path.join(cacheDirectory.path, lock.sha256));
   if (await _exists(entry.path)) return _readCached(entry, lock);
 
@@ -107,7 +125,17 @@ Future<NativeRuntimeBundle> resolveNativeRuntime({
   await checkNativePath(cacheDirectory.path);
   final staging = await cacheDirectory.createTemp('.download-');
   try {
-    final extractor = Platform.isLinux ? '/usr/bin/unzip' : '/usr/bin/ditto';
+    final extractor = Platform.isWindows
+        ? path.join(
+            Platform.environment['SystemRoot'] ?? r'C:\Windows',
+            'System32',
+            'WindowsPowerShell',
+            'v1.0',
+            'powershell.exe',
+          )
+        : Platform.isLinux
+        ? '/usr/bin/unzip'
+        : '/usr/bin/ditto';
     if (Platform.isLinux && !await File(extractor).exists()) {
       throw FileSystemException(
         'Cannot extract the native runtime. Install unzip or supply '
@@ -122,11 +150,27 @@ Future<NativeRuntimeBundle> resolveNativeRuntime({
     // maintainer packer. Never extract before both size and SHA-256 match.
     final result = await Process.run(
       extractor,
-      Platform.isLinux
+      Platform.isWindows
+          ? [
+              '-NoLogo',
+              '-NoProfile',
+              '-NonInteractive',
+              '-Command',
+              r'Expand-Archive -LiteralPath $env:NAPI_RUNTIME_ARCHIVE '
+                  r'-DestinationPath $env:NAPI_RUNTIME_DIRECTORY -ErrorAction Stop',
+            ]
+          : Platform.isLinux
           ? ['-q', archive.path, '-d', extracted.path]
           : ['-x', '-k', archive.path, extracted.path],
       includeParentEnvironment: false,
-      environment: const {'LC_ALL': 'C'},
+      environment: {
+        'LC_ALL': 'C',
+        if (Platform.isWindows) ...{
+          'SystemRoot': Platform.environment['SystemRoot'] ?? r'C:\Windows',
+          'NAPI_RUNTIME_ARCHIVE': archive.path,
+          'NAPI_RUNTIME_DIRECTORY': extracted.path,
+        },
+      },
     );
     if (result.exitCode != 0) {
       throw FileSystemException(
@@ -211,22 +255,19 @@ Future<void> _download(File destination, NativeRuntimeArchive lock) async {
           response.contentLength != lock.bytes) {
         throw const FormatException('Native runtime archive size mismatch.');
       }
-      final sink = destination.openWrite();
-      // Observe an early disk error immediately; close() below still reports
-      // that same failure to the caller after the response is stopped.
-      sink.done.ignore();
+      final file = await destination.open(mode: FileMode.write);
       var bytes = 0;
       try {
         final hash = await sha256
             .bind(
-              response.timeout(_networkTimeout).map((chunk) {
+              response.timeout(_networkTimeout).asyncMap((chunk) async {
                 bytes += chunk.length;
                 if (bytes > lock.bytes) {
                   throw const FormatException(
                     'Native runtime archive exceeds its locked size.',
                   );
                 }
-                sink.add(chunk);
+                await file.writeFrom(chunk);
                 return chunk;
               }),
             )
@@ -237,7 +278,7 @@ Future<void> _download(File destination, NativeRuntimeArchive lock) async {
           );
         }
       } finally {
-        await sink.close();
+        await file.close();
       }
       return;
     }
@@ -258,8 +299,12 @@ Future<void> _checkCacheOutput(Directory cache, Directory output) async {
   await checkNativePath(output.absolute.path);
   // Neither leaf need exist yet. Conservatively reject case aliases on the
   // supported host before creating a cache that could occupy the output.
-  final sourceName = Platform.isMacOS ? source.toLowerCase() : source;
-  final targetName = Platform.isMacOS ? target.toLowerCase() : target;
+  final sourceName = (Platform.isMacOS || Platform.isWindows)
+      ? source.toLowerCase()
+      : source;
+  final targetName = (Platform.isMacOS || Platform.isWindows)
+      ? target.toLowerCase()
+      : target;
   if (path.equals(sourceName, targetName) ||
       path.isWithin(sourceName, targetName) ||
       path.isWithin(targetName, sourceName) ||
@@ -272,12 +317,27 @@ Future<void> _checkCacheOutput(Directory cache, Directory output) async {
 }
 
 Future<bool> _containsExistingPath(String parent, String child) async {
-  if (!await _exists(parent)) return false;
+  // A missing leaf can still overlap through a DOS short name or another
+  // filesystem alias of its existing ancestor.
+  var ancestor = parent;
+  while (!await _exists(ancestor)) {
+    final next = path.dirname(ancestor);
+    if (next == ancestor) return false;
+    ancestor = next;
+  }
   var current = child;
   while (true) {
     if (await _exists(current) &&
-        await FileSystemEntity.identical(parent, current)) {
-      return true;
+        await FileSystemEntity.identical(ancestor, current)) {
+      var source = path.relative(parent, from: ancestor);
+      var target = path.relative(child, from: current);
+      if (Platform.isMacOS || Platform.isWindows) {
+        source = source.toLowerCase();
+        target = target.toLowerCase();
+      }
+      return source == '.' ||
+          path.equals(source, target) ||
+          path.isWithin(source, target);
     }
     final next = path.dirname(current);
     if (next == current) return false;

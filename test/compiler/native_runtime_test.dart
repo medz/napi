@@ -5,6 +5,7 @@ import 'package:napi/src/build/native_bundle.dart';
 import 'package:napi/src/build/native_runtime.dart';
 import 'package:napi/src/compiler/sdk_adapter/dart_sdk_adapter.dart';
 import 'package:test/test.dart';
+import 'package:path/path.dart' as path;
 
 final _supported = _supportsNativeRuntime();
 
@@ -28,21 +29,27 @@ void main() {
 import 'package:napi/src/build/native_runtime.dart';
 void main() => print(nativeRuntimeCacheDirectory().path);
 ''');
-    final fallback = Platform.isLinux
+    final environment = {
+      'HOME': home.path,
+      if (Platform.isWindows) 'LOCALAPPDATA': home.path,
+    };
+    final fallback = Platform.isWindows
+        ? '${home.path}/napi/Cache'
+        : Platform.isLinux
         ? '${home.path}/.cache/napi'
         : '${home.path}/Library/Caches/napi';
     final cases = <({Map<String, String> environment, String? expected})>[
-      (environment: {'HOME': home.path}, expected: fallback),
+      (environment: environment, expected: fallback),
       (
         environment: {
-          'HOME': home.path,
+          ...environment,
           'NAPI_RUNTIME_CACHE': '${root.path}/override',
           'XDG_CACHE_HOME': '${root.path}/xdg',
         },
         expected: '${root.path}/override',
       ),
       (
-        environment: {'HOME': home.path, 'XDG_CACHE_HOME': '${root.path}/xdg'},
+        environment: {...environment, 'XDG_CACHE_HOME': '${root.path}/xdg'},
         expected: Platform.isLinux ? '${root.path}/xdg/napi' : fallback,
       ),
       if (Platform.isLinux) ...[
@@ -55,10 +62,7 @@ void main() => print(nativeRuntimeCacheDirectory().path);
           expected: '${root.path}/xdg/napi',
         ),
       ],
-      (
-        environment: {'HOME': home.path, 'NAPI_RUNTIME_CACHE': ''},
-        expected: null,
-      ),
+      (environment: {...environment, 'NAPI_RUNTIME_CACHE': ''}, expected: null),
     ];
     for (final entry in cases) {
       final result = await Process.run(
@@ -75,10 +79,70 @@ void main() => print(nativeRuntimeCacheDirectory().path);
         expect(result.stderr, contains('NAPI_RUNTIME_CACHE must not be empty'));
       } else {
         expect(result.exitCode, 0, reason: '${result.stderr}');
-        expect((result.stdout as String).trim(), entry.expected);
+        expect(
+          path.normalize((result.stdout as String).trim()),
+          path.normalize(entry.expected!),
+        );
       }
     }
   }, skip: !_supported);
+  test('native runtime rejects overlap through an aliased ancestor', () async {
+    final root = await Directory(
+      await Directory.systemTemp.resolveSymbolicLinks(),
+    ).createTemp('napi runtime aliases ');
+    addTearDown(() => root.delete(recursive: true));
+    final ancestor = await Directory(
+      path.join(root.path, Platform.isWindows ? 'long directory name' : 'café'),
+    ).create();
+    final String alias;
+    if (Platform.isWindows) {
+      await File(path.join(root.path, 'short-path.cmd')).writeAsString(
+        '@echo off\r\nfor %%I in ("%NAPI_TEST_LONG_PATH%") do @echo %%~sI\r\n',
+      );
+      final result = await Process.run(
+        'cmd.exe',
+        ['/d', '/c', 'short-path.cmd'],
+        workingDirectory: root.path,
+        environment: {'NAPI_TEST_LONG_PATH': ancestor.path},
+      );
+      expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
+      alias = result.stdout.toString().trim();
+      if (path.basename(alias).toLowerCase() ==
+          path.basename(ancestor.path).toLowerCase()) {
+        markTestSkipped('DOS short names are disabled on this volume.');
+        return;
+      }
+    } else {
+      alias = path.join(root.path, 'cafe\u0301');
+      if (!await Directory(alias).exists()) {
+        markTestSkipped('This volume distinguishes Unicode normalization.');
+        return;
+      }
+    }
+    expect(await FileSystemEntity.identical(ancestor.path, alias), isTrue);
+    await HttpOverrides.runWithHttpOverrides(() async {
+      for (final (cacheParent, outputParent) in [
+        (ancestor.path, alias),
+        (alias, ancestor.path),
+      ]) {
+        for (final (cacheSuffix, outputSuffix) in [
+          ('output', 'output'),
+          ('output/cache', 'output'),
+          ('output', 'output/cache'),
+        ]) {
+          final cache = Directory(path.join(cacheParent, cacheSuffix));
+          final output = Directory(path.join(outputParent, outputSuffix));
+          expect(await cache.exists(), isFalse);
+          expect(await output.exists(), isFalse);
+          await expectLater(
+            resolveNativeRuntime(cache: cache, output: output),
+            throwsArgumentError,
+          );
+          expect(await ancestor.list().toList(), isEmpty);
+        }
+      }
+    }, _NoDownload());
+  }, skip: !_supported || !(Platform.isMacOS || Platform.isWindows));
   for (final scenario in [
     'cold-warm',
     'foreign-cache',
@@ -124,7 +188,7 @@ void main() => print(nativeRuntimeCacheDirectory().path);
       skip: scenario == 'unsupported'
           ? (_supported ? 'Requires an unsupported native host.' : false)
           : !_supported
-          ? 'Requires macOS arm64/x64 or Linux arm64/x64 glibc.'
+          ? 'Requires a supported native host.'
           : needsArchive && archive == null
           ? 'Set NAPI_TEST_RUNTIME_ARCHIVE to the published locked ZIP.'
           : false,
@@ -195,7 +259,7 @@ Future<void> _scenario(String scenario, Directory root) async {
           cache,
           Directory('${cache.path}/package'),
           root,
-          if (Platform.isMacOS) ...[
+          if (Platform.isMacOS || Platform.isWindows) ...[
             Directory('${root.path}/CACHE'),
             Directory('${root.path}/CACHE/package'),
           ],
@@ -240,7 +304,7 @@ Future<void> _scenario(String scenario, Directory root) async {
       final bundle = bundles.first;
       expect(
         bundle.directory.path,
-        '${cache.path}/${nativeRuntimeArchive.sha256}',
+        path.join(cache.path, nativeRuntimeArchive.sha256),
       );
       expect(urls.first.toString(), nativeRuntimeArchive.url);
       expect(bundle.platform, verifyNativeHost());

@@ -175,7 +175,7 @@ final class OutputOwnership {
         rawRuntimes.values.any(
           (value) =>
               value is! String ||
-              !RegExp(r'^libnapi_runtime_[A-Za-z0-9_.-]+\.(?:dylib|so)$')
+              !RegExp(r'^libnapi_runtime_[A-Za-z0-9_.-]+\.(?:dylib|so|dll)$')
                   .hasMatch(value),
         ) ||
         !NativePlatform.values
@@ -232,8 +232,9 @@ final class OutputOwnership {
                 nativeRuntimes.isEmpty &&
                 nativePackages.isEmpty
             ? runtime is! String ||
-                  !RegExp(r'^libnapi_runtime_[A-Za-z0-9_.-]+\.(?:dylib|so)$')
-                      .hasMatch(runtime)
+                  !RegExp(
+                    r'^libnapi_runtime_[A-Za-z0-9_.-]+\.(?:dylib|so|dll)$',
+                  ).hasMatch(runtime)
             : runtime != null) ||
         hashes is! Map<String, dynamic>) {
       throw const FormatException('Invalid output ownership layout.');

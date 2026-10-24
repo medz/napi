@@ -91,6 +91,7 @@ void main() {
         final abi = switch (profile) {
           NativePlatform.macosArm64 => Abi.macosArm64,
           NativePlatform.macosX64 => Abi.macosX64,
+          NativePlatform.windowsX64 => Abi.windowsX64,
           NativePlatform.linuxX64 => Abi.linuxX64,
           NativePlatform.linuxArm64 => Abi.linuxArm64,
         };

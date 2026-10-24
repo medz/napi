@@ -183,26 +183,21 @@ void main() {
     await expectLater(OutputOwnership.read(packages.last), throwsArgumentError);
   });
 
-  test(
-    'npm installs only the selected optional platform and preserves loader errors',
-    () async {
-      await assemblePackageSet(
-        modules: modules
-            .where((module) => module.target == BuildTarget.native)
-            .toList(),
-        output: output,
-        metadata: metadata,
-      );
-      for (final node in nodeExecutables()) {
-        await runProcess(node, [
-          'test/integration/optional_platforms.mjs',
-          output.path,
-        ], timeout: const Duration(minutes: 2));
-      }
-    },
-    timeout: const Timeout(Duration(minutes: 3)),
-    skip: Platform.isWindows,
-  );
+  test('npm installs only the selected optional platform and preserves loader errors', () async {
+    await assemblePackageSet(
+      modules: modules
+          .where((module) => module.target == BuildTarget.native)
+          .toList(),
+      output: output,
+      metadata: metadata,
+    );
+    for (final node in nodeExecutables()) {
+      await runProcess(node, [
+        'test/integration/optional_platforms.mjs',
+        output.path,
+      ], timeout: const Duration(minutes: 2));
+    }
+  }, timeout: const Timeout(Duration(minutes: 3)));
 
   test('native-only assembly includes all platforms without Wasm or install scripts', () async {
     await assemblePackage(

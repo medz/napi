@@ -82,6 +82,7 @@ class PrepareRuntimeTest(unittest.TestCase):
             ('linux-arm64', 'arm64', 'linux', 'linux-arm64', 'out/ProductARM64'),
             ('macos-x64', 'x64', 'mac', 'mac-amd64', 'xcodebuild/ProductX64'),
             ('macos-arm64', 'arm64', 'mac', 'mac-arm64', 'xcodebuild/ProductARM64'),
+            ('windows-x64', 'x64', 'win', 'windows-amd64', 'out/ProductX64'),
         ]:
             with self.subTest(profile=profile):
                 commands = []
@@ -90,6 +91,9 @@ class PrepareRuntimeTest(unittest.TestCase):
                     if str(command[0]).endswith('/buildtools/gn'):
                         self.assertEqual(config.read_text(), 'build_devtools_from_sources = false\n')
                 with patch.object(prepare, 'host_profile', return_value=profile), \
+                        patch.object(prepare, 'windows_toolchain', return_value={
+                            'visualStudioPath': 'Visual Studio', 'windowsSdkPath': 'Windows SDK'}), \
+                        patch.dict(prepare.os.environ), \
                         patch.object(prepare, 'checkout'), \
                         patch.object(prepare, 'cipd_client', return_value=self.root/'cipd') as client, \
                         patch.object(prepare, 'copy_runtime'), \
@@ -106,7 +110,11 @@ class PrepareRuntimeTest(unittest.TestCase):
                 for key in ['host_cpu', 'target_cpu', 'dart_target_arch']:
                     self.assertIn(f'{key}="{cpu}"', gn[-1])
                 self.assertIn(f'target_os="{target}"', gn[-1])
-                self.assertIn('dart_sysroot="debian"' if target == 'linux' else 'mac_sdk_min="14.0"', gn[-1])
+                if target != 'win':
+                    self.assertIn('dart_sysroot="debian"' if target == 'linux' else 'mac_sdk_min="14.0"', gn[-1])
+                else:
+                    self.assertEqual(Path(gn[0]).name, 'gn.exe')
+                    self.assertEqual(Path(commands[-1][0]).name, 'ninja.exe')
                 self.assertEqual(commands[-1][-1], f'clang_{cpu}_shared/phony/runtime/napi/napi_runtime_set')
 
     def test_cache_key_separates_architecture_and_xcode_sdk(self):
@@ -118,3 +126,18 @@ class PrepareRuntimeTest(unittest.TestCase):
                     patch.object(prepare.subprocess, 'check_output', return_value=sdk.encode()):
                 keys.add(prepare.cache_key())
         self.assertEqual(len(keys), 5)
+
+    def test_windows_cache_tracks_installed_toolset(self):
+        with patch.object(prepare, 'host_profile', return_value='windows-x64'), \
+                patch.object(prepare, 'windows_toolchain', return_value={'msvcVersion': '14.44'}) as installed:
+            original = prepare.cache_key()
+            installed.return_value = {'msvcVersion': '14.45'}
+            self.assertNotEqual(original, prepare.cache_key())
+
+    def test_windows_cipd_is_an_executable(self):
+        payload = b'verified executable'
+        with patch.dict(prepare.CIPD_SHA256, {'windows-amd64': hashlib.sha256(payload).hexdigest()}), \
+                patch.object(prepare.urllib.request, 'urlopen', return_value=io.BytesIO(payload)):
+            client = prepare.cipd_client(self.root, 'windows-amd64')
+            self.assertEqual(client.name, 'cipd.exe')
+            self.assertEqual(client.read_bytes(), payload)

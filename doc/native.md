@@ -2,7 +2,8 @@
 
 The experimental native target runs Dart business code through a precompiled
 Node-API bridge and a matching Dart AOT runtime. It supports macOS 14 or later on
-arm64 or x64 and Linux arm64 or x64 with glibc 2.28 or later, using Dart **3.13.5**.
+arm64 or x64, Linux arm64 or x64 with glibc 2.28 or later, and Windows x64
+(Windows 10 / Server 2016 or later), using Dart **3.13.5**.
 All supported hosts download and cache their precompiled runtime on first use.
 
 ## Build a package
@@ -46,7 +47,8 @@ counter.value = 10;
 ```
 
 Application builds use the ordinary Dart SDK. Extracting an uncached runtime on
-Linux also needs `/usr/bin/unzip`.
+Linux also needs `/usr/bin/unzip`; Windows uses its built-in Windows PowerShell
+archive extractor.
 C/C++ tools and SDK sources are needed only to produce a new runtime bundle;
 see the [maintainer guide](../native/README.md).
 
@@ -62,8 +64,9 @@ payload files are verified on every use. The cache defaults to:
 - macOS: `~/Library/Caches/napi`.
 - Linux: `$XDG_CACHE_HOME/napi` when `XDG_CACHE_HOME` is an absolute path,
   otherwise `~/.cache/napi`.
+- Windows: `%LOCALAPPDATA%\napi\Cache`.
 
-Set `NAPI_RUNTIME_CACHE` to select another directory on either platform. A
+Set `NAPI_RUNTIME_CACHE` to select another directory. A
 populated cache supports offline builds. A corrupt entry fails with its path
 so it can be removed before retrying. Download failures leave package output
 unchanged.
@@ -72,8 +75,9 @@ For an offline build without a populated cache, pass
 `nativeRuntime: Directory('/absolute/path/to/runtime-bundle')` to `buildPackage`
 or `buildLibrary`. This override reads only that bundle. Runtime downloads
 happen during the author's build, never during npm installation or import.
-The builder extracts the pinned archive with macOS's system `ditto` or Linux's
-`unzip`. A local bundle does not need an archive extractor.
+The builder extracts the pinned archive with macOS's system `ditto`, Linux's
+`unzip`, or Windows PowerShell's `Expand-Archive`. A local bundle does not need
+an archive extractor.
 
 ## Package contents
 
@@ -151,7 +155,11 @@ Linux arm64 and x64 bundles target glibc 2.28 and use the pinned Dart SDK
 clang 23.0.0git toolchain and Debian sysroot. Execution has been tested on
 Ubuntu 24.04 arm64 and x64 with Node 24.19.0 and 26.11.1 and TypeScript 7.0.2.
 Node.js has its own operating-system requirements.
-Windows, musl-based Linux and other Node-API hosts are not qualified.
+Windows x64 bundles use the pinned SDK clang/LLD toolchain, Windows SDK
+10.0.26100.0 and a static CRT. The npm package includes its runtime DLL; consumers
+do not need to install the Visual C++ Redistributable. Execution has been tested
+on Windows Server 2025 x64 with Node 24.19.0 and 26.11.1 and TypeScript 7.0.2.
+Musl-based Linux and other Node-API hosts are not qualified.
 
 See [the runtime bundle guide](../native/README.md) to build a new runtime
 profile, and [CONTRIBUTING.md](../CONTRIBUTING.md) to run native tests.

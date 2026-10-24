@@ -22,6 +22,7 @@ SDK_REVISION = '04bcd1036cdc799ac6564988f159ee454d42c822'
 ABI = 15
 MINIMUM_OS = '14.0'
 MINIMUM_LIBC = '2.28'
+WINDOWS_SDK_VERSION = '10.0.26100.0'
 LINUX_TARGETS = {'x64': 'x86_64-linux-gnu', 'arm64': 'aarch64-linux-gnu'}
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE_FILES = [
@@ -32,8 +33,8 @@ SOURCE_FILES = [
 ]
 
 
-def run(command, cwd=None):
-    result = subprocess.run(command, cwd=cwd, text=True, capture_output=True)
+def run(command, cwd=None, env=None):
+    result = subprocess.run(command, cwd=cwd, env=env, text=True, capture_output=True)
     if result.returncode:
         raise RuntimeError(f'{shlex.join(map(str, command))}\n{result.stdout}{result.stderr}')
     return result.stdout.strip()
@@ -62,7 +63,9 @@ def host_profile():
         return 'linux-x64'
     if host == ('Linux', 'aarch64'):
         return 'linux-arm64'
-    raise ValueError('Only native macOS and Linux arm64/x64 maintainer builds are supported')
+    if host == ('Windows', 'AMD64'):
+        return 'windows-x64'
+    raise ValueError('Native maintainer builds require macOS/Linux arm64 or x64, or Windows x64')
 
 
 def source_inputs():
@@ -123,6 +126,7 @@ def linux_toolchain_inputs(depfile, sdk, cache, clang, linker, ignored=()):
 def validate_cache(sdk, cache):
     profile = host_profile()
     linux = profile.startswith('linux-')
+    windows = profile == 'windows-x64'
     architecture = profile.rsplit('-', 1)[1]
     if run(['git', '-C', str(sdk), 'rev-parse', 'HEAD']) != SDK_REVISION:
         raise ValueError(f'Expected Dart SDK revision {SDK_REVISION}')
@@ -137,7 +141,7 @@ def validate_cache(sdk, cache):
             key, value = line.split(' = ', 1)
             args[key] = value
     expected = {
-        'target_os': '"linux"' if linux else '"mac"',
+        'target_os': '"linux"' if linux else '"win"' if windows else '"mac"',
         **{key: '"'+architecture+'"'
            for key in ['host_cpu', 'target_cpu', 'dart_target_arch']},
         'is_product': 'true', 'is_release': 'false',
@@ -155,9 +159,9 @@ def validate_cache(sdk, cache):
             raise ValueError(f'Unsupported VM cache: args.gn must set {key} = {value}')
     toolchain_name = f'clang_{architecture}_shared'
     toolchain = (cache/toolchain_name/'toolchain.ninja').read_text()
-    if not linux and f'-mmacosx-version-min={MINIMUM_OS}' not in toolchain:
+    if not linux and not windows and f'-mmacosx-version-min={MINIMUM_OS}' not in toolchain:
         raise ValueError(f'VM cache must target macOS {MINIMUM_OS}')
-    if not linux and f'buildtools/mac-{architecture}/clang/bin/clang++' not in toolchain:
+    if not linux and not windows and f'buildtools/mac-{architecture}/clang/bin/clang++' not in toolchain:
         raise ValueError(f'VM cache must use the pinned SDK macOS {architecture} clang')
     target = cache/toolchain_name/'obj/runtime/napi/napi_runtime.ninja'
     compile_target = cache/toolchain_name/'obj/runtime/napi/napi_runtime_set.ninja'
@@ -174,13 +178,27 @@ def validate_cache(sdk, cache):
             if (len(roots) != 1 or (cache/roots[0]).resolve() != sysroot or
                     '--target='+LINUX_TARGETS[architecture] not in flags or '-fPIC' not in flags):
                 raise ValueError(f'VM cache must target Linux {architecture} with the pinned Debian sysroot')
+    if windows:
+        if ('buildtools/win-x64/clang/bin/clang-cl.exe' not in toolchain or
+                '--target=x86_64-pc-windows-msvc' not in toolchain or
+                'buildtools/win-x64/clang/bin/lld-link.exe' not in toolchain):
+            raise ValueError('VM cache must use the pinned SDK Windows x64 clang-cl and lld-link')
+        flags = windows_arguments(variables(compile_target).get('cflags', ''))
+        if '/MT' not in flags or any(flag in flags for flag in ['/MD', '/MDd', '/MTd']):
+            raise ValueError('Windows VM cache must use the release static CRT (/MT)')
+        if not (cache/'environment.x64').is_file():
+            raise ValueError('Windows VM cache has no x64 toolchain environment')
     return target, compile_target
 
 
 def publish(source, target):
     # Atomic directory publication without replacing a racing output/symlink.
-    libc = ctypes.CDLL(None, use_errno=True)
     profile = host_profile()
+    if profile == 'windows-x64':
+        # Windows rename fails if the destination exists; never use replace.
+        os.rename(source, target)
+        return
+    libc = ctypes.CDLL(None, use_errno=True)
     if profile.startswith('linux-'):
         # Linux renameat2(AT_FDCWD, ..., RENAME_NOREPLACE). Use the syscall
         # directly so publication does not require glibc's newer wrapper.
@@ -233,8 +251,256 @@ def validate_elf(readelf, binary, runtime, architecture):
                          f'{", ".join(sorted(set(required)))}\n' + '\n'.join(incompatible))
 
 
-def build(sdk, headers, output, cache):
+def windows_arguments(value):
+    """Parse Ninja's Windows response arguments without treating '\\' as a shell escape."""
+    value = re.sub(r'\$([ $:])', r'\1', value)
+    result, argument, quoted, started = [], [], False, False
+    index = 0
+    while index < len(value):
+        char = value[index]
+        if char.isspace() and not quoted:
+            if started:
+                result.append(''.join(argument))
+                argument, started = [], False
+        elif char == '\\':
+            end = index
+            while end < len(value) and value[end] == '\\':
+                end += 1
+            count = end - index
+            if end < len(value) and value[end] == '"':
+                argument.extend('\\' * (count // 2))
+                if count % 2:
+                    argument.append('"')
+                else:
+                    quoted = not quoted
+                index = end
+            else:
+                argument.extend('\\' * count)
+                index = end - 1
+            started = True
+        elif char == '"':
+            quoted, started = not quoted, True
+        else:
+            argument.append(char)
+            started = True
+        index += 1
+    if quoted:
+        raise ValueError('Unterminated Windows compiler argument')
+    if started:
+        result.append(''.join(argument))
+    return result
+
+
+def windows_inputs(paths, roots, ignored=()):
+    ignored = {path.resolve() for path in ignored}
+    result = {}
+    for path in paths:
+        path = path.resolve(strict=True)
+        if path in ignored or path.is_relative_to(roots['generated']):
+            continue
+        for label, root in sorted(roots.items(), key=lambda item: len(item[1].parts), reverse=True):
+            if path.is_relative_to(root):
+                result[label+'/'+path.relative_to(root).as_posix()] = digest(path)
+                break
+        else:
+            raise ValueError(f'Unrecorded Windows toolchain input: {path}')
+    return dict(sorted(result.items()))
+
+
+def validate_pe(readobj, binary, runtime):
+    image = run([readobj, '--file-headers', '--coff-imports', str(binary)])
+    if ('Machine: IMAGE_FILE_MACHINE_AMD64' not in image or
+            not re.search(r'Magic:\s+0x20B\b', image) or 'IMAGE_FILE_DLL' not in image):
+        raise ValueError(f'Expected Windows x64 DLL: {binary.name}')
+    dependencies = {name.lower() for name in re.findall(r'\b(?:Delay)?Import\s*\{\s*Name:\s*(\S+)', image)}
+    allowed = {'kernel32.dll', 'ntdll.dll', 'advapi32.dll', 'bcrypt.dll', 'crypt32.dll',
+               'dbghelp.dll', 'oleaut32.dll', 'api-ms-win-core-path-l1-1-0.dll',
+               'iphlpapi.dll', 'ole32.dll', 'pathcch.dll', 'psapi.dll', 'rpcrt4.dll',
+               'shell32.dll', 'shlwapi.dll', 'user32.dll', 'userenv.dll', 'ws2_32.dll', 'winmm.dll'}
+    if binary.name != runtime:
+        allowed.update({runtime.lower(), 'node.exe'})
+        if not {runtime.lower(), 'node.exe'} <= dependencies:
+            raise ValueError('Native bridge must import Node and its named runtime')
+    unexpected = dependencies - allowed
+    if unexpected:
+        raise ValueError(f'Unexpected Windows dependencies: {sorted(unexpected)}')
+    if not dependencies:
+        raise ValueError(f'Windows image has no import dependencies: {binary.name}')
+
+
+def build_windows(sdk, headers, output, cache, node_library):
+    if os.path.lexists(output):
+        raise FileExistsError(f'Output already exists: {output}')
+    if node_library is None or not node_library.is_file():
+        raise ValueError('Windows builds require --node-library pointing to the Node x64 node.lib')
+    if not (headers/'node_api.h').is_file():
+        raise ValueError('Node headers must contain node_api.h')
+    uv_headers = next((root for root in [headers, headers.parent] if (root/'uv.h').is_file()), None)
+    if uv_headers is None:
+        raise ValueError('Node headers or their parent must contain libuv uv.h')
+    target, compile_target = validate_cache(sdk, cache)
+    recipes = {'args.gn': cache/'args.gn', 'toolchain.ninja': cache/'clang_x64_shared/toolchain.ninja',
+               'compile.ninja': compile_target, 'link.ninja': target,
+               'environment.x64': cache/'environment.x64'}
+    recipe_hashes = {name: digest(path) for name, path in recipes.items()}
+    environment = dict(item.split('=', 1) for item in (cache/'environment.x64').read_text().split('\0') if item)
+    environment['VSLANG'] = '1033'
+    # Clang's include tracing is English; inherited SDK environment controls LIB/INCLUDE.
+    edge_type = ': clang_x64_shared_solink '
+    edge = next(line for line in target.read_text().splitlines() if edge_type in line)
+    objects = [name for name in windows_arguments(edge.split(edge_type, 1)[1].split(' |', 1)[0])
+               if not name.endswith('/napi_runtime_set.runtime.obj')]
+    vm_hash = vm_inputs(cache, objects)
+    object_paths = [(cache/name).resolve() for name in objects]
+    compile_vars, link_vars = variables(compile_target), variables(target)
+    flags = [flag for key in ['defines', 'include_dirs', 'cflags', 'cflags_cc']
+             for flag in windows_arguments(compile_vars.get(key, ''))]
+    if not all(any(flag in flags for flag in ['-D'+name, '/D'+name])
+               for name in ['PRODUCT', 'DART_PRECOMPILED_RUNTIME', 'NAPI_DART_RUNTIME_BUILD']):
+        raise ValueError('Unsupported Windows VM cache compiler configuration')
+    link_flags = [flag for flag in windows_arguments(link_vars.get('ldflags', ''))
+                  if not flag.lower().startswith(('/pdb:', '/debug', '/implib:', '/out:'))]
+    libraries = windows_arguments(link_vars.get('libs', ''))
+    clang_root = sdk/'buildtools/win-x64/clang'
+    clang, linker = [clang_root/'bin'/name for name in ['clang-cl.exe', 'lld-link.exe']]
+    includes = environment.get('INCLUDE', '').replace('\\', '/')
+    msvc_versions = set(re.findall(r'/VC/Tools/MSVC/([^/;]+)/include(?:;|$)', includes, re.I))
+    sdk_versions = set(re.findall(r'/Windows Kits/10/Include/([^/;]+)/', includes, re.I))
+    if len(msvc_versions) != 1 or sdk_versions != {WINDOWS_SDK_VERSION}:
+        raise ValueError('Windows VM cache must use one MSVC toolset and Windows SDK '+WINDOWS_SDK_VERSION)
+    compiler_version = '\n'.join(line for line in run([str(clang), '--version']).splitlines()
+                                 if not line.startswith('InstalledDir:'))
+    compiler = {'version': compiler_version, 'sha256': digest(clang),
+                'clangPackageSha256': digest(clang_root/'.versions/clang.cipd_version'),
+                'windowsSdkVersion': WINDOWS_SDK_VERSION, 'msvcVersion': next(iter(msvc_versions)),
+                'nodeLibrarySha256': digest(node_library)}
+    sources = source_inputs()
+    source_hash = hashlib.sha256(json.dumps(sources, sort_keys=True).encode()).hexdigest()
+    producer = {'commit': run(['git', '-C', str(ROOT), 'rev-parse', 'HEAD']),
+                'dirty': bool(run(['git', '-C', str(ROOT), 'status', '--porcelain', '--', *SOURCE_FILES])),
+                'files': sources}
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix='.napi-native-', dir=output.parent) as temporary:
+        stage = Path(temporary)
+        artifact = stage/'bundle'
+        artifact.mkdir()
+        roots = {'repository': ROOT.resolve(), 'sdk': sdk.resolve(), 'node': headers.resolve(),
+                 'nodeLibrary': node_library.parent.resolve(), 'libuv': uv_headers.resolve(),
+                 'cache': cache.resolve(), 'generated': stage.resolve()}
+        for variable in ['INCLUDE', 'LIB']:
+            for index, name in enumerate(environment.get(variable, '').split(';')):
+                if name:
+                    roots[f'{variable.lower()}/{index}'] = (cache/name).resolve(strict=True)
+        bridge_flags = ['/nologo', '--target=x86_64-pc-windows-msvc', '/std:c++17', '/O2', '/MT', '/EHsc',
+                        '/DWIN32_LEAN_AND_MEAN', '/DNOMINMAX', '/D_WIN32_WINNT=0x0A00',
+                        '/DUSING_UV_SHARED=1', '/DBUILDING_NODE_EXTENSION',
+                        *['/I'+str(path) for path in [headers, uv_headers, sdk/'runtime',
+                           sdk/'runtime/include', ROOT/'native/runtime', stage]]]
+        headers_seen = {}
+        link_inputs_seen = {}
+        expected_header = stage/'expected_runtime.h'
+        expected_header.write_text('constexpr const char* kExpectedRuntimeId = "";\n')
+
+        def compile_source(name, identity):
+            source = ROOT/('native/bridge/bridge.cc' if name == 'bridge' else f'native/runtime/{name}.cc')
+            options = bridge_flags if name == 'bridge' else [*flags, f'/DNAPI_DART_RUNTIME_ID="{identity}"']
+            command = [str(clang), *options, str(source)]
+            includes = run([*command, '/Zs', '/showIncludes'], cwd=cache, env=environment)
+            paths = [(cache/path.strip()).resolve() for path in
+                     re.findall(r'^Note: including file:\s*(.+)$', includes, re.M)]
+            if not paths:
+                raise ValueError(f'Clang did not report header dependencies for {source.name}')
+            inputs = windows_inputs(paths, roots)
+            if name in headers_seen and inputs != headers_seen[name]:
+                raise ValueError('Native headers changed during the build')
+            headers_seen[name] = inputs
+            obj = stage/(name+'.obj')
+            run([*command, '/c', '/Fo'+str(obj)], cwd=cache, env=environment)
+            return obj
+
+        def link_image(name, paths, binary, implib):
+            response = stage/(name+'-objects.rsp')
+            response.write_text('\n'.join(subprocess.list2cmdline([str(path)]) for path in paths)+'\n')
+            dependencies = stage/(name+'-inputs.rsp')
+            run([str(linker), '/nologo', '/DLL', *link_flags, '@'+str(response), *libraries,
+                 '/OUT:'+str(binary), '/IMPLIB:'+str(implib),
+                 '/linkreprofullpathrsp:'+str(dependencies)], cwd=cache, env=environment)
+            files = [Path(re.sub(r'^/(?:defaultlib|wholearchive):', '', value, flags=re.I))
+                     for value in windows_arguments(dependencies.read_text())]
+            inputs = windows_inputs([clang, linker, *files], roots, object_paths)
+            if name in link_inputs_seen and inputs != link_inputs_seen[name]:
+                raise ValueError('Native toolchain inputs changed during the build')
+            link_inputs_seen[name] = inputs
+
+        # Resolve implicit MSVC/UCRT libraries before choosing a runtime identity.
+        runtime_objects = [compile_source(name, '') for name in ['runtime', 'identity']]
+        probe = stage/'probe.dll'
+        probe_lib = stage/'probe.lib'
+        link_image('runtime', [*object_paths, *runtime_objects], probe, probe_lib)
+        bridge_object = compile_source('bridge', '')
+        link_image('bridge', [bridge_object, probe_lib, node_library], stage/'probe.node', stage/'bridge.lib')
+        toolchain_inputs = {name: value for inputs in link_inputs_seen.values() for name, value in inputs.items()}
+        header_inputs = {name: value for inputs in headers_seen.values() for name, value in inputs.items()}
+        toolchain_hash = hashlib.sha256(json.dumps(toolchain_inputs, sort_keys=True).encode()).hexdigest()
+        header_hash = hashlib.sha256(json.dumps(header_inputs, sort_keys=True).encode()).hexdigest()
+        arguments = {'runtimeCompile': flags.copy(), 'bridgeCompile': bridge_flags.copy(),
+                     'link': link_flags.copy(), 'libraries': libraries.copy()}
+        for values in arguments.values():
+            for index, value in enumerate(values):
+                for label, root in sorted(roots.items(), key=lambda item: len(str(item[1])), reverse=True):
+                    value = value.replace(str(root), '<'+label+'>').replace(root.as_posix(), '<'+label+'>')
+                values[index] = value
+        arguments_hash = hashlib.sha256(json.dumps(arguments, sort_keys=True).encode()).hexdigest()
+        identity_hash = hashlib.sha256('\0'.join([
+            source_hash, vm_hash, toolchain_hash, header_hash, arguments_hash,
+            json.dumps(compiler, sort_keys=True), json.dumps(recipe_hashes, sort_keys=True)]).encode()).hexdigest()
+        identity = f'dart-{SDK_REVISION}-product-windows-x64-abi{ABI}-id{identity_hash}'
+        filename = f'libnapi_runtime_{identity}.dll'
+        runtime = artifact/filename
+        implib = stage/(filename+'.lib')
+        runtime_objects = [compile_source(name, identity) for name in ['runtime', 'identity']]
+        link_image('runtime', [*object_paths, *runtime_objects], runtime, implib)
+        expected_header.write_text('constexpr const char* kExpectedRuntimeId = '+json.dumps(identity)+';\n')
+        bridge_object = compile_source('bridge', identity)
+        link_image('bridge', [bridge_object, implib, node_library], artifact/'bridge.node', stage/'bridge.lib')
+        for binary in [runtime, artifact/'bridge.node']:
+            validate_pe(str(clang_root/'bin/llvm-readobj.exe'), binary, filename)
+        for name, value in {**header_inputs, **toolchain_inputs}.items():
+            label = next(label for label in sorted(roots, key=len, reverse=True) if name.startswith(label+'/'))
+            if digest(roots[label]/name[len(label)+1:]) != value:
+                raise ValueError('Native toolchain inputs or headers changed during the build')
+        for source, destination in [('native/runtime/DART_LICENSE', 'DART_LICENSE'),
+                                    ('native/runtime/DART_AUTHORS', 'DART_AUTHORS'), ('LICENSE', 'NAPI_LICENSE')]:
+            shutil.copy2(ROOT/source, artifact/destination)
+        manifest = {
+            'format': 1, 'sdkVersion': SDK_VERSION, 'sdkRevision': SDK_REVISION,
+            'platform': 'windows', 'architecture': 'x64', 'minimumOsVersion': '10.0',
+            'abi': ABI, 'identity': identity, 'bridge': 'bridge.node', 'runtime': filename,
+            'files': {file.name: digest(file) for file in sorted(artifact.iterdir())},
+            'build': {'cacheArgumentsSha256': recipe_hashes['args.gn'], 'vmInputsSha256': vm_hash,
+                      'vmInputCount': len(objects), 'sourceSha256': source_hash,
+                      'toolchainInputsSha256': toolchain_hash, 'argumentsSha256': arguments_hash,
+                      'runtimeHeadersSha256': header_hash,
+                      'provenance': {'format': 1, 'producer': producer, 'compiler': compiler,
+                                     'cacheRecipe': recipe_hashes, 'headers': header_inputs,
+                                     'toolchainInputs': toolchain_inputs, 'arguments': arguments}}}
+        (artifact/'manifest.json').write_text(json.dumps(manifest, indent=2)+'\n')
+        if source_inputs() != sources or vm_inputs(cache, objects) != vm_hash:
+            raise ValueError('Native source or VM inputs changed during the build')
+        if {name: digest(path) for name, path in recipes.items()} != recipe_hashes:
+            raise ValueError('Native cache recipes changed during the build')
+        if digest(clang) != compiler['sha256'] or digest(node_library) != compiler['nodeLibrarySha256']:
+            raise ValueError('Native compiler or Node library changed during the build')
+        if digest(clang_root/'.versions/clang.cipd_version') != compiler['clangPackageSha256']:
+            raise ValueError('Native compiler package changed during the build')
+        publish(artifact, output)
+    return manifest
+
+
+def build(sdk, headers, output, cache, node_library=None):
     profile = host_profile()
+    if profile == 'windows-x64':
+        return build_windows(sdk, headers, output, cache, node_library)
     linux = profile.startswith('linux-')
     architecture = profile.rsplit('-', 1)[1]
     toolchain_name = f'clang_{architecture}_shared'
@@ -524,17 +790,19 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--sdk', type=Path, required=True)
     parser.add_argument('--node-headers', type=Path, required=True)
+    parser.add_argument('--node-library', type=Path, help='Node x64 node.lib (required on Windows)')
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--runtime-build', type=Path)
     args = parser.parse_args()
     sdk = args.sdk.resolve(strict=True)
     profile = host_profile()
-    default_cache = ('out' if profile.startswith('linux-') else 'xcodebuild')
+    default_cache = ('xcodebuild' if profile.startswith('macos-') else 'out')
     default_cache += '/Product' + profile.rsplit('-', 1)[1].upper()
     cache = (args.runtime_build or sdk/default_cache).resolve(strict=True)
     # Preserve the caller's include-root layout when node/ is a package-manager
     # symlink and libuv is installed beside it rather than in the same package.
-    manifest = build(sdk, args.node_headers.absolute(), args.output.absolute(), cache)
+    manifest = build(sdk, args.node_headers.absolute(), args.output.absolute(), cache,
+                     args.node_library.resolve(strict=True) if args.node_library else None)
     print(json.dumps({'output': str(args.output.absolute()), 'identity': manifest['identity'],
                       'files': manifest['files'], 'build': manifest['build']}, indent=2))
 
