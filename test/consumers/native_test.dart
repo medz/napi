@@ -5,6 +5,7 @@ import 'package:test/test.dart';
 
 import '../support/commands.dart';
 import '../support/consumer.dart';
+import '../support/consumer_runner.dart' as owned;
 import '../support/fixtures/native_packages.dart';
 import '../support/fixtures/native_events.dart';
 import '../support/fixtures/native_host_values.dart';
@@ -23,6 +24,13 @@ import '../support/fixtures/js_collections.dart';
 import '../support/fixtures/module_rebuilds.dart';
 
 void main() {
+  void testConsumer(String name, Future<void> Function() body) =>
+      owned.consumerTest(
+        name,
+        body,
+        suite: 'test/consumers/native_test.dart',
+        group: 'Native',
+      );
   final configured = Platform.environment['NAPI_TEST_NATIVE_RUNTIME'];
   final supplied = configured == null ? null : Directory(configured);
   Future<Directory>? resolved;
@@ -43,14 +51,14 @@ void main() {
     await reportNodeVersions();
   });
   group('Native', () {
-    test(
+    testConsumer(
       'module rebuilds',
       () => consumer(
         (root) async =>
             verifyModuleRebuild(root, nativeRuntime: await runtime()),
       ),
     );
-    test(
+    testConsumer(
       'installed package',
       () => consumer((root) async {
         await verifyNativePackage(root, nativeRuntime: supplied);
@@ -60,7 +68,7 @@ void main() {
         );
       }),
     );
-    test(
+    testConsumer(
       'dual-target package',
       () => consumer((root) async {
         await runtime();
@@ -70,104 +78,104 @@ void main() {
         );
       }),
     );
-    test(
+    testConsumer(
       'scalars',
       () => consumer(
         (root) async =>
             verifyNativeFunctionPackage(root, await runtime(), 'scalar'),
       ),
     );
-    test(
+    testConsumer(
       'arguments',
       () => consumer(
         (root) async =>
             verifyNativeFunctionPackage(root, await runtime(), 'argument'),
       ),
     );
-    test(
+    testConsumer(
       'value classes',
       () => consumer(
         (root) async =>
             verifyValueOnlyFixture(root, nativeRuntime: await runtime()),
       ),
     );
-    test(
+    testConsumer(
       'events',
       () => consumer(
         (root) async =>
             verifyNativeEvents(root, nativeRuntime: await runtime()),
       ),
     );
-    test(
+    testConsumer(
       'host values',
       () => consumer(
         (root) async =>
             verifyNativeHostValues(root, nativeRuntime: await runtime()),
       ),
     );
-    test(
+    testConsumer(
       'Futures',
       () => consumer(
         (root) async =>
             verifyFutureFixture(root, nativeRuntime: await runtime()),
       ),
     );
-    test(
+    testConsumer(
       'void',
       () => consumer(
         (root) async => verifyVoidFixture(root, nativeRuntime: await runtime()),
       ),
     );
-    test(
+    testConsumer(
       'resources',
       () => consumer(
         (root) async =>
             verifyResourceFixture(root, nativeRuntime: await runtime()),
       ),
     );
-    test(
+    testConsumer(
       'opaque payloads',
       () => consumer(
         (root) async =>
             verifyOpaqueFixture(root, nativeRuntime: await runtime()),
       ),
     );
-    test(
+    testConsumer(
       'Streams',
       () => consumer(
         (root) async =>
             verifyStreamFixture(root, nativeRuntime: await runtime()),
       ),
     );
-    test(
+    testConsumer(
       'cancellation',
       () => consumer(
         (root) async =>
             verifyCancellationFixture(root, nativeRuntime: await runtime()),
       ),
     );
-    test(
+    testConsumer(
       'binary',
       () => consumer(
         (root) async =>
             verifyBinaryFixture(root, nativeRuntime: await runtime()),
       ),
     );
-    test(
+    testConsumer(
       'concrete generics',
       () => consumer(
         (root) async =>
             verifyConcreteFixture(root, nativeRuntime: await runtime()),
       ),
     );
-    test(
+    testConsumer(
       'shared bytes',
       () => consumer(
         (root) async =>
             verifySharedBytesFixture(root, nativeRuntime: await runtime()),
       ),
     );
-    test(
+    testConsumer(
       'JS collections',
       () => consumer(
         (root) async =>
