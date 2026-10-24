@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:analyzer/dart/constant/value.dart';
 import 'package:analyzer/dart/element/nullability_suffix.dart';
@@ -11,6 +12,27 @@ import 'package:analyzer/src/dart/element/type.dart' show InterfaceTypeImpl;
 
 import '../ir/defaults.dart';
 import '../ir/model.dart' show ScalarDefault;
+
+/// Keeps NaN polarity relative to the analyzed SDK's double.nan.
+Object? constantScalarValue(DartObject value) {
+  final scalar =
+      value.toBoolValue() ??
+      value.toIntValue() ??
+      value.toDoubleValue() ??
+      value.toStringValue();
+  if (scalar is! double || !scalar.isNaN) return scalar;
+  final nan = (value.type as InterfaceType).element
+      .getField('nan')!
+      .computeConstantValue()!
+      .toDoubleValue()!;
+  // Analyzer arithmetic and the running VM's double.nan can differ in sign.
+  final bytes = ByteData(16)
+    ..setFloat64(0, scalar)
+    ..setFloat64(8, nan);
+  return (bytes.getUint8(0) ^ bytes.getUint8(8)) & 0x80 == 0
+      ? double.nan
+      : -double.nan;
+}
 
 /// Compares defaults supplied by Dart itself, without naming private objects in
 /// generated source. Unknown constant kinds stay unsupported.
@@ -48,11 +70,7 @@ String? constantStorageKey(DartObject value) {
       throw const FormatException('Unknown constant.');
     }
     if (value.isNull) return null;
-    final scalar =
-        value.toBoolValue() ??
-        value.toIntValue() ??
-        value.toDoubleValue() ??
-        value.toStringValue();
+    final scalar = constantScalarValue(value);
     if (scalar != null) {
       final text = constantDefaultSource(ScalarDefault(scalar));
       budget.text(text.length);

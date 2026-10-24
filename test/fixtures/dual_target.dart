@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:napi/napi.dart';
 
@@ -112,21 +111,10 @@ bool structuralDefaults([
 bool namedDefaults({
   List<double> numbers = _numbers,
   List<int> wide = const [9007199254740993],
-}) {
-  final sameNumbers = identical(numbers, _numbers);
-  final negativeZero = numbers.length > 1 && numbers[1].isNegative;
-  final sameWide = identical(wide, const <int>[9007199254740993]);
-  if (!sameNumbers && numbers.length == _numbers.length) {
-    String bits(double value) =>
-        (ByteData(8)..setFloat64(0, value)).getUint64(0).toRadixString(16);
-    print(
-      'named defaults: $sameNumbers $negativeZero $sameWide; '
-      'actual ${numbers.map(bits).join(",")}; '
-      'original ${_numbers.map(bits).join(",")}',
-    );
-  }
-  return sameNumbers && negativeZero && sameWide;
-}
+}) =>
+    identical(numbers, _numbers) &&
+    numbers[1].isNegative &&
+    identical(wide, const <int>[9007199254740993]);
 
 @NAPI()
 class DefaultBase {

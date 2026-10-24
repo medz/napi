@@ -58,6 +58,40 @@ void main() {
   );
 
   for (final native in [false, true]) {
+    test('NaN defaults keep their polarity relative to dart:core '
+        '(${native ? 'native' : 'wasm'})', () async {
+      final input = source('entry.dart', '''
+import 'package:napi/napi.dart';
+const _nan = double.nan;
+const _numbers = <double>[_nan, -_nan, -0.0];
+@NAPI() bool numbers({List<double> values = _numbers}) =>
+    identical(values, _numbers);
+@NAPI() class Hidden {
+  final List<double> _values;
+  const Hidden._(this._values);
+}
+const _hidden = Hidden._(_numbers);
+@NAPI() int hidden({Hidden value = _hidden}) => 7;
+''');
+      final module = await read(input, native: native);
+      final numbers = module.functions[0].parameters.single;
+      const expected = 'const <double>[double.nan, -double.nan, -0.0]';
+      expect(constantDefaultSource(numbers.defaultValue!), expected);
+      final hidden = module.functions[1].parameters.single;
+      expect(hidden.defaultValue, isNull);
+      expect(
+        hidden.defaultOmissionKey,
+        contains(
+          '["double","double.nan"],["double","-double.nan"],'
+          '["double","-0.0"]',
+        ),
+      );
+      final generated = native
+          ? emitNativeDart(validateNative(module))
+          : emitDart(lower(validate(module)));
+      expect(generated, contains(expected));
+    });
+
     test('named defaults retain private objects and public static owners '
         '(${native ? 'native' : 'wasm'})', () async {
       final origin = source('origin.dart', '''
