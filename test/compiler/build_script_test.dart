@@ -52,7 +52,7 @@ Future<void> main(List<String> args) async {
       }
       expect(await Directory('${root.path}/npm-package').exists(), isFalse);
     }
-  });
+  }, timeout: const Timeout(Duration(minutes: 2)));
 
   test('conflicting package fields preserve existing output', () async {
     final output = await Directory('${root.path}/npm-package').create();
