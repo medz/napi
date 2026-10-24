@@ -316,6 +316,14 @@ jobs:
           sdk: 3.13.5
       - run: dart pub get
       - run: dart test test/compiler/publish_test.dart test/compiler/package_rebuild_test.dart
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: runner.os != 'Linux'
+        with:
+          node-version: 26.11.1
+          package-manager-cache: false
+      - name: Test process ownership on macOS and Windows
+        if: runner.os != 'Linux'
+        run: dart test test/harness
 
   # Preserve the required check name. Only confirmed docs PRs may skip heavy
   # jobs; static/package checks and classifier regression tests always run.

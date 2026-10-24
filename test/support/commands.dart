@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:path/path.dart' as path;
 
+import 'process.dart';
+
 final _nodeExecutables = _readNodeExecutables();
 
 /// Validate the selected Node runtimes before building packages.
@@ -48,7 +50,9 @@ List<String> nodeExecutables() {
 Future<List<String>> _readNodeExecutables() async {
   final executables = nodeExecutables();
   for (final executable in executables) {
-    final version = await Process.run(executable, ['--version']);
+    final version = await _process(executable, [
+      '--version',
+    ], timeout: const Duration(seconds: 10));
     if (version.exitCode != 0) {
       throw StateError('$executable --version failed: ${version.stderr}');
     }
@@ -69,7 +73,7 @@ Future<void> run(String command, List<String> args, {String? cwd}) async {
 }
 
 Future<void> _run(String executable, List<String> args, {String? cwd}) async {
-  final result = await Process.run(executable, args, workingDirectory: cwd);
+  final result = await _process(executable, args, cwd: cwd);
   if (result.exitCode != 0) {
     throw StateError(
       '$executable ${args.join(' ')} exited ${result.exitCode}\n'
@@ -112,3 +116,18 @@ Future<void> typescript(Directory directory, String consumer) async {
     ], cwd: directory.path);
   }
 }
+
+Future<ProcessResult> _process(
+  String executable,
+  List<String> arguments, {
+  String? cwd,
+  Duration timeout = const Duration(minutes: 3),
+}) => Platform.environment['NAPI_TEST_PROCESS_OWNER'] == '1'
+    // Nested commands must remain in the enclosing consumer's process group.
+    ? Process.run(executable, arguments, workingDirectory: cwd)
+    : runProcess(
+        executable,
+        arguments,
+        timeout: timeout,
+        workingDirectory: cwd,
+      );

@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:napi/src/build/native_runtime.dart';
 import 'package:test/test.dart';
 
 import '../support/commands.dart' show nodeExecutables;
@@ -53,8 +52,6 @@ void callbackTests({required bool native}) {
   );
   Directory? root;
   late Directory consumer;
-  var buildSettled = false;
-  var pendingTypechecks = 0;
 
   group('callback $backend', () {
     setUpAll(() async {
@@ -74,35 +71,15 @@ void callbackTests({required bool native}) {
         print('Node ${result.stdout.toString().trim()}: $node');
       }
       root = await Directory('.dart_tool').createTemp('napi callback suite ');
-      try {
-        Directory? bundle;
-        if (native) {
-          final configured = Platform.environment['NAPI_TEST_NATIVE_RUNTIME'];
-          if (configured != null && configured.isEmpty) {
-            throw StateError('NAPI_TEST_NATIVE_RUNTIME must not be empty.');
-          }
-          bundle = (await resolveNativeRuntime(
-            runtime: configured == null ? null : Directory(configured),
-            output: root!.absolute,
-          )).directory;
-        }
-        consumer = await buildCallbackPackage(
-          root!.absolute,
-          nativeRuntime: bundle,
-        );
-      } finally {
-        buildSettled = true;
-      }
+      consumer = await buildOwnedCallbackPackage(
+        root!.absolute,
+        native: native,
+      );
     });
 
     tearDownAll(() async {
       final directory = root;
       if (directory == null) return;
-      if (!buildSettled || pendingTypechecks != 0) {
-        // A test timeout does not cancel compiler/npm/TS descendants.
-        print('Build/typecheck still running; keeping ${directory.path}.');
-        return;
-      }
       if (await directory.exists()) await directory.delete(recursive: true);
     });
 
@@ -156,28 +133,16 @@ void callbackTests({required bool native}) {
                 '--allowArbitraryExtensions',
                 'consumer.mts',
               ];
-              pendingTypechecks++;
-              try {
-                final result = await Process.run(
-                  typescriptNode,
-                  arguments,
-                  workingDirectory: consumer.path,
-                );
-                expect(
-                  result.exitCode,
-                  0,
-                  reason:
-                      '$typescriptNode ${arguments.join(' ')}\n'
-                      'Working directory: ${consumer.path}\n'
-                      'stdout:\n${result.stdout}\nstderr:\n${result.stderr}',
-                );
-              } finally {
-                pendingTypechecks--;
-              }
+              await runProcess(
+                typescriptNode,
+                arguments,
+                workingDirectory: consumer.path,
+                timeout: const Duration(seconds: 30),
+              );
             }, timeout: const Timeout(Duration(seconds: 45)));
           }
         }
       }
     });
-  }, timeout: const Timeout(Duration(minutes: 3)));
+  }, timeout: const Timeout(Duration(minutes: 4)));
 }

@@ -1,10 +1,42 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:napi/src/build/native_runtime.dart';
+
 import 'commands.dart' show run;
+import 'process.dart';
+
+Future<void> main(List<String> arguments) async {
+  final root = Directory(arguments[0]);
+  final native = arguments[1] == 'native';
+  final configured = Platform.environment['NAPI_TEST_NATIVE_RUNTIME'];
+  if (native && configured != null && configured.isEmpty) {
+    throw StateError('NAPI_TEST_NATIVE_RUNTIME must not be empty.');
+  }
+  final bundle = native
+      ? (await resolveNativeRuntime(
+          runtime: configured == null ? null : Directory(configured),
+          output: root,
+        )).directory
+      : null;
+  final result = await buildCallbackPackage(root, nativeRuntime: bundle);
+  await File('${root.path}/consumer-path').writeAsString(result.path);
+}
+
+Future<Directory> buildOwnedCallbackPackage(
+  Directory root, {
+  required bool native,
+}) async {
+  await runProcess(Platform.resolvedExecutable, [
+    '--packages=${File('.dart_tool/package_config.json').absolute.path}',
+    File('test/support/callback_package.dart').absolute.path,
+    root.path,
+    native ? 'native' : 'wasm',
+  ], timeout: const Duration(minutes: 3));
+  return Directory(await File('${root.path}/consumer-path').readAsString());
+}
 
 /// Build source/external callbacks once, then relocate and install both archives.
-/// Compiler/npm subprocess trees still use the existing build command path.
 Future<Directory> buildCallbackPackage(
   Directory root, {
   Directory? nativeRuntime,

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:test/test.dart';
 
 import '../support/consumer.dart';
+import '../support/consumer_test.dart' as owned;
 import '../support/commands.dart';
 import '../support/package.dart';
 import '../support/fixtures/arguments.dart';
@@ -24,9 +25,16 @@ import '../support/fixtures/js_collections.dart';
 import '../support/fixtures/module_rebuilds.dart';
 
 void main() {
+  void testConsumer(String name, Future<void> Function() body) =>
+      owned.consumerTest(
+        name,
+        body,
+        suite: 'test/consumers/wasm_test.dart',
+        group: 'Wasm',
+      );
   setUpAll(reportNodeVersions);
   group('Wasm', () {
-    test(
+    testConsumer(
       'scalars',
       () => consumer((root) async {
         final output = Directory('${root.path}/scalars');
@@ -36,7 +44,7 @@ void main() {
         await installedConsumer(output, root);
       }),
     );
-    test(
+    testConsumer(
       'arguments',
       () => consumer((root) async {
         final output = Directory('${root.path}/arguments');
@@ -46,7 +54,7 @@ void main() {
         await installedConsumer(output, root, fixture: 'arguments_package');
       }),
     );
-    test(
+    testConsumer(
       'structures',
       () => consumer((root) async {
         final output = Directory('${root.path}/structures');
@@ -56,9 +64,9 @@ void main() {
         await installedConsumer(output, root, fixture: 'structural_package');
       }),
     );
-    test('package assembly', () => consumer(verifyPackageAssembly));
-    test('module rebuilds', () => consumer(verifyModuleRebuild));
-    test(
+    testConsumer('package assembly', () => consumer(verifyPackageAssembly));
+    testConsumer('module rebuilds', () => consumer(verifyModuleRebuild));
+    testConsumer(
       'classes',
       () => consumer((root) async {
         final sentinel = File('${root.path}/business/keep.txt');
@@ -68,7 +76,7 @@ void main() {
         expect(await sentinel.readAsString(), 'unrelated user file');
       }),
     );
-    test(
+    testConsumer(
       'export kinds',
       () => consumer((root) async {
         final output = await buildExportKindFixture(
@@ -78,15 +86,15 @@ void main() {
         await typescript(output, 'consumer.mts');
       }),
     );
-    test('Futures', () => consumer(verifyFutureFixture));
-    test('void', () => consumer(verifyVoidFixture));
-    test('resources', () => consumer(verifyResourceFixture));
-    test('opaque payloads', () => consumer(verifyOpaqueFixture));
-    test('Streams', () => consumer(verifyStreamFixture));
-    test('cancellation', () => consumer(verifyCancellationFixture));
-    test('binary', () => consumer(verifyBinaryFixture));
-    test('concrete generics', () => consumer(verifyConcreteFixture));
-    test('shared bytes', () => consumer(verifySharedBytesFixture));
-    test('JS collections', () => consumer(verifyJsCollectionsFixture));
+    testConsumer('Futures', () => consumer(verifyFutureFixture));
+    testConsumer('void', () => consumer(verifyVoidFixture));
+    testConsumer('resources', () => consumer(verifyResourceFixture));
+    testConsumer('opaque payloads', () => consumer(verifyOpaqueFixture));
+    testConsumer('Streams', () => consumer(verifyStreamFixture));
+    testConsumer('cancellation', () => consumer(verifyCancellationFixture));
+    testConsumer('binary', () => consumer(verifyBinaryFixture));
+    testConsumer('concrete generics', () => consumer(verifyConcreteFixture));
+    testConsumer('shared bytes', () => consumer(verifySharedBytesFixture));
+    testConsumer('JS collections', () => consumer(verifyJsCollectionsFixture));
   }, timeout: const Timeout(Duration(minutes: 3)));
 }
