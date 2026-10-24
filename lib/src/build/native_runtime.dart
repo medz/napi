@@ -16,6 +16,15 @@ typedef NativeRuntimeArchive = ({
 });
 
 const _runtimeArchives = {
+  NativePlatform.windowsX64: (
+    url:
+        'https://github.com/medz/napi/releases/download/runtime-dart-3.13.5-windows-x64-abi15/'
+        'napi-runtime-dart-3.13.5-windows-x64-abi15-b0803900c1da.zip',
+    sha256: 'b0803900c1da3e42c88aab2213e37f019c0beba3e9306480ba07def01609ad2e',
+    bytes: 2036646,
+    manifestSha256:
+        '5202f4f75f0477fbc7873896411fc105aa115e1c79fdb49157bfa6dfa70b1bed',
+  ),
   NativePlatform.macosArm64: (
     url:
         'https://github.com/medz/napi/releases/download/runtime-dart-3.13.5-abi15/'

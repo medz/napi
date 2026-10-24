@@ -11,13 +11,16 @@ and no sanitizers or dynamic modules:
 | --- | --- | --- |
 | macOS arm64 or x64 | Pinned SDK clang/LLD and Xcode SDK | macOS 14 |
 | Linux arm64 or x64 | Pinned SDK clang and Debian sysroot | glibc 2.28 |
+| Windows x64 | Pinned SDK clang/LLD, MSVC and Windows SDK | Windows 10 / Server 2016 |
 
 Other profiles fail explicitly. Node.js has its own host requirements.
 
 ## Maintainer build
 
 The bundle builder uses a prepared Product VM object cache, Python 3, and local
-Node and libuv headers. macOS also requires Xcode command-line tools.
+Node and libuv headers. macOS also requires Xcode command-line tools. Windows
+requires an installed Visual Studio x64 C++ toolchain, Windows SDK 10.0.26100.0
+and the matching Node x64 `node.lib`. The runtime uses the release static CRT.
 The builder looks for `uv.h` alongside the Node headers, then in their parent
 directory for installations that separate Node and libuv headers. Missing
 headers fail explicitly.
@@ -32,7 +35,8 @@ The script needs Git and network access on its first run. It fetches only the
 runtime source dependencies and build tools, then compiles the VM and dart:io
 objects. Reuse that directory for subsequent builds. The SDK checkout is
 `.dart_tool/native-vm/sdk`, with its VM cache in `out/ProductARM64` or
-`out/ProductX64` on Linux, `xcodebuild/ProductX64` on Intel Macs, or
+`out/ProductX64` on Linux, `out/ProductX64` on Windows,
+`xcodebuild/ProductX64` on Intel Macs, or
 `xcodebuild/ProductARM64` on Apple Silicon.
 Use `--jobs` to limit compilation parallelism. macOS builds use the pinned
 SDK clang, LLD and libc++, with the active Xcode SDK.
@@ -51,6 +55,12 @@ python3 tool/native/build.py \
   --output "$NEW_BUNDLE_DIRECTORY"
 ```
 
+On Windows, also pass `--node-library` with the path to the matching Node x64
+`node.lib`, available alongside the official Node release. The pinned SDK
+`clang-cl` and `lld-link` use the installed MSVC and Windows SDK libraries.
+Only the runtime DLL and bridge are shipped; the import libraries stay on the
+build machine.
+
 The output must not exist. Compilation finishes in a sibling staging directory
 and an atomic no-replace rename publishes the bundle. Failed builds remove only
 their own staging files. Existing output, SDK objects and other bundles remain
@@ -59,8 +69,8 @@ untouched. Node headers affect the reusable bridge, not individual businesses.
 ## Bundle contract
 
 The flat bundle contains `bridge.node`, the identity-qualified runtime (`.dylib`
-on macOS or `.so` on Linux), `DART_LICENSE`, `DART_AUTHORS`, `NAPI_LICENSE`, and
-`manifest.json`.
+on macOS, `.so` on Linux, or `.dll` on Windows), `DART_LICENSE`, `DART_AUTHORS`,
+`NAPI_LICENSE`, and `manifest.json`.
 The manifest has `format: 1`, `sdkVersion`, `sdkRevision`, `platform: "macos"`,
 `architecture: "arm64"`, `minimumOsVersion: "14.0"`, `abi: 15`, `identity`,
 `bridge`, `runtime`, and `files` mapping the five payload names to SHA-256 hashes.
@@ -68,20 +78,23 @@ Its `build` metadata records the cache arguments hash, combined input-object
 digest/count, and runtime/ABI source hash. It contains no local SDK paths.
 Linux profiles instead use `platform: "linux"`, `architecture: "arm64"` or
 `"x64"`, `libc: "glibc"` and `minimumLibcVersion: "2.28"`, with no
-`minimumOsVersion`.
+`minimumOsVersion`. Windows uses `platform: "windows"`, `architecture: "x64"`
+and `minimumOsVersion: "10.0"`.
 The consumer build validates this manifest and hashes before copying its exact
 file whitelist. File hashes validate the distributed assets; runtime identity is described below.
 
 The builder also writes `build.provenance`: the producer commit and
 explicit dirty-source flag, hashes of the repository's actual build inputs,
-compiler identity and macOS SDK version or Linux toolchain package hashes,
+compiler identity and the relevant SDK or toolchain package hashes,
 cache recipe hashes, and headers discovered with the compilation flags
 (including pinned system headers on Linux) before compiling and checked
 again against the actual compiler dependency files. Source, VM objects, cache
 recipes and compiler hashes are also checked again before publication; detected
 input drift fails the build. Keep the prepared cache and toolchain unchanged
 while building. This detects accidental concurrent changes, not an adversarial
-writer that changes and restores files between checks.
+writer that changes and restores files between checks. Windows provenance also
+records the MSVC and Windows SDK versions, Node import library, and resolved
+compiler headers and linker inputs.
 Provenance describes the inputs captured during that build. A dirty producer is
 identified by its complete input hashes; its commit alone cannot reproduce those
 bytes. The existing `build.sourceSha256` remains the narrower
@@ -157,6 +170,9 @@ On macOS both native images use deployment target 14.0 and the bridge resolves
 its runtime dependency through `@loader_path`. On Linux the bridge links to the
 identity-qualified runtime SONAME through `$ORIGIN`. The builder rejects ELF
 files with a newer glibc requirement or unexpected dynamic dependencies.
+On Windows the bridge imports its identity-qualified runtime DLL. Both images
+must be x64 PE DLLs and depend only on the expected Node/runtime images and
+Windows system libraries.
 
 ## ABI and lifecycle
 
@@ -191,8 +207,10 @@ Dart is active is rejected.
 An async environment cleanup hook invalidates wrappers and callback sentinels,
 releases persistent handles and shuts down only its own isolate. Shutdown stops
 notifications before `uv_close`; queued wakeups retain the owner until the close
-callback completes. Runtime images remain resident with `RTLD_NODELETE` because
-there is no process-global VM shutdown. This supports Worker unload/reload.
+callback completes. Runtime images remain resident with `RTLD_NODELETE` on
+POSIX or `GetModuleHandleExW` with `GET_MODULE_HANDLE_EX_FLAG_PIN` on Windows,
+because there is no process-global VM shutdown. This supports Worker
+unload/reload.
 
 Futures retain arguments and receivers through conversion and resolver delivery.
 Resource operations with object results retain their leases through public
