@@ -33,6 +33,7 @@ Future<void> main(List<String> arguments) async {
               'macos-arm64',
               'macos-x64',
               'linux-x64-glibc',
+              'linux-arm64-glibc',
             ])
               BuiltModule(
                 Directory('$modules/platform-module-$platform'),
@@ -91,6 +92,7 @@ Future<void> verifyPlatformPackage(File archive) => consumer((root) async {
     'native/macos-arm64/module.aot',
     'native/macos-x64/module.aot',
     'native/linux-x64-glibc/module.aot',
+    'native/linux-arm64-glibc/module.aot',
     'wasm/module.wasm',
   ]) {
     if (!await File('${package.path}/$artifact').exists()) {
@@ -108,6 +110,7 @@ Future<void> verifyPlatformPackage(File archive) => consumer((root) async {
     Abi.macosArm64 => 'macos-arm64',
     Abi.macosX64 => 'macos-x64',
     Abi.linuxX64 => 'linux-x64-glibc',
+    Abi.linuxArm64 => 'linux-arm64-glibc',
     final abi => throw UnsupportedError('Unsupported native platform: $abi'),
   };
   await File('${package.path}/native/$platform/module.aot').delete();

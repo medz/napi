@@ -52,7 +52,11 @@ import 'package:napi/napi.dart';
     expect(loader, contains('node:util'));
   });
 
-  for (final profile in [NativePlatform.linuxX64, NativePlatform.macosX64]) {
+  for (final profile in [
+    NativePlatform.linuxX64,
+    NativePlatform.linuxArm64,
+    NativePlatform.macosX64,
+  ]) {
     test(
       '${profile.name} loaders check OS and architecture before loading native code',
       () async {
@@ -64,13 +68,13 @@ globalThis.bridgeLoaded = true;
 exports.load = () => ({});
 ''');
         for (final (platform, architecture, accepted) in [
-          (profile.nodePlatform, 'x64', true),
-          (profile.nodePlatform, 'arm64', false),
+          (profile.nodePlatform, profile.architecture, true),
           (
-            profile == NativePlatform.linuxX64 ? 'darwin' : 'linux',
-            'x64',
+            profile.nodePlatform,
+            profile.architecture == 'arm64' ? 'x64' : 'arm64',
             false,
           ),
+          (profile.nodePlatform == 'linux' ? 'darwin' : 'linux', 'x64', false),
         ]) {
           await File('${target.path}/preload.cjs').writeAsString('''
 Object.defineProperty(process, 'platform', {value: ${jsonEncode(platform)}});

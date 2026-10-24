@@ -22,6 +22,7 @@ SDK_REVISION = '04bcd1036cdc799ac6564988f159ee454d42c822'
 ABI = 15
 MINIMUM_OS = '14.0'
 MINIMUM_LIBC = '2.28'
+LINUX_TARGETS = {'x64': 'x86_64-linux-gnu', 'arm64': 'aarch64-linux-gnu'}
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE_FILES = [
     'tool/native/build.py', 'native/bridge/bridge.cc', 'native/bridge/abi.h',
@@ -59,7 +60,9 @@ def host_profile():
         return 'macos-x64'
     if host == ('Linux', 'x86_64'):
         return 'linux-x64'
-    raise ValueError('Only native macOS arm64/x64 and Linux x64 maintainer builds are supported')
+    if host == ('Linux', 'aarch64'):
+        return 'linux-arm64'
+    raise ValueError('Only native macOS and Linux arm64/x64 maintainer builds are supported')
 
 
 def source_inputs():
@@ -119,7 +122,7 @@ def linux_toolchain_inputs(depfile, sdk, cache, clang, linker, ignored=()):
 
 def validate_cache(sdk, cache):
     profile = host_profile()
-    linux = profile == 'linux-x64'
+    linux = profile.startswith('linux-')
     architecture = profile.rsplit('-', 1)[1]
     if run(['git', '-C', str(sdk), 'rev-parse', 'HEAD']) != SDK_REVISION:
         raise ValueError(f'Expected Dart SDK revision {SDK_REVISION}')
@@ -161,28 +164,30 @@ def validate_cache(sdk, cache):
     if not target.is_file() or not compile_target.is_file():
         raise ValueError('Missing prepared runtime/napi Product cache; see native/README.md')
     if linux:
-        if 'buildtools/linux-x64/clang/bin/clang++' not in toolchain:
-            raise ValueError('VM cache must use the pinned SDK Linux x64 clang')
+        if f'buildtools/linux-{architecture}/clang/bin/clang++' not in toolchain:
+            raise ValueError(f'VM cache must use the pinned SDK Linux {architecture} clang')
         sysroot = (sdk/'buildtools/sysroot/linux').resolve(strict=True)
         for path, key in [(compile_target, 'cflags'), (target, 'ldflags')]:
             flags = shlex.split(variables(path).get(key, ''))
             roots = [flag.removeprefix('--sysroot=') for flag in flags
                      if flag.startswith('--sysroot=')]
             if (len(roots) != 1 or (cache/roots[0]).resolve() != sysroot or
-                    '--target=x86_64-linux-gnu' not in flags or '-fPIC' not in flags):
-                raise ValueError('VM cache must target Linux x64 with the pinned Debian sysroot')
+                    '--target='+LINUX_TARGETS[architecture] not in flags or '-fPIC' not in flags):
+                raise ValueError(f'VM cache must target Linux {architecture} with the pinned Debian sysroot')
     return target, compile_target
 
 
 def publish(source, target):
     # Atomic directory publication without replacing a racing output/symlink.
     libc = ctypes.CDLL(None, use_errno=True)
-    if host_profile() == 'linux-x64':
-        # Linux x64 renameat2(AT_FDCWD, ..., RENAME_NOREPLACE). Use the syscall
+    profile = host_profile()
+    if profile.startswith('linux-'):
+        # Linux renameat2(AT_FDCWD, ..., RENAME_NOREPLACE). Use the syscall
         # directly so publication does not require glibc's newer wrapper.
         rename = libc.syscall
         rename.restype = ctypes.c_long
-        result = rename(ctypes.c_long(316), ctypes.c_int(-100),
+        number = 276 if profile == 'linux-arm64' else 316
+        result = rename(ctypes.c_long(number), ctypes.c_int(-100),
                         ctypes.c_char_p(os.fsencode(source)), ctypes.c_int(-100),
                         ctypes.c_char_p(os.fsencode(target)), ctypes.c_uint(1))
     else:
@@ -195,19 +200,19 @@ def publish(source, target):
         raise OSError(code, os.strerror(code), str(target))
 
 
-def validate_elf(readelf, binary, runtime):
+def validate_elf(readelf, binary, runtime, architecture):
     header = run([readelf, '--file-header', str(binary)])
-    if not re.search(r'Class:\s+ELF64', header) or not re.search(
-            r'Machine:\s+(Advanced Micro Devices X86-64|AMD x86-64)', header):
-        raise ValueError(f'Expected Linux x64 ELF: {binary.name}')
+    machine = 'AArch64' if architecture == 'arm64' else '(Advanced Micro Devices X86-64|AMD x86-64)'
+    if not re.search(r'Class:\s+ELF64', header) or not re.search(r'Machine:\s+' + machine, header):
+        raise ValueError(f'Expected Linux {architecture} ELF: {binary.name}')
     dynamic = run([readelf, '--dynamic', str(binary)])
     def entries(tag):
         return re.findall(r'\(' + tag + r'\).*?\[([^\]]+)\]', dynamic)
 
     if entries('SONAME') != [binary.name] or entries('RUNPATH') != ['$ORIGIN'] or entries('RPATH'):
         raise ValueError(f'Invalid ELF SONAME or RUNPATH: {binary.name}')
-    allowed = {'libc.so.6', 'libdl.so.2', 'libpthread.so.0', 'libm.so.6',
-               'librt.so.1', 'ld-linux-x86-64.so.2'}
+    loader = 'ld-linux-aarch64.so.1' if architecture == 'arm64' else 'ld-linux-x86-64.so.2'
+    allowed = {'libc.so.6', 'libdl.so.2', 'libpthread.so.0', 'libm.so.6', 'librt.so.1', loader}
     if binary.name != runtime:
         allowed.add(runtime)
         if runtime not in entries('NEEDED'):
@@ -230,7 +235,7 @@ def validate_elf(readelf, binary, runtime):
 
 def build(sdk, headers, output, cache):
     profile = host_profile()
-    linux = profile == 'linux-x64'
+    linux = profile.startswith('linux-')
     architecture = profile.rsplit('-', 1)[1]
     toolchain_name = f'clang_{architecture}_shared'
     if os.path.lexists(output):
@@ -275,11 +280,12 @@ def build(sdk, headers, output, cache):
         raise ValueError('Unsupported VM cache compiler configuration')
     compiler_packages = {}
     if linux:
-        clang = str(sdk/'buildtools/linux-x64/clang/bin/clang++')
-        linker = str(sdk/'buildtools/linux-x64/clang/bin/ld.lld')
+        clang_root = sdk/f'buildtools/linux-{architecture}/clang'
+        clang = str(clang_root/'bin/clang++')
+        linker = str(clang_root/'bin/ld.lld')
         sysroot = str(sdk/'buildtools/sysroot/linux')
         compiler_packages = {
-            'clangPackageSha256': sdk/'buildtools/linux-x64/clang/.versions/clang.cipd_version',
+            'clangPackageSha256': clang_root/'.versions/clang.cipd_version',
             'sysrootSha256': Path(sysroot)/'.versions/sysroot.cipd_version',
         }
         compiler_profile = {name: digest(path) for name, path in compiler_packages.items()}
@@ -329,7 +335,7 @@ def build(sdk, headers, output, cache):
         stage = Path(temp)
         artifact = stage/'bundle'
         artifact.mkdir()
-        bridge_flags = (['-fPIC', '--sysroot='+sysroot, '--target=x86_64-linux-gnu'] if linux else
+        bridge_flags = (['-fPIC', '--sysroot='+sysroot, '--target='+LINUX_TARGETS[architecture]] if linux else
                         ['-dynamiclib', '-undefined', 'dynamic_lookup'])
         bridge_options = ['-std=c++17', '-O2', *bridge_flags,
                           '-MD' if linux else '-MMD', '-MF', str(stage/'bridge.d'), *compile_prefix,
@@ -447,7 +453,7 @@ def build(sdk, headers, output, cache):
                  '-Wl,--dependency-file='+str(runtime_link),
                  '-Wl,--whole-archive', '@'+str(filelist), '-Wl,--no-whole-archive',
                  *libraries, '-o', str(runtime)], cwd=cache)
-            validate_elf(str(Path(clang).with_name('llvm-readelf')), runtime, filename)
+            validate_elf(str(Path(clang).with_name('llvm-readelf')), runtime, filename, architecture)
             check_link_inputs(runtime_link, object_paths)
         else:
             run([clang, '-shared', *compile_prefix, *link_flags,
@@ -475,7 +481,7 @@ def build(sdk, headers, output, cache):
         for binary in [runtime, bridge]:
             if linux:
                 if binary == bridge:
-                    validate_elf(str(Path(clang).with_name('llvm-readelf')), binary, filename)
+                    validate_elf(str(Path(clang).with_name('llvm-readelf')), binary, filename, architecture)
             else:
                 run(['codesign', '--force', '--sign', '-', str(binary)])
         shutil.copy2(ROOT/'native/runtime/DART_LICENSE', artifact/'DART_LICENSE')
@@ -523,8 +529,8 @@ def main():
     args = parser.parse_args()
     sdk = args.sdk.resolve(strict=True)
     profile = host_profile()
-    default_cache = ('out/ProductX64' if profile == 'linux-x64' else
-                     'xcodebuild/Product' + profile.rsplit('-', 1)[1].upper())
+    default_cache = ('out' if profile.startswith('linux-') else 'xcodebuild')
+    default_cache += '/Product' + profile.rsplit('-', 1)[1].upper()
     cache = (args.runtime_build or sdk/default_cache).resolve(strict=True)
     # Preserve the caller's include-root layout when node/ is a package-manager
     # symlink and libuv is installed beside it rather than in the same package.

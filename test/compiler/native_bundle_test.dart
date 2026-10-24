@@ -92,6 +92,7 @@ void main() {
           NativePlatform.macosArm64 => Abi.macosArm64,
           NativePlatform.macosX64 => Abi.macosX64,
           NativePlatform.linuxX64 => Abi.linuxX64,
+          NativePlatform.linuxArm64 => Abi.linuxArm64,
         };
         if (Abi.current() == abi) {
           bundle.verifyHost();
@@ -102,31 +103,36 @@ void main() {
     );
   }
 
-  test(
-    'Linux libc requirements are distinct from the operating system version',
-    () async {
-      await selectPlatform(NativePlatform.linuxX64);
-      for (final change in [
-        {'libc': 'musl'},
-        {'libc': null},
-        {'minimumLibcVersion': '2.9'},
-        {'minimumLibcVersion': null},
-        {'minimumOsVersion': '2.28'},
-      ]) {
-        final original = Map<String, Object?>.of(manifest);
-        manifest.addAll(change);
+  for (final profile in [NativePlatform.linuxX64, NativePlatform.linuxArm64]) {
+    test(
+      '${profile.name} libc requirements are distinct from the operating system version',
+      () async {
+        await selectPlatform(profile);
+        for (final change in [
+          {'libc': 'musl'},
+          {'libc': null},
+          {'minimumLibcVersion': '2.9'},
+          {'minimumLibcVersion': null},
+          {'minimumOsVersion': '2.28'},
+        ]) {
+          final original = Map<String, Object?>.of(manifest);
+          manifest.addAll(change);
+          await save();
+          await expectLater(
+            NativeRuntimeBundle.read(root),
+            throwsA(isA<SdkCompatibilityException>()),
+          );
+          manifest = original;
+        }
+        manifest['runtime'] = '${manifest['runtime']}.dylib';
         await save();
         await expectLater(
           NativeRuntimeBundle.read(root),
-          throwsA(isA<SdkCompatibilityException>()),
+          throwsFormatException,
         );
-        manifest = original;
-      }
-      manifest['runtime'] = '${manifest['runtime']}.dylib';
-      await save();
-      await expectLater(NativeRuntimeBundle.read(root), throwsFormatException);
-    },
-  );
+      },
+    );
+  }
 
   test('libc versions compare numeric components', () {
     for (final version in ['2.17', '2.17.0', '2.18', '2.40', '3.0']) {

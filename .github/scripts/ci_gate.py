@@ -6,7 +6,7 @@ import os
 import sys
 
 EXPENSIVE = {"tests", "wasm-runtime", "consumers", "native", "publication",
-             "platform-package", "platform-package-macos"}
+             "platform-package", "platform-package-consumers"}
 
 
 def validate(results, event):

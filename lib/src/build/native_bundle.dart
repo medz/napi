@@ -62,7 +62,7 @@ final class NativeRuntimeBundle {
         manifest['bridge'] != 'bridge.node') {
       throw const SdkCompatibilityException(
         'NAPI_NATIVE_BUNDLE',
-        'Expected a Dart 3.13.5 Product ABI 15 runtime bundle for macOS arm64/x64 or Linux x64 glibc.',
+        'Expected a Dart 3.13.5 Product ABI 15 runtime bundle for macOS arm64/x64 or Linux arm64/x64 glibc.',
       );
     }
     final identity = manifest['identity'];
@@ -135,8 +135,11 @@ NativePlatform verifyNativeHost({NativePlatform? expected}) {
     platform = NativePlatform.macosArm64;
   } else if (Platform.isMacOS && Abi.current() == Abi.macosX64) {
     platform = NativePlatform.macosX64;
-  } else if (Platform.isLinux && Abi.current() == Abi.linuxX64) {
-    platform = NativePlatform.linuxX64;
+  } else if (Platform.isLinux &&
+      (Abi.current() == Abi.linuxX64 || Abi.current() == Abi.linuxArm64)) {
+    platform = Abi.current() == Abi.linuxX64
+        ? NativePlatform.linuxX64
+        : NativePlatform.linuxArm64;
     final version = _glibcVersion();
     if (version == null ||
         !nativeVersionAtLeast(version, platform.minimumLibcVersion!)) {
@@ -148,7 +151,7 @@ NativePlatform verifyNativeHost({NativePlatform? expected}) {
   } else {
     throw const SdkCompatibilityException(
       'NAPI_NATIVE_PLATFORM',
-      'Native builds require macOS arm64/x64 or Linux x64 glibc.',
+      'Native builds require macOS arm64/x64 or Linux arm64/x64 glibc.',
     );
   }
   if (expected != null && expected != platform) {
