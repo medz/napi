@@ -276,7 +276,13 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: platform-package
-          path: ${{ runner.temp }}/platform-package/fixture.tgz
+          path: |
+            ${{ runner.temp }}/platform-package/fixture.tgz
+            ${{ runner.temp }}/platform-package/packages/package
+            ${{ runner.temp }}/platform-package/packages/macos-arm64
+            ${{ runner.temp }}/platform-package/packages/macos-x64
+            ${{ runner.temp }}/platform-package/packages/linux-x64-glibc
+            ${{ runner.temp }}/platform-package/packages/linux-arm64-glibc
           if-no-files-found: error
           retention-days: 1
 

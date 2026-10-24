@@ -259,6 +259,7 @@ Future<void> checkOutputInputs(
   Directory output,
   Iterable<FileSystemEntity> inputs,
 ) async {
+  checkOutputLockPath(output);
   await checkOutputPath(output.absolute.path);
   for (final input in inputs) {
     final source = input.absolute.path;

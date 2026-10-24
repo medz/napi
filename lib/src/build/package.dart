@@ -234,6 +234,147 @@ Future<Directory> assemblePackage({
   platformSelection: true,
 );
 
+/// Assemble a lightweight entry package and optional native platform packages.
+///
+/// Native packages use the root name plus the platform suffix and the same
+/// version. npm selects them using os/cpu/libc. Wasm, when supplied, stays in
+/// the entry package. The returned directories put native packages first and
+/// the entry package last, ready for publication in that order.
+///
+/// [output] must not exist. The complete set is committed together; use a new
+/// directory for each preparation. [assemblePackage] retains all platforms in
+/// one package for offline distribution.
+Future<List<Directory>> assemblePackageSet({
+  required List<BuiltModule> modules,
+  required Directory output,
+  required Map<String, Object?> metadata,
+  BuildTarget target = BuildTarget.native,
+  Map<String, File> assets = const {},
+}) async {
+  final selected = List<BuiltModule>.of(modules);
+  final supplied = packageMetadata(metadata);
+  final destination = output.absolute;
+  await checkOutputInputs(destination, [
+    for (final module in selected) module.directory,
+    ...assets.values,
+  ]);
+  await _checkAssets(assets);
+  if (await FileSystemEntity.type(destination.path, followLinks: false) !=
+      FileSystemEntityType.notFound) {
+    throw ArgumentError(
+      'Package set output already exists: ${destination.path}',
+    );
+  }
+  final native = <NativePlatform, BuiltModule>{};
+  final ownership = <BuiltModule, OutputOwnership>{};
+  final packages = <NativePlatform, String>{};
+  for (final module in selected) {
+    final record = await OutputOwnership.read(
+      module.directory,
+      kind: OutputKind.module,
+    );
+    if (record == null) {
+      throw ArgumentError(
+        'Built module does not exist: ${module.directory.path}',
+      );
+    }
+    ownership[module] = record;
+    if (module.target != BuildTarget.native) continue;
+    final bundle = await NativeRuntimeBundle.read(
+      module.directory,
+      built: true,
+    );
+    if (native.containsKey(bundle.platform)) {
+      throw ArgumentError(
+        'Duplicate native platform: ${bundle.platform.packageId}',
+      );
+    }
+    final name = '${supplied['name']}-${bundle.platform.packageId}';
+    packageMetadata({'name': name, 'version': supplied['version']});
+    for (final field in [
+      'dependencies',
+      'optionalDependencies',
+      'peerDependencies',
+      'devDependencies',
+    ]) {
+      final dependencies = supplied[field];
+      if (dependencies is Map && dependencies.containsKey(name)) {
+        throw ArgumentError(
+          'Package metadata $field conflicts with generated package $name.',
+        );
+      }
+    }
+    native[bundle.platform] = module;
+    packages[bundle.platform] = name;
+  }
+  if (native.isEmpty) {
+    throw ArgumentError(
+      'A platform package set requires at least one native module.',
+    );
+  }
+  final platforms = native.keys.toList()
+    ..sort((a, b) => a.packageId.compareTo(b.packageId));
+  await destination.parent.create(recursive: true);
+  final staging = await destination.parent.createTemp('.napi-package-set-');
+  var committed = false;
+  try {
+    // Validate the shared contract before copying any native payloads.
+    await _assemblePackage(
+      modules: selected,
+      rootTarget: target,
+      output: Directory('${staging.path}/package'),
+      metadata: supplied,
+      assets: assets,
+      platformSelection: true,
+      nativePackages: packages,
+    );
+    for (final platform in platforms) {
+      final payload = Directory('${staging.path}/${platform.packageId}');
+      await assembleNativePackage(
+        module: native[platform]!,
+        output: payload,
+        metadata: {
+          for (final field in [
+            'description',
+            'license',
+            'repository',
+            'homepage',
+            'bugs',
+            'author',
+            'contributors',
+            'keywords',
+            'engines',
+            'publishConfig',
+            'private',
+          ])
+            if (supplied.containsKey(field)) field: supplied[field],
+          'name': packages[platform],
+          'version': supplied['version'],
+        },
+        assets: {
+          for (final entry in assets.entries)
+            if (entry.key.startsWith('LICENSE') ||
+                entry.key.startsWith('NOTICE'))
+              entry.key: entry.value,
+        },
+      );
+      await ownership[native[platform]]!.verifyArtifacts(payload);
+    }
+    for (final entry in ownership.entries) {
+      await entry.value.verifyArtifacts(entry.key.directory);
+    }
+    publishDirectory(staging, destination);
+    committed = true;
+    return [
+      for (final platform in platforms)
+        Directory('${destination.path}/${platform.packageId}'),
+      Directory('${destination.path}/package'),
+    ];
+  } finally {
+    if (!committed) await cleanBuildStaging(staging, committed: false);
+  }
+}
+
 Future<Directory> _assemblePackage({
   required List<BuiltModule> modules,
   required BuildTarget rootTarget,
@@ -242,6 +383,7 @@ Future<Directory> _assemblePackage({
   required Map<String, File> assets,
   OutputUpdate? update,
   bool platformSelection = false,
+  Map<NativePlatform, String> nativePackages = const {},
 }) async {
   final targets = modules.map((module) => module.target.name).toSet();
   if (modules.isEmpty || !targets.contains(rootTarget.name)) {
@@ -341,9 +483,11 @@ Future<Directory> _assemblePackage({
       moduleOwnership[prefix] = ownership!;
       if (bundle != null) {
         nativeModules[bundle.platform] =
+            nativePackages[bundle.platform] ??
             './${bundle.platform.packageId}/module.mjs';
       }
     }
+    if (bundle != null && nativePackages.isNotEmpty) continue;
     final requiredFiles = bundle == null
         ? wasmPackageFiles
         : [
@@ -390,6 +534,9 @@ Future<Directory> _assemblePackage({
     generated['native/module.mjs'] = emitNativePackageLoader(
       nativeModules,
       (contract!['exports'] as List).cast<String>(),
+      packageVersion: nativePackages.isEmpty
+          ? null
+          : supplied['version'] as String,
     );
     generated['native/module.d.mts'] = declarations!;
   }
@@ -423,6 +570,16 @@ Future<Directory> _assemblePackage({
       author,
       nativePlatform: nativeOnly ? nativePlatform : null,
     );
+    if (nativePackages.isNotEmpty) {
+      final optional = package['optionalDependencies'];
+      if (optional != null && optional is! Map) {
+        throw ArgumentError('optionalDependencies must be a map.');
+      }
+      package['optionalDependencies'] = {
+        ...?optional as Map?,
+        for (final name in nativePackages.values) name: supplied['version'],
+      };
+    }
     package.addAll({
       'type': 'module',
       'files': [...artifactNames, ...selectedAssets],
@@ -451,12 +608,16 @@ Future<Directory> _assemblePackage({
       await file.writeAsString(entry.value);
     }
     for (final prefix in nativePrefixes) {
+      if (nativePackages.isNotEmpty) continue;
       await NativeRuntimeBundle.read(
         Directory('${staging.path}/$prefix'),
         built: true,
       );
     }
     for (final entry in moduleOwnership.entries) {
+      if (nativePackages.isNotEmpty && entry.key.startsWith('native/')) {
+        continue;
+      }
       await entry.value.verifyArtifacts(
         Directory('${staging.path}/${entry.key}'),
       );
@@ -474,7 +635,13 @@ Future<Directory> _assemblePackage({
       browser: browser,
       assets: selectedAssets,
       autoPlatform: autoPlatform,
-      nativeRuntimes: platformSelection ? nativeRuntimes : const {},
+      nativeRuntimes: platformSelection && nativePackages.isEmpty
+          ? nativeRuntimes
+          : const {},
+      nativePackages: {
+        for (final entry in nativePackages.entries)
+          entry.key.packageId: entry.value,
+      },
     );
     previous?.copyMetadata(
       staging,

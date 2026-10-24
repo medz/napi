@@ -27,21 +27,22 @@ Future<void> main(List<String> arguments) async {
           output: Directory('${temporary.path}/wasm'),
           packagesPath: File('.dart_tool/package_config.json').absolute.path,
         );
+        final inputs = [
+          for (final platform in [
+            'macos-arm64',
+            'macos-x64',
+            'linux-x64-glibc',
+            'linux-arm64-glibc',
+          ])
+            BuiltModule(
+              Directory('$modules/platform-module-$platform'),
+              wasm.sdkVersion,
+              target: BuildTarget.native,
+            ),
+          wasm,
+        ];
         final package = await assemblePackage(
-          modules: [
-            for (final platform in [
-              'macos-arm64',
-              'macos-x64',
-              'linux-x64-glibc',
-              'linux-arm64-glibc',
-            ])
-              BuiltModule(
-                Directory('$modules/platform-module-$platform'),
-                wasm.sdkVersion,
-                target: BuildTarget.native,
-              ),
-            wasm,
-          ],
+          modules: inputs,
           output: Directory('${temporary.path}/package'),
           metadata: {'name': '@napi/platform-fixture', 'version': '0.0.0'},
         );
@@ -59,6 +60,11 @@ Future<void> main(List<String> arguments) async {
         final output = File(archive).absolute;
         await output.parent.create(recursive: true);
         await File('${package.path}/${packed['filename']}').copy(output.path);
+        await assemblePackageSet(
+          modules: inputs,
+          output: Directory('${output.parent.path}/packages'),
+          metadata: {'name': '@napi/platform-fixture', 'version': '0.0.0'},
+        );
       });
     case ['consume', final archive]:
       await verifyPlatformPackage(File(archive).absolute);
@@ -71,6 +77,31 @@ Future<void> main(List<String> arguments) async {
 }
 
 Future<void> verifyPlatformPackage(File archive) => consumer((root) async {
+  final set = Directory('${archive.parent.path}/packages');
+  await run('node', [
+    File('test/integration/optional_platforms.mjs').absolute.path,
+    set.path,
+  ]);
+  for (final node in nodeExecutables()) {
+    final version = await Process.run(node, ['--version']);
+    final installed = Directory(
+      '${set.path}/consumer-${version.stdout.toString().trim()}',
+    );
+    await File('test/typescript/platform_commonjs.cts')
+        .copy('${installed.path}/commonjs.cts');
+    await typecheck([
+      '--ignoreConfig',
+      '--strict',
+      '--noEmit',
+      '--target',
+      'ES2022',
+      '--module',
+      'NodeNext',
+      '--moduleResolution',
+      'NodeNext',
+      'commonjs.cts',
+    ], cwd: installed.path);
+  }
   final directory = await Directory('${root.path}/installed consumer 雪')
       .create();
   await File('${directory.path}/package.json')
