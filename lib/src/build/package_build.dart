@@ -9,6 +9,7 @@ import '../compiler/front_end/external.dart';
 import '../compiler/sdk_adapter/dart_sdk_adapter.dart';
 import 'build.dart';
 import 'package.dart';
+import 'watch.dart';
 
 /// A reusable npm package declaration for a user-defined Dart build script.
 ///
@@ -84,6 +85,11 @@ final class PackageBuild {
   Future<void> run(List<String> arguments) async {
     final parser = ArgParser()
       ..addFlag('help', abbr: 'h', negatable: false, help: 'Show usage.')
+      ..addFlag(
+        'watch',
+        negatable: false,
+        help: 'Rebuild when Dart sources or package assets change.',
+      )
       ..addOption(
         'target',
         allowed: ['wasm', 'native', 'both'],
@@ -121,34 +127,74 @@ final class PackageBuild {
       if (destination != null && destination.isEmpty) {
         throw const FormatException('Output directory must not be empty.');
       }
-      final result = await _build(
-        destination == null ? output : Directory(destination),
-        root,
-        selected,
-        override == 'wasm' ? null : nativeRuntime,
-      );
-      stdout.writeln('Built ${result.path}');
-    } on FormatException catch (error) {
-      stderr.writeln('napi: ${error.message}');
-      exitCode = 64;
-    } on ArgumentError catch (error) {
-      stderr.writeln('napi: ${error.message}');
-      exitCode = 64;
-    } on BindingDiagnostic catch (error) {
-      stderr.writeln(error);
-      exitCode = 1;
-    } on SdkCompatibilityException catch (error) {
-      stderr.writeln('napi: $error');
-      exitCode = 1;
-    } on IOException catch (error) {
-      stderr.writeln('napi: $error');
-      exitCode = 1;
-    } on TimeoutException catch (error) {
-      stderr.writeln('napi: $error');
-      exitCode = 1;
-    } on StateError catch (error) {
-      stderr.writeln('napi: ${error.message}');
-      exitCode = 1;
+      final directory = destination == null ? output : Directory(destination);
+      Future<void> buildOnce() async {
+        final result = await _build(
+          directory,
+          root,
+          selected,
+          override == 'wasm' ? null : nativeRuntime,
+        );
+        stdout.writeln('Built ${result.path}');
+      }
+
+      if (!options.flag('watch')) {
+        await buildOnce();
+        return;
+      }
+      if (Platform.isWindows) {
+        throw UnsupportedError(
+          'Watch mode requires managed output replacement, which is not yet '
+          'supported on Windows.',
+        );
+      }
+      final stop = StreamController<void>();
+      final signals = [
+        for (final signal in [ProcessSignal.sigint, ProcessSignal.sigterm])
+          signal.watch().listen((_) => stop.add(null)),
+      ];
+      try {
+        await watchBuild(
+          library: library,
+          output: directory,
+          packagesPath: libraryPackagesPath(packagesPath, external),
+          assets: assets.values,
+          stop: stop.stream,
+          build: () async {
+            try {
+              await buildOnce();
+              exitCode = 0;
+            } catch (error) {
+              if (!_report(error)) rethrow;
+            }
+          },
+        );
+      } finally {
+        for (final signal in signals) {
+          await signal.cancel();
+        }
+        await stop.close();
+      }
+    } catch (error) {
+      if (!_report(error)) rethrow;
     }
   }
+}
+
+bool _report(Object error) {
+  final (String message, int code) = switch (error) {
+    FormatException() => ('napi: ${error.message}', 64),
+    ArgumentError() => ('napi: ${error.message}', 64),
+    BindingDiagnostic() => ('$error', 1),
+    SdkCompatibilityException() ||
+    IOException() ||
+    TimeoutException() => ('napi: $error', 1),
+    StateError() => ('napi: ${error.message}', 1),
+    UnsupportedError() => ('napi: ${error.message}', 1),
+    _ => ('', 0),
+  };
+  if (code == 0) return false;
+  stderr.writeln(message);
+  exitCode = code;
+  return true;
 }

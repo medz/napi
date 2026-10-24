@@ -52,6 +52,28 @@ failures, without terminating your script. To compose builds or handle errors
 yourself, call `await package.build()` instead. The declaration can also be
 imported by another Dart script.
 
+## Rebuild while editing
+
+Pass `--watch` to your build script:
+
+```sh
+dart run scripts/package.dart --watch --target wasm
+```
+
+The first build runs immediately. Changes to imported or exported Dart sources,
+parts, package resolution, and declared assets trigger another build. This
+includes local path dependencies. Saves are combined while a build is running;
+builds do not overlap. A failed edit prints its diagnostic and leaves the last
+usable package in place. Fix the source to rebuild it.
+
+Restart the build script after changing its declaration or other script logic.
+Restart consuming Node applications to load new modules; watch mode does not
+replace objects in an already loaded Dart runtime. Ctrl+C stops watching and
+waits for the active build to finish cleanup.
+
+Watch mode currently requires macOS or Linux, where managed output replacement
+is supported.
+
 ## Call the build API directly
 
 Existing build scripts can continue using `buildPackage`:
