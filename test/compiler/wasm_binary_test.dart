@@ -105,7 +105,12 @@ Uint8List? saved;
 @NAPI() int writeSaved(int index, int value) { saved![index] = value; return value; }
 @NAPI() Uint8List owned() => Uint8List.sublistView(Uint8List.fromList([8, 9, 10, 11]), 1, 3);
 @NAPI() ByteBuffer buffer(ByteBuffer value) => value;
-@NAPI() ByteBuffer ownedBuffer() => Uint8List.fromList([1, 2, 3]).buffer;
+@NAPI() ByteBuffer ownedBuffer() => Uint8List.fromList([1, 2, 3, 4, 5, 6, 7]).buffer;
+@NAPI() Uint8List ownedWindow(int length, bool readOnly) {
+  final backing = Uint8List.fromList(List.generate(length + 2, (i) => (i * 31 + 128) & 255));
+  final window = Uint8List.sublistView(backing, 1, length + 1);
+  return readOnly ? window.asUnmodifiableView() : window;
+}
 @NAPI() Uint8List? optional([Uint8List? value]) => value;
 @NAPI() List<Uint8List> nested(List<Uint8List> value) => value;
 @NAPI() ({Uint8List bytes, ByteBuffer buffer}) record(Uint8List value, ByteBuffer backing) => (bytes: value, buffer: backing);
@@ -142,7 +147,18 @@ api.writeSaved(2, 60);
 assert.equal(source[2], 3);
 assert.equal(result[2], 3);
 assert.deepEqual([...api.owned()], [9, 10]);
-assert.deepEqual([...new Uint8Array(api.ownedBuffer())], [1, 2, 3]);
+assert.deepEqual([...new Uint8Array(api.ownedBuffer())], [1, 2, 3, 4, 5, 6, 7]);
+for (let length = 0; length <= 9; length++) {
+  const expected = Array.from({length}, (_, i) => ((i + 1) * 31 + 128) & 255);
+  for (const readOnly of [false, true]) {
+    assert.deepEqual([...api.ownedWindow(length, readOnly)], expected);
+  }
+  const input = new Uint8Array(length + 2);
+  input.set(expected, 1);
+  const output = api.remember(input.subarray(1, length + 1));
+  input.fill(0);
+  assert.deepEqual([...output], expected);
+}
 const bufferCopy = api.buffer(backing);
 assert.notEqual(bufferCopy, backing);
 assert.deepEqual(new Uint8Array(bufferCopy), new Uint8Array(backing));
@@ -183,12 +199,16 @@ assert.equal((await events.next()).done, true);
 // Private metadata stabilizes SDK access; public snapshots regain JS semantics.
 const typed = Object.getPrototypeOf(Uint8Array.prototype);
 const restores = [];
+const protectedSource = new Uint8Array([99, 40, 2, 3, 4, 5, 6, 7, 99]).subarray(1, 8);
 let protectedList;
 let protectedBuffer;
+let protectedOwned;
+let protectedOwnedBuffer;
 try {
   for (const [owner, names] of [
     [typed, ['buffer', 'byteOffset', 'byteLength', 'length']],
     [ArrayBuffer.prototype, ['byteLength']],
+    [DataView.prototype, ['buffer', 'byteOffset', 'getUint32', 'setUint32']],
   ]) {
     for (const name of names) {
       const descriptor = Object.getOwnPropertyDescriptor(owner, name);
@@ -196,11 +216,30 @@ try {
       Object.defineProperty(owner, name, {configurable: true, get() {throw new Error('replaced ' + name);}});
     }
   }
-  protectedList = api.remember(source);
+  protectedList = api.remember(protectedSource);
   protectedBuffer = api.buffer(backing);
+  protectedOwned = api.ownedWindow(7, true);
+  protectedOwnedBuffer = api.ownedBuffer();
 } finally {for (const restore of restores.reverse()) restore();}
-assert.deepEqual([...protectedList], [40, 2, 3]);
+assert.deepEqual([...protectedList], [40, 2, 3, 4, 5, 6, 7]);
 assert.deepEqual(new Uint8Array(protectedBuffer), new Uint8Array(backing));
+assert.deepEqual([...protectedOwned], [159, 190, 221, 252, 27, 58, 89]);
+assert.deepEqual([...new Uint8Array(protectedOwnedBuffer)], [1, 2, 3, 4, 5, 6, 7]);
+
+const originalDataView = globalThis.DataView;
+let constructions = 0;
+let guardedCopy;
+try {
+  globalThis.DataView = new Proxy(originalDataView, {
+    construct(target, args, newTarget) {
+      if (++constructions > 1) throw new Error('copy added a dynamic DataView construction');
+      return Reflect.construct(target, args, newTarget);
+    },
+  });
+  guardedCopy = api.ownedWindow(7, true);
+} finally {globalThis.DataView = originalDataView;}
+assert.deepEqual([...guardedCopy], [159, 190, 221, 252, 27, 58, 89]);
+
 for (const output of [result, protectedList]) {
   for (const name of ['buffer', 'byteOffset', 'byteLength', 'length']) assert.equal(Object.hasOwn(output, name), false);
   assert.equal(Object.hasOwn(output.buffer, 'byteLength'), false);

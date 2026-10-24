@@ -29,6 +29,13 @@ WeakReference<Bytes>? weak;
 @NAPI() Bytes view(int start, [int? end]) => saved!.subview(start, end);
 @NAPI() Uint8List snapshot([int start = 0, int? end]) => saved!.toUint8List(start, end);
 @NAPI() int write(Uint8List source, int offset) { saved!.write(source, offset: offset); return 1; }
+@NAPI() int writeOwned(int length, int offset, bool readOnly) {
+  final backing = Uint8List.fromList(List.generate(length + 2, (i) => (i * 31 + 128) & 255));
+  final window = Uint8List.sublistView(backing, 1, length + 1);
+  saved!.write(readOnly ? window.asUnmodifiableView() : window, offset: offset);
+  window.fillRange(0, length, 0);
+  return 1;
+}
 @NAPI() int copy(Bytes source, int start, int offset, int? length) {
   saved!.copyFrom(source, sourceOffset: start, targetOffset: offset, length: length); return 1;
 }
@@ -98,6 +105,21 @@ assert.deepEqual([...fresh], [0, 0, 0]);
 assert.equal(Object.hasOwn(fresh, 'length'), false);
 assert.throws(() => api.allocate(-1), RangeError);
 assert.throws(() => api.allocate(2 ** 32), RangeError);
+for (let length = 0; length <= 9; length++) {
+  const expected = Array.from({length}, (_, i) => ((i + 1) * 31 + 128) & 255);
+  const backing = new Uint8Array(length + 4).fill(90);
+  api.remember(backing.subarray(1, length + 3));
+  const input = new Uint8Array(length + 2);
+  input.set(expected, 1);
+  api.write(input.subarray(1, length + 1), 1);
+  input.fill(0);
+  assert.deepEqual([...backing], [90, 90, ...expected, 90, 90]);
+  for (const readOnly of [false, true]) {
+    backing.fill(90);
+    api.writeOwned(length, 1, readOnly);
+    assert.deepEqual([...backing], [90, 90, ...expected, 90, 90]);
+  }
+}
 const foreign = vm.runInNewContext('new Uint8Array(new ArrayBuffer(8), 3, 2)');
 assert.equal(api.remember(foreign), foreign);
 api.put(0, 41);
@@ -150,20 +172,30 @@ api.remember(shadow);
 assert.equal(api.length(), 2);
 assert.deepEqual([...api.snapshot()], [61, 62]);
 const typed = Object.getPrototypeOf(Uint8Array.prototype);
-const originals = new Map();
+const protectedTarget = new Uint8Array(10).fill(90);
+api.remember(protectedTarget);
+const restores = [];
 try {
-  for (const name of ['length', 'byteOffset', 'byteLength', 'buffer', 'at', 'set']) {
-    originals.set(name, Object.getOwnPropertyDescriptor(typed, name));
-    Object.defineProperty(typed, name, {configurable: true, get() {throw new Error('prototype ' + name);}});
+  for (const [owner, names] of [
+    [typed, ['length', 'byteOffset', 'byteLength', 'buffer', 'at', 'set']],
+    [DataView.prototype, ['buffer', 'byteOffset', 'getUint32', 'setUint32']],
+  ]) {
+    for (const name of names) {
+      const descriptor = Object.getOwnPropertyDescriptor(owner, name);
+      restores.push(() => Object.defineProperty(owner, name, descriptor));
+      Object.defineProperty(owner, name, {configurable: true, get() {throw new Error('prototype ' + name);}});
+    }
   }
-  assert.equal(api.length(), 2);
+  assert.equal(api.length(), 10);
   api.put(0, 63);
   assert.equal(api.snapshot()[0], 63);
-  api.write(new Uint8Array([64]), 1);
-  assert.equal(api.read(1), 64);
+  api.write(new Uint8Array([64, 65, 66, 67, 68, 69, 70]), 1);
+  for (let i = 0; i < 7; i++) assert.equal(api.read(i + 1), 64 + i);
+  api.writeOwned(7, 1, true);
 } finally {
-  for (const [name, descriptor] of originals) Object.defineProperty(typed, name, descriptor);
+  for (const restore of restores.reverse()) restore();
 }
+assert.deepEqual([...protectedTarget], [63, 159, 190, 221, 252, 27, 58, 89, 90, 90]);
 
 // Keeping the original JS view alone does not pin its Dart adapter.
 const retainedView = new Uint8Array([71]);

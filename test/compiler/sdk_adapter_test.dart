@@ -80,6 +80,24 @@ void main() {
 import 'dart:_wasm';
 import 'dart:_js_interop_wasm';
 import 'dart:js_interop';
+@JS()
+extension type ExternalFields(JSObject _) implements JSObject {
+  external JSAny get buffer;
+  external JSAny get byteOffset;
+}
+@JSExport()
+class ExportedFields {
+  String get buffer => 'Dart getter';
+  int get byteOffset => 41;
+}
+@pragma('wasm:export', 'createFields')
+WasmExternRef createFields() => externRefForJSAny(createJSInteropWrapper(ExportedFields()))!;
+@pragma('wasm:export', 'readBuffer')
+WasmExternRef? readBuffer(WasmExternRef value) =>
+    externRefForJSAny(ExternalFields(value.toJS as JSObject).buffer);
+@pragma('wasm:export', 'readByteOffset')
+WasmExternRef? readByteOffset(WasmExternRef value) =>
+    externRefForJSAny(ExternalFields(value.toJS as JSObject).byteOffset);
 int calls = 0;
 @pragma('wasm:export', 'add')
 WasmI32 add(WasmI32 left, WasmI32 right) =>
@@ -120,6 +138,34 @@ void main() => throw StateError('Business main must not run');
           ),
         );
       }
+      // Scalar modules need no DataView helpers; each tree-shaken subset is
+      // valid, while a changed SDK expression must not escape the capture.
+      for (final expression in [
+        'o => o.buffer',
+        'o => o.byteOffset',
+        '(b, o) => new DataView(b, o)',
+        '(b, o, l) => new DataView(b, o, l)',
+      ]) {
+        String withHelper(String value) => rawHost.replaceFirst(
+          '    const dart2wasm = {\n',
+          '    const dart2wasm = {\n      testHelper: $value\n',
+        );
+        final captured = extractDartHostHelpers(withHelper('$expression,'));
+        expect(captured, isNot(contains('testHelper: $expression,')));
+        expect(captured, contains('testHelper: '));
+        for (final changed in ['$expression /* changed */,', expression]) {
+          expect(
+            () => extractDartHostHelpers(withHelper(changed)),
+            throwsA(
+              isA<SdkCompatibilityException>().having(
+                (error) => error.code,
+                'diagnostic',
+                'NAPI_SDK_HOST_LAYOUT',
+              ),
+            ),
+          );
+        }
+      }
       final linked = linkDartModule(
         rawWasmBytes: original,
         rawMjsText: rawHost,
@@ -135,10 +181,20 @@ void main() => throw StateError('Business main must not run');
           .writeAsString(linked.hostJavaScript);
       await File('${directory.path}/consumer.mjs').writeAsString(r'''
 import assert from 'node:assert/strict';
-import {add, text} from './module.wasm';
+import {add, text, readBuffer, readByteOffset, createFields} from './module.wasm';
 assert.equal(add(2, 3), 5);
 assert.equal(add(2, 3), 6);
 assert.equal(text(), 'a\ud800b\udfff');
+const fields = {buffer: 'ordinary field', byteOffset: 37};
+assert.equal(readBuffer(fields), 'ordinary field');
+assert.equal(readByteOffset(fields), 37);
+Object.defineProperty(fields, 'buffer', {get() {return 'custom getter';}});
+Object.defineProperty(fields, 'byteOffset', {get() {return -3;}});
+assert.equal(readBuffer(fields), 'custom getter');
+assert.equal(readByteOffset(fields), -3);
+const exported = createFields();
+assert.equal(readBuffer(exported), 'Dart getter');
+assert.equal(readByteOffset(exported), 41);
 console.log('direct-sdk-ok');
 ''');
       final result = await Process.run('node', [
