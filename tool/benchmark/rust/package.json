@@ -1,0 +1,11 @@
+{
+  "name": "@napi/benchmark-rust",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "files": ["index.js", "index.d.ts", "*.node", "LICENSE"],
+  "napi": {"binaryName": "comparison"},
+  "devDependencies": {"@napi-rs/cli": "3.10.9"}
+}
