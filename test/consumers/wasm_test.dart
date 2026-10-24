@@ -23,6 +23,7 @@ import '../support/fixtures/concrete.dart';
 import '../support/fixtures/shared_bytes.dart';
 import '../support/fixtures/js_collections.dart';
 import '../support/fixtures/module_rebuilds.dart';
+import '../support/fixtures/starter.dart';
 
 void main() {
   void testConsumer(String name, Future<void> Function() body) =>
@@ -34,6 +35,7 @@ void main() {
       );
   setUpAll(reportNodeVersions);
   group('Wasm', () {
+    testConsumer('starter', () => consumer(verifyStarter));
     testConsumer(
       'scalars',
       () => consumer((root) async {

@@ -22,6 +22,7 @@ import '../support/fixtures/concrete.dart';
 import '../support/fixtures/shared_bytes.dart';
 import '../support/fixtures/js_collections.dart';
 import '../support/fixtures/module_rebuilds.dart';
+import '../support/fixtures/starter.dart';
 
 void main() {
   void testConsumer(String name, Future<void> Function() body) =>
@@ -51,6 +52,12 @@ void main() {
     await reportNodeVersions();
   });
   group('Native', () {
+    testConsumer(
+      'starter',
+      () => consumer(
+        (root) async => verifyStarter(root, nativeRuntime: await runtime()),
+      ),
+    );
     testConsumer(
       'module rebuilds',
       () => consumer(

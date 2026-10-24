@@ -1,6 +1,6 @@
 .github/
 test/
-tool/
+/tool/
 AGENTS.md
 CONTRIBUTING.md
 dart_test.yaml

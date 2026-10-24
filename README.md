@@ -18,6 +18,13 @@ APIs and is tied to Dart 3.13.5. Browser and Bun support is not yet verified.
 
 ## Build a package
 
+For a ready-to-build project, download the
+[starter](https://github.com/medz/napi/releases/latest/download/napi-starter.zip),
+extract it, and follow its README. It includes a Counter, a typed build script
+and a JavaScript example. Change the package name and backend in the script.
+
+To set up a project manually, follow the steps below.
+
 Create a Dart package and add napi:
 
 ```sh
