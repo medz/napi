@@ -280,6 +280,7 @@ jobs:
             ${{ runner.temp }}/platform-package/fixture.tgz
             ${{ runner.temp }}/platform-package/packages/package
             ${{ runner.temp }}/platform-package/packages/macos-arm64
+            ${{ runner.temp }}/platform-package/packages/macos-x64
             ${{ runner.temp }}/platform-package/packages/linux-x64-glibc
           if-no-files-found: error
           retention-days: 1

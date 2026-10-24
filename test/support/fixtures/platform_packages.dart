@@ -61,7 +61,11 @@ Future<void> main(List<String> arguments) async {
         await File('${package.path}/${packed['filename']}').copy(output.path);
         await assemblePackageSet(
           modules: [
-            for (final platform in ['macos-arm64', 'linux-x64-glibc'])
+            for (final platform in [
+              'macos-arm64',
+              'macos-x64',
+              'linux-x64-glibc',
+            ])
               BuiltModule(
                 Directory('$modules/platform-module-$platform'),
                 wasm.sdkVersion,
