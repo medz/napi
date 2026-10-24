@@ -34,6 +34,15 @@ const _runtimeArchives = {
     manifestSha256:
         '1ea9ddaca3b6aa625ba1b5cc92defeada54455ea39408e383939aaeccacf0a68',
   ),
+  NativePlatform.linuxArm64: (
+    url:
+        'https://github.com/medz/napi/releases/download/runtime-dart-3.13.5-linux-arm64-abi15/'
+        'napi-runtime-dart-3.13.5-linux-arm64-abi15-9bfb01fd7f31.zip',
+    sha256: '9bfb01fd7f3116338349ae50a622ace0a31ae4fe2ca2a834654eb0a1819d9068',
+    bytes: 2323990,
+    manifestSha256:
+        '16ba5a3c8b5ec22371368097f1db7f1c614037599dea775fd5615b8d11088777',
+  ),
   NativePlatform.linuxX64: (
     url:
         'https://github.com/medz/napi/releases/download/runtime-dart-3.13.5-linux-x64-abi15/'

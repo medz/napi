@@ -10,7 +10,7 @@ and no sanitizers or dynamic modules:
 | Profile | Toolchain | Runtime baseline |
 | --- | --- | --- |
 | macOS arm64 or x64 | Pinned SDK clang/LLD and Xcode SDK | macOS 14 |
-| Linux x64 | Pinned SDK clang and Debian sysroot | glibc 2.28 |
+| Linux arm64 or x64 | Pinned SDK clang and Debian sysroot | glibc 2.28 |
 
 Other profiles fail explicitly. Node.js has its own host requirements.
 
@@ -31,8 +31,9 @@ python3 tool/native/prepare_runtime.py --directory .dart_tool/native-vm
 The script needs Git and network access on its first run. It fetches only the
 runtime source dependencies and build tools, then compiles the VM and dart:io
 objects. Reuse that directory for subsequent builds. The SDK checkout is
-`.dart_tool/native-vm/sdk`, with its VM cache in `out/ProductX64` on Linux,
-`xcodebuild/ProductX64` on Intel Macs, or `xcodebuild/ProductARM64` on Apple Silicon.
+`.dart_tool/native-vm/sdk`, with its VM cache in `out/ProductARM64` or
+`out/ProductX64` on Linux, `xcodebuild/ProductX64` on Intel Macs, or
+`xcodebuild/ProductARM64` on Apple Silicon.
 Use `--jobs` to limit compilation parallelism. macOS builds use the pinned
 SDK clang, LLD and libc++, with the active Xcode SDK.
 
@@ -65,8 +66,9 @@ The manifest has `format: 1`, `sdkVersion`, `sdkRevision`, `platform: "macos"`,
 `bridge`, `runtime`, and `files` mapping the five payload names to SHA-256 hashes.
 Its `build` metadata records the cache arguments hash, combined input-object
 digest/count, and runtime/ABI source hash. It contains no local SDK paths.
-The Linux profile instead uses `platform: "linux"`, `architecture: "x64"`,
-`libc: "glibc"` and `minimumLibcVersion: "2.28"`, with no `minimumOsVersion`.
+Linux profiles instead use `platform: "linux"`, `architecture: "arm64"` or
+`"x64"`, `libc: "glibc"` and `minimumLibcVersion: "2.28"`, with no
+`minimumOsVersion`.
 The consumer build validates this manifest and hashes before copying its exact
 file whitelist. File hashes validate the distributed assets; runtime identity is described below.
 
@@ -124,12 +126,13 @@ Archives are bounded and restricted to the exact flat regular-file inventory.
 The Dart 3.13.5 ABI 15 runtime ZIPs and matching locks are available in the
 [macOS arm64 release](https://github.com/medz/napi/releases/tag/runtime-dart-3.13.5-abi15),
 [macOS x64 release](https://github.com/medz/napi/releases/tag/runtime-dart-3.13.5-macos-x64-abi15),
-and [Linux x64 release](https://github.com/medz/napi/releases/tag/runtime-dart-3.13.5-linux-x64-abi15).
+[Linux x64 release](https://github.com/medz/napi/releases/tag/runtime-dart-3.13.5-linux-x64-abi15),
+and [Linux arm64 release](https://github.com/medz/napi/releases/tag/runtime-dart-3.13.5-linux-arm64-abi15).
 Set `--url` when packing a new release to record its fixed asset URL.
 A lock with a `null` URL requires
 `--archive` on an empty cache; a verified cache hit can still be reused.
 
-Application builds on macOS arm64/x64 and Linux x64 use a Dart downloader with the
+Application builds on macOS and Linux arm64/x64 use a Dart downloader with the
 archive size/hash and manifest hash pinned for each platform, followed by the
 same payload validator. They do not invoke this Python tool or require a source
 checkout. Archive extraction uses system `ditto` on macOS and `unzip` on Linux.

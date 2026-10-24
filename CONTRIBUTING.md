@@ -22,8 +22,8 @@ Select tests with their path or `--name`. Consumer commands use `node`
 from `PATH`; set `NAPI_NODE_EXECUTABLES` to a JSON array of absolute executable
 paths to run them with more than one Node version.
 
-On macOS arm64/x64 or Linux x64 with glibc 2.28 or later, run native and dual-target
-consumers with:
+On macOS arm64/x64 or Linux arm64/x64 with glibc 2.28 or later, run native and
+dual-target consumers with:
 
 ```sh
 dart test -P native-consumers

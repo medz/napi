@@ -141,7 +141,7 @@ await buildPackage(
 Each output is a complete npm package: use `npm pack ./npm-native` or
 `npm pack ./npm-wasm`, and publish from the corresponding directory. The native
 package contains only native artifacts; the Wasm package needs no native
-runtime. Native builds support macOS 14 or later on arm64 or x64 and Linux x64 with
+runtime. Native builds support arm64 and x64 on macOS 14 or later and Linux with
 glibc 2.28 or later. All supported hosts obtain their runtime automatically. See
 [native builds](native.md).
 
@@ -173,7 +173,7 @@ supported.
 Both targets must expose the same declarations, conversions, defaults and
 cleanup methods. Conditional imports can change private implementations, but a
 mismatched public API fails the build. Building both targets requires a
-supported native host: macOS arm64 or x64, or Linux x64 with glibc 2.28 or later.
+supported native host: macOS or Linux with glibc 2.28 or later, on arm64 or x64.
 Including both backends increases package size. Runtime downloads
 happen during the author's build, not during npm installation.
 
@@ -181,8 +181,8 @@ happen during the author's build, not during npm installation.
 
 `buildPackage` builds native code for its current host. To publish one package
 for several native platforms, run `buildLibrary` on each target host: macOS arm64,
-macOS x64 or Linux x64, with `target: BuildTarget.native`. Transfer the complete
-output directories, including their `.napi-output.json` records, to the machine
+macOS x64, Linux arm64 or Linux x64, with `target: BuildTarget.native`. Transfer
+the complete output directories, including their `.napi-output.json` records, to the machine
 assembling the npm package:
 
 ```dart
