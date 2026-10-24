@@ -34,13 +34,13 @@ if (process.platform === 'darwin') {
 }
 ''');
   }
-  if (modules.containsKey(NativePlatform.linuxX64)) {
+  if (modules.keys.any((platform) => platform.nodePlatform == 'linux')) {
     code.writeln(r'''
 if (process.platform === 'linux') {
   const version = process.report?.getReport?.().header?.glibcVersionRuntime;
   const parts = typeof version === 'string' && /^(\d+)\.(\d+)(?:\.\d+)*$/.exec(version);
   if (!parts || Number(parts[1]) < 2 || (Number(parts[1]) === 2 && Number(parts[2]) < 28)) {
-    throw new Error('This native artifact requires Linux x64 with glibc 2.28 or newer; musl is not supported.');
+    throw new Error('This native artifact requires Linux with glibc 2.28 or newer; musl is not supported.');
   }
 }
 ''');

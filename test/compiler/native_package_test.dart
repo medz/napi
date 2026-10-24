@@ -9,6 +9,7 @@ const _modules = {
   NativePlatform.macosArm64: './macos-arm64/module.mjs',
   NativePlatform.macosX64: './macos-x64/module.mjs',
   NativePlatform.linuxX64: './linux-x64-glibc/module.mjs',
+  NativePlatform.linuxArm64: './linux-arm64-glibc/module.mjs',
 };
 
 void main() {
@@ -114,7 +115,7 @@ assert.deepEqual(globalThis.loadedTargets, [${jsonEncode(platform.name)}]);
 for (const name of ${jsonEncode(names.skip(1).toList())}) {
   assert.equal(root[name], ${jsonEncode(platform.name)});
 }
-assert.equal(globalThis.reportCalls, ${platform == NativePlatform.linuxX64 ? 1 : 0});
+assert.equal(globalThis.reportCalls, ${platform.nodePlatform == 'linux' ? 1 : 0});
 ''',
           platform: platform.nodePlatform,
           architecture: platform.architecture,
@@ -145,7 +146,7 @@ assert.deepEqual(globalThis.loadedTargets, ['linuxX64']);
       await writeModules();
       for (final (platform, architecture) in [
         ('win32', 'x64'),
-        ('linux', 'arm64'),
+        ('linux', 'riscv64'),
       ]) {
         await run(
           '''
@@ -180,7 +181,7 @@ assert.equal(globalThis.reportCalls, 0);
     () async {
       await writeModules();
       const rejectedLinux = r'''
-await assert.rejects(import('./native.mjs'), /requires Linux x64 with glibc 2\.28 or newer/);
+await assert.rejects(import('./native.mjs'), /requires Linux with glibc 2\.28 or newer/);
 assert.equal(globalThis.loadedTargets, undefined);
 ''';
       for (final glibc in [null, '', '2.9', '2.27', '1.100', 'unknown']) {
@@ -231,6 +232,31 @@ assert.equal(globalThis.reportCalls, 0);
       platform: 'darwin',
       architecture: 'x64',
     );
+  });
+
+  test('Linux arm64-only packages enforce the glibc requirement', () async {
+    await writeModules();
+    await File('${directory.path}/native.mjs').writeAsString(
+      emitNativePackageLoader(
+        {NativePlatform.linuxArm64: _modules[NativePlatform.linuxArm64]!},
+        ['Counter'],
+      ),
+    );
+    for (final glibc in [null, '2.27']) {
+      await run(
+        r'''
+await assert.rejects(import('./native.mjs'), /requires Linux with glibc 2\.28 or newer/);
+assert.equal(globalThis.loadedTargets, undefined);
+''',
+        architecture: 'arm64',
+        glibc: glibc,
+      );
+    }
+    await run(r'''
+await import('./native.mjs');
+assert.deepEqual(globalThis.loadedTargets, ['linuxArm64']);
+assert.equal(globalThis.reportCalls, 1);
+''', architecture: 'arm64');
   });
 
   test(
