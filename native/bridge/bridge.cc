@@ -21,7 +21,6 @@
 #include <cstdint>
 #include <cmath>
 #include <cstdio>
-#include <cerrno>
 #include <cstring>
 #include <cstdlib>
 #include <mutex>
@@ -2382,19 +2381,33 @@ static napi_value load(napi_env env, napi_callback_info info) {
     return fail(env, "Snapshot path must be a string");
   std::vector<char> path(size + 1);
   if (napi_get_value_string_utf8(env, args[0], path.data(), path.size(), &size)
-          != napi_ok || path[0] != '/' || std::string(path.data()).size() != size)
+          != napi_ok || std::string(path.data()).size() != size)
+    return fail(env, "Snapshot path must be absolute and contain no NUL");
+#if defined(_WIN32)
+  const bool absolute =
+      (size >= 3 && ((path[0] >= 'A' && path[0] <= 'Z') ||
+                     (path[0] >= 'a' && path[0] <= 'z')) &&
+       path[1] == ':' && (path[2] == '\\' || path[2] == '/')) ||
+      (size >= 3 && ((path[0] == '\\' && path[1] == '\\') ||
+                     (path[0] == '/' && path[1] == '/')));
+#else
+  const bool absolute = path[0] == '/';
+#endif
+  if (!absolute)
     return fail(env, "Snapshot path must be absolute and contain no NUL");
   std::call_once(initialize_once, initialize_runtime);
   if (!initialize_error.empty()) return fail(env, initialize_error.c_str());
   // The runtime caches canonical immutable AOT paths and owns their mappings.
-  char* canonical = realpath(path.data(), nullptr);
-  if (!canonical) {
-    const std::string message = std::string("Cannot resolve AOT path: ") + std::strerror(errno);
+  uv_fs_t canonical = {};
+  const int status = uv_fs_realpath(nullptr, &canonical, path.data(), nullptr);
+  if (status != 0) {
+    const std::string message = std::string("Cannot resolve AOT path: ") + uv_strerror(status);
+    uv_fs_req_cleanup(&canonical);
     return fail(env, message.c_str());
   }
   char* error = nullptr;
-  auto snapshot = NapiDart_LoadAotSnapshot(canonical, &error);
-  free(canonical);
+  auto snapshot = NapiDart_LoadAotSnapshot(static_cast<const char*>(canonical.ptr), &error);
+  uv_fs_req_cleanup(&canonical);
   if (!snapshot) {
     auto result = fail(env, error ? error : "Cannot load Dart AOT snapshot");
     NapiDart_FreeError(error);

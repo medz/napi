@@ -195,7 +195,7 @@ jobs:
           curl --fail --location --retry 2 --max-time 120 \
             'https://nodejs.org/dist/v24.19.0/node-v24.19.0-headers.tar.gz' \
             --output "$RUNNER_TEMP/node-headers.tar.gz"
-          tar -xzf "$RUNNER_TEMP/node-headers.tar.gz" -C "$RUNNER_TEMP"
+          tar -xzf - -C "$RUNNER_TEMP" < "$RUNNER_TEMP/node-headers.tar.gz"
           node_library=()
           if [ "$RUNNER_OS" = "Windows" ]; then
             curl --fail --location --retry 2 --max-time 120 \
