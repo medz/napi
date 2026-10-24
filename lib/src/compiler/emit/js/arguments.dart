@@ -47,21 +47,40 @@ export function readOptions(value, supplied, names, context) {
 
 /// These callables are imported as immutable globals by the public Wasm module.
 /// The private dependency only calls the Dart core after capturing JS presence.
-String emitArgumentCalls(ModulePlan plan) {
+String emitArgumentCalls(ModulePlan plan, {bool browser = false}) {
   final streams = plan.calls.any((call) => call.returnsStream);
+  final browserResources = browser && plan.resourcePolicies.isNotEmpty;
+  final prefix = browser ? 'browser-' : '';
   final compositeViews = hasCompositeReferenceViews(
     plan.classes.map((c) => c.shape).toList(),
   );
   final result = StringBuffer('''// Generated private callable dependency.
-import * as core from './core.wasm';
-import {useDefault, readOptions${plan.calls.any((call) => call.returnsFuture) || streams ? ', createPromise, rejectPromise' : ''}${streams ? ', retainPromise' : ''}${plan.resourcePolicies.isNotEmpty ? ', createResourceCall, finishResourceCall, retainResourceReference' : ''}${plan.conversions.any((c) => c is CallbackConversion) ? ', checkCallback' : ''}${plan.conversions.any((c) => c is AbortSignalConversion) ? ', prepareAbortSignal' : ''}} from './boundary.mjs';
+${browser ? "import {core} from './browser-core.mjs';" : "import * as core from './core.wasm';"}
+import {useDefault, readOptions${plan.calls.any((call) => call.returnsFuture) || streams ? ', createPromise, rejectPromise' : ''}${streams ? ', retainPromise' : ''}${plan.resourcePolicies.isNotEmpty ? ', createResourceCall, finishResourceCall, retainResourceReference' : ''}${plan.conversions.any((c) => c is CallbackConversion) ? ', checkCallback' : ''}${plan.conversions.any((c) => c is AbortSignalConversion) ? ', prepareAbortSignal' : ''}} from './${prefix}boundary.mjs';
 ''');
   if (streams) result.writeln(streamFacadePolicy);
   if (plan.functionValues.isNotEmpty) {
-    result.writeln("import {registerFunction} from './references.mjs';");
+    result.writeln(
+      "import {registerFunction} from './${prefix}references.mjs';",
+    );
   }
   if (plan.classes.isNotEmpty) {
-    result.writeln("import {registerReference} from './references.mjs';");
+    result.writeln(
+      "import {registerReference} from './${prefix}references.mjs';",
+    );
+    if (browserResources) {
+      result.writeln(
+        '''const browserResources = new Set(${jsonEncode(plan.resourcePolicies.keys.toList())});
+const browserSetHas = Set.prototype.has;
+const browserApply = Reflect.apply;
+function checkBrowserResource(classId) {
+  if (browserApply(browserSetHas, browserResources, [classId])) {
+    throw new TypeError('Resource policies require the Node entrypoint');
+  }
+}
+''',
+      );
+    }
     result.writeln('''const wrappers = new WeakMap();
 class Receiver {
   constructor(receiver) { return receiver; }
@@ -81,13 +100,13 @@ function unwrap(value, classId, context, nullable) {
   if (owner === undefined || (owner.classId !== classId && !memberships[owner.classId].has(classId))) {
     throw new TypeError(context + ': expected a local ' + classNames[classId]);
   }
-  return owner.reference;
+${browserResources ? '  checkBrowserResource(owner.classId);\n' : ''}  return owner.reference;
 }
 function intern(reference, expectedId, context, pending, receiver, newTarget) {
   const previous = wrappers.get(reference);
   ${compositeViews ? 'let' : 'const'} classId = previous === undefined ? core['napi:class:classify'](reference) : previous.classId;
   if (classId < 0) ${compositeViews ? 'classId = compositeClass(reference, context);' : "throw new TypeError(context + ': no unique most-specific selected class');"}
-  if (classId !== expectedId && !memberships[classId].has(expectedId)) {
+${browserResources ? '  checkBrowserResource(classId);\n' : ''}  if (classId !== expectedId && !memberships[classId].has(expectedId)) {
     throw new TypeError(context + ': expected a local ' + classNames[expectedId]);
   }
   if (previous !== undefined) {
@@ -218,7 +237,7 @@ function intern(reference, expectedId, context, pending, receiver, newTarget) {
   for (final (index, binding) in plan.classes.indexed) {
     final local = 'class$index';
     result.writeln(
-      'class $local {\n  constructor(...args) {\n    if (args[0] === adopt) return;',
+      'class $local {\n  constructor(...args) {\n${browserResources && plan.resourcePolicies.containsKey(index) ? "    throw new TypeError('Resource policies require the Node entrypoint');\n" : ''}    if (args[0] === adopt) return;',
     );
     final constructor = binding.constructor;
     if (constructor == null) {

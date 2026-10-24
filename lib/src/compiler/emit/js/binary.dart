@@ -1,12 +1,30 @@
 /// Captured binary intrinsics are shared by both target boundaries. The native
 /// backend copies the validated window in bulk; Wasm wraps a private snapshot.
-const binaryPolicy = r'''
+const binaryPolicy = _nodeBinaryBrands + _binaryPolicy;
+const browserBinaryPolicy = _browserBinaryBrands + _binaryPolicy;
+
+const _nodeBinaryBrands = r'''
 import {types as $napiBinaryTypes} from 'node:util';
 const $napiBinaryApply = Reflect.apply;
 const $napiBinaryArray = Uint8Array;
 const $napiBinaryIsArray = $napiBinaryTypes.isUint8Array;
 const $napiBinaryIsBuffer = $napiBinaryTypes.isArrayBuffer;
-const $napiBinaryPrototype = Object.getPrototypeOf(Uint8Array.prototype);
+''';
+
+const _browserBinaryBrands = r'''
+const $napiBinaryApply = Reflect.apply;
+const $napiBinaryArray = Uint8Array;
+const $napiBinaryTag = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), Symbol.toStringTag).get;
+function $napiBinaryIsArray(value) {
+  return $napiBinaryApply($napiBinaryTag, value, []) === 'Uint8Array';
+}
+function $napiBinaryIsBuffer(value) {
+  try { $napiBinaryApply($napiBinaryBufferLength, value, []); return true; }
+  catch { return false; }
+}
+''';
+
+const _binaryPolicy = r'''const $napiBinaryPrototype = Object.getPrototypeOf(Uint8Array.prototype);
 const $napiBinaryBuffer = Object.getOwnPropertyDescriptor($napiBinaryPrototype, 'buffer').get;
 const $napiBinaryOffset = Object.getOwnPropertyDescriptor($napiBinaryPrototype, 'byteOffset').get;
 const $napiBinaryLength = Object.getOwnPropertyDescriptor($napiBinaryPrototype, 'byteLength').get;

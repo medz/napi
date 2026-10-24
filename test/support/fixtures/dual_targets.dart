@@ -189,6 +189,12 @@ Future<void> verifyDualTargetFixture(
         'core.wasm',
         'calls.mjs',
         'references.mjs',
+        'browser.mjs',
+        'browser.d.mts',
+        'browser-core.mjs',
+        'browser-boundary.mjs',
+        'browser-calls.mjs',
+        'browser-references.mjs',
         'DART_LICENSE',
       ])
         'wasm/$name',
@@ -218,11 +224,22 @@ Future<void> verifyDualTargetFixture(
         jsonEncode(manifest['author']) != '{"name":"Dual Fixture"}') {
       throw StateError('Dual root metadata was restricted or lost.');
     }
+    if (jsonEncode(manifest['exports']['./browser']) !=
+        jsonEncode({
+          'types': './wasm/browser.d.mts',
+          'import': './wasm/browser.mjs',
+        })) {
+      throw StateError(
+        'Dual browser entrypoint did not select the Wasm package.',
+      );
+    }
     final types = await File('${package.path}/native/module.d.mts')
         .readAsString();
     if (types !=
             await File('${package.path}/wasm/module.d.wasm.ts')
                 .readAsString() ||
+        types !=
+            await File('${package.path}/wasm/browser.d.mts').readAsString() ||
         (declarations != null && declarations != types)) {
       throw StateError('Target/selector declarations differ.');
     }

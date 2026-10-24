@@ -274,6 +274,7 @@ Future<Directory> _assemblePackage({
   String? runtime;
   NativePlatform? nativePlatform;
   var calls = false;
+  var browser = false;
   for (final module in modules) {
     final source = module.directory.absolute;
     await checkOutputPath(source.path);
@@ -370,6 +371,20 @@ Future<Directory> _assemblePackage({
     }
     calls = calls || callFiles.isNotEmpty;
     files.addAll(callFiles);
+    final browserFiles = <String, File>{};
+    for (final name in native ? <String>[] : wasmBrowserFiles) {
+      final file = File('${source.path}/$name');
+      if (await FileSystemEntity.type(file.path, followLinks: false) !=
+          FileSystemEntityType.notFound) {
+        browserFiles['$prefix$name'] = await _regularFile(file);
+      }
+    }
+    if (browserFiles.isNotEmpty &&
+        browserFiles.length != wasmBrowserFiles.length) {
+      throw ArgumentError('Browser entrypoint artifacts are incomplete.');
+    }
+    browser = browser || browserFiles.isNotEmpty;
+    files.addAll(browserFiles);
   }
   if (platformSelection && nativeModules.isNotEmpty) {
     generated['native/module.mjs'] = emitNativePackageLoader(
@@ -415,6 +430,7 @@ Future<Directory> _assemblePackage({
         targets,
         rootTarget.name,
         nativePlatforms: platformSelection && nativeModules.isNotEmpty,
+        browser: browser,
       ),
     });
     staging = await target.parent.createTemp('.napi-package-');
@@ -455,6 +471,7 @@ Future<Directory> _assemblePackage({
       root: rootTarget.name,
       runtime: platformSelection ? null : runtime,
       calls: calls,
+      browser: browser,
       assets: selectedAssets,
       autoPlatform: autoPlatform,
       nativeRuntimes: platformSelection ? nativeRuntimes : const {},

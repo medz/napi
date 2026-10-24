@@ -1,12 +1,32 @@
 /// Captured host operations shared by native and Wasm adapters. Controls own
 /// their view; the weak reverse lookup permits one-call overlap-safe copies.
-const sharedBytesPolicy = r'''
+const sharedBytesPolicy = _nodeSharedBrands + _sharedBytesPolicy;
+const browserSharedBytesPolicy = _browserSharedBrands + _sharedBytesPolicy;
+
+const _nodeSharedBrands = r'''
 import {types as $napiSharedTypes} from 'node:util';
 const $napiSharedApply = Reflect.apply;
 const $napiSharedU8 = Uint8Array;
 const $napiSharedIsU8 = $napiSharedTypes.isUint8Array;
 const $napiSharedIsAB = $napiSharedTypes.isArrayBuffer;
-const $napiSharedProto = Object.getPrototypeOf(Uint8Array.prototype);
+''';
+
+const _browserSharedBrands = r'''
+const $napiSharedApply = Reflect.apply;
+const $napiSharedU8 = Uint8Array;
+const $napiSharedTag = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), Symbol.toStringTag).get;
+const $napiSharedBrandLength = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, 'byteLength').get;
+function $napiSharedIsU8(value) {
+  return $napiSharedApply($napiSharedTag, value, []) === 'Uint8Array';
+}
+function $napiSharedIsAB(value) {
+  try { $napiSharedApply($napiSharedBrandLength, value, []); return true; }
+  catch { return false; }
+}
+''';
+
+const _sharedBytesPolicy =
+    r'''const $napiSharedProto = Object.getPrototypeOf(Uint8Array.prototype);
 const $napiSharedDescriptor = Object.getOwnPropertyDescriptor;
 const $napiSharedBuffer = $napiSharedDescriptor($napiSharedProto, 'buffer').get;
 const $napiSharedOffset = $napiSharedDescriptor($napiSharedProto, 'byteOffset').get;

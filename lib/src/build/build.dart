@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import '../compiler/analysis/validate.dart';
@@ -260,6 +261,41 @@ Future<BuiltModule> buildModule({
     await File('${artifact.path}/boundary.mjs')
         .writeAsString(emitBoundary(plan));
     await File('${artifact.path}/module.d.wasm.ts').writeAsString(declarations);
+    await File('${artifact.path}/browser.d.mts').writeAsString(declarations);
+    await File('${artifact.path}/browser-core.mjs')
+        .writeAsString(linked.browserCoreJavaScript);
+    await File('${artifact.path}/browser-boundary.mjs')
+        .writeAsString(emitBoundary(plan, browser: true));
+    await File('${artifact.path}/browser-references.mjs')
+        .writeAsString(emitReferences());
+    await File('${artifact.path}/browser-calls.mjs').writeAsString(
+      hasCalls ? emitArgumentCalls(plan, browser: true) : 'export {};\n',
+    );
+    final browser = StringBuffer("import {core} from './browser-core.mjs';\n");
+    if (hasCalls) {
+      browser.writeln("import * as calls from './browser-calls.mjs';");
+    }
+    var exportIndex = 0;
+    for (final function in plan.functions) {
+      final name = jsonEncode(function.binding.exportName);
+      final source =
+          function.representation == ExportRepresentation.nativeFunction
+          ? 'core'
+          : 'calls';
+      browser.writeln(
+        'const value$exportIndex = $source[$name]; export {value$exportIndex as $name};',
+      );
+      exportIndex++;
+    }
+    for (final binding in plan.classes) {
+      final name = jsonEncode(binding.binding.exportName);
+      browser.writeln(
+        'const value$exportIndex = calls[$name]; export {value$exportIndex as $name};',
+      );
+      exportIndex++;
+    }
+    await File('${artifact.path}/browser.mjs')
+        .writeAsString(browser.toString());
     await File(compiled.sdkLicensePath).copy('${artifact.path}/DART_LICENSE');
     await writeOutputOwnership(
       artifact,
@@ -268,6 +304,7 @@ Future<BuiltModule> buildModule({
       root: 'wasm',
       runtime: null,
       calls: hasCalls,
+      browser: true,
       moduleContract: await createModuleContract(
         analysis.bindings,
         analysis.classes,

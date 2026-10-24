@@ -46,3 +46,14 @@ export function createSettlementObserver(release) {
   };
 }
 ''';
+
+/// Browsers expose no passive settlement notification. Resource calls are
+/// rejected before business code; this guard catches accidental late admission.
+const browserSettlementObserver = r'''
+export function createSettlementObserver(release) {
+  return {
+    observe() { throw new TypeError('Resource policies are not supported by browser bindings'); },
+    dispose() {},
+  };
+}
+''';

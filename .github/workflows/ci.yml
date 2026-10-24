@@ -67,6 +67,8 @@ jobs:
       - run: dart pub get
       - run: npm install --prefix .dart_tool/js --no-save --no-package-lock --ignore-scripts --no-audit --no-fund typescript@7.0.2
       - run: dart test --total-shards 2 --shard-index ${{ matrix.shard }} --shard-by-suite
+        env:
+          NAPI_TEST_BROWSER: /usr/bin/google-chrome
 
   wasm-runtime:
     needs: scope

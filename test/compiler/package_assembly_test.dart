@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:napi/src/build/build.dart';
 import 'package:napi/src/build/package.dart';
+import 'package:napi/src/build/output_ownership.dart';
 import 'package:test/test.dart';
 
 const _requiredFiles = [
@@ -41,6 +42,41 @@ void main() {
     metadata: metadata,
     assets: assets,
   );
+
+  test(
+    'rebuild adds browser entrypoints to an existing Node-only package',
+    () async {
+      await assemble();
+      for (final name in wasmBrowserFiles) {
+        await File('${source.path}/$name').writeAsString(name);
+      }
+      await assemble();
+      final package = jsonDecode(
+        await File('${output.path}/package.json').readAsString(),
+      ) as Map;
+      expect(package['exports']['./browser'], {
+        'types': './browser.d.mts',
+        'import': './browser.mjs',
+      });
+      expect(package['exports']['.'], {
+        'types': './module.d.wasm.ts',
+        'import': './module.wasm',
+      });
+      expect(await OutputOwnership.read(output), isNotNull);
+      await File('${output.path}/browser.mjs').writeAsString('author edit');
+      await expectLater(assemble(), throwsArgumentError);
+      expect(
+        await File('${output.path}/browser.mjs').readAsString(),
+        'author edit',
+      );
+    },
+  );
+
+  test('partial browser artifacts cannot be published', () async {
+    await File('${source.path}/browser.mjs').writeAsString('incomplete');
+    await expectLater(assemble(), throwsArgumentError);
+    expect(await output.exists(), isFalse);
+  });
 
   test(
     'copies only known artifacts and explicit assets, retaining metadata',

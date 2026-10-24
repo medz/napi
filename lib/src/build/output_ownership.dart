@@ -21,6 +21,14 @@ const wasmPackageFiles = [
   'DART_LICENSE',
 ];
 const wasmCallFiles = ['core.wasm', 'calls.mjs', 'references.mjs'];
+const wasmBrowserFiles = [
+  'browser.mjs',
+  'browser.d.mts',
+  'browser-core.mjs',
+  'browser-boundary.mjs',
+  'browser-calls.mjs',
+  'browser-references.mjs',
+];
 const packageAssetNames = {
   'README',
   'README.md',
@@ -38,6 +46,7 @@ Set<String> packageArtifactNames(
   Set<String> targets,
   String? runtime, {
   required bool calls,
+  bool browser = false,
   Map<String, String> nativeRuntimes = const {},
 }) {
   final dual = targets.length > 1;
@@ -56,7 +65,11 @@ Set<String> packageArtifactNames(
       } else
         for (final name
             in target == 'wasm'
-                ? [...wasmPackageFiles, if (calls) ...wasmCallFiles]
+                ? [
+                    ...wasmPackageFiles,
+                    if (calls) ...wasmCallFiles,
+                    if (browser) ...wasmBrowserFiles,
+                  ]
                 : [
                     'module.mjs',
                     'module.d.mts',
@@ -77,6 +90,7 @@ Map<String, Object?> packageEntrypoints(
   String root, {
   bool nativePlatforms = false,
   bool commonJs = true,
+  bool browser = false,
 }) {
   Map<String, String> entry(String target) {
     final prefix = targets.length > 1 || (target == 'native' && nativePlatforms)
@@ -95,6 +109,11 @@ Map<String, Object?> packageEntrypoints(
     if (targets.contains('native')) './native': entry('native'),
     if (targets.length > 1) './wasm': entry('wasm'),
     if (targets.contains('wasm')) './module.wasm': entry('wasm'),
+    if (targets.contains('wasm') && browser)
+      './browser': {
+        'types': '${targets.length > 1 ? './wasm/' : './'}browser.d.mts',
+        'import': '${targets.length > 1 ? './wasm/' : './'}browser.mjs',
+      },
   };
 }
 
@@ -168,6 +187,7 @@ final class OutputOwnership {
       throw const FormatException('Invalid module contract.');
     }
     final calls = manifest['calls'];
+    final browser = manifest['browser'] ?? false;
     final assets = _names(manifest['assets']);
     final auto = _names(manifest['autoPlatform']);
     final hashes = manifest['artifacts'];
@@ -177,6 +197,8 @@ final class OutputOwnership {
         (kind == OutputKind.module &&
             (targets.length != 1 || assets.isNotEmpty || auto.isNotEmpty)) ||
         calls is! bool ||
+        browser is! bool ||
+        (browser && !targets.contains('wasm')) ||
         (calls && !targets.contains('wasm')) ||
         !packageAssetNames.containsAll(assets) ||
         !{'os', 'cpu', 'libc'}.containsAll(auto) ||
@@ -198,6 +220,7 @@ final class OutputOwnership {
       targets,
       runtime as String?,
       calls: calls,
+      browser: browser,
       nativeRuntimes: nativeRuntimes,
     );
     if (hashes.length != artifacts.length ||
@@ -269,6 +292,7 @@ final class OutputOwnership {
                 targets,
                 root as String,
                 nativePlatforms: nativeRuntimes.isNotEmpty,
+                browser: browser,
               ),
             ) ||
             // Packages built before CommonJS support have the same owned
@@ -279,6 +303,7 @@ final class OutputOwnership {
                 targets,
                 root,
                 nativePlatforms: nativeRuntimes.isNotEmpty,
+                browser: browser,
                 commonJs: false,
               ),
             ))) {
@@ -441,6 +466,7 @@ Future<void> writeOutputOwnership(
   required String root,
   required String? runtime,
   required bool calls,
+  bool browser = false,
   Set<String> assets = const {},
   Set<String> autoPlatform = const {},
   Map<String, String> nativeRuntimes = const {},
@@ -450,6 +476,7 @@ Future<void> writeOutputOwnership(
     targets,
     runtime,
     calls: calls,
+    browser: browser,
     nativeRuntimes: nativeRuntimes,
   );
   final hashes = <String, String>{};
@@ -457,7 +484,7 @@ Future<void> writeOutputOwnership(
     hashes[name] = await _hash(File(path.join(staging.path, name)));
   }
   await File('${staging.path}/$outputOwnershipFile').writeAsString(
-    '${const JsonEncoder.withIndent('  ').convert({'format': 1, 'kind': 'napi-${kind.name}', 'targets': targets.toList(), 'root': root, 'runtime': runtime, 'calls': calls, 'artifacts': hashes, 'assets': assets.toList(), 'autoPlatform': autoPlatform.toList(), if (nativeRuntimes.isNotEmpty) 'nativeRuntimes': nativeRuntimes, 'moduleContract': ?moduleContract})}\n',
+    '${const JsonEncoder.withIndent('  ').convert({'format': 1, 'kind': 'napi-${kind.name}', 'targets': targets.toList(), 'root': root, 'runtime': runtime, 'calls': calls, if (browser) 'browser': true, 'artifacts': hashes, 'assets': assets.toList(), 'autoPlatform': autoPlatform.toList(), if (nativeRuntimes.isNotEmpty) 'nativeRuntimes': nativeRuntimes, 'moduleContract': ?moduleContract})}\n',
   );
 }
 

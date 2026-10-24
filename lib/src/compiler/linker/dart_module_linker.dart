@@ -17,10 +17,12 @@ final class LinkedDartModule {
   const LinkedDartModule({
     required this.wasmBytes,
     required this.hostJavaScript,
+    required this.browserCoreJavaScript,
   });
 
   final Uint8List wasmBytes;
   final String hostJavaScript;
+  final String browserCoreJavaScript;
 }
 
 /// Makes the compiler's import section resolve through native Node Wasm ESM.
@@ -53,6 +55,12 @@ LinkedDartModule linkDartModule({
     ..writeln('import * as coreExports from ${jsonEncode(coreSpecifier)};')
     ..writeln('const dartInstance = {exports: coreExports};')
     ..write(helpers);
+  final browser = StringBuffer()
+    ..writeln('// Generated browser Dart SDK host. SDK: 3.13.5.')
+    ..writeln("import * as boundary from './browser-boundary.mjs';")
+    ..writeln('let dartInstance;')
+    ..write(helpers);
+  final browserImports = <String>[];
   var importSectionSeen = false;
   var aliasIndex = 0;
 
@@ -145,6 +153,8 @@ LinkedDartModule linkDartModule({
           );
         }
         host.writeln('export {$targetName};');
+        browser.writeln('const $targetName = $expression;');
+        browserImports.add(targetName);
       }
       rewritten
         ..add(_name(targetModule))
@@ -161,9 +171,30 @@ LinkedDartModule linkDartModule({
   if (!importSectionSeen) {
     _malformed('Expected the pinned Dart compiler import section.');
   }
+  browser.writeln(
+    "const response = await fetch(new URL(${jsonEncode(coreSpecifier)}, import.meta.url));",
+  );
+  browser.writeln(
+    "if (!response.ok) throw new Error('Unable to load Dart Wasm: HTTP ' + response.status);",
+  );
+  browser.writeln(
+    "const options = {builtins: ['js-string']};\n"
+    "const module = response.headers.get('Content-Type')?.split(';')[0].trim() === 'application/wasm'\n"
+    "  ? await WebAssembly.compileStreaming(response, options)\n"
+    "  : await WebAssembly.compile(await response.arrayBuffer(), options);",
+  );
+  browser.writeln('dartInstance = await WebAssembly.instantiate(module, {');
+  browser.writeln(
+    '  ${jsonEncode(hostSpecifier)}: {${browserImports.join(', ')}},',
+  );
+  for (final specifier in additionalImports.values.toSet()) {
+    browser.writeln('  ${jsonEncode(specifier)}: boundary,');
+  }
+  browser.writeln('});\nexport const core = dartInstance.exports;');
   return LinkedDartModule(
     wasmBytes: output.takeBytes(),
     hostJavaScript: host.toString(),
+    browserCoreJavaScript: browser.toString(),
   );
 }
 
