@@ -86,8 +86,16 @@ Future<ProcessResult> runProcess(
     while (reading) {
       final file = owned ? File('${control.path}/state.result') : stateFile;
       if (await file.exists()) {
-        final state =
-            jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+        final String contents;
+        try {
+          contents = await file.readAsString();
+        } on FileSystemException catch (error) {
+          if (!Platform.isWindows || error.osError?.errorCode != 32) rethrow;
+          // Keep transient sharing conflicts within the existing deadline.
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+          continue;
+        }
+        final state = jsonDecode(contents) as Map<String, dynamic>;
         if (!reading) return;
         if (state['state'] == 'ready' && !owned) {
           if (state['owner'] != process.pid) {

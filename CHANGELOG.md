@@ -1,3 +1,121 @@
+## 0.23.0
+
+This release adds typed build scripts with watch mode, browser ESM imports,
+and native support for Windows x64, Linux arm64 and Intel Macs. Native payloads
+can now be distributed as separate npm packages, with a reusable release script
+for preparing and publishing them.
+
+### 🛠️ Build from your own Dart script
+
+Declare a package once and let the script handle build options:
+
+```dart
+import 'dart:io';
+import 'package:napi/build.dart';
+
+final package = PackageBuild(
+  library: File('lib/counter.dart').absolute.uri,
+  output: Directory('npm-package'),
+  name: '@scope/counter',
+  version: '1.0.0',
+);
+
+Future<void> main(List<String> args) => package.run(args);
+```
+
+The filename is up to you:
+
+```sh
+dart run scripts/package.dart --target native
+dart run scripts/package.dart --watch --target wasm
+```
+
+Watch mode follows imported sources, local dependencies and declared assets. It
+serializes builds and retains the last usable output after a compilation error.
+Restart the script after changing its build declaration, and restart consuming
+applications to load rebuilt modules.
+
+The [starter](https://github.com/medz/napi/releases/download/v0.23.0/napi-starter.zip)
+includes a Counter, build script and JavaScript consumer. Existing `buildPackage`
+scripts continue to work.
+
+[Build scripts and watch mode](https://github.com/medz/napi/blob/v0.23.0/doc/packaging.md)
+
+### 🌐 Import Wasm in the browser
+
+Serve the generated Wasm package over HTTP and use its browser entry:
+
+```html
+<script type="module">
+  import {Counter} from './npm-package/browser.mjs';
+  const counter = new Counter();
+  console.log(counter.increment());
+</script>
+```
+
+The entry loads and initializes Wasm automatically. Dual-target packages place
+it under `wasm/`; npm also exposes the `/browser` subpath. Resource classes and
+`JsArray` still require Node.js, and browser calls using them throw `TypeError`.
+Browser execution has been verified in Chrome 155; other browsers have not yet
+been verified.
+
+Native entries now also support CommonJS:
+
+```js
+const {Counter} = require('@scope/counter');
+```
+
+When both select native, `require()` and ESM imports share constructors and Dart
+state. Wasm entries remain ESM-only.
+
+Dual-target packages can opt into `wasmFallback: true` with a native root. Root
+ESM imports then choose Wasm on unsupported native platforms. Missing or damaged
+native artifacts on a supported platform remain errors; explicit `/native`
+imports and CommonJS stay native-only.
+
+[Browser entries and backend selection](https://github.com/medz/napi/blob/v0.23.0/doc/packaging.md)
+
+### 📦 Distribute native addons across platforms
+
+Precompiled runtimes are now available for Windows x64, Linux arm64 and macOS
+x64, alongside the existing macOS arm64 and Linux x64 targets. Application
+builds need the ordinary Dart SDK; uncached Linux builds also need
+`/usr/bin/unzip`. npm consumers need Node.js and the generated package. Runtime
+downloads happen during the author's build.
+
+Build native modules on each target host, then use `assemblePackage` to include
+all platforms in one tarball, or `assemblePackageSet` to publish native payloads
+as optional dependencies. With a package set, npm installs the matching native
+payload and consumers keep one package import.
+
+`PackageRelease` prepares fixed tarballs and publishes native dependencies before
+the entry package. Interrupted publication can resume from the same preparation:
+matching published versions are skipped, while conflicting bytes stop the release.
+Publication is not transactional across multiple packages.
+
+Native builds support macOS 14 or later, Linux with glibc 2.28 or later, and
+Windows 10 / Server 2016 or later on x64. Windows runtime execution has been
+tested on Server 2025. Node.js has its own OS requirements. Cross-compiling and
+musl remain unsupported.
+
+[Native builds](https://github.com/medz/napi/blob/v0.23.0/doc/native.md) ·
+[Platform packages and publication](https://github.com/medz/napi/blob/v0.23.0/doc/packaging.md#download-only-the-installed-platform)
+
+### Other improvements
+
+- Windows can rebuild managed modules and npm packages on local NTFS while
+  retaining author files. The output path can briefly be unavailable during
+  replacement; wait for the successful build message before loading it.
+- Wasm binary snapshots use bulk copies to reduce calls across the Dart/JavaScript
+  boundary.
+- The [performance guide](https://github.com/medz/napi/blob/v0.23.0/doc/performance.md)
+  compares native, Wasm and napi-rs package sizes, startup and call overhead,
+  including byte-copy and shared-view workloads.
+
+Both backends require Dart 3.13.5. Native runtimes use bridge ABI 15.
+
+[Release on GitHub](https://github.com/medz/napi/releases/tag/v0.23.0)
+
 ## 0.22.0
 
 This release brings native Dart addons to Linux x64 with automatic runtime
