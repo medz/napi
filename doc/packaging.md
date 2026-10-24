@@ -268,6 +268,8 @@ the raw module's record stays outside the npm package.
 
 Linux requires `statx` and extended-attribute support, and the builder must have
 permission to preserve retained metadata. Windows requires permission to retain
-file security and rejects path segments ending in a dot or space. Rebuilding on
-network or other unsupported filesystems, and adopting legacy output are not supported.
+file security and rejects path segments ending in a dot or space. Use full output
+directory names: existing DOS short names are resolved, but an absent short name
+cannot be used while a replacement is in progress. Rebuilding on network or other
+unsupported filesystems, and adopting legacy output are not supported.
 Use a fresh output directory in those cases.

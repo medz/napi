@@ -6,6 +6,7 @@ import 'dart:ffi';
 import 'dart:io';
 
 import 'package:napi/build.dart';
+import 'package:path/path.dart' as path;
 import 'package:napi/src/build/output.dart';
 import 'package:napi/src/build/output_ownership.dart';
 import 'package:napi/src/build/publish.dart';
@@ -69,6 +70,49 @@ void main() {
       lock.release();
     }
     PackageLock.acquire(output).release();
+  });
+
+  test('an absent DOS short name cannot create a separate output lock', () {
+    expect(
+      () => PackageLock.acquire(Directory('${root.path}/LONGDI~1')),
+      throwsA(isA<FileSystemException>()),
+    );
+  });
+
+  test('an existing DOS short name shares the output lock', () async {
+    final directory = await Directory('${root.path}/long package directory')
+        .create();
+    final result = await Process.run('cmd.exe', [
+      '/d',
+      '/c',
+      'for %I in ("${directory.path}") do @echo %~sI',
+    ]);
+    expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
+    final short = result.stdout.toString().trim();
+    if (path.basename(short).toLowerCase() ==
+        path.basename(directory.path).toLowerCase()) {
+      markTestSkipped('DOS short names are disabled on this volume.');
+      return;
+    }
+    final lock = PackageLock.acquire(directory);
+    try {
+      expect(
+        () => PackageLock.acquire(Directory(short)),
+        throwsA(isA<FileSystemException>()),
+      );
+      final backup = Directory('${root.path}/previous');
+      publishDirectory(directory, backup);
+      try {
+        expect(
+          () => PackageLock.acquire(Directory(short)),
+          throwsA(isA<FileSystemException>()),
+        );
+      } finally {
+        publishDirectory(backup, directory);
+      }
+    } finally {
+      lock.release();
+    }
   });
 
   for (final blocked in ['old', 'new']) {

@@ -262,7 +262,13 @@ Future<void> checkOutputInputs(
   for (final input in inputs) {
     final source = input.absolute.path;
     await checkOutputPath(source);
-    if (Platform.isWindows) checkOutputLockPath(Directory(source));
+    if (Platform.isWindows) {
+      checkOutputLockPath(Directory(source));
+      if (await FileSystemEntity.type(source, followLinks: false) !=
+          FileSystemEntityType.notFound) {
+        checkOutputLockPath(Directory(await input.resolveSymbolicLinks()));
+      }
+    }
     if (path.equals(source, output.path) ||
         path.isWithin(source, output.path) ||
         path.isWithin(output.path, source) ||

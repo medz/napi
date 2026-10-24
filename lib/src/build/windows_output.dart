@@ -406,14 +406,36 @@ final class _WindowsPackageLock {
   final List<Pointer<Void>> handles;
 
   static _WindowsPackageLock acquire(Directory output) {
-    final normalized = path.normalize(output.absolute.path);
     if (path
-        .split(normalized)
+        .split(path.normalize(output.absolute.path))
         .any((part) => part.endsWith('.') || part.endsWith(' '))) {
       throw ArgumentError(
         'Managed Windows build paths cannot end in a dot or space.',
       );
     }
+    // An absent short name cannot identify its long name during replacement.
+    final type = FileSystemEntity.typeSync(output.path, followLinks: false);
+    final basename = path.basename(output.path);
+    final parts = basename.split('.');
+    if (type != FileSystemEntityType.directory &&
+        basename.contains('~') &&
+        parts.length <= 2 &&
+        parts.first.length <= 8 &&
+        (parts.length == 1 || parts.last.length <= 3)) {
+      throw FileSystemException(
+        'Cannot resolve this DOS short output name; use the full directory name.',
+        output.path,
+      );
+    }
+    final normalized = path.normalize(
+      type == FileSystemEntityType.directory
+          ? output.resolveSymbolicLinksSync()
+          : path.join(
+              output.absolute.parent.resolveSymbolicLinksSync(),
+              basename,
+            ),
+    );
+    checkOutputLockPath(Directory(normalized));
     final locks = Directory(path.join(path.dirname(normalized), '.napi-locks'));
     final state = Directory(path.join(locks.path, path.basename(normalized)));
     final handles = <Pointer<Void>>[];
