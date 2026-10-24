@@ -117,7 +117,7 @@ npm publish --access public
 Keep the complete generated package and its license notices. Consumers import
 from the package root; they do not initialize the runtime manually. `/module.wasm`
 selects the Wasm entry. It shares the root's constructors and state only when
-Wasm is the root target.
+Wasm is the selected root backend.
 
 ## Use Wasm in a browser
 
@@ -230,7 +230,8 @@ const {Counter} = require('@scope/counter/native');
 const counter = new Counter();
 ```
 
-For a native-root package, `require('@scope/counter')` selects the same entry.
+For a native-root package, `require('@scope/counter')` selects the native entry.
+
 `require()` and ESM imports share constructors and Dart state, regardless of
 which loads first. TypeScript CommonJS files can use
 `import bindings = require('@scope/counter/native')` with `module: "NodeNext"`.
@@ -242,6 +243,48 @@ mismatched public API fails the build. Building both targets requires a
 supported native host: macOS or Linux with glibc 2.28 or later, on arm64 or x64.
 Including both backends increases package size. Runtime downloads
 happen during the author's build, not during npm installation.
+
+
+## Use Wasm on unsupported native platforms
+
+Set `wasmFallback: true` when building both backends with a native root:
+
+```dart
+final package = PackageBuild(
+  library: File('lib/counter.dart').absolute.uri,
+  output: Directory('npm-package'),
+  name: '@scope/counter',
+  version: '1.0.0',
+  target: BuildTarget.native,
+  targets: {BuildTarget.native, BuildTarget.wasm},
+  wasmFallback: true,
+);
+```
+
+Consumers continue using an ordinary ESM import, with automatic initialization:
+
+```js
+import {Counter} from '@scope/counter';
+const counter = new Counter();
+```
+
+The root uses native when the package includes the host's OS and architecture
+and its minimum OS/libc requirements are met. Otherwise it selects Wasm.
+The Node runtime must support the generated Wasm. A missing optional dependency,
+missing artifact or native initialization error on a supported platform still
+throws the original native loading error.
+
+This policy applies only to the root **ESM import**. `require('@scope/counter')`
+and `/native` always use native and report unsupported platforms. `/wasm` always
+uses Wasm. The root shares constructors and Dart state with its selected backend;
+the other backend has independent state, and its objects cannot be passed to the
+selected backend.
+
+`buildPackage`, `assemblePackage` and `assemblePackageSet` accept the same
+`wasmFallback` option. Assembly requires a Wasm module alongside the native
+modules. The default remains a fixed root. A build script's `--target native`
+or `--target wasm` override builds that single backend and disables fallback
+for that invocation.
 
 ## Include multiple native platforms
 
@@ -306,7 +349,8 @@ Publish the native packages first, then the entry package. The returned
 directories are in that order. The entry package pins their exact versions.
 Keep optional dependencies enabled when installing; missing packages and
 native loading failures produce errors. No install script downloads code.
-If included, Wasm stays in the entry package and is selected explicitly.
+If included, Wasm stays in the entry package. Select it explicitly, or enable
+`wasmFallback` for root ESM imports on unsupported native platforms.
 
 Prepare each set in a new output directory. An existing directory is never
 replaced, and a failed assembly leaves no partial set. Generated dependency

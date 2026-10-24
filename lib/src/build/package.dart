@@ -28,7 +28,9 @@ import '../compiler/sdk_adapter/dart_sdk_adapter.dart';
 /// qualified macOS and Linux filesystems; legacy or unsupported output is
 /// preserved.
 /// With [targets], include both backends in one package; [target] chooses the
-/// root entrypoint. Explicit native/wasm subpaths never fall back to one another.
+/// root entrypoint. [wasmFallback] lets root ESM imports select Wasm only on
+/// unsupported native platforms. It requires both targets and a native root;
+/// CommonJS and explicit native/wasm subpaths keep their selected backend.
 Future<Directory> buildPackage({
   required Uri library,
   required Directory output,
@@ -38,9 +40,15 @@ Future<Directory> buildPackage({
   ExternalLibrary? external,
   BuildTarget target = BuildTarget.wasm,
   Set<BuildTarget>? targets,
+  bool wasmFallback = false,
   Directory? nativeRuntime,
 }) async {
   final selected = Set<BuildTarget>.of(targets ?? {target});
+  _checkWasmFallback(
+    selected.map((value) => value.name).toSet(),
+    target,
+    wasmFallback,
+  );
   final supplied = packageMetadata(metadata);
   final nativeOnly =
       selected.length == 1 && selected.contains(BuildTarget.native);
@@ -148,6 +156,7 @@ Future<Directory> buildPackage({
       metadata: supplied,
       assets: assets,
       update: update,
+      wasmFallback: wasmFallback,
     );
     committed = true;
     return result;
@@ -219,11 +228,14 @@ Future<Directory> assembleNativePackage({
 /// [target] selects the root backend. The native entry selects the current
 /// platform from the bundled artifacts and never falls back to Wasm. All
 /// selected artifacts ship in the package; there are no install-time downloads.
+/// [wasmFallback] enables Wasm on unsupported platforms for root ESM imports
+/// when both backends are supplied and [target] is native.
 Future<Directory> assemblePackage({
   required List<BuiltModule> modules,
   required Directory output,
   required Map<String, Object?> metadata,
   BuildTarget target = BuildTarget.native,
+  bool wasmFallback = false,
   Map<String, File> assets = const {},
 }) => _assemblePackage(
   modules: List.of(modules),
@@ -232,6 +244,7 @@ Future<Directory> assemblePackage({
   metadata: metadata,
   assets: assets,
   platformSelection: true,
+  wasmFallback: wasmFallback,
 );
 
 /// Assemble a lightweight entry package and optional native platform packages.
@@ -243,15 +256,22 @@ Future<Directory> assemblePackage({
 ///
 /// [output] must not exist. The complete set is committed together; use a new
 /// directory for each preparation. [assemblePackage] retains all platforms in
-/// one package for offline distribution.
+/// one package for offline distribution. [wasmFallback] applies only to root
+/// ESM imports and requires both backends with a native [target].
 Future<List<Directory>> assemblePackageSet({
   required List<BuiltModule> modules,
   required Directory output,
   required Map<String, Object?> metadata,
   BuildTarget target = BuildTarget.native,
+  bool wasmFallback = false,
   Map<String, File> assets = const {},
 }) async {
   final selected = List<BuiltModule>.of(modules);
+  _checkWasmFallback(
+    selected.map((value) => value.target.name).toSet(),
+    target,
+    wasmFallback,
+  );
   final supplied = packageMetadata(metadata);
   final destination = output.absolute;
   await checkOutputInputs(destination, [
@@ -327,6 +347,7 @@ Future<List<Directory>> assemblePackageSet({
       assets: assets,
       platformSelection: true,
       nativePackages: packages,
+      wasmFallback: wasmFallback,
     );
     for (final platform in platforms) {
       final payload = Directory('${staging.path}/${platform.packageId}');
@@ -383,9 +404,11 @@ Future<Directory> _assemblePackage({
   required Map<String, File> assets,
   OutputUpdate? update,
   bool platformSelection = false,
+  bool wasmFallback = false,
   Map<NativePlatform, String> nativePackages = const {},
 }) async {
   final targets = modules.map((module) => module.target.name).toSet();
+  _checkWasmFallback(targets, rootTarget, wasmFallback);
   if (modules.isEmpty || !targets.contains(rootTarget.name)) {
     throw ArgumentError('Package modules must contain the root target.');
   }
@@ -444,7 +467,7 @@ Future<Directory> _assemblePackage({
         ? '${module.target.name}/'
         : '';
     if (native) nativePrefixes.add(prefix);
-    if (platformSelection) {
+    if (platformSelection || wasmFallback) {
       if (module.sdkVersion != supportedDartSdkVersion) {
         throw ArgumentError(
           'Module SDK version must be $supportedDartSdkVersion.',
@@ -540,6 +563,12 @@ Future<Directory> _assemblePackage({
     );
     generated['native/module.d.mts'] = declarations!;
   }
+  if (wasmFallback) {
+    generated['module.mjs'] = emitWasmFallbackLoader(
+      nativeModules.keys,
+      (contract!['exports'] as List).cast<String>(),
+    );
+  }
   final artifactNames = {...files.keys, ...generated.keys};
   for (final name in assets.keys.toList()..sort()) {
     if (!packageAssetNames.contains(name)) {
@@ -588,6 +617,7 @@ Future<Directory> _assemblePackage({
         rootTarget.name,
         nativePlatforms: platformSelection && nativeModules.isNotEmpty,
         browser: browser,
+        wasmFallback: wasmFallback,
       ),
     });
     staging = await target.parent.createTemp('.napi-package-');
@@ -633,6 +663,7 @@ Future<Directory> _assemblePackage({
       runtime: platformSelection ? null : runtime,
       calls: calls,
       browser: browser,
+      wasmFallback: wasmFallback,
       assets: selectedAssets,
       autoPlatform: autoPlatform,
       nativeRuntimes: platformSelection && nativePackages.isEmpty
@@ -687,4 +718,14 @@ Future<File> _regularFile(File file) async {
     throw ArgumentError('Package input is not a regular file: ${file.path}');
   }
   return file;
+}
+
+void _checkWasmFallback(Set<String> targets, BuildTarget root, bool enabled) {
+  if (enabled &&
+      (root != BuildTarget.native ||
+          !targets.containsAll({'native', 'wasm'}))) {
+    throw ArgumentError(
+      'wasmFallback requires both backends with a native root.',
+    );
+  }
 }

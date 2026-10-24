@@ -123,6 +123,7 @@ Future<void> main(List<String> args) async {
     version: '1.2.3',
     target: BuildTarget.native,
     targets: {BuildTarget.native, BuildTarget.wasm},
+    wasmFallback: true,
     packagesPath: File('.dart_tool/package_config.json').absolute.path,
     metadata: {
       'description': 'Build script consumer',

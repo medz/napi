@@ -5,6 +5,7 @@ import 'package:crypto/crypto.dart';
 import 'package:napi/build.dart';
 import 'package:napi/src/build/output_ownership.dart';
 import 'package:napi/src/compiler/native/platform.dart';
+import 'package:napi/src/compiler/linker/dart_module_linker.dart';
 import 'package:napi/src/compiler/sdk_adapter/dart_aot_adapter.dart';
 
 Future<BuiltModule> createPackageModule(
@@ -31,6 +32,16 @@ Future<BuiltModule> createPackageModule(
           ? 'export class Counter { value = 0; increment() { return ++this.value; } }\n'
           : name,
     );
+  }
+  if (platform == null) {
+    await File('${directory.path}/module.wasm').writeAsBytes(
+      buildPublicWasmFacade(
+        hostSpecifier: './host.mjs',
+        exportNames: ['Counter'],
+      ),
+    );
+    await File('${directory.path}/host.mjs')
+        .writeAsString('export class Counter { value = 100; }');
   }
   if (platform != null) {
     final hashes = <String, String>{};

@@ -93,7 +93,10 @@ directory. For a native package, run `dart run tool/build.dart --target native`,
 or set `target: BuildTarget.native` in the declaration. See
 [native builds](doc/native.md) for runtime caching and offline builds, and
 [packaging](doc/packaging.md) for script options, dual-target packages and custom
-build workflows.
+build workflows. Dual-backend packages can opt into
+[Wasm fallback](doc/packaging.md#use-wasm-on-unsupported-native-platforms) for
+root ESM imports on unsupported native platforms. CommonJS stays native-only;
+explicit native and Wasm entries keep separate Dart state.
 
 ## Learn more
 
