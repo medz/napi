@@ -106,9 +106,9 @@ Future<NativeRuntimeBundle> resolveNativeRuntime({
     bundle.verifyHost();
     return bundle;
   }
-  final lock = nativeRuntimeArchive;
   final cacheDirectory = (cache ?? nativeRuntimeCacheDirectory()).absolute;
   await _checkCacheOutput(cacheDirectory, output);
+  final lock = nativeRuntimeArchive;
   final entry = Directory(path.join(cacheDirectory.path, lock.sha256));
   if (await _exists(entry.path)) return _readCached(entry, lock);
 
@@ -311,12 +311,27 @@ Future<void> _checkCacheOutput(Directory cache, Directory output) async {
 }
 
 Future<bool> _containsExistingPath(String parent, String child) async {
-  if (!await _exists(parent)) return false;
+  // A missing leaf can still overlap through a DOS short name or another
+  // filesystem alias of its existing ancestor.
+  var ancestor = parent;
+  while (!await _exists(ancestor)) {
+    final next = path.dirname(ancestor);
+    if (next == ancestor) return false;
+    ancestor = next;
+  }
   var current = child;
   while (true) {
     if (await _exists(current) &&
-        await FileSystemEntity.identical(parent, current)) {
-      return true;
+        await FileSystemEntity.identical(ancestor, current)) {
+      var source = path.relative(parent, from: ancestor);
+      var target = path.relative(child, from: current);
+      if (Platform.isMacOS || Platform.isWindows) {
+        source = source.toLowerCase();
+        target = target.toLowerCase();
+      }
+      return source == '.' ||
+          path.equals(source, target) ||
+          path.isWithin(source, target);
     }
     final next = path.dirname(current);
     if (next == current) return false;

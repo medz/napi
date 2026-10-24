@@ -30,19 +30,78 @@ final class DartAotAdapter {
         'Native compilation requires the exact Dart 3.13.5 stable SDK revision.',
       );
     }
-    final result = await Process.run(binary, [
-      'compile',
-      'aot-snapshot',
-      if (packagesPath != null)
-        '--packages=${File(packagesPath).absolute.path}',
-      '--output=${File(outputPath).absolute.path}',
-      File(sourcePath).absolute.path,
-    ]);
+    final source = File(sourcePath).absolute;
+    final output = File(outputPath).absolute;
+    final packages = packagesPath == null ? null : File(packagesPath).absolute;
+    final result = Platform.isWindows
+        ? await _compileWindows(File(binary).parent, source, output, packages)
+        : await Process.run(binary, [
+            'compile',
+            'aot-snapshot',
+            if (packages != null) '--packages=${packages.path}',
+            '--output=${output.path}',
+            source.path,
+          ]);
     if (result.exitCode != 0 || !File(outputPath).existsSync()) {
       throw SdkCompatibilityException(
         'NAPI_DART_COMPILATION',
         'Dart AOT compilation failed (${result.exitCode}).\n${result.stdout}${result.stderr}',
       );
+    }
+  }
+
+  Future<ProcessResult> _compileWindows(
+    Directory bin,
+    File source,
+    File output,
+    File? packages,
+  ) async {
+    final runtime = File('${bin.path}/dartaotruntime.exe');
+    final kernel = File('${bin.path}/snapshots/gen_kernel_aot.dart.snapshot');
+    final platform = File(
+      '${bin.parent.path}/lib/_internal/vm_platform_product.dill',
+    );
+    final snapshot = File('${bin.path}/utils/gen_snapshot.exe');
+    for (final file in [runtime, kernel, platform, snapshot]) {
+      if (!file.existsSync()) {
+        throw SdkCompatibilityException(
+          'NAPI_SDK_LAYOUT',
+          'Dart $supportedDartSdkVersion compiler component is missing: ${file.path}',
+        );
+      }
+    }
+    final temporary = await output.parent.createTemp('.napi-aot-');
+    try {
+      // The pinned Windows gen_snapshot uses ANSI argv. Keep its file arguments
+      // relative and ASCII; the Dart frontend still reads the original Unicode
+      // source/package paths, and CreateProcessW preserves the working directory.
+      final generated = await Process.run(runtime.path, [
+        kernel.path,
+        '--platform=${platform.path}',
+        '-Ddart.vm.product=true',
+        '-Ddart.vm.asan=false',
+        '-Ddart.vm.msan=false',
+        '-Ddart.vm.tsan=false',
+        '--target-os=windows',
+        '--aot',
+        '--no-embed-sources',
+        if (packages != null) '--packages=${packages.path}',
+        '--output=program.dill',
+        '--invocation-modes=compile',
+        source.path,
+      ], workingDirectory: temporary.path);
+      if (generated.exitCode != 0) return generated;
+      final result = await Process.run(snapshot.path, [
+        '--snapshot-kind=app-aot-elf',
+        '--elf=module.aot',
+        'program.dill',
+      ], workingDirectory: temporary.path);
+      if (result.exitCode == 0) {
+        await File('${temporary.path}/module.aot').rename(output.path);
+      }
+      return result;
+    } finally {
+      await temporary.delete(recursive: true);
     }
   }
 }

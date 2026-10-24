@@ -86,6 +86,59 @@ void main() => print(nativeRuntimeCacheDirectory().path);
       }
     }
   }, skip: !_supported);
+  test('native runtime rejects overlap through an aliased ancestor', () async {
+    final root = await Directory(
+      await Directory.systemTemp.resolveSymbolicLinks(),
+    ).createTemp('napi runtime aliases ');
+    addTearDown(() => root.delete(recursive: true));
+    final ancestor = await Directory(
+      path.join(root.path, Platform.isWindows ? 'long directory name' : 'café'),
+    ).create();
+    final String alias;
+    if (Platform.isWindows) {
+      final result = await Process.run('cmd.exe', [
+        '/d',
+        '/c',
+        'for %I in ("${ancestor.path}") do @echo %~sI',
+      ]);
+      expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
+      alias = result.stdout.toString().trim();
+      if (path.basename(alias).toLowerCase() ==
+          path.basename(ancestor.path).toLowerCase()) {
+        markTestSkipped('DOS short names are disabled on this volume.');
+        return;
+      }
+    } else {
+      alias = path.join(root.path, 'cafe\u0301');
+      if (!await Directory(alias).exists()) {
+        markTestSkipped('This volume distinguishes Unicode normalization.');
+        return;
+      }
+    }
+    expect(await FileSystemEntity.identical(ancestor.path, alias), isTrue);
+    await HttpOverrides.runWithHttpOverrides(() async {
+      for (final (cacheParent, outputParent) in [
+        (ancestor.path, alias),
+        (alias, ancestor.path),
+      ]) {
+        for (final (cacheSuffix, outputSuffix) in [
+          ('output', 'output'),
+          ('output/cache', 'output'),
+          ('output', 'output/cache'),
+        ]) {
+          final cache = Directory(path.join(cacheParent, cacheSuffix));
+          final output = Directory(path.join(outputParent, outputSuffix));
+          expect(await cache.exists(), isFalse);
+          expect(await output.exists(), isFalse);
+          await expectLater(
+            resolveNativeRuntime(cache: cache, output: output),
+            throwsArgumentError,
+          );
+          expect(await ancestor.list().toList(), isEmpty);
+        }
+      }
+    }, _NoDownload());
+  }, skip: !_supported || !(Platform.isMacOS || Platform.isWindows));
   for (final scenario in [
     'cold-warm',
     'foreign-cache',
