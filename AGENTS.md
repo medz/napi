@@ -31,6 +31,8 @@ versions and experimental SDK coupling for both backends.
 Issues describe problems and impact only, without implementation or acceptance criteria.
 PRs describe changes. Docs explain usage, behavior, limitations and necessary design.
 Keep development logs, local constraints and review gates out of public content.
+Use the issue forms in `.github/ISSUE_TEMPLATE/` and the PR template in
+`.github/PULL_REQUEST_TEMPLATE.md` as the source for contribution prompts.
 
 # Release writing
 
