@@ -2399,9 +2399,9 @@ static napi_value load(napi_env env, napi_callback_info info) {
   if (!initialize_error.empty()) return fail(env, initialize_error.c_str());
   // The runtime caches canonical immutable AOT paths and owns their mappings.
   uv_fs_t canonical = {};
-  const int status = uv_fs_realpath(nullptr, &canonical, path.data(), nullptr);
-  if (status != 0) {
-    const std::string message = std::string("Cannot resolve AOT path: ") + uv_strerror(status);
+  const int path_status = uv_fs_realpath(nullptr, &canonical, path.data(), nullptr);
+  if (path_status != 0) {
+    const std::string message = std::string("Cannot resolve AOT path: ") + uv_strerror(path_status);
     uv_fs_req_cleanup(&canonical);
     return fail(env, message.c_str());
   }
