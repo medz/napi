@@ -206,6 +206,7 @@ jobs:
           path: ${{ runner.temp }}/native-artifact
           if-no-files-found: error
           retention-days: 7
+      - run: dart test -P native-consumers --fail-fast
       - name: Obtain runtime archive for download tests
         run: |
           cat > "$RUNNER_TEMP/runtime-url.dart" <<'DART'
@@ -218,7 +219,6 @@ jobs:
           echo "NAPI_TEST_RUNTIME_ARCHIVE=$RUNNER_TEMP/runtime.zip" >> "$GITHUB_ENV"
           echo "NAPI_RUNTIME_CACHE=$RUNNER_TEMP/napi-runtime" >> "$GITHUB_ENV"
       - run: dart test test/compiler/native_runtime_test.dart test/compiler/native_bundle_test.dart
-      - run: dart test -P native-consumers --fail-fast
       - name: Verify automatic runtime download
         if: matrix.runtimeBuild != ''
         run: |
