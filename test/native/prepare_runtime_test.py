@@ -79,6 +79,7 @@ class PrepareRuntimeTest(unittest.TestCase):
         config.parent.mkdir(parents=True)
         for profile, cpu, target, cipd, cache in [
             ('linux-x64', 'x64', 'linux', 'linux-amd64', 'out/ProductX64'),
+            ('linux-arm64', 'arm64', 'linux', 'linux-arm64', 'out/ProductARM64'),
             ('macos-x64', 'x64', 'mac', 'mac-amd64', 'xcodebuild/ProductX64'),
             ('macos-arm64', 'arm64', 'mac', 'mac-arm64', 'xcodebuild/ProductARM64'),
         ]:
@@ -110,9 +111,10 @@ class PrepareRuntimeTest(unittest.TestCase):
 
     def test_cache_key_separates_architecture_and_xcode_sdk(self):
         keys = set()
-        for profile, sdk in [('linux-x64', 'linux'), ('macos-arm64', '26A'),
+        for profile, sdk in [('linux-x64', 'linux'), ('linux-arm64', 'linux'),
+                             ('macos-arm64', '26A'),
                              ('macos-x64', '26A'), ('macos-x64', '26B')]:
             with patch.object(prepare, 'host_profile', return_value=profile), \
                     patch.object(prepare.subprocess, 'check_output', return_value=sdk.encode()):
                 keys.add(prepare.cache_key())
-        self.assertEqual(len(keys), 4)
+        self.assertEqual(len(keys), 5)

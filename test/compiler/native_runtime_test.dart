@@ -124,7 +124,7 @@ void main() => print(nativeRuntimeCacheDirectory().path);
       skip: scenario == 'unsupported'
           ? (_supported ? 'Requires an unsupported native host.' : false)
           : !_supported
-          ? 'Requires macOS arm64/x64 or Linux x64 glibc.'
+          ? 'Requires macOS arm64/x64 or Linux arm64/x64 glibc.'
           : needsArchive && archive == null
           ? 'Set NAPI_TEST_RUNTIME_ARCHIVE to the published locked ZIP.'
           : false,

@@ -23,6 +23,7 @@ NINJA_VERSION = 'version:3@1.13.2.chromium.4'
 CIPD_REVISION = '7a04966073ee0fee4501e766b6200e98faae91b1'
 CIPD_SHA256 = {
     'linux-amd64': '11a383b48744870d96365192b92992650b695eedf3a745615948b8d6561834ed',
+    'linux-arm64': 'a0242753a4396d84021ead06d2a4006e9d2f70fcd185bf4c18559780acde6857',
     'mac-amd64': '3ce5c8167cd82fcd89cb7e8229f08673ea76f66f61e4dc205a808f781075794f',
     'mac-arm64': '4ac2fa37f23486d249a2d71ff5084b6207c00cfa55928dad577fe99f0376ab71',
 }
@@ -35,7 +36,7 @@ is_asan=false is_lsan=false is_msan=false is_tsan=false is_ubsan=false is_hwasan
 def configuration():
     profile = host_profile()
     cpu = profile.rsplit('-', 1)[1]
-    target = 'linux' if profile == 'linux-x64' else 'mac'
+    target = 'linux' if profile.startswith('linux-') else 'mac'
     args = (f'target_os="{target}" host_cpu="{cpu}" target_cpu="{cpu}" '
             f'dart_target_arch="{cpu}" is_clang=true\n' + GN_ARGS)
     args += '\ndart_sysroot="debian"' if target == 'linux' else f'\nmac_sdk_min="{MINIMUM_OS}"'

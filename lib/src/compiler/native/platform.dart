@@ -9,6 +9,14 @@ enum NativePlatform {
     'so',
     libc: 'glibc',
     minimumLibcVersion: '2.28',
+  ),
+  linuxArm64(
+    'linux',
+    'arm64',
+    'linux',
+    'so',
+    libc: 'glibc',
+    minimumLibcVersion: '2.28',
   );
 
   final String platform;
@@ -33,6 +41,7 @@ enum NativePlatform {
     macosArm64 => 'macOS arm64',
     macosX64 => 'macOS x64',
     linuxX64 => 'Linux x64 with glibc $minimumLibcVersion or newer',
+    linuxArm64 => 'Linux arm64 with glibc $minimumLibcVersion or newer',
   };
 
   String get packageId =>

@@ -139,6 +139,9 @@ jobs:
           - os: ubuntu-24.04
             platform: linux-x64-glibc
             runtimeBuild: out/ProductX64
+          - os: ubuntu-24.04-arm
+            platform: linux-arm64-glibc
+            runtimeBuild: out/ProductARM64
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
@@ -275,14 +278,14 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  platform-package-macos:
+  platform-package-consumers:
     needs: [scope, platform-package]
     if: ${{ always() && needs.scope.result == 'success' && needs.scope.outputs.scope == 'full' && needs.platform-package.result == 'success' }}
     name: Cross-platform package (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, macos-15-intel]
+        os: [macos-14, macos-15-intel, ubuntu-24.04-arm]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -305,7 +308,7 @@ jobs:
         with:
           name: platform-package
           path: ${{ runner.temp }}/platform-package
-      - name: Consume the same package on macOS without rebuilding
+      - name: Consume the same package without rebuilding
         run: dart run test/support/fixtures/platform_packages.dart consume "$RUNNER_TEMP/platform-package/fixture.tgz"
 
   publication:
@@ -337,7 +340,7 @@ jobs:
   # jobs; static/package checks and classifier regression tests always run.
   check:
     if: ${{ always() }}
-    needs: [scope, static, tests, wasm-runtime, consumers, native, platform-package, platform-package-macos, publication]
+    needs: [scope, static, tests, wasm-runtime, consumers, native, platform-package, platform-package-consumers, publication]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

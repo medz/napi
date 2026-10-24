@@ -349,21 +349,20 @@ class BuildInputsTest(unittest.TestCase):
     def test_prepared_inputs_cannot_change_during_build(self):
         # Commands are intercepted: this exercises publication decisions without
         # compiling C/C++, downloading an SDK or loading any fixture payload.
-        cases = [(profile, changed) for profile in ['macos-arm64', 'macos-x64', 'linux-x64']
+        cases = [(profile, changed) for profile in ['macos-arm64', 'macos-x64']
                  for changed in [None, 'vm', 'recipe', 'header', 'source', 'compiler']]
-        cases += [('linux-x64', 'sysroot'), ('linux-x64', 'clang-package')]
-        cases += [('linux-x64', 'bridge-extra')]
         link_changes = ['linker', 'crt', 'static-library', 'linker-script', 'indirect-library']
-        cases += [('linux-x64', name) for name in link_changes]
-        cases += [('linux-x64', 'initial-'+name) for name in link_changes]
-        cases += [('linux-x64', 'initial-'+name) for name in
-                  ['link-flags', 'compile-flags', 'library-order', 'header', 'system-header', 'cxx-header']]
-        cases += [('linux-x64', None)]  # The same inputs in another SDK directory.
-        cases += [('linux-x64', 'nested-sdk')]
-        original_identity = None
+        for profile in ['linux-x64', 'linux-arm64']:
+            cases += [(profile, changed) for changed in
+                      [None, 'vm', 'recipe', 'header', 'source', 'compiler',
+                       'sysroot', 'clang-package', 'bridge-extra', *link_changes]]
+            cases += [(profile, 'initial-'+name) for name in [*link_changes,
+                      'link-flags', 'compile-flags', 'library-order', 'header', 'system-header', 'cxx-header']]
+            cases += [(profile, None), (profile, 'nested-sdk')]
+        original_identities = {}
         for profile, changed in cases:
             with self.subTest(profile=profile, changed=changed), tempfile.TemporaryDirectory() as tmp:
-                linux = profile == 'linux-x64'
+                linux = profile.startswith('linux-')
                 cpu = profile.rsplit('-', 1)[1]
                 root = Path(tmp).resolve()
                 repo, cache, sdk, node = [root/name for name in ['repo', 'cache', 'sdk', 'node']]
@@ -387,7 +386,7 @@ class BuildInputsTest(unittest.TestCase):
                 system_header.write_text('system header')
                 if changed == 'initial-system-header':
                     system_header.write_text('system header changed before build')
-                cxx_header = sdk/'buildtools/linux-x64/clang/include/c++/v1/string'
+                cxx_header = sdk/f'buildtools/linux-{cpu}/clang/include/c++/v1/string'
                 cxx_header.parent.mkdir(parents=True)
                 cxx_header.write_text('C++ header')
                 if changed == 'initial-cxx-header':
@@ -397,7 +396,7 @@ class BuildInputsTest(unittest.TestCase):
                 clang.write_text('compiler')
                 packages = {
                     'sysroot': sdk/'buildtools/sysroot/linux/.versions/sysroot.cipd_version',
-                    'clang-package': sdk/'buildtools/linux-x64/clang/.versions/clang.cipd_version',
+                    'clang-package': sdk/f'buildtools/linux-{cpu}/clang/.versions/clang.cipd_version',
                 }
                 for path in packages.values():
                     path.parent.mkdir(parents=True, exist_ok=True)
@@ -410,9 +409,9 @@ class BuildInputsTest(unittest.TestCase):
                     mac_libcxx.parent.mkdir()
                     mac_libcxx.write_text('pinned Mac libc++')
                 link_inputs = {
-                    'linker': sdk/'buildtools/linux-x64/clang/bin/ld.lld',
+                    'linker': sdk/f'buildtools/linux-{cpu}/clang/bin/ld.lld',
                     'crt': sdk/'buildtools/sysroot/linux/usr/lib/crti.o',
-                    'static-library': sdk/'buildtools/linux-x64/clang/lib/libc++.a',
+                    'static-library': sdk/f'buildtools/linux-{cpu}/clang/lib/libc++.a',
                     'linker-script': sdk/'buildtools/sysroot/linux/usr/lib/libc.so',
                     'indirect-library': sdk/'buildtools/sysroot/linux/lib/libc.so.6',
                 }
@@ -430,7 +429,7 @@ class BuildInputsTest(unittest.TestCase):
                 target, compile_target = cache/'link.ninja', cache/'compile.ninja'
                 target.write_text(f'build runtime: {toolchain_name}_solink vm.o\n' + (
                     f'  ldflags = --sysroot={sdk}/buildtools/sysroot/linux -fPIC '
-                    '--target=x86_64-linux-gnu -static-libgcc -static-libstdc++ '
+                    f'--target={build.LINUX_TARGETS[cpu]} -static-libgcc -static-libstdc++ '
                     '-Wl,-rpath=\\$$ORIGIN/ -Wl,--disable-new-dtags\n  libs = -ldl -lpthread\n'
                     if linux else f'  ldflags = -nostdlib++ {mac_libcxx} -Wl,--icf=all '
                     '-Wl,-dead_strip -undefined dynamic_lookup -Wl,-install_name,@rpath/old.dylib '
@@ -463,7 +462,7 @@ class BuildInputsTest(unittest.TestCase):
                     if command[0] == 'codesign':
                         return ''
                     if '--file-header' in command:
-                        return 'Class: ELF64\nMachine: Advanced Micro Devices X86-64'
+                        return 'Class: ELF64\nMachine: ' + ('AArch64' if cpu == 'arm64' else 'AMD x86-64')
                     if '--dynamic' in command:
                         binary = Path(command[-1])
                         runtime = next(binary.parent.glob('*.so')).name
@@ -514,7 +513,7 @@ class BuildInputsTest(unittest.TestCase):
                 output = root/'bundle'
                 with patch.object(build, 'ROOT', repo), patch.object(build, 'run', fake_run), \
                      patch.object(build.platform, 'system', return_value='Linux' if linux else 'Darwin'), \
-                     patch.object(build.platform, 'machine', return_value='x86_64' if cpu == 'x64' else 'arm64'), \
+                     patch.object(build.platform, 'machine', return_value='x86_64' if cpu == 'x64' else 'aarch64' if linux else 'arm64'), \
                      patch.object(build, 'validate_cache', return_value=(target, compile_target)), \
                      patch.object(build, 'publish', side_effect=lambda a, b: a.rename(b)):
                     if changed and not initial_change:
@@ -546,12 +545,15 @@ class BuildInputsTest(unittest.TestCase):
                                         self.assertNotIn('-Wl,-rpath,@loader_path/../../..', command)
                         if linux:
                             if initial_change:
-                                self.assertNotEqual(manifest['identity'], original_identity)
-                            elif original_identity is not None:
-                                self.assertEqual(manifest['identity'], original_identity)
+                                self.assertNotEqual(manifest['identity'], original_identities[profile])
+                            elif profile in original_identities:
+                                self.assertEqual(manifest['identity'], original_identities[profile])
                             else:
-                                original_identity = manifest['identity']
+                                original_identities[profile] = manifest['identity']
                             self.assertEqual(manifest['minimumLibcVersion'], '2.28')
+                            bridge_compile = next(command for command in commands
+                                                  if str(repo/'native/bridge/bridge.cc') in command)
+                            self.assertIn('--target='+build.LINUX_TARGETS[cpu], bridge_compile)
                             self.assertEqual(manifest['libc'], 'glibc')
                             self.assertNotIn('minimumOsVersion', manifest)
                             self.assertEqual(manifest['build']['provenance']['compiler']['sysrootSha256'],
@@ -567,6 +569,7 @@ class BuildInputsTest(unittest.TestCase):
                             for command in links:
                                 self.assertIn('-Wl,--strip-debug', command)
                                 self.assertIn('-static-libstdc++', command)
+                                self.assertIn('--target='+build.LINUX_TARGETS[cpu], command)
                                 self.assertIn(f'--sysroot={sdk}/buildtools/sysroot/linux', command)
                                 self.assertIn('-Wl,-rpath,$ORIGIN', command)
                                 self.assertNotIn('-Wl,-rpath=$$ORIGIN/', command)
@@ -609,80 +612,107 @@ class BuildInputsTest(unittest.TestCase):
                             self.assertEqual(build.validate_cache(sdk, cache), (target, compile_target))
 
     def test_linux_cache_requires_pinned_target_and_sysroot(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            sdk, cache = root/'sdk', root/'cache'
-            (sdk/'tools').mkdir(parents=True)
-            (sdk/'tools/VERSION').write_text('MAJOR 3\nMINOR 13\nPATCH 5\n')
-            sysroot = sdk/'buildtools/sysroot/linux'
-            sysroot.mkdir(parents=True)
-            target = cache/'clang_x64_shared/obj/runtime/napi/napi_runtime.ninja'
-            compile_target = target.with_name('napi_runtime_set.ninja')
-            target.parent.mkdir(parents=True)
-            toolchain = cache/'clang_x64_shared/toolchain.ninja'
-            toolchain.write_text('command = ../../buildtools/linux-x64/clang/bin/clang++')
-            args = {'target_os': '"linux"', 'host_cpu': '"x64"', 'target_cpu': '"x64"',
-                    'dart_target_arch': '"x64"', 'dart_sysroot': '"debian"', 'is_product': 'true',
-                    **{key: 'false' for key in ['is_release', 'is_debug', 'dart_debug',
-                        'dart_use_compressed_pointers', 'dart_dynamic_modules', 'is_asan',
-                        'is_lsan', 'is_msan', 'is_tsan', 'is_ubsan', 'is_hwasan']}}
-            flags = f'--sysroot={sysroot} --target=x86_64-linux-gnu -fPIC'
-            for changed in [None, 'host', 'args-sysroot', 'compile-sysroot', 'link-sysroot', 'pic', 'compiler', 'libcxx']:
-                with self.subTest(changed=changed):
-                    current = dict(args)
-                    if changed == 'host':
-                        current['host_cpu'] = '"arm64"'
-                    if changed == 'args-sysroot':
-                        current['dart_sysroot'] = '"alpine"'
-                    if changed == 'libcxx':
-                        current['use_custom_libcxx'] = 'true'
-                    (cache/'args.gn').write_text('\n'.join(f'{key} = {value}' for key, value in current.items()))
-                    compile_target.write_text('cflags = ' + (flags.replace(str(sysroot), '/host')
-                                              if changed == 'compile-sysroot' else flags))
-                    target.write_text('  ldflags = ' + (flags.replace(str(sysroot), '/host')
-                                      if changed == 'link-sysroot' else flags.replace('-fPIC', '')
-                                      if changed == 'pic' else flags))
-                    toolchain.write_text('command = ' + ('/usr/bin/clang++' if changed == 'compiler' else
-                                         '../../buildtools/linux-x64/clang/bin/clang++'))
-                    with patch.object(build.platform, 'system', return_value='Linux'), \
-                         patch.object(build.platform, 'machine', return_value='x86_64'), \
-                         patch.object(build, 'run', return_value=build.SDK_REVISION):
-                        if changed:
-                            with self.assertRaises(ValueError):
-                                build.validate_cache(sdk, cache)
-                        else:
-                            self.assertEqual(build.validate_cache(sdk, cache), (target, compile_target))
+        for cpu, machine, other in [('x64', 'x86_64', 'arm64'), ('arm64', 'aarch64', 'x64')]:
+            with self.subTest(cpu=cpu), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                sdk, cache = root/'sdk', root/'cache'
+                (sdk/'tools').mkdir(parents=True)
+                (sdk/'tools/VERSION').write_text('MAJOR 3\nMINOR 13\nPATCH 5\n')
+                sysroot = sdk/'buildtools/sysroot/linux'
+                sysroot.mkdir(parents=True)
+                target = cache/f'clang_{cpu}_shared/obj/runtime/napi/napi_runtime.ninja'
+                compile_target = target.with_name('napi_runtime_set.ninja')
+                target.parent.mkdir(parents=True)
+                toolchain = cache/f'clang_{cpu}_shared/toolchain.ninja'
+                args = {'target_os': '"linux"', 'host_cpu': f'"{cpu}"', 'target_cpu': f'"{cpu}"',
+                        'dart_target_arch': f'"{cpu}"', 'dart_sysroot': '"debian"', 'is_product': 'true',
+                        **{key: 'false' for key in ['is_release', 'is_debug', 'dart_debug',
+                            'dart_use_compressed_pointers', 'dart_dynamic_modules', 'is_asan',
+                            'is_lsan', 'is_msan', 'is_tsan', 'is_ubsan', 'is_hwasan']}}
+                flags = f'--sysroot={sysroot} --target={build.LINUX_TARGETS[cpu]} -fPIC'
+                for changed in [None, 'host', 'args-sysroot', 'compile-sysroot', 'link-sysroot',
+                                'compile-target', 'link-target', 'pic', 'compiler', 'other-compiler', 'libcxx']:
+                    with self.subTest(changed=changed):
+                        current = dict(args)
+                        if changed == 'host':
+                            current['host_cpu'] = f'"{other}"'
+                        if changed == 'args-sysroot':
+                            current['dart_sysroot'] = '"alpine"'
+                        if changed == 'libcxx':
+                            current['use_custom_libcxx'] = 'true'
+                        (cache/'args.gn').write_text('\n'.join(f'{key} = {value}' for key, value in current.items()))
+                        compile_flags = flags.replace(str(sysroot), '/host') if changed == 'compile-sysroot' else flags
+                        link_flags = flags.replace(str(sysroot), '/host') if changed == 'link-sysroot' else flags
+                        if changed == 'compile-target':
+                            compile_flags = flags.replace(build.LINUX_TARGETS[cpu], build.LINUX_TARGETS[other])
+                        if changed == 'link-target':
+                            link_flags = flags.replace(build.LINUX_TARGETS[cpu], build.LINUX_TARGETS[other])
+                        if changed == 'pic':
+                            link_flags = flags.replace('-fPIC', '')
+                        compile_target.write_text('cflags = ' + compile_flags)
+                        target.write_text('  ldflags = ' + link_flags)
+                        compiler_cpu = other if changed == 'other-compiler' else cpu
+                        toolchain.write_text('command = ' + ('/usr/bin/clang++' if changed == 'compiler' else
+                                             f'../../buildtools/linux-{compiler_cpu}/clang/bin/clang++'))
+                        with patch.object(build.platform, 'system', return_value='Linux'), \
+                             patch.object(build.platform, 'machine', return_value=machine), \
+                             patch.object(build, 'run', return_value=build.SDK_REVISION):
+                            if changed:
+                                with self.assertRaises(ValueError):
+                                    build.validate_cache(sdk, cache)
+                            else:
+                                self.assertEqual(build.validate_cache(sdk, cache), (target, compile_target))
 
     def test_elf_rejects_newer_libc_and_nonportable_dependencies(self):
-        dynamic = ('(SONAME) Library soname: [bridge.node]\n'
-                   '(RUNPATH) Library runpath: [$ORIGIN]\n'
-                   '(NEEDED) Shared library: [runtime.so]\n'
-                   '(NEEDED) Shared library: [libc.so.6]\n')
-        for changed in [None, 'glibc', 'private-glibc', 'absolute-path', 'libstdc++', 'runpath', 'machine']:
-            with self.subTest(changed=changed):
-                def readelf(command, cwd=None):
-                    if '--file-header' in command:
-                        return 'Class: ELF64\nMachine: ' + ('AArch64' if changed == 'machine' else 'AMD x86-64')
-                    if '--version-info' in command:
-                        return 'Name: GLIBC_' + ('2.29' if changed == 'glibc' else
-                                                'PRIVATE' if changed == 'private-glibc' else '2.28')
-                    if '--dyn-syms' in command:
-                        return '1: 0 0 FUNC GLOBAL DEFAULT UND future_api@GLIBC_2.29 (2)'
-                    value = dynamic
-                    if changed == 'absolute-path':
-                        value += '(NEEDED) Shared library: [/build/libhelper.so]'
-                    if changed == 'libstdc++':
-                        value += '(NEEDED) Shared library: [libstdc++.so.6]'
-                    if changed == 'runpath':
-                        value = value.replace('$ORIGIN', '/build')
-                    return value
+        for cpu, machine, loader, wrong_loader in [
+            ('x64', 'AMD x86-64', 'ld-linux-x86-64.so.2', 'ld-linux-aarch64.so.1'),
+            ('arm64', 'AArch64', 'ld-linux-aarch64.so.1', 'ld-linux-x86-64.so.2'),
+        ]:
+            dynamic = ('(SONAME) Library soname: [bridge.node]\n'
+                       '(RUNPATH) Library runpath: [$ORIGIN]\n'
+                       '(NEEDED) Shared library: [runtime.so]\n'
+                       '(NEEDED) Shared library: [libc.so.6]\n'
+                       f'(NEEDED) Shared library: [{loader}]\n')
+            for changed in [None, 'glibc', 'private-glibc', 'absolute-path', 'libstdc++', 'runpath', 'machine', 'loader']:
+                with self.subTest(cpu=cpu, changed=changed):
+                    def readelf(command, cwd=None):
+                        if '--file-header' in command:
+                            return 'Class: ELF64\nMachine: ' + ('ARM' if changed == 'machine' else machine)
+                        if '--version-info' in command:
+                            return 'Name: GLIBC_' + ('2.29' if changed == 'glibc' else
+                                                    'PRIVATE' if changed == 'private-glibc' else '2.28')
+                        if '--dyn-syms' in command:
+                            return '1: 0 0 FUNC GLOBAL DEFAULT UND future_api@GLIBC_2.29 (2)'
+                        value = dynamic
+                        if changed == 'absolute-path':
+                            value += '(NEEDED) Shared library: [/build/libhelper.so]'
+                        if changed == 'libstdc++':
+                            value += '(NEEDED) Shared library: [libstdc++.so.6]'
+                        if changed == 'runpath':
+                            value = value.replace('$ORIGIN', '/build')
+                        if changed == 'loader':
+                            value = value.replace(loader, wrong_loader)
+                        return value
 
-                with patch.object(build, 'run', readelf):
-                    if changed:
-                        with self.assertRaisesRegex(ValueError, 'future_api@GLIBC_2.29' if changed == 'glibc' else '.'):
-                            build.validate_elf('readelf', Path('bridge.node'), 'runtime.so')
-                    else:
-                        build.validate_elf('readelf', Path('bridge.node'), 'runtime.so')
+                    with patch.object(build, 'run', readelf):
+                        if changed:
+                            with self.assertRaisesRegex(ValueError, 'future_api@GLIBC_2.29' if changed == 'glibc' else '.'):
+                                build.validate_elf('readelf', Path('bridge.node'), 'runtime.so', cpu)
+                        else:
+                            build.validate_elf('readelf', Path('bridge.node'), 'runtime.so', cpu)
+
+    def test_linux_publication_uses_the_native_renameat2_syscall(self):
+        for machine, syscall in [('x86_64', 316), ('aarch64', 276)]:
+            with self.subTest(machine=machine), \
+                    patch.object(build.platform, 'system', return_value='Linux'), \
+                    patch.object(build.platform, 'machine', return_value=machine), \
+                    patch.object(build.ctypes, 'CDLL') as library:
+                library.return_value.syscall.return_value = 0
+                build.publish(Path('/source'), Path('/target'))
+                args = library.return_value.syscall.call_args.args
+                self.assertEqual([arg.value for arg in args],
+                                 [syscall, -100, b'/source', -100, b'/target', 1])
+                library.return_value.renamex_np.assert_not_called()
 
     def test_atomic_publish_preserves_existing_destination(self):
         with tempfile.TemporaryDirectory() as tmp:
