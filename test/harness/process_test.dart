@@ -266,6 +266,86 @@ void main() {
     await _expectHeartbeatStopped(directory, 'grandchild-heartbeat');
     expect(await unrelatedHeartbeat.length(), greaterThan(before));
   });
+  test('a nested owner stops when its parent loses the control pipe', () async {
+    await _writeProcessTree(directory);
+    final script = File('${directory.path}/nested.dart');
+    final helper = File('test/support/process.dart').absolute.uri;
+    await script.writeAsString('''
+import ${jsonEncode(helper.toString())};
+Future<void> main() => runProcess(
+  ${jsonEncode(node)},
+  ['tree-parent.cjs', 'wait', 'inherit', 'true'],
+  workingDirectory: ${jsonEncode(directory.path)},
+  timeout: const Duration(minutes: 1),
+).then((_) {});
+''');
+    await expectLater(
+      runProcess(Platform.resolvedExecutable, [
+        script.path,
+      ], timeout: const Duration(seconds: 3)),
+      throwsA(isA<TimeoutException>()),
+    );
+    await _expectHeartbeatStopped(directory, 'child-heartbeat');
+    await _expectHeartbeatStopped(directory, 'grandchild-heartbeat');
+  }, skip: Platform.isWindows);
+
+  for (final mode in ['exit', 'wait']) {
+    test('Windows Job releases descendant file handles after $mode', () async {
+      final script = File('${directory.path}/lock.py');
+      await script.writeAsString(r'''
+import ctypes
+from ctypes import wintypes
+from pathlib import Path
+import subprocess
+import sys
+import time
+
+root = Path(sys.argv[2])
+if sys.argv[1] == 'grandchild':
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD,
+        wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD, wintypes.DWORD,
+        wintypes.HANDLE]
+    kernel.CreateFileW.restype = wintypes.HANDLE
+    kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+    handle = kernel.CreateFileW(str(root / 'locked'), 0x40000000, 0,
+        None, 2, 0x80, None)
+    if handle == ctypes.c_void_p(-1).value:
+        raise ctypes.WinError(ctypes.get_last_error())
+    (root / 'ready').write_text('ready')
+    until = time.monotonic() + 10
+    while time.monotonic() < until:
+        time.sleep(0.01)
+    kernel.CloseHandle(handle)
+else:
+    child = subprocess.Popen([sys.executable, __file__, 'grandchild', str(root)],
+        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL)
+    until = time.monotonic() + 5
+    while not (root / 'ready').exists():
+        if time.monotonic() > until:
+            raise RuntimeError('grandchild did not open the file')
+        time.sleep(0.01)
+    print('locked', flush=True)
+    if sys.argv[1] == 'wait':
+        child.wait()
+''');
+      final work = runProcess(
+        Platform.environment['NAPI_TEST_PYTHON'] ?? 'python',
+        [script.path, mode, directory.path],
+        timeout: const Duration(seconds: 3),
+      );
+      if (mode == 'wait') {
+        await expectLater(work, throwsA(isA<TimeoutException>()));
+      } else {
+        expect((await work).stdout, contains('locked'));
+      }
+      // The grandchild deliberately has no inherited output pipes. Waiting for
+      // owner exit/EOF alone must not leave a non-shareable handle behind.
+      await directory.delete(recursive: true);
+      expect(await directory.exists(), isFalse);
+    }, skip: !Platform.isWindows);
+  }
 }
 
 Future<void> _expectHeartbeatStopped(Directory directory, String name) async {

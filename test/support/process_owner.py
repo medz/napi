@@ -103,7 +103,7 @@ def main():
         if child.returncode is not None:
             report(state="exited", code=child.returncode, pid=child.pid)
     except OSError as error:
-        report(state="error", message=str(error), code=error.errno or 1)
+        report(state="error", message=f"{command[0]}: {error}", code=error.errno or 1)
     finally:
         # Parent cancellation/death closes stdin. Do not leave its children
         # running, even if Dart never gets as far as its cleanup block.
