@@ -95,6 +95,25 @@ Future<void> verifyPlatformPackage(File archive) => consumer((root) async {
       .copy('${directory.path}/test.mjs');
   await File('test/typescript/platform_package.mts')
       .copy('${directory.path}/consumer.mts');
+  await File('test/integration/platform_commonjs.cjs')
+      .copy('${directory.path}/commonjs.cjs');
+  await File('test/typescript/platform_commonjs.cts')
+      .copy('${directory.path}/commonjs.cts');
+  for (final order in ['cjs-first', 'esm-first']) {
+    await run('node', ['commonjs.cjs', order], cwd: directory.path);
+  }
+  await typecheck([
+    '--ignoreConfig',
+    '--strict',
+    '--noEmit',
+    '--target',
+    'ES2022',
+    '--module',
+    'NodeNext',
+    '--moduleResolution',
+    'NodeNext',
+    'commonjs.cts',
+  ], cwd: directory.path);
   await run('node', ['test.mjs'], cwd: directory.path);
   await typescript(directory, 'consumer.mts');
 

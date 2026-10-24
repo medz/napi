@@ -16,6 +16,7 @@ String emitNativePackageLoader(
       .join(', ');
   final code = StringBuffer('''
 import {release as \$napiRelease} from 'node:os';
+import {createRequire as \$napiCreateRequire} from 'node:module';
 const \$napiModules = ${jsonEncode(paths)};
 const \$napiHost = process.platform + '/' + process.arch;
 const \$napiModule = \$napiModules[\$napiHost];
@@ -44,7 +45,9 @@ if (process.platform === 'linux') {
 }
 ''');
   }
-  code.writeln(r'const $napiBindings = await import($napiModule);');
+  code.writeln(
+    r'const $napiBindings = $napiCreateRequire(import.meta.url)($napiModule);',
+  );
   for (final (index, name) in exports.indexed) {
     code.writeln(
       'const \$napi$index = \$napiBindings[${jsonEncode(name)}]; export {\$napi$index as ${jsonEncode(name)}};',
