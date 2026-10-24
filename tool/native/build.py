@@ -55,9 +55,11 @@ def host_profile():
     host = platform.system(), platform.machine()
     if host == ('Darwin', 'arm64'):
         return 'macos-arm64'
+    if host == ('Darwin', 'x86_64'):
+        return 'macos-x64'
     if host == ('Linux', 'x86_64'):
         return 'linux-x64'
-    raise ValueError('Only native macOS arm64 and Linux x64 maintainer builds are supported')
+    raise ValueError('Only native macOS arm64/x64 and Linux x64 maintainer builds are supported')
 
 
 def source_inputs():
@@ -116,7 +118,9 @@ def linux_toolchain_inputs(depfile, sdk, cache, clang, linker, ignored=()):
 
 
 def validate_cache(sdk, cache):
-    linux = host_profile() == 'linux-x64'
+    profile = host_profile()
+    linux = profile == 'linux-x64'
+    architecture = profile.rsplit('-', 1)[1]
     if run(['git', '-C', str(sdk), 'rev-parse', 'HEAD']) != SDK_REVISION:
         raise ValueError(f'Expected Dart SDK revision {SDK_REVISION}')
     version = dict(line.split(None, 1) for line in (sdk/'tools/VERSION').read_text().splitlines()
@@ -131,7 +135,7 @@ def validate_cache(sdk, cache):
             args[key] = value
     expected = {
         'target_os': '"linux"' if linux else '"mac"',
-        **{key: '"x64"' if linux else '"arm64"'
+        **{key: '"'+architecture+'"'
            for key in ['host_cpu', 'target_cpu', 'dart_target_arch']},
         'is_product': 'true', 'is_release': 'false',
         'is_debug': 'false', 'dart_debug': 'false', 'dart_use_compressed_pointers': 'false',
@@ -146,10 +150,12 @@ def validate_cache(sdk, cache):
     for key, value in expected.items():
         if args.get(key) != value:
             raise ValueError(f'Unsupported VM cache: args.gn must set {key} = {value}')
-    toolchain_name = 'clang_x64_shared' if linux else 'clang_arm64_shared'
+    toolchain_name = f'clang_{architecture}_shared'
     toolchain = (cache/toolchain_name/'toolchain.ninja').read_text()
     if not linux and f'-mmacosx-version-min={MINIMUM_OS}' not in toolchain:
         raise ValueError(f'VM cache must target macOS {MINIMUM_OS}')
+    if not linux and f'buildtools/mac-{architecture}/clang/bin/clang++' not in toolchain:
+        raise ValueError(f'VM cache must use the pinned SDK macOS {architecture} clang')
     target = cache/toolchain_name/'obj/runtime/napi/napi_runtime.ninja'
     compile_target = cache/toolchain_name/'obj/runtime/napi/napi_runtime_set.ninja'
     if not target.is_file() or not compile_target.is_file():
@@ -225,7 +231,8 @@ def validate_elf(readelf, binary, runtime):
 def build(sdk, headers, output, cache):
     profile = host_profile()
     linux = profile == 'linux-x64'
-    toolchain_name = 'clang_x64_shared' if linux else 'clang_arm64_shared'
+    architecture = profile.rsplit('-', 1)[1]
+    toolchain_name = f'clang_{architecture}_shared'
     if os.path.lexists(output):
         raise FileExistsError(f'Output already exists: {output}')
     if not (headers/'node_api.h').is_file():
@@ -284,10 +291,28 @@ def build(sdk, headers, output, cache):
                        '-Wl,--enable-new-dtags', '-Wl,-rpath,$ORIGIN']
         libraries = shlex.split(link_vars.get('libs', ''))
     else:
-        clang = run(['xcrun', '--find', 'clang++'])
+        clang_root = sdk/f'buildtools/mac-{architecture}/clang'
+        clang = str(clang_root/'bin/clang++')
         sysroot = run(['xcrun', '--show-sdk-path'])
-        compiler_profile = {'macosSdkVersion': run(['xcrun', '--show-sdk-version'])}
-        compile_prefix = ['-isysroot', sysroot, f'-mmacosx-version-min={MINIMUM_OS}']
+        compiler_packages = {
+            'clangPackageSha256': clang_root/'.versions/clang.cipd_version',
+            'libcxxSha256': clang_root/'lib/libc++.a',
+        }
+        compiler_profile = {
+            'macosSdkVersion': run(['xcrun', '--show-sdk-version']),
+            **{name: digest(path) for name, path in compiler_packages.items()},
+        }
+        mac_target = 'x86_64' if architecture == 'x64' else architecture
+        compile_prefix = ['-isysroot', sysroot, f'-mmacosx-version-min={MINIMUM_OS}',
+                          f'--target={mac_target}-apple-macos']
+        link_vars = variables(target)
+        # Keep the SDK's compiler/libc++ pairing. Omit the optional lld ICF
+        # flag so this link recipe also accepts Xcode's linker.
+        link_flags = [flag for flag in shlex.split(link_vars.get('ldflags', ''))
+                      if not flag.startswith(('-Wl,-install_name,', '-Wl,-rpath,'))
+                      and flag != '-Wl,--icf=all']
+        libraries = [flag for key in ['libs', 'frameworks']
+                     for flag in shlex.split(link_vars.get(key, ''))]
     compiler_version = run([clang, '--version'])
     if linux:
         compiler_version = '\n'.join(line for line in compiler_version.splitlines()
@@ -322,6 +347,9 @@ def build(sdk, headers, output, cache):
             return dependency_inputs([depfile], header_roots, include_system=linux)
 
         identity_inputs = source_hash + '\0' + vm_inputs_hash
+        if not linux:
+            identity_inputs += '\0' + provenance['compiler']['sha256']
+            identity_inputs += '\0' + json.dumps(compiler_profile, sort_keys=True)
         if linux:
             runtime_header_inputs = {}
             for name in ['runtime', 'identity']:
@@ -422,18 +450,16 @@ def build(sdk, headers, output, cache):
             validate_elf(str(Path(clang).with_name('llvm-readelf')), runtime, filename)
             check_link_inputs(runtime_link, object_paths)
         else:
-            run([clang, '-shared', '-isysroot', sysroot, f'-mmacosx-version-min={MINIMUM_OS}',
-                 '--target=arm64-apple-macos', '-Wl,-dead_strip', '-undefined', 'dynamic_lookup',
+            run([clang, '-shared', *compile_prefix, *link_flags,
                  '-Wl,-install_name,@rpath/'+filename, '-Wl,-filelist,'+str(filelist),
-                 '-ldl', '-lpthread', '-framework', 'CoreFoundation', '-framework', 'Security',
-                 '-framework', 'Foundation', '-framework', 'CoreServices', '-o', str(runtime)], cwd=cache)
+                 *libraries, '-o', str(runtime)], cwd=cache)
         (stage/'expected_runtime.h').write_text('constexpr const char* kExpectedRuntimeId = '+json.dumps(identity)+';\n')
         bridge = artifact/'bridge.node'
         bridge_dependencies = stage/'bridge.d'
         depfiles.append(bridge_dependencies)
         bridge_object = stage/'bridge.o'
         bridge_link = (['-c', '-o', str(bridge_object)] if linux else
-                       [str(runtime), '-Wl,-install_name,@rpath/bridge.node',
+                       [str(runtime), *link_flags, *libraries, '-Wl,-install_name,@rpath/bridge.node',
                         '-Wl,-rpath,@loader_path', '-o', str(bridge)])
         compile_source([clang, *bridge_options,
              str(ROOT/'native/bridge/bridge.cc'), *bridge_link],
@@ -457,7 +483,7 @@ def build(sdk, headers, output, cache):
         shutil.copy2(ROOT/'LICENSE', artifact/'NAPI_LICENSE')
         manifest = {
             'format': 1, 'sdkVersion': SDK_VERSION, 'sdkRevision': SDK_REVISION,
-            'platform': 'linux' if linux else 'macos', 'architecture': 'x64' if linux else 'arm64',
+            'platform': 'linux' if linux else 'macos', 'architecture': architecture,
             **({'libc': 'glibc', 'minimumLibcVersion': MINIMUM_LIBC} if linux else
                {'minimumOsVersion': MINIMUM_OS}),
             'abi': ABI, 'identity': identity, 'bridge': 'bridge.node', 'runtime': filename,
@@ -496,7 +522,9 @@ def main():
     parser.add_argument('--runtime-build', type=Path)
     args = parser.parse_args()
     sdk = args.sdk.resolve(strict=True)
-    default_cache = 'out/ProductX64' if host_profile() == 'linux-x64' else 'xcodebuild/ProductARM64'
+    profile = host_profile()
+    default_cache = ('out/ProductX64' if profile == 'linux-x64' else
+                     'xcodebuild/Product' + profile.rsplit('-', 1)[1].upper())
     cache = (args.runtime_build or sdk/default_cache).resolve(strict=True)
     # Preserve the caller's include-root layout when node/ is a package-manager
     # symlink and libuv is installed beside it rather than in the same package.

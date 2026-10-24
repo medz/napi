@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:ffi' show Abi;
 import 'dart:io';
 
 import 'package:napi/build.dart';
@@ -28,7 +29,11 @@ Future<void> main(List<String> arguments) async {
         );
         final package = await assemblePackage(
           modules: [
-            for (final platform in ['macos-arm64', 'linux-x64-glibc'])
+            for (final platform in [
+              'macos-arm64',
+              'macos-x64',
+              'linux-x64-glibc',
+            ])
               BuiltModule(
                 Directory('$modules/platform-module-$platform'),
                 wasm.sdkVersion,
@@ -84,6 +89,7 @@ Future<void> verifyPlatformPackage(File archive) => consumer((root) async {
   );
   for (final artifact in [
     'native/macos-arm64/module.aot',
+    'native/macos-x64/module.aot',
     'native/linux-x64-glibc/module.aot',
     'wasm/module.wasm',
   ]) {
@@ -117,7 +123,12 @@ Future<void> verifyPlatformPackage(File archive) => consumer((root) async {
   await run('node', ['test.mjs'], cwd: directory.path);
   await typescript(directory, 'consumer.mts');
 
-  final platform = Platform.isMacOS ? 'macos-arm64' : 'linux-x64-glibc';
+  final platform = switch (Abi.current()) {
+    Abi.macosArm64 => 'macos-arm64',
+    Abi.macosX64 => 'macos-x64',
+    Abi.linuxX64 => 'linux-x64-glibc',
+    final abi => throw UnsupportedError('Unsupported native platform: $abi'),
+  };
   await File('${package.path}/native/$platform/module.aot').delete();
   await File('${directory.path}/broken.mjs').writeAsString('''
 import assert from 'node:assert/strict';

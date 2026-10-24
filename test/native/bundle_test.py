@@ -349,7 +349,7 @@ class BuildInputsTest(unittest.TestCase):
     def test_prepared_inputs_cannot_change_during_build(self):
         # Commands are intercepted: this exercises publication decisions without
         # compiling C/C++, downloading an SDK or loading any fixture payload.
-        cases = [(profile, changed) for profile in ['macos-arm64', 'linux-x64']
+        cases = [(profile, changed) for profile in ['macos-arm64', 'macos-x64', 'linux-x64']
                  for changed in [None, 'vm', 'recipe', 'header', 'source', 'compiler']]
         cases += [('linux-x64', 'sysroot'), ('linux-x64', 'clang-package')]
         cases += [('linux-x64', 'bridge-extra')]
@@ -364,6 +364,7 @@ class BuildInputsTest(unittest.TestCase):
         for profile, changed in cases:
             with self.subTest(profile=profile, changed=changed), tempfile.TemporaryDirectory() as tmp:
                 linux = profile == 'linux-x64'
+                cpu = profile.rsplit('-', 1)[1]
                 root = Path(tmp).resolve()
                 repo, cache, sdk, node = [root/name for name in ['repo', 'cache', 'sdk', 'node']]
                 if changed == 'nested-sdk':
@@ -391,7 +392,7 @@ class BuildInputsTest(unittest.TestCase):
                 cxx_header.write_text('C++ header')
                 if changed == 'initial-cxx-header':
                     cxx_header.write_text('C++ header changed before build')
-                clang = sdk/'buildtools/linux-x64/clang/bin/clang++' if linux else root/'clang'
+                clang = sdk/f'buildtools/{"linux" if linux else "mac"}-{cpu}/clang/bin/clang++'
                 clang.parent.mkdir(parents=True, exist_ok=True)
                 clang.write_text('compiler')
                 packages = {
@@ -401,6 +402,13 @@ class BuildInputsTest(unittest.TestCase):
                 for path in packages.values():
                     path.parent.mkdir(parents=True, exist_ok=True)
                     path.write_text('pinned package')
+                if not linux:
+                    mac_package = clang.parent.parent/'.versions/clang.cipd_version'
+                    mac_package.parent.mkdir()
+                    mac_package.write_text('pinned Mac compiler')
+                    mac_libcxx = clang.parent.parent/'lib/libc++.a'
+                    mac_libcxx.parent.mkdir()
+                    mac_libcxx.write_text('pinned Mac libc++')
                 link_inputs = {
                     'linker': sdk/'buildtools/linux-x64/clang/bin/ld.lld',
                     'crt': sdk/'buildtools/sysroot/linux/usr/lib/crti.o',
@@ -415,7 +423,7 @@ class BuildInputsTest(unittest.TestCase):
                 if initial_change and changed.removeprefix('initial-') in link_inputs:
                     link_inputs[changed.removeprefix('initial-')].write_text('updated before build')
                 (cache/'args.gn').write_text('arguments')
-                toolchain_name = 'clang_x64_shared' if linux else 'clang_arm64_shared'
+                toolchain_name = f'clang_{cpu}_shared'
                 toolchain = cache/toolchain_name/'toolchain.ninja'
                 toolchain.parent.mkdir()
                 toolchain.write_text('toolchain')
@@ -424,7 +432,10 @@ class BuildInputsTest(unittest.TestCase):
                     f'  ldflags = --sysroot={sdk}/buildtools/sysroot/linux -fPIC '
                     '--target=x86_64-linux-gnu -static-libgcc -static-libstdc++ '
                     '-Wl,-rpath=\\$$ORIGIN/ -Wl,--disable-new-dtags\n  libs = -ldl -lpthread\n'
-                    if linux else ''))
+                    if linux else f'  ldflags = -nostdlib++ {mac_libcxx} -Wl,--icf=all '
+                    '-Wl,-dead_strip -undefined dynamic_lookup -Wl,-install_name,@rpath/old.dylib '
+                    '-Wl,-rpath,@loader_path/../../..\n  libs = -ldl -lpthread\n'
+                    '  frameworks = -framework CoreFoundation -framework Security\n'))
                 compile_target.write_text('defines = -DPRODUCT -DDART_PRECOMPILED_RUNTIME\n')
                 if changed == 'initial-link-flags':
                     target.write_text(target.read_text().replace('-fPIC', '-fPIC -Wl,-Bsymbolic'))
@@ -503,7 +514,7 @@ class BuildInputsTest(unittest.TestCase):
                 output = root/'bundle'
                 with patch.object(build, 'ROOT', repo), patch.object(build, 'run', fake_run), \
                      patch.object(build.platform, 'system', return_value='Linux' if linux else 'Darwin'), \
-                     patch.object(build.platform, 'machine', return_value='x86_64' if linux else 'arm64'), \
+                     patch.object(build.platform, 'machine', return_value='x86_64' if cpu == 'x64' else 'arm64'), \
                      patch.object(build, 'validate_cache', return_value=(target, compile_target)), \
                      patch.object(build, 'publish', side_effect=lambda a, b: a.rename(b)):
                     if changed and not initial_change:
@@ -519,6 +530,20 @@ class BuildInputsTest(unittest.TestCase):
                                                      for path in [system_header, cxx_header]})
                         self.assertEqual(manifest['build']['provenance']['headers'], expected_headers)
                         self.assertIn(f'-product-{profile}-abi15-id', manifest['identity'])
+                        self.assertEqual(manifest['architecture'], cpu)
+                        if not linux:
+                            expected_target = ('x86_64' if cpu == 'x64' else cpu) + '-apple-macos'
+                            for command in commands:
+                                if command[0] == str(clang) and '-o' in command:
+                                    self.assertIn('--target='+expected_target, command)
+                                    self.assertIn('-mmacosx-version-min=14.0', command)
+                                    if '-shared' in command or '-dynamiclib' in command:
+                                        self.assertIn('-nostdlib++', command)
+                                        self.assertIn(str(mac_libcxx), command)
+                                        self.assertIn('Security', command)
+                                        self.assertNotIn('-Wl,--icf=all', command)
+                                        self.assertNotIn('-Wl,-install_name,@rpath/old.dylib', command)
+                                        self.assertNotIn('-Wl,-rpath,@loader_path/../../..', command)
                         if linux:
                             if initial_change:
                                 self.assertNotEqual(manifest['identity'], original_identity)
@@ -549,6 +574,39 @@ class BuildInputsTest(unittest.TestCase):
                             self.assertIn('-Wl,-soname,'+manifest['runtime'], links[1])
                             self.assertIn('-Wl,-soname,bridge.node', links[2])
                             self.assertFalse(any(command[0] in ['xcrun', 'codesign'] for command in commands))
+
+    def test_macos_cache_rejects_wrong_architecture(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sdk, cache = root/'sdk', root/'cache'
+            (sdk/'tools').mkdir(parents=True)
+            (sdk/'tools/VERSION').write_text('MAJOR 3\nMINOR 13\nPATCH 5\n')
+            target = cache/'clang_x64_shared/obj/runtime/napi/napi_runtime.ninja'
+            compile_target = target.with_name('napi_runtime_set.ninja')
+            target.parent.mkdir(parents=True)
+            target.touch()
+            compile_target.touch()
+            (cache/'clang_x64_shared/toolchain.ninja').write_text(
+                '../../buildtools/mac-x64/clang/bin/clang++ -mmacosx-version-min=14.0')
+            args = {'target_os': '"mac"', 'host_cpu': '"x64"', 'target_cpu': '"x64"',
+                    'dart_target_arch': '"x64"', 'is_product': 'true',
+                    **{key: 'false' for key in ['is_release', 'is_debug', 'dart_debug',
+                        'dart_use_compressed_pointers', 'dart_dynamic_modules', 'is_asan',
+                        'is_lsan', 'is_msan', 'is_tsan', 'is_ubsan', 'is_hwasan']}}
+            for changed in [None, 'host_cpu', 'target_cpu', 'dart_target_arch']:
+                with self.subTest(changed=changed):
+                    current = dict(args)
+                    if changed:
+                        current[changed] = '"arm64"'
+                    (cache/'args.gn').write_text('\n'.join(f'{key} = {value}' for key, value in current.items()))
+                    with patch.object(build.platform, 'system', return_value='Darwin'), \
+                         patch.object(build.platform, 'machine', return_value='x86_64'), \
+                         patch.object(build, 'run', return_value=build.SDK_REVISION):
+                        if changed:
+                            with self.assertRaisesRegex(ValueError, changed):
+                                build.validate_cache(sdk, cache)
+                        else:
+                            self.assertEqual(build.validate_cache(sdk, cache), (target, compile_target))
 
     def test_linux_cache_requires_pinned_target_and_sysroot(self):
         with tempfile.TemporaryDirectory() as tmp:

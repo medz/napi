@@ -7,6 +7,7 @@ import 'package:test/test.dart';
 
 const _modules = {
   NativePlatform.macosArm64: './macos-arm64/module.mjs',
+  NativePlatform.macosX64: './macos-x64/module.mjs',
   NativePlatform.linuxX64: './linux-x64-glibc/module.mjs',
 };
 
@@ -144,14 +145,13 @@ assert.deepEqual(globalThis.loadedTargets, ['linuxX64']);
       await writeModules();
       for (final (platform, architecture) in [
         ('win32', 'x64'),
-        ('darwin', 'x64'),
         ('linux', 'arm64'),
       ]) {
         await run(
           '''
 await assert.rejects(import('./index.mjs'), error => {
   assert.ok(error.message.includes(${jsonEncode('no native artifact for $platform/$architecture')}));
-  assert.match(error.message, /Available targets: macOS arm64, Linux x64/);
+  assert.match(error.message, /Available targets: macOS arm64, macOS x64, Linux x64/);
   return true;
 });
 assert.equal(globalThis.loadedTargets, undefined);
@@ -204,6 +204,34 @@ assert.equal(globalThis.loadedTargets, undefined);
       );
     },
   );
+
+  test('Intel-only packages enforce the minimum macOS version', () async {
+    await writeModules();
+    await File('${directory.path}/native.mjs').writeAsString(
+      emitNativePackageLoader(
+        {NativePlatform.macosX64: _modules[NativePlatform.macosX64]!},
+        ['Counter'],
+      ),
+    );
+    await run(
+      r'''
+await assert.rejects(import('./native.mjs'), /requires macOS 14 or newer/);
+assert.equal(globalThis.loadedTargets, undefined);
+''',
+      platform: 'darwin',
+      architecture: 'x64',
+      kernel: '22.6.0',
+    );
+    await run(
+      r'''
+await import('./native.mjs');
+assert.deepEqual(globalThis.loadedTargets, ['macosX64']);
+assert.equal(globalThis.reportCalls, 0);
+''',
+      platform: 'darwin',
+      architecture: 'x64',
+    );
+  });
 
   test(
     'preserves a selected module failure and never tries another target',

@@ -52,46 +52,52 @@ import 'package:napi/napi.dart';
     expect(loader, contains('node:util'));
   });
 
-  test(
-    'Linux loaders check OS and architecture before loading native code',
-    () async {
-      final linux = await directory.createTemp('linux-loader-');
-      final loader = emitNativeLoader([], platform: NativePlatform.linuxX64);
-      await File('${linux.path}/module.mjs').writeAsString(loader);
-      await File('${linux.path}/bridge.node').writeAsString('''
+  for (final profile in [NativePlatform.linuxX64, NativePlatform.macosX64]) {
+    test(
+      '${profile.name} loaders check OS and architecture before loading native code',
+      () async {
+        final target = await directory.createTemp('${profile.name}-loader-');
+        final loader = emitNativeLoader([], platform: profile);
+        await File('${target.path}/module.mjs').writeAsString(loader);
+        await File('${target.path}/bridge.node').writeAsString('''
 globalThis.bridgeLoaded = true;
 exports.load = () => ({});
 ''');
-      for (final (platform, architecture, accepted) in [
-        ('linux', 'x64', true),
-        ('linux', 'arm64', false),
-        ('darwin', 'x64', false),
-      ]) {
-        await File('${linux.path}/preload.cjs').writeAsString('''
+        for (final (platform, architecture, accepted) in [
+          (profile.nodePlatform, 'x64', true),
+          (profile.nodePlatform, 'arm64', false),
+          (
+            profile == NativePlatform.linuxX64 ? 'darwin' : 'linux',
+            'x64',
+            false,
+          ),
+        ]) {
+          await File('${target.path}/preload.cjs').writeAsString('''
 Object.defineProperty(process, 'platform', {value: ${jsonEncode(platform)}});
 Object.defineProperty(process, 'arch', {value: ${jsonEncode(architecture)}});
 globalThis.diagnosticReports = 0;
 process.report.getReport = () => { globalThis.diagnosticReports++; return {}; };
 require.extensions['.node'] = require.extensions['.js'];
 ''');
-        await File('${linux.path}/check.mjs').writeAsString('''
+          await File('${target.path}/check.mjs').writeAsString('''
 import assert from 'node:assert/strict';
-${accepted ? "await import('./module.mjs');\nassert.equal(globalThis.bridgeLoaded, true);" : "await assert.rejects(import('./module.mjs'), /requires Linux x64/);\nassert.equal(globalThis.bridgeLoaded, undefined);"}
+${accepted ? "await import('./module.mjs');\nassert.equal(globalThis.bridgeLoaded, true);" : "await assert.rejects(import('./module.mjs'), error => error.message.includes(${jsonEncode('requires ${profile.description}')}));\nassert.equal(globalThis.bridgeLoaded, undefined);"}
 assert.equal(globalThis.diagnosticReports, 0);
 ''');
-        final result = await Process.run('node', [
-          '--require',
-          '${linux.path}/preload.cjs',
-          '${linux.path}/check.mjs',
-        ]);
-        expect(
-          result.exitCode,
-          0,
-          reason: '$platform/$architecture: ${result.stdout}${result.stderr}',
-        );
-      }
-    },
-  );
+          final result = await Process.run('node', [
+            '--require',
+            '${target.path}/preload.cjs',
+            '${target.path}/check.mjs',
+          ]);
+          expect(
+            result.exitCode,
+            0,
+            reason: '$platform/$architecture: ${result.stdout}${result.stderr}',
+          );
+        }
+      },
+    );
+  }
 
   test(
     'private helpers preserve identity and strict Promise admission',

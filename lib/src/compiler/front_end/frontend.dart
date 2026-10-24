@@ -1471,11 +1471,7 @@ final class _Reader {
       budget.visit(depth, leaf: true);
       return const ScalarDefault(null);
     }
-    final scalar =
-        value.toBoolValue() ??
-        value.toIntValue() ??
-        value.toDoubleValue() ??
-        value.toStringValue();
+    final scalar = constantScalarValue(value);
     budget.visit(depth, leaf: scalar != null);
     if (scalar != null) {
       if (depth > 0 && scalar is String) budget.text(scalar.length);

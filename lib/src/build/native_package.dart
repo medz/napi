@@ -24,7 +24,7 @@ if (\$napiModule === undefined) {
   throw new Error('This package has no native artifact for ' + \$napiHost + ${jsonEncode('. Available targets: $available.')});
 }
 ''');
-  if (modules.containsKey(NativePlatform.macosArm64)) {
+  if (modules.keys.any((platform) => platform.nodePlatform == 'darwin')) {
     code.writeln(r'''
 if (process.platform === 'darwin') {
   const version = /^(\d+)\./.exec($napiRelease());

@@ -3,7 +3,6 @@ import 'dart:io';
 
 import 'package:napi/src/build/native_bundle.dart';
 import 'package:napi/src/build/native_runtime.dart';
-import 'package:napi/src/compiler/native/platform.dart';
 import 'package:napi/src/compiler/sdk_adapter/dart_sdk_adapter.dart';
 import 'package:test/test.dart';
 
@@ -125,7 +124,7 @@ void main() => print(nativeRuntimeCacheDirectory().path);
       skip: scenario == 'unsupported'
           ? (_supported ? 'Requires an unsupported native host.' : false)
           : !_supported
-          ? 'Requires macOS arm64 or Linux x64 glibc.'
+          ? 'Requires macOS arm64/x64 or Linux x64 glibc.'
           : needsArchive && archive == null
           ? 'Set NAPI_TEST_RUNTIME_ARCHIVE to the published locked ZIP.'
           : false,
@@ -244,10 +243,7 @@ Future<void> _scenario(String scenario, Directory root) async {
         '${cache.path}/${nativeRuntimeArchive.sha256}',
       );
       expect(urls.first.toString(), nativeRuntimeArchive.url);
-      expect(
-        bundle.platform,
-        Platform.isLinux ? NativePlatform.linuxX64 : NativePlatform.macosArm64,
-      );
+      expect(bundle.platform, verifyNativeHost());
       for (final other in bundles) {
         expect(other.directory.path, bundle.directory.path);
         expect(other.hashes, bundle.hashes);

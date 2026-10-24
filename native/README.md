@@ -3,13 +3,13 @@
 This guide covers building and distributing the precompiled runtime. Application
 authors use the automatic download or local bundle described in
 [native builds](../doc/native.md); their business code is compiled as Dart AOT.
-Both runtime profiles use Dart **3.13.5**, revision
+All runtime profiles use Dart **3.13.5**, revision
 `04bcd1036cdc799ac6564988f159ee454d42c822`, Product mode, uncompressed pointers
 and no sanitizers or dynamic modules:
 
 | Profile | Toolchain | Runtime baseline |
 | --- | --- | --- |
-| macOS arm64 | System Apple clang | macOS 14 |
+| macOS arm64 or x64 | Pinned SDK clang/LLD and Xcode SDK | macOS 14 |
 | Linux x64 | Pinned SDK clang and Debian sysroot | glibc 2.28 |
 
 Other profiles fail explicitly. Node.js has its own host requirements.
@@ -17,36 +17,24 @@ Other profiles fail explicitly. Node.js has its own host requirements.
 ## Maintainer build
 
 The bundle builder uses a prepared Product VM object cache, Python 3, and local
-Node and libuv headers. macOS also requires Xcode command-line tools and a
-checkout of the exact SDK with its dependencies.
+Node and libuv headers. macOS also requires Xcode command-line tools.
 The builder looks for `uv.h` alongside the Node headers, then in their parent
 directory for installations that separate Node and libuv headers. Missing
 headers fail explicitly.
 
-On Linux x64, prepare the fixed SDK dependencies and VM objects with:
+On a supported host, prepare the pinned SDK dependencies and VM objects with:
 
 ```sh
-python3 tool/native/prepare_linux.py --directory .dart_tool/native-linux
+python3 tool/native/prepare_runtime.py --directory .dart_tool/native-vm
 ```
 
 The script needs Git and network access on its first run. It fetches only the
 runtime source dependencies and build tools, then compiles the VM and dart:io
 objects. Reuse that directory for subsequent builds. The SDK checkout is
-`.dart_tool/native-linux/sdk`, with its VM cache in `out/ProductX64`.
-Use `--jobs` to limit compilation parallelism.
-
-On macOS, copy `native/runtime/` into the SDK as `runtime/napi/` in a
-checkout where that directory does not already exist. Do not overwrite an
-unrelated SDK customization. The included `BUILD.gn` follows the pinned SDK's
-`runtime/engine/BUILD.gn` and provides the `napi_runtime` cache-preparation target.
-Generate the Product cache with GN and Ninja:
-
-```sh
-"$SDK_SOURCE/buildtools/gn" gen "$VM_CACHE" \
-  --root-target=//runtime/napi:napi_runtime \
-  --args='target_os="mac" host_cpu="arm64" target_cpu="arm64" dart_target_arch="arm64" is_debug=false is_release=false is_product=true dart_debug=false dart_runtime_mode="release" dart_use_compressed_pointers=false dart_use_crashpad=false dart_dynamic_modules=false is_asan=false is_lsan=false is_msan=false is_tsan=false is_ubsan=false is_hwasan=false mac_sdk_min="14.0"'
-"$LOCAL_NINJA" -C "$VM_CACHE" clang_arm64_shared/phony/runtime/napi/napi_runtime_set
-```
+`.dart_tool/native-vm/sdk`, with its VM cache in `out/ProductX64` on Linux,
+`xcodebuild/ProductX64` on Intel Macs, or `xcodebuild/ProductARM64` on Apple Silicon.
+Use `--jobs` to limit compilation parallelism. macOS builds use the pinned
+SDK clang, LLD and libc++, with the active Xcode SDK.
 
 That first SDK build can compile VM objects. The bundle command below reuses
 them, checks the SDK revision and actual `args.gn` configuration, and checks the
@@ -134,13 +122,14 @@ runtime. Existing corrupt entries are preserved for diagnosis, not overwritten.
 Archives are bounded and restricted to the exact flat regular-file inventory.
 
 The Dart 3.13.5 ABI 15 runtime ZIPs and matching locks are available in the
-[macOS arm64 release](https://github.com/medz/napi/releases/tag/runtime-dart-3.13.5-abi15)
+[macOS arm64 release](https://github.com/medz/napi/releases/tag/runtime-dart-3.13.5-abi15),
+[macOS x64 release](https://github.com/medz/napi/releases/tag/runtime-dart-3.13.5-macos-x64-abi15),
 and [Linux x64 release](https://github.com/medz/napi/releases/tag/runtime-dart-3.13.5-linux-x64-abi15).
 Set `--url` when packing a new release to record its fixed asset URL.
 A lock with a `null` URL requires
 `--archive` on an empty cache; a verified cache hit can still be reused.
 
-Application builds on macOS arm64 and Linux x64 use a Dart downloader with the
+Application builds on macOS arm64/x64 and Linux x64 use a Dart downloader with the
 archive size/hash and manifest hash pinned for each platform, followed by the
 same payload validator. They do not invoke this Python tool or require a source
 checkout. Archive extraction uses system `ditto` on macOS and `unzip` on Linux.
@@ -153,7 +142,8 @@ recompiling VM objects.
 
 The stable runtime identity includes the pinned SDK revision, mode, architecture,
 ABI and a combined digest of the runtime/bridge ABI source hash and VM input
-objects digest. On Linux it also includes the compiler, linker, runtime headers,
+objects digest. New macOS builds also include the compiler, libc++ and Xcode SDK
+version. On Linux it also includes the compiler, linker, runtime headers,
 linked toolchain files and compilation/link arguments. Distinct VM caches cannot silently share
 an identity merely because their Git HEAD matches. The runtime filename/install-name contain
 it. The bridge compares the actual linked `NapiDart_RuntimeIdentity()` result
