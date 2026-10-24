@@ -18,7 +18,7 @@ source_set("napi_runtime_set") {
   ]
   deps = [ "..:libdart_aotruntime", "../bin:common_embedder_dart_io", "../bin:libdart_builtin" ]
   if (is_win) {
-    deps += [ "../bin:elf_loader_product" ]
+    deps += [ "../bin:elf_loader" ]
   }
 }
 
