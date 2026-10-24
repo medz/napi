@@ -130,6 +130,25 @@ Future<void> main(List<String> args) => package.run(args);
       .copy('${consumer.path}/value_class_contract.mjs');
   await File('test/typescript/native_classes.mts')
       .copy('${consumer.path}/consumer.mts');
+  await File('test/integration/native_commonjs.cjs')
+      .copy('${consumer.path}/commonjs.cjs');
+  await File('test/typescript/native_commonjs.cts')
+      .copy('${consumer.path}/commonjs.cts');
+  for (final order in ['cjs-first', 'esm-first']) {
+    await run('node', ['commonjs.cjs', order], cwd: consumer.path);
+  }
+  await typecheck([
+    '--ignoreConfig',
+    '--strict',
+    '--noEmit',
+    '--target',
+    'ES2022',
+    '--module',
+    'NodeNext',
+    '--moduleResolution',
+    'NodeNext',
+    'commonjs.cts',
+  ], cwd: consumer.path);
   await run('node', ['--expose-gc', 'test.mjs'], cwd: consumer.path);
   await typescript(consumer, 'consumer.mts');
   await File('${consumer.path}/shared_classes.mts').writeAsString(

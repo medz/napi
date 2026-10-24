@@ -76,6 +76,7 @@ Map<String, Object?> packageEntrypoints(
   Set<String> targets,
   String root, {
   bool nativePlatforms = false,
+  bool commonJs = true,
 }) {
   Map<String, String> entry(String target) {
     final prefix = targets.length > 1 || (target == 'native' && nativePlatforms)
@@ -85,6 +86,7 @@ Map<String, Object?> packageEntrypoints(
       'types':
           '$prefix${target == 'native' ? 'module.d.mts' : 'module.d.wasm.ts'}',
       'import': '$prefix${target == 'native' ? 'module.mjs' : 'module.wasm'}',
+      if (target == 'native' && commonJs) 'require': '${prefix}module.mjs',
     };
   }
 
@@ -261,14 +263,25 @@ final class OutputOwnership {
     if (files.length != artifacts.length + assets.length ||
         !files.containsAll({...artifacts, ...assets}) ||
         package['type'] != 'module' ||
-        !_sameJson(
-          package['exports'],
-          packageEntrypoints(
-            targets,
-            root as String,
-            nativePlatforms: nativeRuntimes.isNotEmpty,
-          ),
-        )) {
+        !(_sameJson(
+              package['exports'],
+              packageEntrypoints(
+                targets,
+                root as String,
+                nativePlatforms: nativeRuntimes.isNotEmpty,
+              ),
+            ) ||
+            // Packages built before CommonJS support have the same owned
+            // artifacts and import entries. Rebuilding upgrades their exports.
+            _sameJson(
+              package['exports'],
+              packageEntrypoints(
+                targets,
+                root,
+                nativePlatforms: nativeRuntimes.isNotEmpty,
+                commonJs: false,
+              ),
+            ))) {
       throw ArgumentError(
         'Generated package metadata changed: type, files or exports.',
       );

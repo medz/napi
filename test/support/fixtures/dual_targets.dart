@@ -280,6 +280,25 @@ Future<void> verifyDualTargetFixture(
       .copy('${consumer.path}/test.mjs');
   await File('test/typescript/dual_target.mts')
       .copy('${consumer.path}/consumer.mts');
+  await File('test/integration/dual_commonjs.cjs')
+      .copy('${consumer.path}/commonjs.cjs');
+  await File('test/typescript/dual_commonjs.cts')
+      .copy('${consumer.path}/commonjs.cts');
+  for (final order in ['cjs-first', 'esm-first']) {
+    await run('node', ['commonjs.cjs', order], cwd: consumer.path);
+  }
+  await typecheck([
+    '--ignoreConfig',
+    '--strict',
+    '--noEmit',
+    '--target',
+    'ES2022',
+    '--module',
+    'NodeNext',
+    '--moduleResolution',
+    'NodeNext',
+    'commonjs.cts',
+  ], cwd: consumer.path);
   await run('node', ['--expose-gc', 'test.mjs'], cwd: consumer.path);
   for (final mode in ['NodeNext', 'Bundler']) {
     for (final exact in ['true', 'false']) {

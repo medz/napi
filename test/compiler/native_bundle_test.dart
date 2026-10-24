@@ -375,6 +375,7 @@ import 'package:napi/napi.dart';
         expect((package['exports'] as Map)['.'], {
           'types': './module.d.mts',
           'import': './module.mjs',
+          'require': './module.mjs',
         });
         expect(
           File('${output.path}/runtime.json').readAsStringSync(),

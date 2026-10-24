@@ -58,6 +58,8 @@ ${report ? '''process.report.getReport = () => {
 ''');
     await File('${directory.path}/check.mjs').writeAsString('''
 import assert from 'node:assert/strict';
+import {createRequire} from 'node:module';
+const require = createRequire(import.meta.url);
 $source
 ''');
     final result = await Process.run('node', [
@@ -89,6 +91,7 @@ $source
         r'$napiModule',
         r'$napiHost',
         r'$napiRelease',
+        r'$napiCreateRequire',
         r'$napi0',
       ];
       await writeModules(names: names);
@@ -97,8 +100,10 @@ $source
           '''
 const root = await import('./index.mjs');
 const native = await import('./native.mjs');
+const common = require('./native.mjs');
 const selected = await import(${jsonEncode(_modules[platform])});
 assert.equal(root.Counter, native.Counter);
+assert.equal(common.Counter, native.Counter);
 assert.equal(native.Counter, selected.Counter);
 const counter = new root.Counter(4);
 assert.equal(counter.increment(), 5);
@@ -114,6 +119,22 @@ assert.equal(globalThis.reportCalls, ${platform == NativePlatform.linuxX64 ? 1 :
           architecture: platform.architecture,
         );
       }
+    },
+  );
+
+  test(
+    'CommonJS can load a platform before ESM without a second instance',
+    () async {
+      await writeModules();
+      await run(r'''
+const common = require('./index.mjs');
+const counter = new common.Counter(4);
+const esm = await import('./index.mjs');
+assert.equal(common.Counter, esm.Counter);
+assert.ok(counter instanceof esm.Counter);
+assert.equal(counter.increment(), 5);
+assert.deepEqual(globalThis.loadedTargets, ['linuxX64']);
+''');
     },
   );
 
@@ -199,7 +220,7 @@ assert.equal(globalThis.loadedTargets, undefined);
           .delete();
       await run(r'''
 await assert.rejects(import('./index.mjs'), error => {
-  assert.equal(error.code, 'ERR_MODULE_NOT_FOUND');
+  assert.equal(error.code, 'MODULE_NOT_FOUND');
   assert.match(error.message, /linux-x64-glibc/);
   return true;
 });

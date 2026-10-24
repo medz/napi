@@ -120,6 +120,7 @@ void main() {
         name: {
           'types': './native/module.d.mts',
           'import': './native/module.mjs',
+          'require': './native/module.mjs',
         },
     });
     for (final key in [
@@ -163,9 +164,57 @@ void main() {
     expect(exports['./native'], {
       'types': './native/module.d.mts',
       'import': './native/module.mjs',
+      'require': './native/module.mjs',
     });
     expect(await OutputOwnership.read(output), isNotNull);
   });
+
+  for (final multiple in [false, true]) {
+    test(
+      'rebuild upgrades ESM-only native exports (platforms: $multiple)',
+      () async {
+        try {
+          checkPackageRebuildFilesystem(root);
+        } on UnsupportedError catch (error) {
+          markTestSkipped(error.toString());
+          return;
+        }
+        Future<Directory> assemble() => multiple
+            ? assemblePackage(
+                modules: modules,
+                output: output,
+                metadata: metadata,
+              )
+            : assembleNativePackage(
+                module: modules.first,
+                output: output,
+                metadata: metadata,
+              );
+        await assemble();
+        final manifest = File('${output.path}/package.json');
+        final package = jsonDecode(await manifest.readAsString()) as Map;
+        final exports = package['exports'] as Map;
+        for (final entry in exports.values.cast<Map>()) {
+          entry.remove('require');
+        }
+        await manifest.writeAsString(jsonEncode(package));
+        expect(await OutputOwnership.read(output), isNotNull);
+        exports['.']['require'] = './author.mjs';
+        await manifest.writeAsString(jsonEncode(package));
+        await expectLater(OutputOwnership.read(output), throwsArgumentError);
+        exports['.'].remove('require');
+        await manifest.writeAsString(jsonEncode(package));
+        await File('${output.path}/author.txt').writeAsString('keep');
+        await assemble();
+        final updated = jsonDecode(await manifest.readAsString()) as Map;
+        expect(
+          updated['exports']['.']['require'],
+          multiple ? './native/module.mjs' : './module.mjs',
+        );
+        expect(await File('${output.path}/author.txt').readAsString(), 'keep');
+      },
+    );
+  }
 
   test('Wasm-only assembly stays independent of native platforms', () async {
     await assemblePackage(

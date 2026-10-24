@@ -167,8 +167,21 @@ import {Counter as WasmCounter} from '@scope/counter/wasm';
 
 The root and its selected subpath share the same constructors and state. The
 other backend has separate Dart state; objects and resources cannot cross
-between them. A broken native entry does not fall back to Wasm. CommonJS is not
-supported.
+between them. A broken native entry does not fall back to Wasm.
+
+Native entries also support CommonJS on the supported Node versions (24.19 or
+26.11 and later in those major releases):
+
+```js
+const {Counter} = require('@scope/counter/native');
+const counter = new Counter();
+```
+
+For a native-root package, `require('@scope/counter')` selects the same entry.
+`require()` and ESM imports share constructors and Dart state, regardless of
+which loads first. TypeScript CommonJS files can use
+`import bindings = require('@scope/counter/native')` with `module: "NodeNext"`.
+Wasm entries continue to require ESM imports.
 
 Both targets must expose the same declarations, conversions, defaults and
 cleanup methods. Conditional imports can change private implementations, but a
