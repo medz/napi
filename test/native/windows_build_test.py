@@ -59,7 +59,8 @@ class WindowsBuildTest(unittest.TestCase):
 
     def test_pe_rejects_wrong_machine_unbundled_crt_and_wrong_runtime(self):
         header = 'Machine: IMAGE_FILE_MACHINE_AMD64\nMagic: 0x20B\nIMAGE_FILE_DLL\n'
-        dependencies = ['KERNEL32.dll', 'node.exe', 'runtime.dll']
+        dependencies = ['KERNEL32.dll', 'node.exe', 'runtime.dll', 'DBGHELP.dll',
+                        'OLEAUT32.dll', 'api-ms-win-core-path-l1-1-0.dll']
         for changed in [None, 'machine', 'crt', 'runtime']:
             with self.subTest(changed=changed):
                 image = header.replace('AMD64', 'ARM64') if changed == 'machine' else header
@@ -119,7 +120,7 @@ class WindowsBuildTest(unittest.TestCase):
                     if command[0] == 'git':
                         return 'a'*40 if 'rev-parse' in command else ''
                     if '--version' in command:
-                        return 'pinned clang-cl 23'
+                        return 'pinned clang-cl 23\nInstalledDir: '+str(clang.parent)
                     if '/Zs' in command:
                         return 'Note: including file: '+str(header)
                     if '/c' in command:
@@ -160,6 +161,7 @@ class WindowsBuildTest(unittest.TestCase):
                         self.assertEqual(set(manifest['files']), {manifest['runtime'], 'bridge.node',
                                                                'NAPI_LICENSE', 'DART_LICENSE', 'DART_AUTHORS'})
                         compiler = manifest['build']['provenance']['compiler']
+                        self.assertEqual(compiler['version'], 'pinned clang-cl 23')
                         self.assertEqual(compiler['windowsSdkVersion'], '10.0.26100.0')
                         self.assertEqual(compiler['msvcVersion'], '14.44')
                         self.assertEqual(compiler['nodeLibrarySha256'], build.digest(node/'node.lib'))

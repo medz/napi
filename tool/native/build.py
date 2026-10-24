@@ -314,6 +314,7 @@ def validate_pe(readobj, binary, runtime):
         raise ValueError(f'Expected Windows x64 DLL: {binary.name}')
     dependencies = {name.lower() for name in re.findall(r'\b(?:Delay)?Import\s*\{\s*Name:\s*(\S+)', image)}
     allowed = {'kernel32.dll', 'ntdll.dll', 'advapi32.dll', 'bcrypt.dll', 'crypt32.dll',
+               'dbghelp.dll', 'oleaut32.dll', 'api-ms-win-core-path-l1-1-0.dll',
                'iphlpapi.dll', 'ole32.dll', 'pathcch.dll', 'psapi.dll', 'rpcrt4.dll',
                'shell32.dll', 'shlwapi.dll', 'user32.dll', 'userenv.dll', 'ws2_32.dll', 'winmm.dll'}
     if binary.name != runtime:
@@ -367,7 +368,9 @@ def build_windows(sdk, headers, output, cache, node_library):
     sdk_versions = set(re.findall(r'/Windows Kits/10/Include/([^/;]+)/', includes, re.I))
     if len(msvc_versions) != 1 or sdk_versions != {WINDOWS_SDK_VERSION}:
         raise ValueError('Windows VM cache must use one MSVC toolset and Windows SDK '+WINDOWS_SDK_VERSION)
-    compiler = {'version': run([str(clang), '--version']), 'sha256': digest(clang),
+    compiler_version = '\n'.join(line for line in run([str(clang), '--version']).splitlines()
+                                 if not line.startswith('InstalledDir:'))
+    compiler = {'version': compiler_version, 'sha256': digest(clang),
                 'clangPackageSha256': digest(clang_root/'.versions/clang.cipd_version'),
                 'windowsSdkVersion': WINDOWS_SDK_VERSION, 'msvcVersion': next(iter(msvc_versions)),
                 'nodeLibrarySha256': digest(node_library)}
@@ -445,7 +448,7 @@ def build_windows(sdk, headers, output, cache, node_library):
         for values in arguments.values():
             for index, value in enumerate(values):
                 for label, root in sorted(roots.items(), key=lambda item: len(str(item[1])), reverse=True):
-                    value = value.replace(str(root), '<'+label+'>')
+                    value = value.replace(str(root), '<'+label+'>').replace(root.as_posix(), '<'+label+'>')
                 values[index] = value
         arguments_hash = hashlib.sha256(json.dumps(arguments, sort_keys=True).encode()).hexdigest()
         identity_hash = hashlib.sha256('\0'.join([
