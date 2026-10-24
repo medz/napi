@@ -65,6 +65,9 @@ final package = PackageBuild(
   output: Directory('npm-package'),
   name: '@napi/watch-counter',
   version: '1.0.0',
+  target: BuildTarget.native,
+  targets: {BuildTarget.native, BuildTarget.wasm},
+  wasmFallback: true,
   packagesPath: File('.dart_tool/package_config.json').absolute.path,
 );
 
@@ -80,6 +83,8 @@ Future<void> main(List<String> args) => package.run(args);
         'run',
         'ship.dart',
         '--watch',
+        '--target',
+        'wasm',
       ], workingDirectory: project.path);
       final lines = <String>[];
       final changed = StreamController<void>.broadcast(sync: true);
