@@ -1,9 +1,9 @@
 # Native Dart AOT bindings
 
 The experimental native target runs Dart business code through a precompiled
-Node-API bridge and a matching Dart AOT runtime. It supports macOS arm64 and
-Linux x64 with glibc 2.28 or later, using Dart **3.13.5**. Both platforms download
-and cache their precompiled runtime on first use.
+Node-API bridge and a matching Dart AOT runtime. It supports macOS 14 or later on
+arm64 or x64 and Linux x64 with glibc 2.28 or later, using Dart **3.13.5**.
+All supported hosts download and cache their precompiled runtime on first use.
 
 ## Build a package
 
@@ -143,13 +143,13 @@ not make another Dart SDK or host interchangeable.
 
 The macOS binaries target macOS 14. Execution has been tested on macOS 14.8.9
 and 27.0.1 arm64, Node 24.19.0 and 26.11.1, with TypeScript 7.0.2 declarations.
-The macOS bundle was built with Apple clang 21.0.0.
+The macOS arm64 bundle was built with Apple clang 21.0.0.
 
 Linux x64 bundles target glibc 2.28 and use the pinned Dart SDK clang 23.0.0git
 toolchain and Debian sysroot. Execution has been tested on Ubuntu 24.04 x64
 with Node 24.19.0 and 26.11.1 and TypeScript 7.0.2. Node.js has its own
 operating-system requirements.
-Windows, Intel Macs, Linux arm64 and other Node-API hosts are not qualified.
+Windows, Linux arm64 and other Node-API hosts are not qualified.
 
 See [the runtime bundle guide](../native/README.md) to build a new runtime
 profile, and [CONTRIBUTING.md](../CONTRIBUTING.md) to run native tests.

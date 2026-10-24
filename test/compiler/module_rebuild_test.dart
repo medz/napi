@@ -73,11 +73,13 @@ import 'package:napi/napi.dart';
   }
 
   group('managed modules', () {
-    test('implicit native cache cannot write into the live module', () async {
-      final cache = Directory('${output.path}/cache');
-      final marker = await File('${output.path}/$outputOwnershipFile')
-          .readAsString();
-      final script = await File('${root.path}/rebuild.dart').writeAsString('''
+    test(
+      'implicit native cache cannot write into the live module',
+      () async {
+        final cache = Directory('${output.path}/cache');
+        final marker = await File('${output.path}/$outputOwnershipFile')
+            .readAsString();
+        final script = await File('${root.path}/rebuild.dart').writeAsString('''
 import 'dart:io';
 import 'package:napi/build.dart';
 class Offline extends HttpOverrides {
@@ -98,29 +100,33 @@ Future<void> main(List<String> args) async {
   throw StateError('The overlapping cache was accepted.');
 }
 ''');
-      final packages = File('.dart_tool/package_config.json').absolute.path;
-      final result = await Process.run(
-        Platform.resolvedExecutable,
-        [
-          '--packages=$packages',
-          script.path,
-          source.path,
-          output.path,
-          packages,
-        ],
-        environment: {'NAPI_RUNTIME_CACHE': cache.path},
-      );
-      expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
-      expect(await cache.exists(), isFalse);
-      expect(
-        await File('${output.path}/module.wasm').readAsString(),
-        'old module.wasm',
-      );
-      expect(
-        await File('${output.path}/$outputOwnershipFile').readAsString(),
-        marker,
-      );
-    }, skip: !Platform.isMacOS || Abi.current() != Abi.macosArm64);
+        final packages = File('.dart_tool/package_config.json').absolute.path;
+        final result = await Process.run(
+          Platform.resolvedExecutable,
+          [
+            '--packages=$packages',
+            script.path,
+            source.path,
+            output.path,
+            packages,
+          ],
+          environment: {'NAPI_RUNTIME_CACHE': cache.path},
+        );
+        expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
+        expect(await cache.exists(), isFalse);
+        expect(
+          await File('${output.path}/module.wasm').readAsString(),
+          'old module.wasm',
+        );
+        expect(
+          await File('${output.path}/$outputOwnershipFile').readAsString(),
+          marker,
+        );
+      },
+      skip:
+          !Platform.isMacOS ||
+          ![Abi.macosArm64, Abi.macosX64].contains(Abi.current()),
+    );
 
     test(
       'compiler startup failure preserves artifacts and author content',

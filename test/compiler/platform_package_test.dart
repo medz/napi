@@ -106,9 +106,11 @@ void main() {
   });
   tearDown(() => root.delete(recursive: true));
 
-  test('native-only assembly includes both platforms without Wasm or install scripts', () async {
+  test('native-only assembly includes all platforms without Wasm or install scripts', () async {
     await assemblePackage(
-      modules: modules.take(2).toList(),
+      modules: modules
+          .where((module) => module.target == BuildTarget.native)
+          .toList(),
       output: output,
       metadata: metadata,
     );

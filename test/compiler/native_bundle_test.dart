@@ -71,39 +71,36 @@ void main() {
     await selectPlatform(NativePlatform.macosArm64);
   });
 
-  test(
-    'Linux bundles validate and copy without loading their native code',
-    () async {
-      await selectPlatform(NativePlatform.linuxX64);
-      final bundle = await NativeRuntimeBundle.read(root);
-      expect(bundle.platform, NativePlatform.linuxX64);
-      expect(bundle.runtime, endsWith('.so'));
-      final output = await Directory('${root.path}/copied').create();
-      await bundle.copyTo(output);
-      expect(
-        (await NativeRuntimeBundle.read(output, built: true)).platform,
-        NativePlatform.linuxX64,
-      );
-      expect(File('${output.path}/$runtime').existsSync(), isFalse);
-      if (Platform.isMacOS && Abi.current() == Abi.macosArm64) {
-        expect(bundle.verifyHost, throwsA(isA<SdkCompatibilityException>()));
-      } else if (Platform.isLinux && Abi.current() == Abi.linuxX64) {
-        bundle.verifyHost();
-      }
-    },
-  );
-
-  test(
-    'host verification rejects a bundle for another architecture or OS',
-    () async {
-      final bundle = await NativeRuntimeBundle.read(root);
-      if (Platform.isMacOS && Abi.current() == Abi.macosArm64) {
-        bundle.verifyHost();
-      } else {
-        expect(bundle.verifyHost, throwsA(isA<SdkCompatibilityException>()));
-      }
-    },
-  );
+  for (final profile in NativePlatform.values) {
+    test(
+      '${profile.name} bundles copy across hosts but reject execution on another target',
+      () async {
+        await selectPlatform(profile);
+        final bundle = await NativeRuntimeBundle.read(root);
+        expect(bundle.platform, profile);
+        expect(bundle.runtime, endsWith('.${profile.runtimeExtension}'));
+        final output = await Directory('${root.path}/copied').create();
+        await bundle.copyTo(output);
+        expect(
+          (await NativeRuntimeBundle.read(output, built: true)).platform,
+          profile,
+        );
+        if (profile != NativePlatform.macosArm64) {
+          expect(File('${output.path}/$runtime').existsSync(), isFalse);
+        }
+        final abi = switch (profile) {
+          NativePlatform.macosArm64 => Abi.macosArm64,
+          NativePlatform.macosX64 => Abi.macosX64,
+          NativePlatform.linuxX64 => Abi.linuxX64,
+        };
+        if (Abi.current() == abi) {
+          bundle.verifyHost();
+        } else {
+          expect(bundle.verifyHost, throwsA(isA<SdkCompatibilityException>()));
+        }
+      },
+    );
+  }
 
   test(
     'Linux libc requirements are distinct from the operating system version',
@@ -303,6 +300,7 @@ import 'package:napi/napi.dart';
   test(
     'explicit native runtime reaches the compiler without network access',
     () async {
+      await selectPlatform(verifyNativeHost());
       final source = await File('${root.path}/business.dart').writeAsString('''
 import 'package:napi/napi.dart';
 @NAPI() int value() => 1;
@@ -340,7 +338,9 @@ import 'package:napi/napi.dart';
             'Compiler failure preserves the absent output and removes staging.',
       );
     },
-    skip: !Platform.isMacOS || Abi.current() != Abi.macosArm64,
+    skip:
+        !Platform.isMacOS ||
+        ![Abi.macosArm64, Abi.macosX64].contains(Abi.current()),
   );
 
   for (final profile in NativePlatform.values) {

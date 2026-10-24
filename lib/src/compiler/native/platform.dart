@@ -1,6 +1,7 @@
 /// Fixed runtime profiles shared by bundle validation and generated packages.
 enum NativePlatform {
   macosArm64('macos', 'arm64', 'darwin', 'dylib', minimumOsVersion: '14.0'),
+  macosX64('macos', 'x64', 'darwin', 'dylib', minimumOsVersion: '14.0'),
   linuxX64(
     'linux',
     'x64',
@@ -30,6 +31,7 @@ enum NativePlatform {
 
   String get description => switch (this) {
     macosArm64 => 'macOS arm64',
+    macosX64 => 'macOS x64',
     linuxX64 => 'Linux x64 with glibc $minimumLibcVersion or newer',
   };
 
