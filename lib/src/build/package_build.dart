@@ -142,15 +142,12 @@ final class PackageBuild {
         await buildOnce();
         return;
       }
-      if (Platform.isWindows) {
-        throw UnsupportedError(
-          'Watch mode requires managed output replacement, which is not yet '
-          'supported on Windows.',
-        );
-      }
       final stop = StreamController<void>();
       final signals = [
-        for (final signal in [ProcessSignal.sigint, ProcessSignal.sigterm])
+        for (final signal in [
+          ProcessSignal.sigint,
+          if (!Platform.isWindows) ProcessSignal.sigterm,
+        ])
           signal.watch().listen((_) => stop.add(null)),
       ];
       try {

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:napi/src/build/watch.dart';
+import 'package:path/path.dart' as path;
 import 'package:test/test.dart';
 
 void main() {
@@ -46,23 +47,25 @@ void invalid(;
       final files = await readBuildInputs(entry.uri, assets: [asset]);
       expect(
         files.keys,
-        unorderedEquals([
-          config.path,
-          entry.path,
-          '${root.path}/helper/lib/seed.dart',
-          '${root.path}/shared.dart',
-          '${root.path}/lib/fallback.dart',
-          '${root.path}/lib/native.dart',
-          '${root.path}/lib/counter.g.dart',
-          asset.path,
-        ]),
+        unorderedEquals(
+          [
+            config.path,
+            entry.path,
+            '${root.path}/helper/lib/seed.dart',
+            '${root.path}/shared.dart',
+            '${root.path}/lib/fallback.dart',
+            '${root.path}/lib/native.dart',
+            '${root.path}/lib/counter.g.dart',
+            asset.path,
+          ].map(path.normalize),
+        ),
       );
-      expect(files['${root.path}/lib/counter.g.dart'], isNull);
+      expect(files[path.join(root.path, 'lib', 'counter.g.dart')], isNull);
       final external = await readBuildInputs(
         Uri.parse('package:helper/seed.dart'),
         packagesPath: config.path,
       );
-      expect(external.keys, contains('${root.path}/shared.dart'));
+      expect(external.keys, contains(path.join(root.path, 'shared.dart')));
     },
   );
 
@@ -76,7 +79,7 @@ import 'file:///tmp/source.dart?edit';
     expect(invalid.keys, contains(entry.path));
     await entry.writeAsString("import 'source.dart';");
     final repaired = await readBuildInputs(entry.uri);
-    expect(repaired.keys, contains('${root.path}/source.dart'));
+    expect(repaired.keys, contains(path.join(root.path, 'source.dart')));
     expect(repaired[entry.path], isNot(invalid[entry.path]));
   });
 

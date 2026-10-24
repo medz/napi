@@ -189,7 +189,9 @@ const current = extra;
       previousBuilds = builds();
       final saved = File('${dependency.path}/editor-save.tmp');
       await saved.writeAsString('const extra = 10;\n');
-      await saved.rename('${dependency.path}/missing.dart');
+      await saved.rename(
+        '${dependency.path}/${Platform.isWindows ? 'Missing.dart' : 'missing.dart'}',
+      );
       await waitFor(() => builds() > previousBuilds);
       await expectValue(10);
 
@@ -200,14 +202,12 @@ const current = extra;
       expect(builds(), previousBuilds, reason: lines.join('\n'));
 
       expect(watcher.kill(ProcessSignal.sigint), isTrue);
-      expect(
-        await watcher.exitCode.timeout(const Duration(seconds: 15)),
-        0,
-        reason: lines.join('\n'),
-      );
+      final code = await watcher.exitCode.timeout(const Duration(seconds: 15));
+      // Windows Process.kill terminates directly; it cannot emulate Ctrl+C.
+      if (!Platform.isWindows) expect(code, 0, reason: lines.join('\n'));
     },
-    skip: !(Platform.isMacOS || Platform.isLinux)
-        ? 'Managed output replacement is supported on macOS and Linux.'
+    skip: !(Platform.isMacOS || Platform.isLinux || Platform.isWindows)
+        ? 'Managed output replacement is unavailable on this platform.'
         : false,
     timeout: const Timeout(Duration(minutes: 5)),
   );

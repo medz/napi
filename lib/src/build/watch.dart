@@ -190,7 +190,7 @@ Future<void> watchBuild({
           ];
           if (changed.any(
             (name) => inputs.keys.any(
-              (input) => input == name || path.isWithin(name, input),
+              (input) => path.equals(input, name) || path.isWithin(name, input),
             ),
           )) {
             notify();
@@ -225,7 +225,9 @@ Future<void> watchBuild({
       );
       final destination = path.normalize(output.absolute.path);
       if (inputs.keys.any(
-        (input) => input == destination || path.isWithin(destination, input),
+        (input) =>
+            path.equals(input, destination) ||
+            path.isWithin(destination, input),
       )) {
         throw ArgumentError(
           'Watched inputs must be outside the output directory.',

@@ -71,8 +71,8 @@ Restart consuming Node applications to load new modules; watch mode does not
 replace objects in an already loaded Dart runtime. Ctrl+C stops watching and
 waits for the active build to finish cleanup.
 
-Watch mode currently requires macOS or Linux, where managed output replacement
-is supported.
+On Windows, the package path can briefly be unavailable during replacement.
+Wait for the successful build message before loading the updated package.
 
 ## Call the build API directly
 
