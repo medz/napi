@@ -12,6 +12,7 @@ import 'src/compiler/front_end/external.dart';
 
 export 'src/build/build.dart' show BuiltModule, BuildTarget;
 export 'src/build/package_build.dart' show PackageBuild;
+export 'src/build/package_release.dart' show PackageRelease, NpmAccess;
 export 'src/build/package.dart'
     show
         buildPackage,

@@ -315,6 +315,47 @@ descriptions, licensing, registry settings and platform constraints accompany
 the native packages; author scripts and dependencies stay in the entry package.
 For a single tarball containing all platforms, continue using `assemblePackage`.
 
+### Prepare and publish a release
+
+`PackageRelease` assembles existing modules and packs the resulting npm packages
+before uploading anything. Use it from your own Dart script:
+
+```dart
+final release = PackageRelease(
+  modules: modules,
+  output: Directory('release/1.0.0'),
+  name: '@scope/counter',
+  version: '1.0.0',
+  metadata: {'publishConfig': {'access': 'public'}},
+);
+await release.run(args);
+```
+
+For example, if the script is named `tool/release.dart`:
+
+```sh
+dart run tool/release.dart prepare
+# Inspect release/1.0.0/packages and release/1.0.0/tarballs.
+dart run tool/release.dart publish
+```
+
+Preparation needs no registry credentials. It does not compile missing targets
+or replace an existing preparation. Native payloads become separate packages;
+a Wasm-only release uses one package and `target: BuildTarget.wasm`.
+
+Publishing uses the prepared tarballs, checks existing versions by integrity,
+and uploads native packages before the entry package. A conflicting version
+stops publication. If an upload fails, the diagnostic lists confirmed and
+pending packages. Retry `publish` with the same output: identical published
+versions are skipped, with their existing distribution tags unchanged.
+
+npm handles authentication, scoped registries and trusted publishing. Use
+`publishConfig` or pass `--registry`, `--tag` and `--access` to `publish`.
+Registry overrides apply to both verification and upload. Programmatic callers
+can use `release.prepare()` and `release.publish(...)` directly. Keep the
+prepared output intact until publishing finishes; do not edit its metadata or
+tarballs between attempts.
+
 ## Managed rebuilds
 
 Call `buildPackage`, `buildLibrary` or a single-package assembly API again with the same output
