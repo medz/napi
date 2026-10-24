@@ -66,8 +66,8 @@ writes do not truncate values or partially modify an invalid range. Lengths are
 limited to 2,147,483,647 bytes. Allocation remains subject to host memory limits.
 
 Indexed operations cross the host boundary. Prefer the bulk methods for larger
-ranges. Native bulk copies use the existing scoped byte-copy transport; Wasm
-ordinary-Dart-to-host staging currently writes each byte through the pinned SDK.
+ranges. Native bulk copies use the scoped byte-copy transport; Wasm stages
+ordinary Dart data with a bulk copy through the pinned SDK.
 Shared-to-shared `copyFrom` uses a captured Uint8Array bulk operation on both
 targets. `toUint8List` and `write` intentionally copy; indexed access, subviews
 and shared binding input/output preserve live storage.

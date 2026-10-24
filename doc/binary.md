@@ -101,9 +101,10 @@ normal Promise boundary. A later valid call remains usable.
 Native copies valid windows in bulk into independent Dart storage and copies
 Dart output into fresh JS storage. Its short typed-data access intervals contain
 no JavaScript callbacks or allocation. Wasm wraps a private input snapshot using
-the pinned SDK and writes output into newly allocated host storage. Per-element
-Wasm bridge work and any structural admission copies are real costs; these APIs
-do not make a zero-copy claim.
+the pinned SDK and copies output in bulk into newly allocated host storage.
+Structural admission can require additional snapshots; these APIs do not make
+a zero-copy claim. See [backend costs](performance.md) for a reproducible
+package-size and binary-transfer comparison.
 
 Both backends require the pinned Dart SDK and supported Node runtime. See
 [native requirements](native.md) and [supported toolchains](../README.md#requirements).
