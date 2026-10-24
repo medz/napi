@@ -80,7 +80,7 @@ void main() => print(nativeRuntimeCacheDirectory().path);
       } else {
         expect(result.exitCode, 0, reason: '${result.stderr}');
         expect(
-          (result.stdout as String).trim(),
+          path.normalize((result.stdout as String).trim()),
           path.normalize(entry.expected!),
         );
       }
@@ -96,11 +96,15 @@ void main() => print(nativeRuntimeCacheDirectory().path);
     ).create();
     final String alias;
     if (Platform.isWindows) {
-      final result = await Process.run('cmd.exe', [
-        '/d',
-        '/c',
-        'for %I in ("${ancestor.path}") do @echo %~sI',
-      ]);
+      await File(path.join(root.path, 'short-path.cmd')).writeAsString(
+        '@echo off\r\nfor %%I in ("%NAPI_TEST_LONG_PATH%") do @echo %%~sI\r\n',
+      );
+      final result = await Process.run(
+        'cmd.exe',
+        ['/d', '/c', 'short-path.cmd'],
+        workingDirectory: root.path,
+        environment: {'NAPI_TEST_LONG_PATH': ancestor.path},
+      );
       expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
       alias = result.stdout.toString().trim();
       if (path.basename(alias).toLowerCase() ==

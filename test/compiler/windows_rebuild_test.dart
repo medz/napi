@@ -83,11 +83,15 @@ void main() {
   test('an existing DOS short name shares the output lock', () async {
     final directory = await Directory('${root.path}/long package directory')
         .create();
-    final result = await Process.run('cmd.exe', [
-      '/d',
-      '/c',
-      'for %I in ("${directory.path}") do @echo %~sI',
-    ]);
+    await File(path.join(root.path, 'short-path.cmd')).writeAsString(
+      '@echo off\r\nfor %%I in ("%NAPI_TEST_LONG_PATH%") do @echo %%~sI\r\n',
+    );
+    final result = await Process.run(
+      'cmd.exe',
+      ['/d', '/c', 'short-path.cmd'],
+      workingDirectory: root.path,
+      environment: {'NAPI_TEST_LONG_PATH': directory.path},
+    );
     expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
     final short = result.stdout.toString().trim();
     if (path.basename(short).toLowerCase() ==
@@ -95,6 +99,8 @@ void main() {
       markTestSkipped('DOS short names are disabled on this volume.');
       return;
     }
+    expect(await FileSystemEntity.identical(directory.path, short), isTrue);
+    PackageLock.acquire(Directory(short)).release();
     final lock = PackageLock.acquire(directory);
     try {
       expect(

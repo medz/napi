@@ -255,22 +255,19 @@ Future<void> _download(File destination, NativeRuntimeArchive lock) async {
           response.contentLength != lock.bytes) {
         throw const FormatException('Native runtime archive size mismatch.');
       }
-      final sink = destination.openWrite();
-      // Observe an early disk error immediately; close() below still reports
-      // that same failure to the caller after the response is stopped.
-      sink.done.ignore();
+      final file = await destination.open(mode: FileMode.write);
       var bytes = 0;
       try {
         final hash = await sha256
             .bind(
-              response.timeout(_networkTimeout).map((chunk) {
+              response.timeout(_networkTimeout).asyncMap((chunk) async {
                 bytes += chunk.length;
                 if (bytes > lock.bytes) {
                   throw const FormatException(
                     'Native runtime archive exceeds its locked size.',
                   );
                 }
-                sink.add(chunk);
+                await file.writeFrom(chunk);
                 return chunk;
               }),
             )
@@ -281,7 +278,7 @@ Future<void> _download(File destination, NativeRuntimeArchive lock) async {
           );
         }
       } finally {
-        await sink.close();
+        await file.close();
       }
       return;
     }
