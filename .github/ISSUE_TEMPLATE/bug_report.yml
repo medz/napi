@@ -1,0 +1,39 @@
+name: Bug report
+description: Report something that isn't working.
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe what happened and what you expected.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: How can we reproduce it?
+      description: Share a small code sample, steps, or a repository link, along with any error output.
+  - type: dropdown
+    id: build-target
+    attributes:
+      label: Build target
+      options:
+        - Wasm
+        - Native
+        - Both
+        - Not sure
+  - type: dropdown
+    id: operating-system
+    attributes:
+      label: Operating system
+      multiple: true
+      options:
+        - macOS
+        - Linux
+        - Windows
+        - Other
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: Include napi, Dart, and Node.js versions, or the Git SHA if building from source.
