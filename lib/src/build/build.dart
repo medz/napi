@@ -59,6 +59,7 @@ Future<BuiltModule> buildLibrary({
     target: target,
   );
   final destination = output.absolute;
+  checkOutputLockPath(destination);
   // A missing Windows directory may be the gap of an interrupted rebuild.
   // Recover it under the output lock before choosing the fresh-build path.
   if (!Platform.isWindows &&
