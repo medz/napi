@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:napi/build.dart';
+import 'package:path/path.dart' as path;
 import 'package:napi/src/build/output_ownership.dart';
 import 'package:napi/src/build/publish.dart';
 import 'package:test/test.dart';
@@ -615,7 +616,7 @@ void main() {
       await assemble();
       final link = await Link('${output.path}/author').create(source.path);
       await expectLater(assemble(), throwsArgumentError);
-      expect(await link.target(), source.path);
+      expect(path.equals(await link.target(), source.path), isTrue);
     });
 
     test(

@@ -383,7 +383,7 @@ void Function() _holdDirectory(Directory directory) {
   late Pointer<Void> handle;
   try {
     data.cast<Uint16>().asTypedList(units.length).setAll(0, units);
-    handle = create(data.cast(), 0x80, 3, nullptr, 3, 0x02000000, nullptr);
+    handle = create(data.cast(), 0x81, 3, nullptr, 3, 0x02000000, nullptr);
     expect(handle, isNot(Pointer<Void>.fromAddress(-1)));
   } finally {
     free(heap, 0, data);

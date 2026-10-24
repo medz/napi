@@ -572,6 +572,9 @@ typedef _Entry = ({
 });
 
 Future<Map<String, _Entry>> _scan(Directory directory) async {
+  if (Platform.isWindows) {
+    directory = Directory(windowsBuildPath(directory.path));
+  }
   final result = <String, _Entry>{};
   Future<void> visit(FileSystemEntity entity) async {
     final type = await FileSystemEntity.type(entity.path, followLinks: false);

@@ -2,6 +2,15 @@ part of 'publish.dart';
 
 final _windows = _WindowsOutput();
 
+/// dart:io directory listing does not add the Windows extended-length prefix.
+String windowsBuildPath(String value) {
+  final absolute = path.normalize(path.absolute(value));
+  if (absolute.startsWith(r'\\?\')) return absolute;
+  return absolute.startsWith(r'\\')
+      ? '\\\\?\\UNC\\${absolute.substring(2)}'
+      : '\\\\?\\$absolute';
+}
+
 final class _WindowsOutput {
   final _kernel = DynamicLibrary.open('kernel32.dll');
   final _security = DynamicLibrary.open('advapi32.dll');
@@ -73,12 +82,7 @@ final class _WindowsOutput {
     if (value.contains('\x00')) {
       throw ArgumentError('NUL in Windows file path.');
     }
-    var absolute = path.normalize(path.absolute(value));
-    if (!absolute.startsWith('\\\\?\\')) {
-      absolute = absolute.startsWith('\\\\')
-          ? '\\\\?\\UNC\\${absolute.substring(2)}'
-          : '\\\\?\\$absolute';
-    }
+    final absolute = windowsBuildPath(value);
     final data = allocate((absolute.length + 1) * 2);
     try {
       data
@@ -415,9 +419,9 @@ final class _WindowsPackageLock {
     final handles = <Pointer<Void>>[];
     try {
       locks.createSync();
-      handles.add(_windows.open(locks.path, directory: true));
+      handles.add(_windows.open(locks.path, directory: true, access: 0x81));
       state.createSync();
-      handles.add(_windows.open(state.path, directory: true));
+      handles.add(_windows.open(state.path, directory: true, access: 0x81));
       try {
         handles.add(
           _windows.open(
