@@ -12,6 +12,7 @@ import 'package:napi/src/build/output_ownership.dart';
 import 'package:napi/src/build/publish.dart';
 import 'package:test/test.dart';
 
+import '../support/commands.dart';
 import '../support/fixtures/module_rebuilds.dart';
 
 void main() {
@@ -371,6 +372,102 @@ Set-Acl -LiteralPath $file.FullName -AclObject $acl
       expect(await note.readAsString(), 'keep');
     });
   }
+
+  test(
+    'buildLibrary recovers an interrupted module before rebuilding',
+    () async {
+      final business = await File('${root.path}/business.dart')
+          .writeAsString('''
+import 'package:napi/napi.dart';
+@NAPI() int add(int value) => value + 1;
+''');
+      final module = Directory('${root.path}/module');
+      final packages = File('.dart_tool/package_config.json').absolute.path;
+      Future<BuiltModule> build(Directory target) => buildLibrary(
+        library: business.uri,
+        output: target,
+        packagesPath: packages,
+      );
+      await build(module);
+      final author = await File('${module.path}/notes.txt')
+          .writeAsString('keep');
+      final modified = DateTime.utc(2020);
+      await author.setLastModified(modified);
+      await business.writeAsString('''
+import 'package:napi/napi.dart';
+@NAPI() int add(int value) => value + 3;
+''');
+      final replacement = (await build(Directory('${root.path}/replacement')))
+          .directory;
+      final script = await File('${root.path}/interrupt-module.dart')
+          .writeAsString(r'''
+import 'dart:convert';
+import 'dart:io';
+import 'package:napi/src/build/output.dart';
+import 'package:napi/src/build/output_ownership.dart';
+import 'package:napi/src/build/publish.dart';
+Future<void> main(List<String> args) async {
+  final output = Directory(args[0]);
+  final update = await OutputUpdate.open(output, kind: OutputKind.module);
+  final next = (await OutputOwnership.read(Directory(args[1]), kind: OutputKind.module))!;
+  final state = update.lock.recoveryDirectory!;
+  await File('${state.path}/replacement.json').writeAsString(jsonEncode({
+    'format': 1, 'kind': 'module', 'committed': false,
+    'previous': update.previous!.recoveryFingerprint,
+    'entries': update.previous!.recoveryEntries,
+    'next': next.recoveryFingerprint,
+  }), flush: true);
+  publishDirectory(output, Directory('${state.path}/previous'));
+  stdout.writeln('ready');
+  await stdin.first;
+  update.close();
+}
+''');
+      final child = await Process.start(Platform.resolvedExecutable, [
+        '--packages=$packages',
+        script.path,
+        module.path,
+        replacement.path,
+      ]);
+      addTearDown(() => child.kill());
+      final errors = child.stderr.transform(utf8.decoder).join();
+      expect(
+        await child.stdout.transform(utf8.decoder).first,
+        contains('ready'),
+      );
+      expect(await module.exists(), isFalse);
+      // The missing-output path must still respect the active builder's lock.
+      await expectLater(build(module), throwsA(isA<FileSystemException>()));
+      expect(child.kill(ProcessSignal.sigkill), isTrue);
+      await child.exitCode;
+      expect(await errors, isEmpty);
+      final recovered = await build(module);
+      expect(recovered.directory.path, module.absolute.path);
+      expect(await author.readAsString(), 'keep');
+      expect((await author.stat()).modified.isAtSameMomentAs(modified), isTrue);
+      final lock = PackageLock.acquire(module);
+      try {
+        expect(
+          await Directory('${lock.recoveryDirectory!.path}/previous').exists(),
+          isFalse,
+        );
+        expect(
+          await File('${lock.recoveryDirectory!.path}/replacement.json')
+              .exists(),
+          isFalse,
+        );
+      } finally {
+        lock.release();
+      }
+      await File('${module.path}/test.mjs').writeAsString('''
+import assert from 'node:assert/strict';
+import {add} from './module.wasm';
+assert.equal(add(5), 8);
+''');
+      await run('node', ['test.mjs'], cwd: module.path);
+    },
+    timeout: Timeout(Duration(minutes: 5)),
+  );
 
   test('rebuilt Wasm module runs after moving the output alone', () async {
     await verifyModuleRebuild(

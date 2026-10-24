@@ -59,8 +59,11 @@ Future<BuiltModule> buildLibrary({
     target: target,
   );
   final destination = output.absolute;
-  if (await FileSystemEntity.type(destination.path, followLinks: false) ==
-      FileSystemEntityType.notFound) {
+  // A missing Windows directory may be the gap of an interrupted rebuild.
+  // Recover it under the output lock before choosing the fresh-build path.
+  if (!Platform.isWindows &&
+      await FileSystemEntity.type(destination.path, followLinks: false) ==
+          FileSystemEntityType.notFound) {
     return buildModule(
       bindings: bindings,
       output: destination,
@@ -87,6 +90,16 @@ Future<BuiltModule> buildLibrary({
   var committed = false;
   var exchangeAttempted = false;
   try {
+    if (update.previous == null) {
+      return await buildModule(
+        bindings: bindings,
+        output: destination,
+        sdk: sdk,
+        packagesPath: effectivePackages,
+        target: target,
+        nativeRuntime: nativeRuntime,
+      );
+    }
     staging = await destination.parent.createTemp('.napi-module-rebuild-');
     final module = await buildModule(
       bindings: bindings,
