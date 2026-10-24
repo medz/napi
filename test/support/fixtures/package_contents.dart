@@ -26,7 +26,7 @@ Future<void> verifyInstalledPackage(
         entry is Directory &&
         expected.any(
           (name) => name.startsWith(
-            '${path.relative(entry.path, from: directory.path)}/',
+            '${path.split(path.relative(entry.path, from: directory.path)).join('/')}/',
           ),
         )) {
       continue;
@@ -37,7 +37,8 @@ Future<void> verifyInstalledPackage(
   }
   _verifyFiles(
     entries.whereType<File>().map(
-      (entry) => path.relative(entry.path, from: directory.path),
+      (entry) =>
+          path.split(path.relative(entry.path, from: directory.path)).join('/'),
     ),
     expected,
     'installed package',
