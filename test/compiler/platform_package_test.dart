@@ -9,6 +9,9 @@ import 'package:napi/src/compiler/native/platform.dart';
 import 'package:napi/src/compiler/sdk_adapter/dart_aot_adapter.dart';
 import 'package:test/test.dart';
 
+import '../support/process.dart';
+import '../support/commands.dart' show nodeExecutables;
+
 void main() {
   late Directory root;
   late Directory output;
@@ -36,6 +39,8 @@ void main() {
       await File('${directory.path}/$name').writeAsString(
         name.startsWith('module.d.')
             ? 'export declare class Counter {}\n'
+            : name == 'module.mjs'
+            ? 'export class Counter { value = 0; increment() { return ++this.value; } }\n'
             : name,
       );
     }
@@ -105,6 +110,151 @@ void main() {
     ];
   });
   tearDown(() => root.delete(recursive: true));
+
+  test(
+    'platform package set keeps native payloads out of the entry package',
+    () async {
+      final packages = await assemblePackageSet(
+        modules: modules,
+        output: output,
+        metadata: {
+          ...metadata,
+          'optionalDependencies': {'unrelated': '2.0.0'},
+          'scripts': {'test': 'echo author script'},
+        },
+      );
+      expect(packages.last.path, '${output.path}/package');
+      final entry = jsonDecode(
+        await File('${packages.last.path}/package.json').readAsString(),
+      ) as Map;
+      expect(entry['optionalDependencies'], {
+        'unrelated': '2.0.0',
+        for (final platform in NativePlatform.values)
+          '@test/platforms-${platform.packageId}': '1.0.0',
+      });
+      expect(
+        (entry['files'] as List).where(
+          (p) => p.toString().startsWith('native/'),
+        ),
+        ['native/module.mjs', 'native/module.d.mts'],
+      );
+      expect(
+        File('${packages.last.path}/wasm/module.wasm').existsSync(),
+        isTrue,
+      );
+      for (final platform in NativePlatform.values) {
+        final directory = Directory('${output.path}/${platform.packageId}');
+        final package = jsonDecode(
+          await File('${directory.path}/package.json').readAsString(),
+        ) as Map;
+        expect(package['name'], '@test/platforms-${platform.packageId}');
+        expect(package['version'], '1.0.0');
+        expect(package['os'], [platform.nodePlatform]);
+        expect(package['cpu'], [platform.architecture]);
+        expect(package['libc'], platform.libc == null ? null : [platform.libc]);
+        expect(package.containsKey('scripts'), isFalse);
+        expect(package.containsKey('optionalDependencies'), isFalse);
+        expect(File('${directory.path}/module.aot').existsSync(), isTrue);
+        expect(await OutputOwnership.read(directory), isNotNull);
+      }
+      final owned = await OutputOwnership.read(packages.last);
+      expect(owned!.metadata['optionalDependencies'], {'unrelated': '2.0.0'});
+    },
+  );
+
+  test(
+    'package sets reject mismatched contracts and leave no partial output',
+    () async {
+      await changeContract(modules.last, {...contract, 'sha256': '0' * 64});
+      await expectLater(
+        assemblePackageSet(
+          modules: modules,
+          output: output,
+          metadata: metadata,
+        ),
+        throwsArgumentError,
+      );
+      expect(output.existsSync(), isFalse);
+      expect(
+        root.listSync().where(
+          (entry) => entry.path.contains('.napi-package-set-'),
+        ),
+        isEmpty,
+      );
+    },
+  );
+
+  test('package sets do not overwrite previous output', () async {
+    await output.create();
+    final author = File('${output.path}/author.txt');
+    await author.writeAsString('keep');
+    await expectLater(
+      assemblePackageSet(modules: modules, output: output, metadata: metadata),
+      throwsArgumentError,
+    );
+    expect(await author.readAsString(), 'keep');
+  });
+
+  for (final field in [
+    'dependencies',
+    'optionalDependencies',
+    'peerDependencies',
+    'devDependencies',
+  ]) {
+    test('package sets reject a generated name in author $field', () async {
+      await expectLater(
+        assemblePackageSet(
+          modules: modules,
+          output: output,
+          metadata: {
+            ...metadata,
+            field: {
+              '@test/platforms-${NativePlatform.values.first.packageId}':
+                  '1.0.0',
+            },
+          },
+        ),
+        throwsArgumentError,
+      );
+      expect(output.existsSync(), isFalse);
+    });
+  }
+
+  test('entry package ownership rejects redirected platform dependencies', () async {
+    final packages = await assemblePackageSet(
+      modules: modules,
+      output: output,
+      metadata: metadata,
+    );
+    final manifest = File('${packages.last.path}/package.json');
+    final package = jsonDecode(await manifest.readAsString()) as Map;
+    (package['optionalDependencies']
+            as Map)['@test/platforms-${NativePlatform.values.first.packageId}'] =
+        '^1.0.0';
+    await manifest.writeAsString(jsonEncode(package));
+    await expectLater(OutputOwnership.read(packages.last), throwsArgumentError);
+  });
+
+  test(
+    'npm installs only the selected optional platform and preserves loader errors',
+    () async {
+      await assemblePackageSet(
+        modules: modules
+            .where((module) => module.target == BuildTarget.native)
+            .toList(),
+        output: output,
+        metadata: metadata,
+      );
+      for (final node in nodeExecutables()) {
+        await runProcess(node, [
+          'test/integration/optional_platforms.mjs',
+          output.path,
+        ], timeout: const Duration(minutes: 2));
+      }
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+    skip: Platform.isWindows,
+  );
 
   test('native-only assembly includes all platforms without Wasm or install scripts', () async {
     await assemblePackage(

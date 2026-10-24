@@ -16,6 +16,7 @@ export 'src/build/package.dart'
     show
         buildPackage,
         assemblePackage,
+        assemblePackageSet,
         assembleWasmPackage,
         assembleNativePackage;
 export 'src/api/annotation.dart' show NAPI, ClassPolicy;

@@ -5,8 +5,9 @@ import '../compiler/native/platform.dart';
 /// Select one native artifact without changing its bindings or loading another.
 String emitNativePackageLoader(
   Map<NativePlatform, String> modules,
-  List<String> exports,
-) {
+  List<String> exports, {
+  String? packageVersion,
+}) {
   final paths = {
     for (final entry in modules.entries)
       '${entry.key.nodePlatform}/${entry.key.architecture}': entry.value,
@@ -45,9 +46,22 @@ if (process.platform === 'linux') {
 }
 ''');
   }
-  code.writeln(
-    r'const $napiBindings = $napiCreateRequire(import.meta.url)($napiModule);',
-  );
+  code.writeln(r'const $napiRequire = $napiCreateRequire(import.meta.url);');
+  if (packageVersion != null) {
+    code.writeln('''
+import {existsSync as \$napiExists} from 'node:fs';
+import {join as \$napiJoin} from 'node:path';
+try {
+  \$napiRequire.resolve(\$napiModule);
+} catch (error) {
+  if (error.code !== 'MODULE_NOT_FOUND' ||
+      (\$napiRequire.resolve.paths(\$napiModule) ?? []).some(directory =>
+        \$napiExists(\$napiJoin(directory, \$napiModule)))) throw error;
+  throw new Error('Missing optional native package ' + \$napiModule + ${jsonEncode('@$packageVersion. Install this package with npm optional dependencies enabled.')}, {cause: error});
+}
+''');
+  }
+  code.writeln(r'const $napiBindings = $napiRequire($napiModule);');
   for (final (index, name) in exports.indexed) {
     code.writeln(
       'const \$napi$index = \$napiBindings[${jsonEncode(name)}]; export {\$napi$index as ${jsonEncode(name)}};',

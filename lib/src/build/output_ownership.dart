@@ -48,11 +48,15 @@ Set<String> packageArtifactNames(
   required bool calls,
   bool browser = false,
   Map<String, String> nativeRuntimes = const {},
+  Map<String, String> nativePackages = const {},
 }) {
   final dual = targets.length > 1;
   return {
     for (final target in targets)
-      if (target == 'native' && nativeRuntimes.isNotEmpty) ...{
+      if (target == 'native' && nativePackages.isNotEmpty) ...{
+        'native/module.mjs',
+        'native/module.d.mts',
+      } else if (target == 'native' && nativeRuntimes.isNotEmpty) ...{
         'native/module.mjs',
         'native/module.d.mts',
         for (final entry in nativeRuntimes.entries)
@@ -181,6 +185,16 @@ final class OutputOwnership {
       throw const FormatException('Invalid native platform layout.');
     }
     final nativeRuntimes = rawRuntimes.cast<String, String>();
+    final rawPackages = manifest['nativePackages'] ?? <String, dynamic>{};
+    if (rawPackages is! Map<String, dynamic> ||
+        rawPackages.values.any((value) => value is! String) ||
+        !NativePlatform.values
+            .map((p) => p.packageId)
+            .toSet()
+            .containsAll(rawPackages.keys)) {
+      throw const FormatException('Invalid native package layout.');
+    }
+    final nativePackages = rawPackages.cast<String, String>();
     final contract = manifest['moduleContract'];
     if (contract != null &&
         (kind != OutputKind.module || contract is! Map<String, dynamic>)) {
@@ -208,7 +222,15 @@ final class OutputOwnership {
                 !targets.contains('native') ||
                 auto.isNotEmpty ||
                 runtime != null)) ||
-        (targets.contains('native') && nativeRuntimes.isEmpty
+        (nativePackages.isNotEmpty &&
+            (kind != OutputKind.package ||
+                !targets.contains('native') ||
+                auto.isNotEmpty ||
+                nativeRuntimes.isNotEmpty ||
+                runtime != null)) ||
+        (targets.contains('native') &&
+                nativeRuntimes.isEmpty &&
+                nativePackages.isEmpty
             ? runtime is! String ||
                   !RegExp(r'^libnapi_runtime_[A-Za-z0-9_.-]+\.(?:dylib|so)$')
                       .hasMatch(runtime)
@@ -222,6 +244,7 @@ final class OutputOwnership {
       calls: calls,
       browser: browser,
       nativeRuntimes: nativeRuntimes,
+      nativePackages: nativePackages,
     );
     if (hashes.length != artifacts.length ||
         !artifacts.containsAll(hashes.keys)) {
@@ -252,7 +275,7 @@ final class OutputOwnership {
           );
         }
       }
-    } else if (targets.contains('native')) {
+    } else if (targets.contains('native') && nativePackages.isEmpty) {
       bundle = await NativeRuntimeBundle.read(
         targets.length > 1 ? Directory('${directory.path}/native') : directory,
         built: true,
@@ -291,7 +314,8 @@ final class OutputOwnership {
               packageEntrypoints(
                 targets,
                 root as String,
-                nativePlatforms: nativeRuntimes.isNotEmpty,
+                nativePlatforms:
+                    nativeRuntimes.isNotEmpty || nativePackages.isNotEmpty,
                 browser: browser,
               ),
             ) ||
@@ -302,7 +326,8 @@ final class OutputOwnership {
               packageEntrypoints(
                 targets,
                 root,
-                nativePlatforms: nativeRuntimes.isNotEmpty,
+                nativePlatforms:
+                    nativeRuntimes.isNotEmpty || nativePackages.isNotEmpty,
                 browser: browser,
                 commonJs: false,
               ),
@@ -330,6 +355,35 @@ final class OutputOwnership {
         throw ArgumentError('Generated package metadata changed: $field');
       }
       package.remove(field);
+    }
+    if (nativePackages.isNotEmpty) {
+      final optional = package['optionalDependencies'];
+      if (optional is! Map<String, dynamic>) {
+        throw ArgumentError('Generated optionalDependencies changed.');
+      }
+      for (final entry in nativePackages.entries) {
+        if (entry.value != '${package['name']}-${entry.key}' ||
+            optional[entry.value] != package['version']) {
+          throw ArgumentError(
+            'Generated native package dependency changed: ${entry.value}',
+          );
+        }
+        packageMetadata({'name': entry.value, 'version': package['version']});
+        for (final field in [
+          'dependencies',
+          'peerDependencies',
+          'devDependencies',
+        ]) {
+          if (package[field] case final Map dependencies
+              when dependencies.containsKey(entry.value)) {
+            throw ArgumentError(
+              'Package metadata $field conflicts with generated package ${entry.value}.',
+            );
+          }
+        }
+        optional.remove(entry.value);
+      }
+      if (optional.isEmpty) package.remove('optionalDependencies');
     }
     // Also validates author metadata edited since the previous build.
     packageMetadata(package);
@@ -514,6 +568,7 @@ Future<void> writeOutputOwnership(
   Set<String> assets = const {},
   Set<String> autoPlatform = const {},
   Map<String, String> nativeRuntimes = const {},
+  Map<String, String> nativePackages = const {},
   Map<String, Object?>? moduleContract,
 }) async {
   final names = packageArtifactNames(
@@ -522,13 +577,14 @@ Future<void> writeOutputOwnership(
     calls: calls,
     browser: browser,
     nativeRuntimes: nativeRuntimes,
+    nativePackages: nativePackages,
   );
   final hashes = <String, String>{};
   for (final name in names) {
     hashes[name] = await _hash(File(path.join(staging.path, name)));
   }
   await File('${staging.path}/$outputOwnershipFile').writeAsString(
-    '${const JsonEncoder.withIndent('  ').convert({'format': 1, 'kind': 'napi-${kind.name}', 'targets': targets.toList(), 'root': root, 'runtime': runtime, 'calls': calls, if (browser) 'browser': true, 'artifacts': hashes, 'assets': assets.toList(), 'autoPlatform': autoPlatform.toList(), if (nativeRuntimes.isNotEmpty) 'nativeRuntimes': nativeRuntimes, 'moduleContract': ?moduleContract})}\n',
+    '${const JsonEncoder.withIndent('  ').convert({'format': 1, 'kind': 'napi-${kind.name}', 'targets': targets.toList(), 'root': root, 'runtime': runtime, 'calls': calls, if (browser) 'browser': true, 'artifacts': hashes, 'assets': assets.toList(), 'autoPlatform': autoPlatform.toList(), if (nativeRuntimes.isNotEmpty) 'nativeRuntimes': nativeRuntimes, if (nativePackages.isNotEmpty) 'nativePackages': nativePackages, 'moduleContract': ?moduleContract})}\n',
   );
 }
 

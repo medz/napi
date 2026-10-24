@@ -260,9 +260,42 @@ There are no platform-specific npm dependencies or install scripts. Add a Wasm
 `BuiltModule` to `modules` to expose `/wasm` alongside `/native`; `target` still
 chooses the root backend, and native loading failures never switch to Wasm.
 
+### Download only the installed platform
+
+Use `assemblePackageSet` with the same `modules` to distribute native payloads
+as optional npm dependencies:
+
+```dart
+final packages = await assemblePackageSet(
+  modules: modules,
+  output: Directory('release/1.0.0'),
+  metadata: {'name': '@scope/counter', 'version': '1.0.0'},
+);
+```
+
+The output contains an entry package in `package/` and a package for each
+native platform, such as `macos-arm64/` and `linux-x64-glibc/`. Native package
+names append the platform suffix (`@scope/counter-macos-arm64`) and use the same
+version as the entry package. npm selects the compatible dependency using
+`os`, `cpu` and `libc`; other runtimes are not downloaded. Consumers continue
+to import or require `@scope/counter`.
+
+Publish the native packages first, then the entry package. The returned
+directories are in that order. The entry package pins their exact versions.
+Keep optional dependencies enabled when installing; missing packages and
+native loading failures produce errors. No install script downloads code.
+If included, Wasm stays in the entry package and is selected explicitly.
+
+Prepare each set in a new output directory. An existing directory is never
+replaced, and a failed assembly leaves no partial set. Generated dependency
+names cannot also appear in author-supplied dependency fields. Package
+descriptions, licensing, registry settings and platform constraints accompany
+the native packages; author scripts and dependencies stay in the entry package.
+For a single tarball containing all platforms, continue using `assemblePackage`.
+
 ## Managed rebuilds
 
-Call `buildPackage`, `buildLibrary` or the assembly API again with the same output
+Call `buildPackage`, `buildLibrary` or a single-package assembly API again with the same output
 directory. Rebuilds support local macOS APFS, supported 64-bit Linux ext-family
 filesystems or tmpfs, and Windows NTFS.
 
