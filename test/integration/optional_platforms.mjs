@@ -2,10 +2,13 @@ import assert from 'node:assert/strict';
 import {execFile} from 'node:child_process';
 import {createServer} from 'node:http';
 import {readFile, writeFile, mkdir, rm, readdir} from 'node:fs/promises';
-import {join} from 'node:path';
+import {dirname, join} from 'node:path';
 import {promisify} from 'node:util';
 
 const run = promisify(execFile);
+const npm = process.platform === 'win32'
+  ? [process.execPath, join(dirname(process.execPath), 'node_modules/npm/bin/npm-cli.js')]
+  : ['npm'];
 const root = process.argv[2];
 const scratch = join(root, `consumer-${process.version}`);
 const entryName = JSON.parse(await readFile(join(root, 'package', 'package.json'))).name;
@@ -17,8 +20,8 @@ for (const name of await readdir(root)) {
   if (name.startsWith('consumer-') || name.startsWith('.')) continue;
   const directory = join(root, name);
   const manifest = JSON.parse(await readFile(join(directory, 'package.json')));
-  const {stdout} = await run('npm', [
-    'pack', '--ignore-scripts', '--json', '--pack-destination', scratch,
+  const {stdout} = await run(npm[0], [
+    ...npm.slice(1), 'pack', '--ignore-scripts', '--json', '--pack-destination', scratch,
   ], {cwd: directory});
   const [packed] = JSON.parse(stdout);
   manifests.set(manifest.name, {...manifest, dist: {
@@ -55,7 +58,7 @@ const selected = [...manifests.values()].find(p =>
 assert.ok(selected, 'test host must have a native fixture');
 try {
   await writeFile(join(scratch, 'package.json'), '{"private":true,"type":"module"}');
-  await run('npm', ['install', `${entry.name}@${entry.version}`,
+  await run(npm[0], [...npm.slice(1), 'install', `${entry.name}@${entry.version}`,
     '--registry', registry, '--cache', join(scratch, 'cache'),
     '--ignore-scripts', '--no-audit', '--no-fund',
   ], {cwd: scratch});

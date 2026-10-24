@@ -296,6 +296,7 @@ jobs:
             ${{ runner.temp }}/platform-package/packages/macos-x64
             ${{ runner.temp }}/platform-package/packages/linux-x64-glibc
             ${{ runner.temp }}/platform-package/packages/linux-arm64-glibc
+            ${{ runner.temp }}/platform-package/packages/windows-x64
           if-no-files-found: error
           retention-days: 1
 
