@@ -10,6 +10,7 @@ dependencies:
   # Wasm platform configuration uses version-specific analyzer APIs.
   analyzer: 14.5.0
   args: ^2.7.0
+  package_config: ^3.0.0
   path: ^1.9.1
   crypto: ^3.0.7
 dev_dependencies:
