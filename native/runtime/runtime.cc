@@ -71,7 +71,6 @@ bool Fail(char** error, const char* message) {
   return false;
 }
 
-#if !defined(_WIN32)
 bool TransferError(char** error, char* message) {
   if (error != nullptr) {
     *error = message;
@@ -80,7 +79,6 @@ bool TransferError(char** error, char* message) {
   }
   return false;
 }
-#endif
 
 bool IsOwner(const NapiDart_Isolate* isolate, char** error) {
   if (isolate == nullptr) return Fail(error, "Isolate is null");
