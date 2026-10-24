@@ -122,7 +122,8 @@ runtime. Existing corrupt entries are preserved for diagnosis, not overwritten.
 Archives are bounded and restricted to the exact flat regular-file inventory.
 
 The Dart 3.13.5 ABI 15 runtime ZIPs and matching locks are available in the
-[macOS arm64 release](https://github.com/medz/napi/releases/tag/runtime-dart-3.13.5-abi15)
+[macOS arm64 release](https://github.com/medz/napi/releases/tag/runtime-dart-3.13.5-abi15),
+[macOS x64 release](https://github.com/medz/napi/releases/tag/runtime-dart-3.13.5-macos-x64-abi15),
 and [Linux x64 release](https://github.com/medz/napi/releases/tag/runtime-dart-3.13.5-linux-x64-abi15).
 Set `--url` when packing a new release to record its fixed asset URL.
 A lock with a `null` URL requires

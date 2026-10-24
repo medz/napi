@@ -142,8 +142,10 @@ layout depend on experimental Dart internals; Node-API compatibility alone does
 not make another Dart SDK or host interchangeable.
 
 The macOS binaries target macOS 14. Execution has been tested on macOS 14.8.9
-and 27.0.1 arm64, Node 24.19.0 and 26.11.1, with TypeScript 7.0.2 declarations.
-The macOS arm64 bundle was built with Apple clang 21.0.0.
+and 27.0.1 arm64, and macOS 15.7.9 x64, with Node 24.19.0 and 26.11.1 and
+TypeScript 7.0.2 declarations. The macOS arm64 bundle was built with Apple
+clang 21.0.0; the x64 bundle uses the pinned SDK clang/LLD 23 toolchain and
+macOS SDK 15.5.
 
 Linux x64 bundles target glibc 2.28 and use the pinned Dart SDK clang 23.0.0git
 toolchain and Debian sysroot. Execution has been tested on Ubuntu 24.04 x64

@@ -25,6 +25,15 @@ const _runtimeArchives = {
     manifestSha256:
         '600733d9dc5df77a81354ee12314310e2f27f9337174b3655e7a16de93f00cfb',
   ),
+  NativePlatform.macosX64: (
+    url:
+        'https://github.com/medz/napi/releases/download/runtime-dart-3.13.5-macos-x64-abi15/'
+        'napi-runtime-dart-3.13.5-macos-x64-abi15-1b6f44af6574.zip',
+    sha256: '1b6f44af65747f186c3eed234de398d6171d46498c358685e1e97aa7fe8ec005',
+    bytes: 2409868,
+    manifestSha256:
+        '1ea9ddaca3b6aa625ba1b5cc92defeada54455ea39408e383939aaeccacf0a68',
+  ),
   NativePlatform.linuxX64: (
     url:
         'https://github.com/medz/napi/releases/download/runtime-dart-3.13.5-linux-x64-abi15/'
