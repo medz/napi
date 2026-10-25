@@ -1,8 +1,6 @@
 .github/
-test/
 /tool/
 /experiments/
 /pkg.manifest
 AGENTS.md
 CONTRIBUTING.md
-dart_test.yaml

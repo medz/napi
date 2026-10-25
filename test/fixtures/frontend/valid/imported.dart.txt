@@ -1,4 +1,0 @@
-import 'package:napi/napi.dart';
-
-@NAPI()
-int importedOnly(int value) => value;

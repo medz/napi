@@ -75,12 +75,20 @@ final class _Snapshot {
   late int textSize, dataAddress, dataSize, snapshotData, snapshotText;
 }
 
-Future<void> main() async {
+Future<void> main(List<String> arguments) async {
+  if (arguments.isNotEmpty && arguments.length != 2) {
+    throw ArgumentError('Usage: build.dart [payload.dart output-directory]');
+  }
   if (!Platform.isMacOS) {
     throw UnsupportedError('This experiment targets macOS arm64');
   }
   final root = File.fromUri(Platform.script).parent.absolute;
-  final build = Directory('${root.path}/build')..createSync(recursive: true);
+  final payload = File(
+    arguments.isEmpty ? '${root.path}/payload.dart' : arguments[0],
+  ).absolute;
+  final build = Directory(
+    arguments.isEmpty ? '${root.path}/build' : arguments[1],
+  ).absolute..createSync(recursive: true);
   final sdk = Directory(Platform.resolvedExecutable).parent.parent;
   if (File('${sdk.path}/revision').readAsStringSync().trim() != _revision) {
     throw StateError('Expected the pinned Dart 3.13.5 SDK');
@@ -101,7 +109,7 @@ Future<void> main() async {
     '--aot',
     '--no-embed-sources',
     '--output=${build.path}/payload.dill',
-    '${root.path}/payload.dart',
+    payload.path,
   ]);
   await _run('${sdk.path}/bin/utils/gen_snapshot', [
     '--snapshot_kind=app-aot-macho-dylib',

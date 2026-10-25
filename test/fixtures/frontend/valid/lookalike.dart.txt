@@ -1,4 +1,0 @@
-class NAPI {
-  final String? name;
-  const NAPI({this.name});
-}

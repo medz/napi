@@ -5,7 +5,6 @@ C/C++ compiler, assembler, native linker, or signing command.
 
 ```sh
 dart experiments/native-image/build.dart
-node --test experiments/native-image/test.cjs
 ```
 
 ```js

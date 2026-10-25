@@ -1,5 +1,0 @@
-part of 'entry.dart';
-
-/// This function is declared in a part.
-@native.NAPI()
-int fromPart(int value) => value;

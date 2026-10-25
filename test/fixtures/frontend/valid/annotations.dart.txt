@@ -1,4 +1,0 @@
-import 'package:napi/napi.dart';
-export 'package:napi/napi.dart' show NAPI;
-
-typedef Export = NAPI;
