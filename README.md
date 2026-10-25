@@ -1,119 +1,15 @@
 # napi
 
-Build Node.js extensions in Dart. Export functions and classes, generate an npm
-package, and call it from JavaScript or TypeScript. Choose Dart Wasm or a native
-Node-API `.node` addon; both run your application code in Dart.
+Node-API bindings for Dart.
 
-## Requirements
-
-- Dart **3.13.5**.
-- Node.js **24.19.0** or **26.11.1**.
-- Native builds: macOS 14 or later and Linux with glibc 2.28 or later on arm64
-  or x64, or Windows 10 / Server 2016 or later on x64. The runtime downloads
-  automatically on first use. Linux needs `unzip` to extract that download.
-  Application builds do not need a C/C++ toolchain or Dart SDK sources.
-  See [native builds](doc/native.md) for offline builds.
-
-Wasm is the default target. It depends on experimental Dart compiler and interop
-APIs and is tied to Dart 3.13.5. The [browser ESM entry](doc/packaging.md#use-wasm-in-a-browser)
-runs in Chrome 155 without Node.js or a bundler. Resource policies and `JsArray`
-handles require Node. Bun and other browsers have not yet been verified.
-
-## Build a package
-
-For a ready-to-build project, download the
-[starter](https://github.com/medz/napi/releases/latest/download/napi-starter.zip),
-extract it, and follow its README. It includes a Counter, a typed build script
-and a JavaScript example. Change the package name and backend in the script.
-
-To set up a project manually, follow the steps below.
-
-Create a Dart package and add napi:
-
-```sh
-dart create -t package dart_counter
-cd dart_counter
-dart pub add napi
-```
-
-Write `lib/counter.dart`:
+Import the raw FFI bindings with:
 
 ```dart
-import 'package:napi/napi.dart';
-
-@NAPI()
-class Counter {
-  Counter([this.value = 0]);
-  int value;
-  int increment([int amount = 1]) => value += amount;
-}
+import 'package:napi/sys/node.dart' as node;
 ```
 
-Create a build script, for example `tool/build.dart`:
+These bindings expose Node-API handles, status codes and native function
+signatures. Calls require a valid environment supplied by a Node-API host.
 
-```dart
-import 'dart:io';
-import 'package:napi/build.dart';
-
-final package = PackageBuild(
-  library: File('lib/counter.dart').absolute.uri,
-  output: Directory('npm-package'),
-  name: '@scope/counter',
-  version: '0.0.0',
-  packagesPath: File('.dart_tool/package_config.json').absolute.path,
-);
-
-Future<void> main(List<String> args) => package.run(args);
-```
-
-Build and install the generated package in the same directory:
-
-```sh
-dart run tool/build.dart
-npm init -y
-npm install ./npm-package
-```
-
-Create `example.mjs` and run it with `node example.mjs`:
-
-```js
-import {Counter} from '@scope/counter';
-
-const counter = new Counter();
-console.log(counter.increment());  // 1
-console.log(counter.increment(2)); // 3
-```
-
-The package initializes when imported. TypeScript declarations are generated
-alongside the bindings. To use the package in another Node project, run
-`npm pack ./npm-package` and install the resulting tarball there.
-
-The script can have any name or location; relative paths use your working
-directory. For a native package, run `dart run tool/build.dart --target native`,
-or set `target: BuildTarget.native` in the declaration. See
-[native builds](doc/native.md) for runtime caching and offline builds, and
-[packaging](doc/packaging.md) for script options, dual-target packages and custom
-build workflows. Dual-backend packages can opt into
-[Wasm fallback](doc/packaging.md#use-wasm-on-unsupported-native-platforms) for
-root ESM imports on unsupported native platforms. CommonJS stays native-only;
-explicit native and Wasm entries keep separate Dart state.
-
-## Learn more
-
-- [Export functions and classes](doc/annotations.md)
-- [Parameters and defaults](doc/arguments.md) · [Numbers and strings](doc/scalars.md)
-- [Classes](doc/classes.md) · [Plain objects](doc/values.md)
-- [Lists, Maps and records](doc/structural.md) · [Shared JS collections](doc/collections.md)
-- [Generic payloads](doc/opaque.md) · [Concrete generic aliases](doc/concrete-generics.md)
-- [Promises](doc/futures.md) · [Callbacks](doc/callbacks.md) · [Streams](doc/streams.md)
-- [Binary data](doc/binary.md) · [Shared bytes](doc/shared-bytes.md)
-- [Resource cleanup](doc/resources.md) · [Cancellation](doc/cancellation.md)
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) to run the tests.
-
-## License
-
-MIT. See [LICENSE](LICENSE). Generated packages include Dart's `DART_LICENSE`;
-keep the included license notices when distributing them.
+See the [native image experiment](experiments/native-image/README.md) for the
+standalone Dart AOT addon prototype.

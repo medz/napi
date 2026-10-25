@@ -45,10 +45,10 @@ This prototype targets macOS arm64 and Dart 3.13.5, revision
 that SDK's executable layout and private embedding APIs. This packaging is
 experimental. No SDK source tree or prebuilt custom runtime is used.
 
-This is separate from the package's binding generator. It does not implement
-other OS/CPU targets or native-asset packaging. Loading different addons with
-separate embedded Dart runtimes in one process remains unverified. The VM and
-I/O services live for the process lifetime; environment cleanup shuts down the
-corresponding isolate group. Dart shares Node's process ID and working directory.
+This prototype does not implement other OS/CPU targets or native-asset packaging.
+Loading different addons with separate embedded Dart runtimes in one process
+remains unverified. The VM and I/O services live for the process lifetime;
+environment cleanup shuts down the corresponding isolate group. Dart shares
+Node's process ID and working directory.
 
 This directory is excluded from the published Dart package.

@@ -1,6 +1,4 @@
 .github/
-/tool/
 /experiments/
 /pkg.manifest
 AGENTS.md
-CONTRIBUTING.md
