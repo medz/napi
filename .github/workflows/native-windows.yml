@@ -1,0 +1,187 @@
+name: Windows runtime
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/precompiled-runtime]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 120
+    env:
+      DEPOT_TOOLS_WIN_TOOLCHAIN: '0'
+      DEPOT_TOOLS_UPDATE: '0'
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: 3.13.5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+
+      - name: Prepare Dart SDK sources
+        run: |
+          git config --global core.longpaths true
+          $build = Join-Path $env:RUNNER_TEMP 'napi-runtime'
+          $depot = Join-Path $build 'depot_tools'
+          New-Item -ItemType Directory -Force $build | Out-Null
+          git init $depot
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git -C $depot fetch --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git b52fe87d04af61df3dd07748ff2c2c0b649dca09
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git -C $depot checkout --detach FETCH_HEAD
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git clone --depth 1 --branch 3.13.5 https://github.com/dart-lang/sdk.git "$build/sdk"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          @'
+          solutions = [{
+            'name': 'sdk',
+            'url': 'https://github.com/dart-lang/sdk.git',
+            'managed': False,
+            'custom_deps': {'sdk/third_party/emsdk': None},
+            'custom_vars': {
+              'download_reclient': False,
+              'download_android_deps': False,
+              'download_fuchsia_deps': False,
+              'download_chrome': False,
+              'download_firefox': False,
+              'download_emscripten': False,
+              'checkout_javascript_engines': False,
+              'build_devtools_from_sources': False,
+            },
+          }]
+          '@ | Set-Content "$build/.gclient"
+          $env:PATH = "$depot;$env:PATH"
+          $depot | Add-Content $env:GITHUB_PATH
+          "NAPI_SDK=$build/sdk" | Add-Content $env:GITHUB_ENV
+          Set-Location $build
+          gclient.bat sync --no-history --shallow --nohooks --ignore-dep-type=cipd -j4
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Prepare pinned build tools
+        run: |
+          @'
+          $Subdir buildtools/win
+          gn/gn/windows-amd64 git_revision:b8becbd4f7979f63ab3542524b2b4d8db2ce3b52
+          $Subdir buildtools/win-x64/clang
+          fuchsia/third_party/clang/windows-amd64 git_revision:deb6854eec93529b2bd30178d400ad2ee7665cd4
+          $Subdir buildtools/ninja
+          infra/3pp/tools/ninja/windows-amd64 version:3@1.13.2.chromium.4
+          '@ | Set-Content "$env:RUNNER_TEMP/native-toolchain.ensure"
+          cipd.bat ensure -root $env:NAPI_SDK -ensure-file "$env:RUNNER_TEMP/native-toolchain.ensure"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Prepare Node headers and import library
+        run: |
+          $node = Join-Path $env:RUNNER_TEMP 'napi-node'
+          New-Item -ItemType Directory -Force $node | Out-Null
+          $base = 'https://nodejs.org/dist/v24.19.0'
+          $hashes = (Invoke-WebRequest "$base/SHASUMS256.txt").Content
+          foreach ($file in @('node-v24.19.0-headers.tar.gz', 'win-x64/node.lib')) {
+            $output = Join-Path $node (Split-Path $file -Leaf)
+            Invoke-WebRequest "$base/$file" -OutFile $output
+            $escaped = [regex]::Escape($file)
+            $expected = [regex]::Match($hashes, "(?m)^([0-9a-f]{64})\s+$escaped\r?$").Groups[1].Value
+            $actual = (Get-FileHash $output -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($expected -ne $actual) { throw "Checksum mismatch: $file" }
+          }
+          tar -xzf "$node/node-v24.19.0-headers.tar.gz" -C $node
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "NAPI_NODE_HEADERS=$node/node-v24.19.0/include/node" | Add-Content $env:GITHUB_ENV
+          "NAPI_NODE_LIB=$node/node.lib" | Add-Content $env:GITHUB_ENV
+
+      - name: Build runtime template
+        run: |
+          dart pub get
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dart run tool/build_runtime.dart --sdk $env:NAPI_SDK --node-headers $env:NAPI_NODE_HEADERS --node-lib $env:NAPI_NODE_LIB --arch x64 --jobs 4
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Compile and load a native addon
+        run: |
+          $smoke = Join-Path $env:RUNNER_TEMP 'napi-smoke'
+          New-Item -ItemType Directory -Force $smoke | Out-Null
+          Copy-Item experiments/native-image/payload.dart $smoke
+          $api = Get-Content experiments/native-image/node_api.dart -Raw
+          $start = $api.IndexOf('@Native<Pointer<Void> Function(')
+          $end = $api.IndexOf('@Native<_OutNative>')
+          if ($start -lt 0 -or $end -le $start) { throw 'Unexpected allocator fixture' }
+          $allocator = @'
+          final _crt = DynamicLibrary.open('ucrtbase.dll');
+          final _calloc = _crt.lookupFunction<
+            Pointer<Void> Function(UintPtr, UintPtr),
+            Pointer<Void> Function(int, int)
+          >('calloc', isLeaf: true);
+          final _free = _crt.lookupFunction<Void Function(Js), void Function(Js)>(
+            'free', isLeaf: true,
+          );
+
+          '@
+          ($api.Substring(0, $start) + $allocator + $api.Substring($end)) |
+            Set-Content "$smoke/node_api.dart"
+          @'
+          import 'dart:io';
+          import 'package:napi/compiler.dart';
+          Future<void> main(List<String> args) => Compiler([
+            NativeTarget(entry: File(args[0]), output: File(args[1])),
+          ]).run([]);
+          '@ | Set-Content "$smoke/build.dart"
+          dart --packages=.dart_tool/package_config.json "$smoke/build.dart" "$smoke/payload.dart" "$smoke/addon.node"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          @'
+          const assert = require('node:assert/strict');
+          const { join } = require('node:path');
+          const { Worker } = require('node:worker_threads');
+          const [path, directory] = process.argv.slice(2);
+          const timeout = setTimeout(() => process.exit(1), 30000);
+          async function main() {
+            const addon = require(path);
+            assert.equal(addon.answer, 42);
+            assert.equal(addon.add(20, 22), 42);
+            const file = join(directory, 'roundtrip.txt');
+            assert.equal(await addon.fileRoundtrip(file, 'Dart 中文'), 'Dart 中文');
+            assert.equal(await addon.isolateReadFile(file), 'Dart 中文');
+            assert.equal(await addon.isolateRun(21), 42);
+            assert.equal(await addon.isolateSpawn(21), 42);
+            await Promise.all(Array.from({ length: 4 }, () => new Promise((resolve, reject) => {
+              let result;
+              const worker = new Worker(`
+                const { parentPort, workerData } = require('node:worker_threads');
+                const addon = require(workerData);
+                addon.isolateRun(21).then(value => parentPort.postMessage(value));
+              `, { eval: true, workerData: path });
+              worker.on('message', value => { result = value; });
+              worker.on('error', reject);
+              worker.on('exit', code => {
+                try {
+                  assert.equal(code, 0);
+                  assert.equal(result, 42);
+                  resolve();
+                } catch (error) { reject(error); }
+              });
+            })));
+          }
+          main().then(() => {
+            clearTimeout(timeout);
+            console.log('Native addon, dart:io, isolates and Workers passed.');
+          }, error => { console.error(error); process.exit(1); });
+          '@ | Set-Content "$smoke/verify.cjs"
+          node "$smoke/verify.cjs" "$smoke/addon.node" $smoke
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64-runtime
+          path: |
+            lib/src/compiler/templates/windows_x64.node
+            lib/src/compiler/templates/windows_x64.json
+            lib/src/compiler/templates/NOTICES
+          if-no-files-found: error

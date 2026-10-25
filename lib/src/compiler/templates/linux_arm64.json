@@ -1,0 +1,8 @@
+{
+  "sdk": "3.13.5",
+  "revision": "04bcd1036cdc799ac6564988f159ee454d42c822",
+  "target": "linux_arm64",
+  "napi": 8,
+  "format": 1,
+  "sha256": "68ada580ac253304afc5e1424e00a7bdab624a8246421b24f8b7504bd5dc5e57"
+}

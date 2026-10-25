@@ -9,8 +9,8 @@ environment:
   sdk: "3.13.5"
 
 dependencies:
+  crypto: ^3.0.7
   meta: ^1.19.0
 
 dev_dependencies:
-  crypto: ^3.0.7
   lints: ^6.1.0
