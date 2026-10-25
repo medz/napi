@@ -69,11 +69,11 @@ jobs:
       - name: Prepare pinned build tools
         run: |
           @'
-          $Subdir buildtools/win
+          @Subdir buildtools/win
           gn/gn/windows-amd64 git_revision:b8becbd4f7979f63ab3542524b2b4d8db2ce3b52
-          $Subdir buildtools/win-x64/clang
+          @Subdir buildtools/win-x64/clang
           fuchsia/third_party/clang/windows-amd64 git_revision:deb6854eec93529b2bd30178d400ad2ee7665cd4
-          $Subdir buildtools/ninja
+          @Subdir buildtools/ninja
           infra/3pp/tools/ninja/windows-amd64 version:3@1.13.2.chromium.4
           '@ | Set-Content "$env:RUNNER_TEMP/native-toolchain.ensure"
           cipd.bat ensure -root $env:NAPI_SDK -ensure-file "$env:RUNNER_TEMP/native-toolchain.ensure"
