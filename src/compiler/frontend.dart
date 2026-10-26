@@ -169,6 +169,7 @@ bool _hasUnknownSdkNative(Iterable<Map<String, Object?>> natives) {
     'ConditionVariable_NotifyAll',
     'ConditionVariable_Wait',
     'FinalizerEntry_SetExternalSize',
+    'FileSystemWatcher::DestroyWatch',
     'IsolateGroup_runSync',
     'Mutex_Initialize',
     'Mutex_RunLocked',
@@ -208,6 +209,15 @@ String? validateNodeVersion(int major, int minor, int patch, int napi,
     _nodeVersionAllowed(major, minor, patch, napi, version,
         0, 0, 0, 0, '', 0, 0, 0, '',
         false, false, false, false) ? null : 'Unsupported Node.js version';
+
+bool _windowsPathHasReservedCharacters(String segment) {
+  for (var i = 0; i < segment.length; i++) {
+    final c = segment.codeUnitAt(i);
+    if (c == 34 || c == 42 || c == 47 || c == 58 || c == 60 ||
+        c == 62 || c == 63 || c == 92 || c == 124) return true;
+  }
+  return false;
+}
 
 @pragma('vm:entry-point')
 bool _nodeVersionAllowed(int major, int minor, int patch, int napi,
@@ -481,6 +491,21 @@ Map<String, bool> _configureBuiltinInitialization(
     (lib) => lib.importUri.toString() == 'dart:core',
   );
   final uri = core.classes.singleWhere((cls) => cls.name == '_Uri');
+  final pathCheck = uri.procedures.singleWhere(
+    (procedure) => procedure.name.text == '_checkWindowsPathReservedCharacters',
+  );
+  final pathHelper = component.mainMethod!.enclosingLibrary.procedures
+      .singleWhere(
+        (procedure) =>
+            procedure.name.text == '_windowsPathHasReservedCharacters',
+      );
+  final replacement = _WindowsPathCheck(pathHelper);
+  pathCheck.function.body =
+      (pathCheck.function.body!.accept(replacement) as Statement)
+        ..parent = pathCheck.function;
+  if (replacement.count != 1) {
+    throw StateError('Unexpected Dart SDK Windows URI validation');
+  }
   final windows = uri.fields.singleWhere(
     (field) => field.name.text == '_isWindowsCached',
   );
@@ -518,6 +543,40 @@ Map<String, bool> _configureBuiltinInitialization(
     }
   }
   return capabilities;
+}
+
+class _WindowsPathPattern extends RecursiveVisitor {
+  bool found = false;
+  static const pattern = r'["*/:<>?\\|]';
+
+  @override
+  void visitStringLiteral(StringLiteral node) {
+    if (node.value == pattern) found = true;
+  }
+
+  @override
+  void visitConstantExpression(ConstantExpression node) {
+    if (node.constant case StringConstant(value: pattern)) found = true;
+  }
+}
+
+class _WindowsPathCheck extends Transformer {
+  _WindowsPathCheck(this.helper);
+  final Procedure helper;
+  int count = 0;
+
+  @override
+  TreeNode visitInstanceInvocation(InstanceInvocation node) {
+    if (node.interfaceTarget.name.text == 'contains') {
+      final pattern = _WindowsPathPattern();
+      node.arguments.accept(pattern);
+      if (pattern.found) {
+        count++;
+        return StaticInvocation(helper, Arguments([node.receiver]));
+      }
+    }
+    return super.visitInstanceInvocation(node);
+  }
 }
 
 class _PackageApis extends RecursiveVisitor {
