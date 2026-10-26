@@ -7,6 +7,7 @@ const { spawnSync } = require('node:child_process');
 for (const [target, fixture] of [
   ['annotated', 'annotated_functions.cts'],
   ['classes', 'annotated_classes.cts'],
+  ['collections', 'annotated_collections.cts'],
 ]) {
   const consumer = resolve(process.argv[2], target, 'consumer.cts');
   copyFileSync(join(__dirname, fixture), consumer);

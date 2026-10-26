@@ -121,12 +121,20 @@ final class Calls {
     ),
   );
 
+  bool _isComposite(ExportType type) => switch (type.kind) {
+    ValueKind.object ||
+    ValueKind.list ||
+    ValueKind.map ||
+    ValueKind.typedData => true,
+    _ => false,
+  };
+
   Expression _decode(
     PositionalParameter env,
     ExportType type,
     Expression Function(DartType) read,
   ) {
-    if (type.kind != ValueKind.object) return read(type.dartType);
+    if (!_isComposite(type)) return read(type.dartType);
     final rawType = type.nullable
         ? objectType.withDeclaredNullability(Nullability.nullable)
         : objectType;
@@ -136,24 +144,165 @@ final class Calls {
       initializer: read(rawType),
       isFinal: true,
     );
-    Expression unwrap() => call(
-      VariableGet(env),
-      method(envClass, 'unwrap'),
-      [type.nullable ? NullCheck(VariableGet(raw)) : VariableGet(raw)],
-      types: [type.classExport!.dartType],
-    );
+    Expression source() =>
+        type.nullable ? NullCheck(VariableGet(raw)) : VariableGet(raw);
+    Expression convert() => switch (type.kind) {
+      ValueKind.object => call(
+        VariableGet(env),
+        method(envClass, 'unwrap'),
+        [source()],
+        types: [type.classExport!.dartType],
+      ),
+      ValueKind.list || ValueKind.map => call(
+        VariableGet(env),
+        method(
+          envClass,
+          type.kind == ValueKind.list ? '_readList' : '_readMap',
+        ),
+        [source(), _elementReader(env, type)],
+        types: [type.element!.dartType],
+      ),
+      ValueKind.typedData => call(
+        VariableGet(env),
+        method(envClass, _typedDataMethod(type, read: true)),
+        [source(), IntLiteral(_typedArrayKind(type.typedDataKind!))],
+        types: [type.dartType.withDeclaredNullability(Nullability.nonNullable)],
+      ),
+      _ => throw StateError('Not a composite type: ${type.kind}'),
+    };
     return Let(
       raw,
       type.nullable
           ? ConditionalExpression(
               EqualsNull(VariableGet(raw)),
               NullLiteral(),
-              unwrap(),
+              convert(),
               type.dartType,
             )
-          : unwrap(),
+          : convert(),
     );
   }
+
+  Expression _elementReader(PositionalParameter env, ExportType type) {
+    final source = PositionalParameter(
+      cosmeticName: 'source',
+      type: objectType,
+    );
+    final key = PositionalParameter(
+      cosmeticName: 'key',
+      type: type.kind == ValueKind.list
+          ? core.intNonNullableRawType
+          : core.stringNonNullableRawType,
+    );
+    final element = type.element!;
+    return FunctionExpression(
+      FunctionNode(
+        ReturnStatement(
+          _decode(
+            env,
+            element,
+            (dartType) => call(
+              VariableGet(source),
+              method(
+                objectClass,
+                type.kind == ValueKind.list ? '_element' : 'get',
+              ),
+              [VariableGet(key)],
+              types: [dartType],
+            ),
+          ),
+        ),
+        positionalParameters: [source, key],
+        returnType: element.dartType,
+      ),
+    );
+  }
+
+  Expression _encode(
+    PositionalParameter env,
+    ExportType type,
+    Expression value,
+  ) {
+    if (!_isComposite(type)) return value;
+    final result = SyntheticVariable(
+      cosmeticName: 'result${_next++}',
+      type: type.dartType,
+      initializer: value,
+      isFinal: true,
+    );
+    Expression source() =>
+        type.nullable ? NullCheck(VariableGet(result)) : VariableGet(result);
+    Expression convert() => switch (type.kind) {
+      ValueKind.object => call(
+        VariableGet(env),
+        method(envClass, 'wrap'),
+        [source()],
+        types: [type.classExport!.dartType],
+      ),
+      ValueKind.list || ValueKind.map => call(
+        VariableGet(env),
+        method(
+          envClass,
+          type.kind == ValueKind.list ? '_writeList' : '_writeMap',
+        ),
+        [source(), _elementWriter(env, type.element!)],
+        types: [type.element!.dartType],
+      ),
+      ValueKind.typedData => call(
+        VariableGet(env),
+        method(envClass, _typedDataMethod(type, read: false)),
+        [source(), IntLiteral(_typedArrayKind(type.typedDataKind!))],
+      ),
+      _ => throw StateError('Not a composite type: ${type.kind}'),
+    };
+    return Let(
+      result,
+      type.nullable
+          ? ConditionalExpression(
+              EqualsNull(VariableGet(result)),
+              NullLiteral(),
+              convert(),
+              objectType.withDeclaredNullability(Nullability.nullable),
+            )
+          : convert(),
+    );
+  }
+
+  Expression _elementWriter(PositionalParameter env, ExportType element) {
+    final value = PositionalParameter(
+      cosmeticName: 'value',
+      type: element.dartType,
+    );
+    return FunctionExpression(
+      FunctionNode(
+        ReturnStatement(_encode(env, element, VariableGet(value))),
+        positionalParameters: [value],
+        returnType: core.objectNullableRawType,
+      ),
+    );
+  }
+
+  String _typedDataMethod(ExportType type, {required bool read}) {
+    final bigint =
+        type.typedDataKind == TypedDataKind.int64 ||
+        type.typedDataKind == TypedDataKind.uint64;
+    if (read) return bigint ? '_readBigIntTypedData' : '_readTypedData';
+    return bigint ? '_writeBigIntTypedData' : '_writeTypedData';
+  }
+
+  int _typedArrayKind(TypedDataKind kind) => switch (kind) {
+    TypedDataKind.int8 => 0,
+    TypedDataKind.uint8 => 1,
+    TypedDataKind.uint8Clamped => 2,
+    TypedDataKind.int16 => 3,
+    TypedDataKind.uint16 => 4,
+    TypedDataKind.int32 => 5,
+    TypedDataKind.uint32 => 6,
+    TypedDataKind.float32 => 7,
+    TypedDataKind.float64 => 8,
+    TypedDataKind.int64 => 9,
+    TypedDataKind.uint64 => 10,
+  };
 
   Expression _argument(
     PositionalParameter env,
@@ -191,28 +340,8 @@ final class Calls {
           ),
         ),
       );
-    } else if (type.kind == ValueKind.object) {
-      final result = local(statements, 'result', type.dartType, value);
-      Expression wrap() => call(
-        VariableGet(env),
-        method(envClass, 'wrap'),
-        [type.nullable ? NullCheck(VariableGet(result)) : VariableGet(result)],
-        types: [type.classExport!.dartType],
-      );
-      statements.add(
-        ReturnStatement(
-          type.nullable
-              ? ConditionalExpression(
-                  EqualsNull(VariableGet(result)),
-                  NullLiteral(),
-                  wrap(),
-                  objectType.withDeclaredNullability(Nullability.nullable),
-                )
-              : wrap(),
-        ),
-      );
     } else {
-      statements.add(ReturnStatement(value));
+      statements.add(ReturnStatement(_encode(env, type, value)));
     }
   }
 

@@ -92,6 +92,25 @@ String _type(ExportType type) {
     ValueKind.voidValue => 'void',
     ValueKind.never => 'never',
     ValueKind.object => type.classExport!.name,
+    ValueKind.list =>
+      type.element!.nullable
+          ? '(${_type(type.element!)})[]'
+          : '${_type(type.element!)}[]',
+    ValueKind.map => '{ [key: string]: ${_type(type.element!)} }',
+    ValueKind.typedData =>
+      'globalThis.${switch (type.typedDataKind!) {
+        TypedDataKind.int8 => 'Int8Array',
+        TypedDataKind.uint8 => 'Uint8Array',
+        TypedDataKind.uint8Clamped => 'Uint8ClampedArray',
+        TypedDataKind.int16 => 'Int16Array',
+        TypedDataKind.uint16 => 'Uint16Array',
+        TypedDataKind.int32 => 'Int32Array',
+        TypedDataKind.uint32 => 'Uint32Array',
+        TypedDataKind.int64 => 'BigInt64Array',
+        TypedDataKind.uint64 => 'BigUint64Array',
+        TypedDataKind.float32 => 'Float32Array',
+        TypedDataKind.float64 => 'Float64Array',
+      }}',
   };
   return type.nullable ? '$value | null' : value;
 }

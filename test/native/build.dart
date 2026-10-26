@@ -19,6 +19,7 @@ Future<void> main(List<String> args) async {
     for (final (target, entry) in [
       ('annotated', 'annotated_functions.dart'),
       ('classes', 'annotated_classes.dart'),
+      ('collections', 'annotated_collections.dart'),
     ])
       NativeTarget(
         entry: File('${source.path}/$entry'),
@@ -74,10 +75,13 @@ Future<void> main(List<String> args) async {
       [
         ('@NAPI() T identity<T>(T value) => value;', 'generic functions'),
         (
-          '@NAPI() int length(List<int> values) => values.length;',
-          'unsupported parameter type',
+          'class Hidden {}\n@NAPI() int inspect(Hidden value) => 1;',
+          'class type must be exported',
         ),
-        ('@NAPI() List<int> values() => [1];', 'unsupported return type'),
+        (
+          'class Hidden {}\n@NAPI() Hidden hidden() => Hidden();',
+          'class type must be exported',
+        ),
         (
           "@NAPI(name: 'same') int first() => 1;\n"
               "@NAPI(name: 'same') int second() => 2;",
@@ -101,6 +105,16 @@ Future<void> main(List<String> args) async {
         (
           'class Hidden {}\n@NAPI() Hidden echo(Hidden value) => value;',
           'class type must be exported',
+        ),
+      ],
+    ),
+    (
+      'collections',
+      'annotated_collections.dart',
+      [
+        (
+          '@NAPI() Map<int, String> invalid(Map<int, String> value) => value;',
+          'Map keys must be non-nullable String',
         ),
       ],
     ),
@@ -148,5 +162,24 @@ Future<void> main(List<String> args) async {
         declarations: declarations,
       ),
     ]).run([]);
+    if (target == 'collections') {
+      String? failure;
+      try {
+        await Compiler([
+          NativeTarget(
+            entry: File('${source.path}/$fixture'),
+            output: annotated,
+            node: '>=20.3.0 <21.0.0',
+          ),
+        ]).run([]);
+      } on StateError catch (error) {
+        failure = error.message.toString();
+      }
+      if (failure == null || !failure.contains('22.14.0')) {
+        throw StateError(
+          'Expected accessor availability rejection, got $failure',
+        );
+      }
+    }
   }
 }
