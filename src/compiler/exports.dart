@@ -15,6 +15,23 @@ enum ValueKind {
   voidValue,
   never,
   object,
+  list,
+  map,
+  typedData,
+}
+
+enum TypedDataKind {
+  int8,
+  uint8,
+  uint8Clamped,
+  int16,
+  uint16,
+  int32,
+  uint32,
+  int64,
+  uint64,
+  float32,
+  float64,
 }
 
 final class ExportType {
@@ -23,11 +40,15 @@ final class ExportType {
     this.kind, {
     this.nullable = false,
     this.classExport,
+    this.element,
+    this.typedDataKind,
   });
   final DartType dartType;
   final ValueKind kind;
   final bool nullable;
   final ExportClass? classExport;
+  final ExportType? element;
+  final TypedDataKind? typedDataKind;
 }
 
 final class ExportParameter {
@@ -470,7 +491,32 @@ final class _Reader {
           nullable: type.nullability == Nullability.nullable,
           classExport: exported,
         );
-      if (type.classNode.enclosingLibrary.importUri.toString() == 'dart:core') {
+      final library = type.classNode.enclosingLibrary.importUri.toString();
+      if (library == 'dart:core') {
+        if (type.classNode.name == 'List') {
+          return ExportType(
+            type,
+            ValueKind.list,
+            nullable: type.nullability == Nullability.nullable,
+            element: _type(type.typeArguments.single, '$context: List element'),
+          );
+        }
+        if (type.classNode.name == 'Map') {
+          final key = type.typeArguments.first;
+          if (key is! InterfaceType ||
+              key.classNode != hierarchy.coreTypes.stringClass ||
+              key.nullability != Nullability.nonNullable) {
+            throw FormatException(
+              '@NAPI $context: Map keys must be non-nullable String.',
+            );
+          }
+          return ExportType(
+            type,
+            ValueKind.map,
+            nullable: type.nullability == Nullability.nullable,
+            element: _type(type.typeArguments.last, '$context: Map value'),
+          );
+        }
         final kind = switch (type.classNode.name) {
           'bool' => ValueKind.boolean,
           'int' => ValueKind.integer,
@@ -486,6 +532,29 @@ final class _Reader {
             kind,
             nullable: type.nullability == Nullability.nullable,
           );
+      } else if (library == 'dart:typed_data') {
+        final kind = switch (type.classNode.name) {
+          'Int8List' => TypedDataKind.int8,
+          'Uint8List' => TypedDataKind.uint8,
+          'Uint8ClampedList' => TypedDataKind.uint8Clamped,
+          'Int16List' => TypedDataKind.int16,
+          'Uint16List' => TypedDataKind.uint16,
+          'Int32List' => TypedDataKind.int32,
+          'Uint32List' => TypedDataKind.uint32,
+          'Int64List' => TypedDataKind.int64,
+          'Uint64List' => TypedDataKind.uint64,
+          'Float32List' => TypedDataKind.float32,
+          'Float64List' => TypedDataKind.float64,
+          _ => null,
+        };
+        if (kind != null) {
+          return ExportType(
+            type,
+            ValueKind.typedData,
+            nullable: type.nullability == Nullability.nullable,
+            typedDataKind: kind,
+          );
+        }
       } else if (!type.classNode.enclosingLibrary.importUri.isScheme('dart')) {
         throw FormatException(
           '@NAPI $context: class type must be exported: ${type.classNode.name}.',

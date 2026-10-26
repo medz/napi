@@ -1,9 +1,11 @@
 import 'dart:convert';
 import 'dart:ffi';
+import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 
 import '../sys/node.dart' as node;
+import '_internal/annotations.dart';
 import '_internal/native_runtime.dart';
 
 /// JavaScript's `undefined`. Omitted arguments are distinguished by argument count.
@@ -96,6 +98,24 @@ base class JsObject extends _JsValue {
       node.napiGetProperty(_env._handle, _handle, _env._encode(key), result),
     );
     return _env._decode<T>(result.value);
+  }
+
+  T _element<T>(int index) {
+    _check();
+    RangeError.checkValueInInterval(index, 0, 0xffffffff, 'index');
+    final result = _env._arena<node.NapiValue>();
+    _env._check(node.napiGetElement(_env._handle, _handle, index, result));
+    return _env._decode<T>(result.value);
+  }
+
+  int get _arrayLength {
+    _check();
+    final isArray = _env._arena<Bool>();
+    _env._check(node.napiIsArray(_env._handle, _handle, isArray));
+    if (!isArray.value) throw ArgumentError('Expected a JavaScript Array');
+    final length = _env._arena<Uint32>();
+    _env._check(node.napiGetArrayLength(_env._handle, _handle, length));
+    return length.value;
   }
 
   void operator []=(String key, Object? value) {
@@ -376,6 +396,168 @@ final class Env {
       rethrow;
     }
   }
+
+  // Called by compiler-generated bindings.
+  // ignore: unused_element
+  List<T> _readList<T>(JsObject value, T Function(JsObject, int) read) {
+    _encode(value);
+    return List<T>.generate(value._arrayLength, (index) => read(value, index));
+  }
+
+  // ignore: unused_element
+  JsObject _writeList<T>(List<T> value, Object? Function(T) write) {
+    final length = value.length;
+    final result = JsObject._(
+      this,
+      _result((out) => node.napiCreateArrayWithLength(_handle, length, out)),
+      _scope!,
+    );
+    for (var index = 0; index < length; index++) {
+      result.defineValue('$index', write(value[index]));
+    }
+    return result;
+  }
+
+  // ignore: unused_element
+  Map<String, V> _readMap<V>(
+    JsObject value,
+    V Function(JsObject, String) read,
+  ) {
+    final handle = _encode(value);
+    final keys = JsObject._(
+      this,
+      _result(
+        (out) => node.napiGetAllPropertyNames(
+          _handle,
+          handle,
+          node.NapiKeyCollectionMode.ownOnly.index,
+          node.napiKeyEnumerable | node.napiKeySkipSymbols,
+          node.NapiKeyConversion.numbersToStrings.index,
+          out,
+        ),
+      ),
+      _scope!,
+    );
+    final length = keys._arrayLength;
+    final result = <String, V>{};
+    for (var index = 0; index < length; index++) {
+      final key = keys._element<String>(index);
+      if (!value.hasOwn(key)) continue;
+      result[key] = read(value, key);
+    }
+    return result;
+  }
+
+  // ignore: unused_element
+  JsObject _writeMap<V>(Map<String, V> value, Object? Function(V) write) {
+    final result = object();
+    for (final entry in value.entries) {
+      result.defineValue(entry.key, write(entry.value));
+    }
+    return result;
+  }
+
+  // ignore: unused_element
+  T _readTypedData<T extends TypedData>(JsObject value, int expectedKind) {
+    final handle = _encode(value);
+    final isTypedArray = _arena<Bool>();
+    _check(node.napiIsTypedarray(_handle, handle, isTypedArray));
+    if (!isTypedArray.value) {
+      throw ArgumentError('Expected a JavaScript TypedArray');
+    }
+    final kind = _arena<Int32>();
+    final length = _arena<Size>();
+    final data = _arena<Pointer<Void>>();
+    _check(
+      node.napiGetTypedarrayInfo(
+        _handle,
+        handle,
+        kind,
+        length,
+        data,
+        nullptr,
+        nullptr,
+      ),
+    );
+    if (kind.value != expectedKind) {
+      throw ArgumentError(
+        'Expected TypedArray kind $expectedKind, received ${kind.value}',
+      );
+    }
+    final bytes = Uint8List(length.value * _typedDataSize(expectedKind));
+    if (bytes.isNotEmpty) {
+      if (data.value == nullptr) {
+        throw StateError('TypedArray has no accessible data');
+      }
+      bytes.setRange(
+        0,
+        bytes.length,
+        data.value.cast<Uint8>().asTypedList(bytes.length),
+      );
+    }
+    return (switch (expectedKind) {
+          0 => bytes.buffer.asInt8List(),
+          1 => bytes,
+          2 => bytes.buffer.asUint8ClampedList(),
+          3 => bytes.buffer.asInt16List(),
+          4 => bytes.buffer.asUint16List(),
+          5 => bytes.buffer.asInt32List(),
+          6 => bytes.buffer.asUint32List(),
+          7 => bytes.buffer.asFloat32List(),
+          8 => bytes.buffer.asFloat64List(),
+          9 => bytes.buffer.asInt64List(),
+          10 => bytes.buffer.asUint64List(),
+          _ => throw ArgumentError(
+            'Unsupported TypedArray kind: $expectedKind',
+          ),
+        })
+        as T;
+  }
+
+  // ignore: unused_element
+  JsObject _writeTypedData(TypedData value, int expectedKind) {
+    final length = value.lengthInBytes;
+    final data = _arena<Pointer<Void>>();
+    final buffer = _result(
+      (out) => node.napiCreateArraybuffer(_handle, length, data, out),
+    );
+    if (length > 0) {
+      data.value
+          .cast<Uint8>()
+          .asTypedList(length)
+          .setRange(
+            0,
+            length,
+            value.buffer.asUint8List(value.offsetInBytes, length),
+          );
+    }
+    return JsObject._(
+      this,
+      _result(
+        (out) => node.napiCreateTypedarray(
+          _handle,
+          expectedKind,
+          length ~/ _typedDataSize(expectedKind),
+          buffer,
+          0,
+          out,
+        ),
+      ),
+      _scope!,
+    );
+  }
+
+  @Available(napi: 6)
+  // ignore: unused_element
+  T _readBigIntTypedData<T extends TypedData>(
+    JsObject value,
+    int expectedKind,
+  ) => _readTypedData<T>(value, expectedKind);
+
+  @Available(napi: 6)
+  // ignore: unused_element
+  JsObject _writeBigIntTypedData(TypedData value, int expectedKind) =>
+      _writeTypedData(value, expectedKind);
 
   /// Gets the Dart object carried by a wrapper from this environment.
   ///
@@ -1043,6 +1225,14 @@ void registerEnv(
 void disposeEnv(Env env) => env._close();
 
 Type _typeOf<T>() => T;
+
+int _typedDataSize(int kind) => switch (kind) {
+  0 || 1 || 2 => 1,
+  3 || 4 => 2,
+  5 || 6 || 7 => 4,
+  8 || 9 || 10 => 8,
+  _ => throw ArgumentError('Unsupported TypedArray kind: $kind'),
+};
 
 bool _cacheableObject(Object value) =>
     value is! num &&

@@ -60,6 +60,36 @@ from the entry library and its re-exports. An explicitly annotated private
 function can be exported. Unsupported declarations and conflicting names produce
 a build error.
 
+## Collections and binary data
+
+Dart lists map to JS arrays. String-keyed maps map to JS objects:
+
+```dart
+@NAPI()
+List<int> doubleValues(List<int> values) => [for (final value in values) value * 2];
+
+@NAPI()
+Map<String, int> scores(Map<String, int> values) => values;
+```
+
+Containers are copied in both directions, including nested lists and maps.
+Exported class instances inside a container retain their identity. Map input
+reads own enumerable string properties once and ignores inherited and symbol
+properties. Missing array elements and explicit `undefined` still undergo the
+declared element type's validation. Map keys must be non-nullable `String`.
+
+Import `dart:typed_data` to exchange binary data. `Int8List`, `Uint8List`,
+`Uint8ClampedList`, `Int16List`, `Uint16List`, `Int32List`, `Uint32List`,
+`Float32List` and `Float64List` map to their corresponding JS TypedArrays.
+`Int64List` and `Uint64List` use `BigInt64Array` and `BigUint64Array` and preserve
+all 64 bits. The array kind must match; a Node Buffer is accepted
+as `Uint8List`.
+
+Binary conversion copies only the view's range. Later writes on either side do
+not change the copy. A declaration of `List<int>` always produces a JS Array,
+including when its Dart implementation returns a `Uint8List`. `ByteData`,
+`ByteBuffer` and SIMD lists are not supported yet.
+
 ## Classes
 
 Annotate a Dart class to expose its public constructors, methods and properties:

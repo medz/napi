@@ -36,7 +36,8 @@ Future<void> main(List<String> args) async {
     final source = File('${invalid.path}/addon.dart');
     await source.writeAsString(
       "import 'package:napi/napi.dart';\n"
-      '@NAPI() List<int> unsupported() => [1];\n',
+      'class Hidden {}\n'
+      '@NAPI() Hidden unsupported() => Hidden();\n',
     );
     String? failure;
     try {
@@ -44,7 +45,7 @@ Future<void> main(List<String> args) async {
     } on StateError catch (error) {
       failure = error.message.toString();
     }
-    if (failure == null || !failure.contains('unsupported return type')) {
+    if (failure == null || !failure.contains('class type must be exported')) {
       throw StateError(
         'Expected invalid package entry rejection, got $failure',
       );

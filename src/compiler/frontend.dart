@@ -589,6 +589,7 @@ class _Requirements extends RecursiveVisitor {
   final PackageConfig packages;
   final natives = <String, Map<String, Object?>>{};
   final enums = <String, Map<String, Object?>>{};
+  final procedures = <Reference, Map<String, Object?>>{};
 
   InstanceConstant? _available(Annotatable member) {
     final uri = Uri.parse('package:napi/src/_internal/annotations.dart');
@@ -612,6 +613,11 @@ class _Requirements extends RecursiveVisitor {
     final native = _nativeMarker(node);
     if (available != null && native != null) {
       natives[_nativeKey(native)] = {
+        'api': node.name.text,
+        ..._fields(available),
+      };
+    } else if (available != null) {
+      procedures[node.reference] = {
         'api': node.name.text,
         ..._fields(available),
       };
@@ -642,6 +648,17 @@ class _Uses extends RecursiveVisitor {
   final _Requirements registry;
   final found = <String, Map<String, Object?>>{};
   final natives = <String, Map<String, Object?>>{};
+
+  @override
+  void visitProcedure(Procedure node) {
+    if (registry.procedures[node.reference] case final requirement?) {
+      final key =
+          '${node.enclosingLibrary.importUri}'
+          '#${node.enclosingClass?.name ?? ''}#${node.kind.name}#${node.name.text}';
+      found[key] = requirement;
+    }
+    super.visitProcedure(node);
+  }
 
   void _constant(Constant constant) {
     if (constant is InstanceConstant) {
