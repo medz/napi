@@ -5,3 +5,5 @@ AGENTS.md
 /src/
 /tool/
 /BUILD.gn
+/build/
+/dist/

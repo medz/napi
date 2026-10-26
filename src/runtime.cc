@@ -32,24 +32,183 @@
 #include "bin/uri.h"
 #include "include/bin/dart_io_api.h"
 #include "include/dart_api.h"
+#include "include/dart_native_api.h"
 
 namespace napi_dart {
 namespace {
 
 struct Group;
+struct Owner;
+
+struct CallbackData {
+  Owner* owner;
+  intptr_t token;
+  napi_callback primary;
+  napi_callback secondary;
+  CallbackData* next;
+};
+
+static_assert(offsetof(CallbackData, token) == sizeof(void*));
+
+using WrapCallback = int32_t (*)(void*, napi_env, napi_value, int64_t, intptr_t);
+using CallbackDataFactory =
+    int32_t (*)(void*, intptr_t, napi_callback, napi_callback, void**);
+
+int32_t WrapValue(void* data,
+                  napi_env env,
+                  napi_value object,
+                  int64_t port,
+                  intptr_t token);
+napi_value Callback(napi_env env, napi_callback_info info);
+napi_value SetterCallback(napi_env env, napi_callback_info info);
+int32_t CreateCallbackData(void* data,
+                           intptr_t token,
+                           napi_callback primary,
+                           napi_callback secondary,
+                           void** output);
+napi_value ThrowError(napi_env env, const char* message);
 
 struct Owner {
   // initialize() writes this slot before it creates any other Dart resources.
   napi_threadsafe_function threadsafe = nullptr;
+  WrapCallback wrap = WrapValue;
+  napi_callback callback = Callback;
+  napi_callback setter = SetterCallback;
+  CallbackDataFactory create_callback_data = CreateCallbackData;
   Dart_Isolate isolate = nullptr;
+  napi_env env = nullptr;
+  // Wrapping and both Node finalizers run on this environment's thread.
+  size_t references = 1;
   bool closing = false;
   bool initialize_started = false;
   bool child = false;
+  bool callback_cleanup_registered = false;
+  CallbackData* callbacks = nullptr;
   Group* group = nullptr;
   Owner* next = nullptr;
+
+  ~Owner() {
+    while (callbacks != nullptr) {
+      CallbackData* next = callbacks->next;
+      delete callbacks;
+      callbacks = next;
+    }
+  }
 };
 
 static_assert(offsetof(Owner, threadsafe) == 0);
+static_assert(offsetof(Owner, wrap) == sizeof(void*));
+static_assert(sizeof(WrapCallback) == sizeof(void*));
+static_assert(offsetof(Owner, callback) == 2 * sizeof(void*));
+static_assert(offsetof(Owner, setter) == 3 * sizeof(void*));
+static_assert(offsetof(Owner, create_callback_data) == 4 * sizeof(void*));
+static_assert(sizeof(CallbackDataFactory) == sizeof(void*));
+
+struct WrappedValue {
+  Owner* owner;
+  Dart_Port port;
+};
+
+void ReleaseOwner(Owner* owner) {
+  if (--owner->references == 0) delete owner;
+}
+
+void ReleaseCallbackOwner(void* data) {
+  ReleaseOwner(static_cast<Owner*>(data));
+}
+
+int32_t CreateCallbackData(void* data,
+                           intptr_t token,
+                           napi_callback primary,
+                           napi_callback secondary,
+                           void** output) {
+  if (output == nullptr) return napi_invalid_arg;
+  *output = nullptr;
+  auto* owner = static_cast<Owner*>(data);
+  if (owner == nullptr || owner->child || owner->closing || token <= 0 ||
+      (primary == nullptr && secondary == nullptr)) {
+    return napi_invalid_arg;
+  }
+  auto* callback = new (std::nothrow) CallbackData{
+      owner, token, primary, secondary, nullptr};
+  if (callback == nullptr) return napi_generic_failure;
+  if (!owner->callback_cleanup_registered) {
+    ++owner->references;
+    const napi_status status =
+        napi_add_env_cleanup_hook(owner->env, ReleaseCallbackOwner, owner);
+    if (status != napi_ok) {
+      delete callback;
+      ReleaseOwner(owner);
+      return status;
+    }
+    owner->callback_cleanup_registered = true;
+  }
+  callback->next = owner->callbacks;
+  owner->callbacks = callback;
+  *output = callback;
+  return napi_ok;
+}
+
+napi_value DispatchCallback(napi_env env,
+                            napi_callback_info info,
+                            bool secondary) {
+  size_t count = 0;
+  void* data = nullptr;
+  if (napi_get_cb_info(env, info, &count, nullptr, nullptr, &data) != napi_ok) {
+    return ThrowError(env, "Cannot read Dart callback data");
+  }
+  auto* callback = static_cast<CallbackData*>(data);
+  if (callback == nullptr || callback->owner->env != env) {
+    return ThrowError(env, "Invalid Dart callback environment");
+  }
+  if (callback->owner->closing) {
+    return ThrowError(env, "Dart environment is closed");
+  }
+  napi_callback target = secondary ? callback->secondary : callback->primary;
+  if (target == nullptr) return ThrowError(env, "Dart callback is unavailable");
+  return target(env, info);
+}
+
+napi_value Callback(napi_env env, napi_callback_info info) {
+  return DispatchCallback(env, info, false);
+}
+
+napi_value SetterCallback(napi_env env, napi_callback_info info) {
+  return DispatchCallback(env, info, true);
+}
+
+void FinalizeValue(napi_env, void* data, void* hint) {
+  auto* value = static_cast<WrappedValue*>(hint);
+  Owner* owner = value->owner;
+  if (!owner->closing) {
+    Dart_PostInteger(value->port, reinterpret_cast<intptr_t>(data));
+  }
+  delete value;
+  ReleaseOwner(owner);
+}
+
+int32_t WrapValue(void* data,
+                  napi_env env,
+                  napi_value object,
+                  int64_t port,
+                  intptr_t token) {
+  auto* owner = static_cast<Owner*>(data);
+  if (owner == nullptr || owner->child || owner->closing || owner->env != env ||
+      port <= 0 || token <= 0) {
+    return napi_invalid_arg;
+  }
+  auto* value = new (std::nothrow) WrappedValue{owner, port};
+  if (value == nullptr) return napi_generic_failure;
+  ++owner->references;
+  const napi_status status =
+      napi_wrap(env, object, reinterpret_cast<void*>(token), FinalizeValue, value,
+                nullptr);
+  if (status != napi_ok) {
+    delete value;
+    ReleaseOwner(owner);
+  }
+  return status;
+}
 
 struct Environment {
   std::mutex mutex;
@@ -446,7 +605,7 @@ void CallJs(napi_env env, napi_value, void* context, void*) {
 }
 
 void Finalize(napi_env, void* data, void*) {
-  delete static_cast<Owner*>(data);
+  ReleaseOwner(static_cast<Owner*>(data));
 }
 
 void Cleanup(void* data) {
@@ -472,7 +631,7 @@ void Cleanup(void* data) {
   if (owner->threadsafe != nullptr) {
     napi_release_threadsafe_function(owner->threadsafe, napi_tsfn_abort);
   } else {
-    delete owner;
+    ReleaseOwner(owner);
   }
 }
 
@@ -556,11 +715,15 @@ napi_value ThrowError(napi_env env, const char* message) {
 
 napi_value FailInitialization(napi_env env, Owner* owner, Dart_Handle error) {
   // Dart_GetError borrows memory from the active API scope.
-  ThrowError(env, Dart_GetError(error));
+  const std::string message = Dart_GetError(error);
   Dart_ExitScope();
   Dart_ExitIsolate();
   Cleanup(owner);
-  return nullptr;
+  bool pending = false;
+  if (napi_is_exception_pending(env, &pending) == napi_ok && pending) {
+    return nullptr;
+  }
+  return ThrowError(env, message.c_str());
 }
 
 }  // namespace
@@ -591,6 +754,7 @@ napi_value Initialize(napi_env env,
     return ThrowError(env, "Cannot allocate Dart environment");
   }
   environment->groups = 1;
+  owner->env = env;
   owner->group = group;
   char* error = nullptr;
   owner->isolate =

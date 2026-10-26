@@ -1,7 +1,16 @@
 .github/workflows/native-windows.yml
+.gitignore
+.pubignore
 BUILD.gn
+README.md
+example/build.dart
+example/counter.dart
 lib/compiler.dart
+lib/env.dart
+lib/js_types.dart
 lib/src/_internal/annotations.dart
+lib/src/_internal/module.dart
+lib/src/_internal/native_runtime.dart
 lib/src/compiler/assets/linux_arm64/NOTICES
 lib/src/compiler/assets/linux_arm64/backend.so
 lib/src/compiler/assets/linux_arm64/compiler.so
@@ -36,6 +45,7 @@ lib/src/compiler/compiler.dart
 lib/src/compiler/native/compile.dart
 lib/src/compiler/native/sdk.dart
 lib/src/compiler/target.dart
+lib/src/env.dart
 lib/sys/node.dart
 src/README.md
 src/addon.cc
@@ -59,6 +69,8 @@ src/runtime.cc
 src/runtime.h
 test/native/build.dart
 test/native/counter.dart
+test/native/env.cjs
+test/native/failed_registration.dart
 test/native/regexp.dart
 test/native/verify.cjs
 tool/build_frontend.py

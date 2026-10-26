@@ -85,7 +85,11 @@ Future<void> _compile(
       diagnostics.add(message.plainTextFormatted.join('\n'));
       errors(message);
     };
-  final source = await _writeEntry(entry, outputPath);
+  final source = await _writeEntry(
+    entry,
+    outputPath,
+    includeModule: packages['napi'] != null,
+  );
   final compiled = await compileToKernel(
     KernelCompilationArguments(
       source: source,
@@ -99,6 +103,7 @@ Future<void> _compile(
     throw FormatException(diagnostics.join('\n'));
   }
   final component = compiled.component!;
+  _configureEntrypoint(component, source, File(entry).absolute.uri, packages);
   final initialization = _configureBuiltinInitialization(component, targetOS);
   final requirements = _Requirements(packages);
   component.accept(requirements);
@@ -184,24 +189,28 @@ bool _hasUnknownSdkNative(Iterable<Map<String, Object?>> natives) {
   });
 }
 
-Future<Uri> _writeEntry(String entry, String output) async {
+Future<Uri> _writeEntry(
+  String entry,
+  String output, {
+  required bool includeModule,
+}) async {
   final uri = jsonEncode(
     File(entry).absolute.uri.toString(),
   ).replaceAll(r'$', r'\$');
   final file = File('${File(output).parent.path}/entry.dart');
   await file.writeAsString('''
 import $uri as addon;
+${includeModule ? "import 'package:napi/src/_internal/module.dart' as napiModule;" : ''}
 
 @pragma('vm:entry-point')
 int initialize(int environment, int exports, int callJs, int owner,
-    int finalizer, int hasLivePorts) => addon.initialize(
-        environment, exports, callJs, owner, finalizer, hasLivePorts);
+    int finalizer, int hasLivePorts) => 0;
 
 @pragma('vm:entry-point')
-void afterPump() => addon.afterPump();
+void afterPump() {}
 
 @pragma('vm:entry-point')
-void dispose() => addon.dispose();
+void dispose() {}
 
 @pragma('vm:entry-point')
 String? validateNodeVersion(int major, int minor, int patch, int napi,
@@ -284,6 +293,135 @@ int _nodeComparePreRelease(String left, String right) {
 void main() {}
 ''');
   return file.absolute.uri;
+}
+
+void _configureEntrypoint(
+  Component component,
+  Uri entry,
+  Uri addon,
+  PackageConfig packages,
+) {
+  Library? findLibrary(Uri uri) {
+    final resolved = uri.isScheme('package') ? packages.resolve(uri) : uri;
+    for (final library in component.libraries) {
+      if (library.importUri == uri || library.fileUri == resolved)
+        return library;
+    }
+    return null;
+  }
+
+  Procedure? findProcedure(Library library, String name) {
+    for (final procedure in library.procedures) {
+      if (procedure.name.text == name) return procedure;
+    }
+    for (final reference in library.additionalExports) {
+      if (reference.node case Procedure procedure) {
+        if (procedure.name.text == name) return procedure;
+      }
+    }
+    return null;
+  }
+
+  final wrapper = findLibrary(entry)!;
+  final library = findLibrary(addon)!;
+  final register = findProcedure(library, 'register');
+  final initialize = findProcedure(library, 'initialize');
+  if (register != null && initialize != null) {
+    throw const FormatException(
+      'The addon entry declares both register and initialize. '
+      'Use either register(Env, JsObject) or the raw initialize entrypoint.',
+    );
+  }
+
+  void connect(String name, Procedure target, {Procedure? register}) {
+    final procedure = findProcedure(wrapper, name)!;
+    procedure.function.body = ReturnStatement(
+      StaticInvocation(
+        target,
+        Arguments([
+          for (final parameter in procedure.function.positionalParameters)
+            VariableGet(parameter),
+          if (register != null)
+            ConstantExpression(
+              StaticTearOffConstant(register),
+              register.function.computeFunctionType(Nullability.nonNullable),
+            ),
+        ]),
+      ),
+    )..parent = procedure.function;
+  }
+
+  if (register != null) {
+    final module = findLibrary(
+      Uri.parse('package:napi/src/_internal/module.dart'),
+    );
+    if (module == null) {
+      throw const FormatException(
+        'register(Env, JsObject) requires package:napi in the package configuration.',
+      );
+    }
+    final initialize = findProcedure(module, 'initialize')!;
+    final callback = initialize.function.positionalParameters.last.type;
+    if (callback is! FunctionType) {
+      throw StateError('Unexpected napi module registration signature');
+    }
+    _validateEntrypoint(
+      register,
+      callback.returnType,
+      callback.positionalParameters,
+      'void register(Env env, JsObject exports)',
+    );
+    connect('initialize', initialize, register: register);
+    connect('afterPump', findProcedure(module, 'afterPump')!);
+    connect('dispose', findProcedure(module, 'dispose')!);
+    return;
+  }
+
+  if (initialize == null) {
+    throw const FormatException(
+      'The addon entry must declare void register(Env env, JsObject exports) '
+      'or the raw initialize, afterPump and dispose functions.',
+    );
+  }
+  for (final name in ['initialize', 'afterPump', 'dispose']) {
+    final target = findProcedure(library, name);
+    final expected = findProcedure(wrapper, name)!.function;
+    final signature = name == 'initialize'
+        ? 'int initialize(int environment, int exports, int callJs, int owner, '
+              'int finalizer, int hasLivePorts)'
+        : 'void $name()';
+    if (target == null) {
+      throw FormatException('The raw addon entry must declare $signature.');
+    }
+    _validateEntrypoint(target, expected.returnType, [
+      for (final parameter in expected.positionalParameters) parameter.type,
+    ], signature);
+    connect(name, target);
+  }
+}
+
+void _validateEntrypoint(
+  Procedure procedure,
+  DartType returnType,
+  List<DartType> parameters,
+  String signature,
+) {
+  final function = procedure.function;
+  if (procedure.kind != ProcedureKind.Method ||
+      !procedure.isStatic ||
+      function.asyncMarker != AsyncMarker.Sync ||
+      function.typeParameters.isNotEmpty ||
+      function.namedParameters.isNotEmpty ||
+      function.requiredParameterCount != parameters.length ||
+      function.positionalParameters.length != parameters.length ||
+      function.returnType != returnType) {
+    throw FormatException('The addon entry must be synchronous $signature.');
+  }
+  for (var index = 0; index < parameters.length; index++) {
+    if (function.positionalParameters[index].type != parameters[index]) {
+      throw FormatException('The addon entry must declare $signature.');
+    }
+  }
 }
 
 void _setNodeValidator(
