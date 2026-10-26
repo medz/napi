@@ -121,9 +121,10 @@ registration and annotation exports are separate entry modes. Raw addons can
 also provide the `initialize`, `afterPump` and `dispose` hooks used by the
 [native experiment](experiments/native-image/payload.dart).
 
-Use `env.defineClass<T>` for explicit class bindings. Its constructor and methods
-receive `JsArguments`, getters receive the Dart instance, and setters receive both.
-An optional `finalize` callback can release resources; it must not access
+Use `env.defineClass<T>` for explicit class bindings. Instance methods and setters
+receive `(T, JsArguments)`; instance getters receive `T`. Constructors, static
+methods and static setters receive only `JsArguments`; static getters take no
+arguments. An optional `finalize` callback can release resources; it must not access
 JavaScript during environment cleanup. Registration callbacks remain live until
 their environment ends.
 
