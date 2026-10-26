@@ -236,7 +236,7 @@ final class _BoundObject {
   _BoundObject(this.value, this.definition, this.reference, this.finalize);
   final Object value;
   final _ClassDefinition definition;
-  final node.NapiRef reference;
+  final node.NapiRef? reference;
   final void Function()? finalize;
 }
 
@@ -408,6 +408,7 @@ final class Env {
   /// wrapper was collected, creates another using the registered JS constructor.
   /// A new wrapper requires exactly one [defineClass] registration for T.
   /// A live wrapper for a different registered class cannot be reused as T.
+  /// `num`, `String`, `bool`, records and FFI values receive independent wrappers.
   JsObject wrap<T extends Object>(T value) {
     if (!_classes.containsKey(T)) {
       throw StateError('No JavaScript class is registered for $T');
@@ -435,11 +436,12 @@ final class Env {
   node.NapiValue? _cachedObject(Object value, {_ClassDefinition? definition}) {
     // Check the scope even when this object has never been wrapped.
     _arena;
+    if (!_cacheableObject(value)) return null;
     final token = _identity[value];
     final object = _objects[token];
     if (object == null) return null;
     final handle = _result(
-      (out) => node.napiGetReferenceValue(_handle, object.reference, out),
+      (out) => node.napiGetReferenceValue(_handle, object.reference!, out),
     );
     if (handle == nullptr) return null;
     if (definition != null && !identical(object.definition, definition)) {
@@ -458,26 +460,27 @@ final class Env {
   ) {
     final existing = _cachedObject(value, definition: definition);
     if (existing != null) return existing;
-    final reference = _arena<node.NapiRef>();
-    _check(node.napiCreateReference(_handle, self, 0, reference));
-    _references.add(reference.value.address);
+    node.NapiRef? reference;
+    if (_cacheableObject(value)) {
+      final out = _arena<node.NapiRef>();
+      _check(node.napiCreateReference(_handle, self, 0, out));
+      reference = out.value;
+      _references.add(reference.address);
+    }
     final token = _nextToken++;
-    final previous = _identity[value];
+    final previous = reference == null ? null : _identity[value];
     try {
       _check(node.napiTypeTagObject(_handle, self, _tag));
-      _objects[token] = _BoundObject(
-        value,
-        definition,
-        reference.value,
-        finalize,
-      );
-      _identity[value] = token;
+      _objects[token] = _BoundObject(value, definition, reference, finalize);
+      if (reference != null) _identity[value] = token;
       _check(_runtime.wrap(self, token));
       return self;
     } catch (_) {
       _objects.remove(token);
-      if (_identity[value] == token) _identity[value] = previous;
-      _releaseReference(reference.value.address, check: false);
+      if (reference != null) {
+        if (_identity[value] == token) _identity[value] = previous;
+        _releaseReference(reference.address, check: false);
+      }
       rethrow;
     }
   }
@@ -485,9 +488,10 @@ final class Env {
   /// Defines a JavaScript class whose instances own Dart objects of type T.
   ///
   /// Static members belong to the constructor rather than its prototype.
-  /// Finalizers run after the last JS wrapper is collected, or during environment
-  /// cleanup. Rewrapping an object before its old GC notification arrives does
-  /// not finalize the new wrapper. Cleanup finalizers must not access JavaScript.
+  /// Finalizers run after a JS wrapper is collected, or during environment
+  /// cleanup. Rewrapping an identity-cached object before its old GC notification
+  /// arrives does not finalize the new wrapper. Cleanup finalizers must not
+  /// access JavaScript.
   JsFunction defineClass<T extends Object>(
     String name, {
     required T Function(JsArguments) constructor,
@@ -973,9 +977,12 @@ final class Env {
     if (_closed) return;
     final object = _objects.remove(token);
     if (object == null) return;
-    _releaseReference(object.reference.address, check: false);
-    if (_identity[object.value] != token) return;
-    _identity[object.value] = null;
+    final reference = object.reference;
+    if (reference != null) {
+      _releaseReference(reference.address, check: false);
+      if (_identity[object.value] != token) return;
+      _identity[object.value] = null;
+    }
     final callback = object.finalize;
     if (callback != null) withScope(callback);
   }
@@ -1002,8 +1009,10 @@ final class Env {
     StackTrace? firstStack;
     for (final entry in objects) {
       final object = entry.value;
-      if (_identity[object.value] != entry.key) continue;
-      _identity[object.value] = null;
+      if (object.reference != null) {
+        if (_identity[object.value] != entry.key) continue;
+        _identity[object.value] = null;
+      }
       try {
         object.finalize?.call();
       } catch (error, stack) {
@@ -1034,3 +1043,12 @@ void registerEnv(
 void disposeEnv(Env env) => env._close();
 
 Type _typeOf<T>() => T;
+
+bool _cacheableObject(Object value) =>
+    value is! num &&
+    value is! String &&
+    value is! bool &&
+    value is! Record &&
+    value is! Pointer &&
+    value is! Struct &&
+    value is! Union;

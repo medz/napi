@@ -63,7 +63,15 @@ function worker(path, terminate) {
 module.exports = async function verifyEnv(path) {
   assert.equal(typeof global.gc, 'function', 'Run Node with --expose-gc');
   const addon = require(path);
-  const { Counter, Other } = addon;
+  const { Counter, Other, Label, RecordLabel } = addon;
+  const label = new Label('x');
+  const sameLabel = new Label('x');
+  assert.equal(label.value, 'x');
+  assert.equal(sameLabel.value, 'x');
+  assert.notEqual(label, sameLabel);
+  const record = new RecordLabel();
+  assert.equal(record.value, 'record');
+  assert.notEqual(record, new RecordLabel());
   const a = new Counter(5);
   const b = new Counter();
   assert(a instanceof Counter);

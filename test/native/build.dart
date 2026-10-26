@@ -91,6 +91,10 @@ Future<void> main(List<String> args) async {
       'annotated_classes.dart',
       [
         (
+          "@NAPI(name: 'number') class Reject {}",
+          'reserved TypeScript class name',
+        ),
+        (
           '@NAPI() class Base {}\n@NAPI() class Child extends Base {}',
           'Exported classes cannot inherit from or implement another exported class',
         ),

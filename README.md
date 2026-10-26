@@ -92,7 +92,8 @@ counter.same() === counter; // true
 Named constructors become static factories, such as `Counter.named(options)`.
 Static Dart members are properties of the JS constructor. Final fields and
 getters without setters are read-only. Private members stay private unless
-explicitly annotated. Method calls preserve the actual Dart implementation's
+explicitly annotated. Class export names must also be valid TypeScript class
+names. Method calls preserve the actual Dart implementation's
 defaults, including when a function returns an unexported subclass.
 
 Passing a bound instance back to Dart unwraps the original object. Returning that

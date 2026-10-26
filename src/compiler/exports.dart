@@ -169,10 +169,14 @@ final class _Reader {
       if (declaration is Class &&
           !declaration.isEnum &&
           declaration.typeParameters.isEmpty) {
-        final exported = ExportClass(
-          declaration,
-          _name(declaration, declaration.name),
-        );
+        final name = _name(declaration, declaration.name);
+        if (_reservedTypeNames.contains(name)) {
+          throw FormatException(
+            '@NAPI: "$name" is a reserved TypeScript class name. '
+            'Choose another name with @NAPI(name: ...).',
+          );
+        }
+        final exported = ExportClass(declaration, name);
         if (!names.add(exported.name))
           throw FormatException(
             'Duplicate JavaScript export: ${exported.name}.',
@@ -552,4 +556,18 @@ const _reservedNames = {
   'while',
   'with',
   'yield',
+};
+
+const _reservedTypeNames = {
+  'any',
+  'unknown',
+  'never',
+  'number',
+  'bigint',
+  'boolean',
+  'string',
+  'symbol',
+  'void',
+  'object',
+  'undefined',
 };
