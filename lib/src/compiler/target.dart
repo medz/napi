@@ -11,8 +11,9 @@ sealed class Target {
 /// A native Node-API addon to compile.
 ///
 /// Uses the bundled compiler and runtime for the current platform. The entry
-/// must provide the low-level initialize/afterPump/dispose hooks; automatic
-/// exports from ordinary Dart declarations are not implemented yet.
+/// can register exports with `void register(Env env, JsObject exports)`, or supply
+/// the low-level initialize/afterPump/dispose hooks. Annotation-based exports
+/// from ordinary Dart declarations are not implemented yet.
 ///
 /// Uses Node's default per-module API behavior. The [node] constraint checks API
 /// availability; it does not opt into newer per-module API behavior.

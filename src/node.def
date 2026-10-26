@@ -4,10 +4,13 @@ EXPORTS
   napi_call_threadsafe_function
   napi_fatal_exception
   napi_get_and_clear_last_exception
+  napi_get_cb_info
   napi_get_global
   napi_get_named_property
   napi_get_node_version
   napi_get_value_string_utf8
   napi_get_version
+  napi_is_exception_pending
   napi_release_threadsafe_function
   napi_throw_error
+  napi_wrap

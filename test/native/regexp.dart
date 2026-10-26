@@ -1,14 +1,8 @@
+import 'package:napi/env.dart';
+
 import 'counter.dart' as counter;
 
-@pragma('vm:entry-point')
-int initialize(
-  int envAddress,
-  int exportsAddress,
-  int callJsAddress,
-  int ownerAddress,
-  int finalizerAddress,
-  int hasLivePortsAddress,
-) {
+void register(Env env, JsObject exports) {
   final letters = RegExp(r'^\p{L}+$', unicode: true);
   if (!letters.hasMatch('你好Abc') ||
       letters.hasMatch('abc123') ||
@@ -40,20 +34,5 @@ int initialize(
       // File construction reports an invalid caller argument.
     }
   }
-  return counter.initialize(
-    envAddress,
-    exportsAddress,
-    callJsAddress,
-    ownerAddress,
-    finalizerAddress,
-    hasLivePortsAddress,
-  );
+  counter.register(env, exports);
 }
-
-@pragma('vm:entry-point')
-void afterPump() => counter.afterPump();
-
-@pragma('vm:entry-point')
-void dispose() => counter.dispose();
-
-void main() {}
