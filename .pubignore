@@ -7,3 +7,4 @@ AGENTS.md
 /BUILD.gn
 /build/
 /dist/
+/test/native/node_modules/

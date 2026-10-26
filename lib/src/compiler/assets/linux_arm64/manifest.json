@@ -15,12 +15,12 @@
       "sha256": "be8e467ee4aaf9648672bb0428c5bf55eedf0171a293591e572607311ea7aab9"
     },
     "compiler.so": {
-      "size": 485032,
-      "sha256": "9c0eea78cf4ade33449050ca68403cfc6629db9d1fec179721e2912dd14599c8"
+      "size": 502944,
+      "sha256": "7c1f4e3b4aff20d0a25675c542b50c3aa542fa020e333d21e2e03e0b0f98bd12"
     },
     "frontend.aot": {
       "size": 9175944,
-      "sha256": "ea3fd7bad8867c5f3de1470270d93571d263963984be1be2af6b1a59a0a1b638"
+      "sha256": "92fb00909405250a14785b9bb51fd94f80b31907e6bacf4f7cc11a20b31a6a27"
     },
     "frontend.so": {
       "size": 5280696,

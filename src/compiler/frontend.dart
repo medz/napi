@@ -10,7 +10,10 @@ import 'package:kernel/binary/ast_to_binary.dart';
 import 'package:package_config/package_config.dart';
 import 'package:vm/kernel_front_end.dart';
 
+import 'bindings.dart';
+import 'exports.dart';
 import 'node_version.dart' as versions;
+import 'typescript.dart';
 
 String? _error;
 bool _done = false;
@@ -103,7 +106,12 @@ Future<void> _compile(
     throw FormatException(diagnostics.join('\n'));
   }
   final component = compiled.component!;
-  _configureEntrypoint(component, source, File(entry).absolute.uri, packages);
+  final declarations = _configureEntrypoint(
+    component,
+    source,
+    File(entry).absolute.uri,
+    packages,
+  );
   final initialization = _configureBuiltinInitialization(component, targetOS);
   final requirements = _Requirements(packages);
   component.accept(requirements);
@@ -163,6 +171,9 @@ Future<void> _compile(
     BinaryPrinter(output).writeComponentFile(component);
   } finally {
     await output.close();
+  }
+  if (declarations != null) {
+    await File('$outputPath.d.ts').writeAsString(declarations);
   }
 }
 
@@ -295,7 +306,7 @@ void main() {}
   return file.absolute.uri;
 }
 
-void _configureEntrypoint(
+String? _configureEntrypoint(
   Component component,
   Uri entry,
   Uri addon,
@@ -324,9 +335,10 @@ void _configureEntrypoint(
 
   final wrapper = findLibrary(entry)!;
   final library = findLibrary(addon)!;
+  final annotated = readExports(library, packages);
   final register = findProcedure(library, 'register');
   final initialize = findProcedure(library, 'initialize');
-  if (register != null && initialize != null) {
+  if (annotated.isEmpty && register != null && initialize != null) {
     throw const FormatException(
       'The addon entry declares both register and initialize. '
       'Use either register(Env, JsObject) or the raw initialize entrypoint.',
@@ -349,6 +361,29 @@ void _configureEntrypoint(
         ]),
       ),
     )..parent = procedure.function;
+  }
+
+  if (annotated.isNotEmpty) {
+    final targets = {for (final function in annotated) function.target};
+    if ((register != null && !targets.contains(register)) ||
+        (initialize != null && !targets.contains(initialize))) {
+      throw const FormatException(
+        'Annotated exports cannot be combined with manual register or raw initialize entrypoints.',
+      );
+    }
+    final module = findLibrary(
+      Uri.parse('package:napi/src/_internal/module.dart'),
+    )!;
+    final env = findLibrary(Uri.parse('package:napi/src/env.dart'))!;
+    final generated = generateRegister(component, wrapper, env, annotated);
+    connect(
+      'initialize',
+      findProcedure(module, 'initialize')!,
+      register: generated,
+    );
+    connect('afterPump', findProcedure(module, 'afterPump')!);
+    connect('dispose', findProcedure(module, 'dispose')!);
+    return typeScriptDeclarations(annotated);
   }
 
   if (register != null) {
@@ -374,7 +409,7 @@ void _configureEntrypoint(
     connect('initialize', initialize, register: register);
     connect('afterPump', findProcedure(module, 'afterPump')!);
     connect('dispose', findProcedure(module, 'dispose')!);
-    return;
+    return null;
   }
 
   if (initialize == null) {
@@ -398,6 +433,7 @@ void _configureEntrypoint(
     ], signature);
     connect(name, target);
   }
+  return null;
 }
 
 void _validateEntrypoint(
