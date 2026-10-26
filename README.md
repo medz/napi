@@ -22,9 +22,10 @@ Future<void> main(List<String> args) => compiler.run(args);
 ```
 
 The output is a standalone `.node` file for the current platform. The package
-includes compilers for macOS arm64, Linux arm64 and Windows x64; building an
+includes compilers for macOS arm64, Linux arm64 (glibc) and Windows x64; building an
 addon does not require SDK sources or a C/C++ toolchain. Business code is compiled
 with the bundled Dart 3.13.5 SDK, independently of the SDK running the script.
+Include the corresponding SDK `NOTICES` file when redistributing the addon.
 
 Omit `node` to infer the minimum requirements from referenced APIs. A supplied
 range uses Dart version constraint syntax, with `||` for alternatives, and must
