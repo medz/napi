@@ -1,6 +1,11 @@
 import addon = require('./addon');
 
 const twice = addon.multiply(2);
+const zeroView = addon.zeroView();
+const optionalView = addon.optionalView();
+const zeroValue: number = zeroView();
+const defaultOptional: number = optionalView();
+const explicitOptional: number = optionalView(2);
 const applied: number = addon.apply(3, value => value + 1);
 const doubleValue: number = addon.applyDouble(1.5, () => 2);
 const same: (value: number) => number = addon.echoCallback(twice);
@@ -38,6 +43,10 @@ const delayed: number | null = addon.delayedResult();
 
 // @ts-expect-error Callback results preserve their declared type.
 addon.apply(1, value => String(value));
+// @ts-expect-error A zero-argument view does not expose its implementation's optional parameter.
+zeroView(2);
+// @ts-expect-error An optional argument may be omitted but is not undefined.
+optionalView(undefined);
 // @ts-expect-error A callback is required, not an arbitrary object.
 addon.apply(1, {});
 // @ts-expect-error Nullable callbacks do not accept undefined.

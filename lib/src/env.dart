@@ -274,8 +274,9 @@ final class _ClassDefinition {
 }
 
 final class _BoundFunction {
-  const _BoundFunction(this.value, this.reference);
+  const _BoundFunction(this.value, this.signature, this.reference);
   final Function value;
+  final Type signature;
   final node.NapiRef reference;
 }
 
@@ -318,7 +319,7 @@ final class Env {
   final _identity = Expando<int>();
   final _classes = <Type, _ClassDefinition?>{};
   final _importedFunctions = Expando<JsReference<JsFunction>>();
-  final _functionIdentity = Expando<int>();
+  final _functionIdentity = Expando<Map<Type, int>>();
   final _functions = <int, _BoundFunction>{};
   final _references = <int>{};
   int _nextToken = 1;
@@ -388,14 +389,14 @@ final class Env {
   JsFunction function(String name, Object? Function(JsArguments) body) =>
       _newFunction(name, body);
 
-  JsFunction _newFunction(
+  JsFunction _newFunction<F extends Function>(
     String name,
     Object? Function(JsArguments) body, {
-    Function? identity,
+    F? identity,
   }) {
     final (nativeName, length) = _functionName(name);
     final token = _nextToken++;
-    final previous = identity == null ? null : _functionIdentity[identity];
+    final previous = identity == null ? null : _functionIdentity[identity]?[F];
     _callbacks[token] = (arguments, receiver) {
       return _encode(body(arguments));
     };
@@ -419,16 +420,24 @@ final class Env {
         _check(node.napiCreateReference(_handle, handle, 0, out));
         reference = out.value;
         _references.add(reference.address);
-        _functions[token] = _BoundFunction(identity, reference);
-        _functionIdentity[identity] = token;
+        _functions[token] = _BoundFunction(identity, F, reference);
+        (_functionIdentity[identity] ??= {})[F] = token;
       }
       _check(_runtime.trackFunction(handle, data));
       return JsFunction._(this, handle, _scope!);
     } catch (_) {
       _callbacks.remove(token);
       _functions.remove(token);
-      if (identity != null && _functionIdentity[identity] == token) {
-        _functionIdentity[identity] = previous;
+      if (identity != null) {
+        final signatures = _functionIdentity[identity];
+        if (signatures?[F] == token) {
+          if (previous == null) {
+            signatures!.remove(F);
+          } else {
+            signatures![F] = previous;
+          }
+          if (signatures.isEmpty) _functionIdentity[identity] = null;
+        }
       }
       if (reference != null) {
         _releaseReference(reference.address, check: false);
@@ -473,14 +482,14 @@ final class Env {
     _arena;
     final original = _importedFunctions[value];
     if (original != null) return original.value;
-    final cached = _functions[_functionIdentity[value]];
+    final cached = _functions[_functionIdentity[value]?[F]];
     if (cached != null) {
       final handle = _result(
         (out) => node.napiGetReferenceValue(_handle, cached.reference, out),
       );
       if (handle != nullptr) return JsFunction._(this, handle, _scope!);
     }
-    return _newFunction('', invoke, identity: value);
+    return _newFunction<F>('', invoke, identity: value);
   }
 
   // ignore: unused_element
@@ -1246,8 +1255,10 @@ final class Env {
       final function = _functions.remove(token);
       if (function != null) {
         _releaseReference(function.reference.address, check: false);
-        if (_functionIdentity[function.value] == token) {
-          _functionIdentity[function.value] = null;
+        final signatures = _functionIdentity[function.value];
+        if (signatures?[function.signature] == token) {
+          signatures!.remove(function.signature);
+          if (signatures.isEmpty) _functionIdentity[function.value] = null;
         }
       }
       return;

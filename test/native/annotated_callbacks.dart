@@ -23,6 +23,24 @@ final IntCallback _shared = _adder(7);
 @NAPI()
 IntCallback sharedCallback() => _shared;
 
+int Function([int]) _optionalValue(int bias) =>
+    ([int value = 1]) => value + bias;
+
+final _optionalFirst = _optionalValue(0);
+final _optionalReverse = _optionalValue(1);
+
+@NAPI()
+int Function() zeroView() => _optionalFirst;
+
+@NAPI()
+int Function([int]) optionalView() => _optionalFirst;
+
+@NAPI()
+int Function() reverseZeroView() => _optionalReverse;
+
+@NAPI()
+int Function([int]) reverseOptionalView() => _optionalReverse;
+
 @NAPI()
 IntCallback echoCallback(IntCallback callback) => callback;
 

@@ -150,8 +150,9 @@ multiplier(3)(14); // 42
 ```
 
 Callbacks can be stored and called later on the same Dart isolate. Returning a
-JS callback preserves its identity; returning the same Dart closure reuses its
-live JS function. Collecting the JS function releases its Dart closure and
+JS callback preserves its identity; returning the same Dart closure through the
+same function type reuses its live JS function. Different function types receive
+separate adapters. Collecting the JS function releases its Dart closure and
 captured values. Optional arguments keep the actual Dart function's defaults
 and distinguish omission from `null` and `undefined`.
 
