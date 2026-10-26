@@ -1,0 +1,21 @@
+diff --git a/build/config/compiler/BUILD.gn b/build/config/compiler/BUILD.gn
+index 2932b853..88573cd2 100644
+--- a/build/config/compiler/BUILD.gn
++++ b/build/config/compiler/BUILD.gn
+@@ -14,6 +14,7 @@ declare_args() {
+ }
+ 
+ import("//build/config/sysroot.gni")
++import("//runtime/runtime_args.gni")
+ 
+ import("//build/config/android/config.gni")
+ if (current_cpu == "arm") {
+@@ -962,5 +963,7 @@ config("symbols") {
+ }
+ 
+ config("dart_shared_lib") {
+-  defines = [ "DART_SHARED_LIB" ]
++  if (dart_lib_export_symbols) {
++    defines = [ "DART_SHARED_LIB" ]
++  }
+ }

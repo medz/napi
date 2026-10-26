@@ -1,0 +1,36 @@
+diff --git a/runtime/vm/compiler/aot/precompiler.cc b/runtime/vm/compiler/aot/precompiler.cc
+index 4f7fabed..b7e3d5f2 100644
+--- a/runtime/vm/compiler/aot/precompiler.cc
++++ b/runtime/vm/compiler/aot/precompiler.cc
+@@ -382,7 +382,8 @@ void Precompiler::ReportStats() {
+ }
+ 
+ Precompiler::Precompiler(Thread* thread)
+-    : thread_(thread),
++    : StackResource(thread),
++      thread_(thread),
+       zone_(nullptr),
+       changed_(false),
+       retain_root_library_caches_(false),
+diff --git a/runtime/vm/compiler/aot/precompiler.h b/runtime/vm/compiler/aot/precompiler.h
+index 44d049ff..991e889e 100644
+--- a/runtime/vm/compiler/aot/precompiler.h
++++ b/runtime/vm/compiler/aot/precompiler.h
+@@ -239,7 +239,7 @@ class InstanceKeyValueTrait {
+ 
+ typedef DirectChainedHashMap<InstanceKeyValueTrait> InstanceSet;
+ 
+-class Precompiler : public ValueObject {
++class Precompiler : public StackResource {
+  public:
+   static ErrorPtr CompileAll();
+ 
+@@ -299,7 +299,7 @@ class Precompiler : public ValueObject {
+   };
+ 
+   explicit Precompiler(Thread* thread);
+-  ~Precompiler();
++  ~Precompiler() override;
+ 
+   void ReportStats();
+ 

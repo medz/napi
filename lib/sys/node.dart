@@ -145,30 +145,20 @@ const int napiAutoLength = -1;
 typedef NapiCallback = NapiValue Function(NapiEnv env, NapiCallbackInfo info);
 
 @Available(napi: 1)
-typedef NapiFinalize = Void Function(
-  NapiEnv env,
-  Pointer<Void> data,
-  Pointer<Void> hint,
-);
+typedef NapiFinalize =
+    Void Function(NapiEnv env, Pointer<Void> data, Pointer<Void> hint);
 
 @Available(napi: 1)
-typedef NapiAsyncExecuteCallback = Void Function(
-  NapiEnv env,
-  Pointer<Void> data,
-);
+typedef NapiAsyncExecuteCallback =
+    Void Function(NapiEnv env, Pointer<Void> data);
 
 @Available(napi: 1)
-typedef NapiAsyncCompleteCallback = Void Function(
-  NapiEnv env,
-  Int32 status,
-  Pointer<Void> data,
-);
+typedef NapiAsyncCompleteCallback =
+    Void Function(NapiEnv env, Int32 status, Pointer<Void> data);
 
 @Available(napi: 1)
-typedef NapiAddonRegisterFunc = NapiValue Function(
-  NapiEnv env,
-  NapiValue exports,
-);
+typedef NapiAddonRegisterFunc =
+    NapiValue Function(NapiEnv env, NapiValue exports);
 
 @Available(napi: 1)
 typedef NodeApiAddonGetApiVersionFunc = Int32 Function();
@@ -232,12 +222,13 @@ enum NapiThreadsafeFunctionCallMode { nonblocking, blocking }
 enum NapiThreadsafeFunctionReleaseMode { release, abort }
 
 @Available(napi: 4)
-typedef NapiThreadsafeFunctionCallJs = Void Function(
-  NapiEnv env,
-  NapiValue callback,
-  Pointer<Void> context,
-  Pointer<Void> data,
-);
+typedef NapiThreadsafeFunctionCallJs =
+    Void Function(
+      NapiEnv env,
+      NapiValue callback,
+      Pointer<Void> context,
+      Pointer<Void> data,
+    );
 
 @Available(napi: 6)
 enum NapiKeyCollectionMode { includePrototypes, ownOnly }
@@ -277,10 +268,8 @@ const int napiDefaultJsproperty =
     napiWritable | napiEnumerable | napiConfigurable;
 
 @Available(napi: 8)
-typedef NapiAsyncCleanupHook = Void Function(
-  NapiAsyncCleanupHookHandle handle,
-  Pointer<Void> data,
-);
+typedef NapiAsyncCleanupHook =
+    Void Function(NapiAsyncCleanupHookHandle handle, Pointer<Void> data);
 
 @Available(napi: 8)
 final class NapiTypeTag extends Struct {
@@ -298,18 +287,13 @@ typedef NodeApiBasicEnv = NapiEnv;
 
 /// A finalizer that may only call APIs accepting [NodeApiBasicEnv].
 @experimental
-typedef NodeApiBasicFinalize = Void Function(
-  NodeApiBasicEnv env,
-  Pointer<Void> data,
-  Pointer<Void> hint,
-);
+typedef NodeApiBasicFinalize =
+    Void Function(NodeApiBasicEnv env, Pointer<Void> data, Pointer<Void> hint);
 
 /// May run on any thread, even after the originating environment is destroyed.
 @experimental
-typedef NodeApiNoenvFinalize = Void Function(
-  Pointer<Void> data,
-  Pointer<Void> hint,
-);
+typedef NodeApiNoenvFinalize =
+    Void Function(Pointer<Void> data, Pointer<Void> hint);
 
 @Available(napi: 1)
 @Native<Int32 Function(NapiEnv, Pointer<Pointer<NapiExtendedErrorInfo>>)>(

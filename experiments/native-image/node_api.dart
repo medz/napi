@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:ffi';
+import 'dart:io' show Platform;
 
 typedef Js = Pointer<Void>;
 typedef NapiCallback = Js Function(Js, Js);
@@ -9,14 +10,18 @@ typedef _OutNative = Int32 Function(Js, Pointer<Js>);
 typedef _ValueOutNative = Int32 Function(Js, Js, Pointer<Js>);
 typedef _PairNative = Int32 Function(Js, Js, Js);
 
-@Native<Pointer<Void> Function(UintPtr, UintPtr)>(
-  symbol: 'calloc',
+final _libc = Platform.isWindows
+    ? DynamicLibrary.open('ucrtbase.dll')
+    : DynamicLibrary.process();
+final _calloc = _libc
+    .lookupFunction<Js Function(UintPtr, UintPtr), Js Function(int, int)>(
+      'calloc',
+      isLeaf: true,
+    );
+final _free = _libc.lookupFunction<Void Function(Js), void Function(Js)>(
+  'free',
   isLeaf: true,
-)
-external Js _calloc(int count, int size);
-
-@Native<Void Function(Js)>(symbol: 'free', isLeaf: true)
-external void _free(Js pointer);
+);
 
 @Native<_OutNative>(symbol: 'napi_get_undefined')
 external int _undefined(Js env, Pointer<Js> output);

@@ -10,9 +10,12 @@ sealed class Target {
 
 /// A native Node-API addon to compile.
 ///
-/// Uses the precompiled runtime template for the current platform. The entry
+/// Uses the bundled compiler and runtime for the current platform. The entry
 /// must provide the low-level initialize/afterPump/dispose hooks; automatic
 /// exports from ordinary Dart declarations are not implemented yet.
+///
+/// Uses Node's default per-module API behavior. The [node] constraint checks API
+/// availability; it does not opt into newer per-module API behavior.
 final class NativeTarget extends Target {
   const NativeTarget({required super.entry, required this.output, this.node});
 
@@ -21,6 +24,7 @@ final class NativeTarget extends Target {
 
   /// An optional Node.js compatibility version range.
   ///
-  /// Compatibility analysis is not implemented yet; non-null values are rejected.
+  /// Uses Dart version constraint syntax, with `||` for alternatives. Omit this
+  /// to infer requirements from the APIs used by the addon.
   final String? node;
 }
