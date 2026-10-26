@@ -1,0 +1,6 @@
+{
+  global:
+    napi_frontend_compile;
+    napi_frontend_free;
+  local: *;
+};

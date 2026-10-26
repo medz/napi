@@ -1,0 +1,89 @@
+name: Windows native addon
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: 3.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+
+      - name: Check the Dart package
+        run: |
+          dart pub get
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dart format --output=none --set-exit-if-changed lib test/native
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dart analyze
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dart pub publish --dry-run
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $archive = Join-Path $env:RUNNER_TEMP 'napi.tar.gz'
+          dart pub publish --skip-validation "--to-archive=$archive"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build a fresh consumer and load all runtime profiles
+        run: |
+          $package = Join-Path $env:RUNNER_TEMP 'napi-package'
+          $smoke = Join-Path $env:RUNNER_TEMP 'napi smoke 中文'
+          New-Item -ItemType Directory -Force $package, $smoke | Out-Null
+          tar -xzf (Join-Path $env:RUNNER_TEMP 'napi.tar.gz') -C $package
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $packagePath = $package.Replace('\', '/')
+          @"
+          name: napi_native_smoke
+          environment:
+            sdk: ^3.12.0
+          dependencies:
+            napi:
+              path: '$packagePath'
+          "@ | Set-Content "$smoke/pubspec.yaml"
+          Copy-Item test/native/*.dart $smoke
+          Copy-Item experiments/native-image/payload.dart $smoke
+          Copy-Item experiments/native-image/node_api.dart $smoke
+          $output = Join-Path $smoke 'build'
+          Push-Location $smoke
+          try {
+            dart pub get --offline
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            dart build.dart $output
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } finally { Pop-Location }
+          $images = Join-Path $smoke 'images'
+          New-Item -ItemType Directory -Force $images | Out-Null
+          $assets = Join-Path $package 'lib/src/compiler/assets/windows_x64'
+          Copy-Item "$assets/runtime*.node" $images
+          Copy-Item "$assets/NOTICES" $images
+          Remove-Item -Recurse -Force $package
+          node --expose-gc test/native/verify.cjs $output $images
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          foreach ($profile in 'core', 'regexp', 'full') {
+            Push-Location (Join-Path $output $profile)
+            try {
+              $packed = npm pack --json --ignore-scripts --offline | Out-String | ConvertFrom-Json
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+              $paths = @($packed[0].files | ForEach-Object { $_.path })
+              if ($paths.Count -ne 3 -or 'addon.node' -notin $paths -or
+                  'package.json' -notin $paths -or 'NOTICES' -notin $paths) {
+                throw "Unexpected npm package files: $paths"
+              }
+              Write-Host "$profile npm: $($packed[0].size) bytes packed, $($packed[0].unpackedSize) bytes unpacked"
+            } finally { Pop-Location }
+          }

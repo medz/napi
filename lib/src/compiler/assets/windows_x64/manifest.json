@@ -1,0 +1,46 @@
+{
+  "abi": 1,
+  "platform": "windows_x64",
+  "dart": {
+    "version": "3.13.5",
+    "revision": "04bcd1036cdc799ac6564988f159ee454d42c822"
+  },
+  "files": {
+    "NOTICES": {
+      "size": 262725,
+      "sha256": "a483a737d2c19121edc5ab53fa7471833aa4e93771b6b3b24c7a6417b0f68338"
+    },
+    "backend.dll": {
+      "size": 4348416,
+      "sha256": "2305e470aaa83606e29009aa68c2e2bb864aeb811e4044284334c17bcd3824ce"
+    },
+    "compiler.dll": {
+      "size": 246784,
+      "sha256": "876d731ffc57c2c0ee3d525d7be678ee6b50d0f227e9fe14a3dc56b6f4e119e4"
+    },
+    "frontend.aot": {
+      "size": 9077640,
+      "sha256": "d849baa87b00f3bc858c286ec08110096a056ade2c79099f4191c6eecbfcdaa5"
+    },
+    "frontend.dll": {
+      "size": 5099520,
+      "sha256": "39d7f6157f34a76aaffc369f4e9fe182956e92808a13d1c42bac6be8d059471f"
+    },
+    "platform.dill": {
+      "size": 8663064,
+      "sha256": "de7a14dba344519c58539d5fd570362ea64e56d3b750c8b3c4aab8cbc9815d4b"
+    },
+    "runtime-core.node": {
+      "size": 1816576,
+      "sha256": "cbac27deca9407f66369b8bc77710b3d89e60f538f079765ca490246f84e1674"
+    },
+    "runtime-regexp.node": {
+      "size": 3772416,
+      "sha256": "43e9d7e3efce592301cd75f7aaec1e9b56b9407bc18dcce466e6882d39418b34"
+    },
+    "runtime.node": {
+      "size": 5119488,
+      "sha256": "2c8d664d81be5a5820fba5941b3c36d8778fa94c459c1f6574ba8d0ffd822f6b"
+    }
+  }
+}

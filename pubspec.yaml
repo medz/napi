@@ -1,18 +1,17 @@
 name: napi
-description: Generate Dart bindings for Node-API addons and WebAssembly modules.
+description: Dart bindings to Node-API for implementing native Node.js addons.
 version: 0.23.0
 repository: https://github.com/medz/napi
 issue_tracker: https://github.com/medz/napi/issues
-topics: [wasm, node, interop]
+topics: [node, interop, ffi]
+
 environment:
-  sdk: '3.13.5'
+  sdk: ^3.12.0
+
 dependencies:
-  # Wasm platform configuration uses version-specific analyzer APIs.
-  analyzer: 14.5.0
-  args: ^2.7.0
-  package_config: ^3.0.0
-  path: ^1.9.1
-  crypto: ^3.0.7
+  ffi: ^2.1.4
   meta: ^1.19.0
+
 dev_dependencies:
+  crypto: ^3.0.7
   lints: ^6.1.0

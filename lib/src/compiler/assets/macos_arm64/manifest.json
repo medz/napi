@@ -1,0 +1,46 @@
+{
+  "abi": 1,
+  "platform": "macos_arm64",
+  "dart": {
+    "version": "3.13.5",
+    "revision": "04bcd1036cdc799ac6564988f159ee454d42c822"
+  },
+  "files": {
+    "NOTICES": {
+      "size": 101158,
+      "sha256": "cf7110c68807b874dc837b8f1c7f0626176f31b0f5dbedefcf63d3ab2f2661e8"
+    },
+    "backend.dylib": {
+      "size": 3975888,
+      "sha256": "341b7d89b43f33c44847bb49d3126ae723843821424e6f265ba60c87ad731c15"
+    },
+    "compiler.dylib": {
+      "size": 73728,
+      "sha256": "beeaba77c0be055d1871bca44de6ed57b62e2f869e7107f25a9551cab4907047"
+    },
+    "frontend.aot": {
+      "size": 9077640,
+      "sha256": "a912c8d7d09e46c244c1ca44cf2aebc105d8c53e7bdd0cf32d7e4f33eced5b6a"
+    },
+    "frontend.dylib": {
+      "size": 4607312,
+      "sha256": "be6e0aed3def5c0ed393bbc3066ba7a20d67126eeb49ee019c27dcb77b53c3de"
+    },
+    "platform.dill": {
+      "size": 8663064,
+      "sha256": "de7a14dba344519c58539d5fd570362ea64e56d3b750c8b3c4aab8cbc9815d4b"
+    },
+    "runtime-core.node": {
+      "size": 1554528,
+      "sha256": "efb0d3481c42e5d7498566ce0ba2c90eb65c79d3e1a5413a58a146710f639ee2"
+    },
+    "runtime-regexp.node": {
+      "size": 3464000,
+      "sha256": "5186c85e65b33d258283f19c6757804b89fb938166795fab5efef12ea05173a9"
+    },
+    "runtime.node": {
+      "size": 4624800,
+      "sha256": "3b682a56e75fb618c91db31d9848aed3318093c73157cbed4316ab3d81d4fd20"
+    }
+  }
+}

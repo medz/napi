@@ -1,0 +1,209 @@
+diff --git a/build/config/BUILDCONFIG.gn b/build/config/BUILDCONFIG.gn
+--- a/build/config/BUILDCONFIG.gn
++++ b/build/config/BUILDCONFIG.gn
+@@ -436,7 +436,11 @@
+ 
+ if (is_win) {
+   if (is_clang) {
+-    host_toolchain = "//build/toolchain/win:clang_$host_cpu"
++    if (host_os == "linux") {
++      host_toolchain = "//build/toolchain/linux:clang_$host_cpu"
++    } else {
++      host_toolchain = "//build/toolchain/win:clang_$host_cpu"
++    }
+     set_default_toolchain("//build/toolchain/win:clang_$current_cpu")
+   } else {
+     host_toolchain = "//build/toolchain/win:$host_cpu"
+diff --git a/build/config/win/BUILD.gn b/build/config/win/BUILD.gn
+--- a/build/config/win/BUILD.gn
++++ b/build/config/win/BUILD.gn
+@@ -71,6 +71,9 @@
+     ]
+   } else {
+     assert(false, "Unknown current_cpu: $current_cpu")
++  }
++  if (host_os != "win") {
++    lib_dirs = []
+   }
+ }
+ 
+diff --git a/build/config/win/visual_studio_version.gni b/build/config/win/visual_studio_version.gni
+--- a/build/config/win/visual_studio_version.gni
++++ b/build/config/win/visual_studio_version.gni
+@@ -35,5 +35,5 @@
+          "You must set the visual_studio_version if you set the path")
+   assert(wdk_path != "",
+          "You must set the wdk_path if you set the visual studio path")
+-  visual_studio_runtime_dirs = []
++  visual_studio_runtime_dirs = ""
+ }
+diff --git a/build/toolchain/win/BUILD.gn b/build/toolchain/win/BUILD.gn
+--- a/build/toolchain/win/BUILD.gn
++++ b/build/toolchain/win/BUILD.gn
+@@ -42,7 +42,11 @@
+   msvc_toolchain_suite("clang_" + target_name) {
+     environment = "environment." + toolchain_arch
+     prefix = rebase_path("$clang_base_path/bin", root_build_dir)
+-    cl = "${compiler_prefix}$prefix/clang-cl.exe"
++    if (host_os == "win") {
++      cl = "${compiler_prefix}$prefix/clang-cl.exe"
++    } else {
++      cl = "${compiler_prefix}$prefix/clang-cl /winsysroot${visual_studio_path}"
++    }
+     if (toolchain_arch == "x86") {
+       cl = "${cl} --target=i686-pc-windows-msvc"
+     } else if (toolchain_arch == "x64") {
+diff --git a/build/toolchain/win/msvc_toolchain.gni b/build/toolchain/win/msvc_toolchain.gni
+--- a/build/toolchain/win/msvc_toolchain.gni
++++ b/build/toolchain/win/msvc_toolchain.gni
+@@ -38,7 +38,7 @@
+   compiler_prefix = ""
+ }
+ 
+-if (current_toolchain == default_toolchain) {
++if (current_toolchain == default_toolchain && host_os == "win") {
+   if (is_debug) {
+     configuration = "Debug"
+   } else {
+@@ -71,6 +71,9 @@
+     env = invoker.environment
+ 
+     cl = invoker.cl
++    if (host_os == "win") {
++      cl = "$ninja_path -t msvc -e $env -- $cl"
++    }
+ 
+     # Make these apply to all tools below.
+     lib_switch = ""
+@@ -82,7 +85,7 @@
+       # TODO(brettw) enable this when GN support in the binary has been rolled.
+       #precompiled_header_type = "msvc"
+       pdbname = "{{target_out_dir}}/{{target_output_name}}_c.pdb"
+-      command = "$ninja_path -t msvc -e $env -- $cl /nologo /showIncludes /FC {{defines}} {{include_dirs}} {{cflags}} {{cflags_c}} /c {{source}} /Fo{{output}} /Fd$pdbname"
++      command = "$cl /nologo /showIncludes /FC {{defines}} {{include_dirs}} {{cflags}} {{cflags_c}} /c {{source}} /Fo{{output}} /Fd$pdbname"
+       depsformat = "msvc"
+       description = "CC {{output}}"
+       outputs = [
+@@ -103,7 +106,7 @@
+       if (is_clang && invoker.current_cpu == "x86") {
+         flags = "-m32"
+       }
+-      command = "$ninja_path -t msvc -e $env -- $cl $flags /nologo /showIncludes /FC {{defines}} {{include_dirs}} {{cflags}} {{cflags_cc}} /c {{source}} /Fo{{output}} /Fd$pdbname"
++      command = "$cl $flags /nologo /showIncludes /FC {{defines}} {{include_dirs}} {{cflags}} {{cflags_cc}} /c {{source}} /Fo{{output}} /Fd$pdbname"
+       depsformat = "msvc"
+       description = "CXX {{output}}"
+       outputs = [
+@@ -143,8 +146,13 @@
+ 
+     if (is_clang) {
+       prefix = rebase_path("$clang_base_path/bin", root_build_dir)
+-      lib = "$prefix/lld-link.exe /lib"
+-      link = "$prefix/lld-link.exe"
++      if (host_os == "win") {
++        lib = "$prefix/lld-link.exe /lib"
++        link = "$prefix/lld-link.exe"
++      } else {
++        lib = "$prefix/lld-link /lib"
++        link = "$prefix/lld-link"
++      }
+     } else {
+       lib = "lib.exe"
+       link = "link.exe"
+diff --git a/runtime/BUILD.gn b/runtime/BUILD.gn
+--- a/runtime/BUILD.gn
++++ b/runtime/BUILD.gn
+@@ -156,6 +156,13 @@
+ config("dart_linux_x64_config") {
+   defines = [
+     "DART_TARGET_OS_LINUX",
++    "TARGET_ARCH_X64",
++  ]
++}
++
++config("dart_windows_x64_config") {
++  defines = [
++    "DART_TARGET_OS_WINDOWS",
+     "TARGET_ARCH_X64",
+   ]
+ }
+diff --git a/runtime/bin/BUILD.gn b/runtime/bin/BUILD.gn
+--- a/runtime/bin/BUILD.gn
++++ b/runtime/bin/BUILD.gn
+@@ -105,6 +105,13 @@
+   ]
+ }
+ 
++build_libdart_builtin("libdart_builtin_product_windows_x64") {
++  extra_configs = [
++    "..:dart_product_config",
++    "..:dart_windows_x64_config",
++  ]
++}
++
+ build_libdart_builtin("libdart_builtin_product_linux_arm64") {
+   extra_configs = [
+     "..:dart_product_config",
+@@ -371,6 +378,19 @@
+   ]
+ }
+ 
++build_gen_snapshot("gen_snapshot_product_windows_x64") {
++  extra_configs = [
++    "..:dart_product_config",
++    "..:dart_windows_x64_config",
++  ]
++  extra_deps = [
++    ":gen_snapshot_dart_io_product_windows_x64",
++    ":libdart_builtin_product_windows_x64",
++    "..:libdart_precompiler_product_windows_x64",
++    "../platform:libdart_platform_precompiler_product_windows_x64",
++  ]
++}
++
+ build_gen_snapshot("gen_snapshot_product_linux_arm64") {
+   extra_configs = [
+     "..:dart_product_config",
+@@ -501,6 +521,13 @@
+   extra_configs = [
+     "..:dart_product_config",
+     "..:dart_linux_x64_config",
++  ]
++}
++
++build_gen_snapshot_dart_io("gen_snapshot_dart_io_product_windows_x64") {
++  extra_configs = [
++    "..:dart_product_config",
++    "..:dart_windows_x64_config",
+   ]
+ }
+ 
+diff --git a/runtime/configs.gni b/runtime/configs.gni
+--- a/runtime/configs.gni
++++ b/runtime/configs.gni
+@@ -57,6 +57,12 @@
+       "$_dart_runtime:dart_linux_x64_config",
+     ] + _product + _precompiler_base
+ 
++_precompiler_product_windows_x64_config =
++    [
++      "$_dart_runtime:dart_config",
++      "$_dart_runtime:dart_windows_x64_config",
++    ] + _product + _precompiler_base
++
+ _precompiler_product_linux_arm64_config =
+     [
+       "$_dart_runtime:dart_config",
+@@ -149,6 +155,13 @@
+   {
+     suffix = "_precompiler_product_linux_x64"
+     configs = _precompiler_product_linux_x64_config
++    snapshot = false
++    compiler = true
++    is_product = true
++  },
++  {
++    suffix = "_precompiler_product_windows_x64"
++    configs = _precompiler_product_windows_x64_config
+     snapshot = false
+     compiler = true
+     is_product = true

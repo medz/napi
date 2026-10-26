@@ -1,0 +1,7 @@
+{
+  global:
+    napi_backend_compile;
+    napi_backend_free;
+  local:
+    *;
+};

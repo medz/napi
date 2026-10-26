@@ -1,0 +1,431 @@
+import("//build/config/clang/clang.gni")
+import("//runtime/runtime_args.gni")
+
+declare_args() {
+  napi_bootstrap_sdk = "//tools/sdks/dart-sdk"
+  napi_node_headers = ""
+}
+
+assert(napi_node_headers != "",
+       "Set napi_node_headers to the directory containing node_api.h")
+assert(!is_linux || dart_runtime_mode != "release",
+       "Use profile runtime mode with is_product=true to retain Timeline")
+
+shared_library("compiler_library") {
+  output_name = "compiler"
+  sources = [
+    "src/compiler/compiler.cc",
+    "src/compiler/compiler.h",
+    "src/image.h",
+  ]
+  if (is_linux) {
+    libs = [ "dl" ]
+    inputs = [ "src/compiler/compiler.map" ]
+    ldflags = [ "-Wl,--version-script=" +
+                rebase_path("src/compiler/compiler.map", root_build_dir) ]
+  } else if (is_mac) {
+    ldflags = [
+      "-Wl,-exported_symbol,_napi_compile",
+      "-Wl,-exported_symbol,_napi_compiler_free",
+    ]
+  }
+}
+
+if (is_win) {
+  action("node_api_imports") {
+    script = "//build/gn_run_binary.py"
+    sources = [ "src/node.def" ]
+    outputs = [ "$target_gen_dir/node_api.lib" ]
+    executable_suffix = ""
+    if (host_os == "win") {
+      executable_suffix = ".exe"
+    }
+    args = [
+      "$clang_prefix/lld-link$executable_suffix",
+      "/lib",
+      "/machine:$target_cpu",
+      "/def:" + rebase_path(sources[0], root_build_dir),
+      "/out:" + rebase_path(outputs[0], root_build_dir),
+    ]
+  }
+}
+
+source_set("icu_data") {
+  deps = [ "//runtime/bin:icudtl_linkable" ]
+  generated_dir = get_label_info(deps[0], "target_gen_dir")
+  if (is_win) {
+    sources = [ "$generated_dir/icudtl_linkable.obj" ]
+  } else {
+    sources = [ "$generated_dir/icudtl_linkable.S" ]
+  }
+}
+
+shared_library("compiler_frontend") {
+  configs += [
+    "//runtime:dart_config",
+    "//runtime:dart_arch_config",
+    "//runtime:dart_os_config",
+    "//runtime:dart_product_config",
+    "//runtime:dart_aotruntime_config",
+  ]
+  defines = [ "DART_EMBED_ICU_DATA" ]
+  include_dirs = [
+    "//runtime",
+    "//third_party",
+  ]
+  sources = [
+    "//runtime/bin/icu.cc",
+    "src/compiler/frontend.cc",
+  ]
+  deps = [
+    ":icu_data",
+    "//runtime:libdart_aotruntime_product",
+    "//runtime/bin:common_embedder_dart_io_product",
+    "//runtime/bin:native_assets_api_product",
+    "//runtime/bin:shared_object_loaders_product",
+    "//runtime/platform:libdart_platform_aotruntime_product",
+    "//third_party/icu:icuuc",
+  ]
+  if (is_linux) {
+    inputs = [ "src/compiler/frontend.map" ]
+    ldflags = [
+      "-Wl,--no-undefined",
+      "-Wl,-Bsymbolic",
+      "-Wl,--version-script=" +
+          rebase_path("src/compiler/frontend.map", root_build_dir),
+    ]
+  } else if (is_mac) {
+    ldflags = [
+      "-Wl,-exported_symbol,_napi_frontend_compile",
+      "-Wl,-exported_symbol,_napi_frontend_package",
+      "-Wl,-exported_symbol,_napi_frontend_free",
+    ]
+  } else if (is_win) {
+    libs = [
+      "ole32.lib",
+      "iphlpapi.lib",
+      "psapi.lib",
+      "ws2_32.lib",
+      "Rpcrt4.lib",
+      "shlwapi.lib",
+      "winmm.lib",
+    ]
+  }
+}
+
+shared_library("compiler_backend") {
+  sources = [ "src/compiler/backend.cc" ]
+  include_dirs = [
+    "//runtime",
+    "//third_party/perfetto/src/include",
+    "$root_gen_dir/third_party/perfetto/src/build_config",
+  ]
+  configs += [
+    "//runtime:dart_config",
+    "//runtime:dart_arch_config",
+    "//runtime:dart_os_config",
+    "//runtime:dart_product_config",
+    "//runtime:dart_precompiler_config",
+  ]
+  deps = [
+    "//runtime:libdart_precompiler_product",
+    "//runtime/platform:libdart_platform_precompiler_product",
+  ]
+  if (is_linux) {
+    inputs = [ "src/compiler/backend.map" ]
+    ldflags = [
+      "-Wl,--no-undefined",
+      "-Wl,-Bsymbolic",
+      "-Wl,--version-script=" +
+          rebase_path("src/compiler/backend.map", root_build_dir),
+    ]
+  } else if (is_mac) {
+    ldflags = [
+      "-Wl,-exported_symbol,_napi_backend_compile",
+      "-Wl,-exported_symbol,_napi_backend_free",
+    ]
+  } else if (is_win) {
+    libs = [ "bcrypt.lib" ]
+  }
+}
+
+# The reduced images replace a few native registration objects in this archive.
+if (!is_shared_library) {
+  group("runtime") {
+    deps = [ ":runtime(${current_toolchain}_shared)" ]
+  }
+} else {
+  static_library("runtime") {
+    output_name = "sdk_runtime"
+    complete_static_lib = true
+    configs += [
+      "//runtime:dart_config",
+      "//runtime:dart_arch_config",
+      "//runtime:dart_os_config",
+      "//runtime:dart_product_config",
+      "//runtime:dart_aotruntime_config",
+    ]
+    defines = [ "DART_EMBED_ICU_DATA" ]
+    include_dirs = [
+      "//runtime",
+      "//third_party",
+    ]
+    sources = [ "//runtime/bin/icu.cc" ]
+    deps = [
+      ":icu_data",
+      "//runtime:libdart_aotruntime_product",
+      "//runtime/bin:common_embedder_dart_io_product",
+      "//runtime/bin:native_assets_api_product",
+      "//runtime/bin:shared_object_loaders_product",
+      "//runtime/platform:libdart_platform_aotruntime_product",
+      "//third_party/icu:icuuc",
+    ]
+  }
+}
+
+action("runtime_sources") {
+  script = "tool/runtime_sources.py"
+  inputs = [
+    "//runtime/vm/bootstrap_natives.h",
+    "//runtime/vm/bootstrap_natives.cc",
+    "//runtime/bin/io_natives.cc",
+  ]
+  outputs = [
+    "$target_gen_dir/bootstrap_no_regexp.cc",
+    "$target_gen_dir/io_no_tls.cc",
+  ]
+  args = [
+    "--sdk",
+    rebase_path("//", root_build_dir),
+    "--output",
+    rebase_path(target_gen_dir, root_build_dir),
+  ]
+}
+
+# These images are built with the SDK. Compiling an addon only selects an image
+# and appends the AOT snapshot; it never recompiles or links native code.
+template("runtime_profile") {
+  if (!is_shared_library) {
+    not_needed(invoker,
+               [
+                 "profile",
+                 "output_name",
+               ])
+    group(target_name) {
+      deps = [ ":${target_name}(${current_toolchain}_shared)" ]
+    }
+  } else {
+    if (invoker.profile != "full") {
+      action("${target_name}_archive") {
+        script = "tool/runtime_archive.py"
+        deps = [ ":runtime" ]
+        archive_dir = get_label_info(":runtime", "target_out_dir")
+        archive = "$archive_dir/libsdk_runtime.a"
+        if (is_win) {
+          archive = "$archive_dir/sdk_runtime.lib"
+        }
+        executable = ""
+        if (host_os == "win") {
+          executable = ".exe"
+        }
+        inputs = [ archive ]
+        outputs = [ "$target_gen_dir/${invoker.profile}.a" ]
+        args = [
+          "--ar",
+          "$clang_prefix/llvm-ar$executable",
+          "--input",
+          rebase_path(archive, root_build_dir),
+          "--output",
+          rebase_path(outputs[0], root_build_dir),
+          "--profile",
+          invoker.profile,
+        ]
+      }
+    }
+    shared_library(target_name) {
+      output_name = invoker.output_name
+      configs += [
+        "//runtime:dart_config",
+        "//runtime:dart_arch_config",
+        "//runtime:dart_os_config",
+        "//runtime:dart_product_config",
+        "//runtime:dart_aotruntime_config",
+      ]
+      defines = [
+        "BUILDING_NODE_EXTENSION",
+        "DART_EMBED_ICU_DATA",
+        "NAPI_VERSION=8",
+      ]
+      include_dirs = [
+        "src",
+        napi_node_headers,
+        "//runtime",
+        "//third_party",
+        "//third_party/perfetto/src/include",
+        "$root_gen_dir/third_party/perfetto/src/build_config",
+      ]
+      sources = [
+        "src/addon.cc",
+        "src/runtime.cc",
+      ]
+      if (is_mac) {
+        sources += [ "//runtime/bin/snapshot_utils.cc" ]
+      }
+      deps = []
+      if (invoker.profile == "full") {
+        deps += [ ":runtime" ]
+      } else {
+        archive_target = ":${target_name}_archive"
+        deps += [ archive_target ]
+        libs = get_target_outputs(archive_target)
+        if (is_linux) {
+          libs += [
+            "dl",
+            "pthread",
+          ]
+        } else if (is_mac) {
+          frameworks = [
+            "CoreFoundation.framework",
+            "Security.framework",
+            "Foundation.framework",
+            "CoreServices.framework",
+          ]
+        }
+      }
+      if (invoker.profile != "full") {
+        generated = get_label_info(":runtime_sources", "target_gen_dir")
+        deps += [ ":runtime_sources" ]
+        defines += [ "DART_IO_SECURE_SOCKET_DISABLED" ]
+        sources += [
+          "$generated/io_no_tls.cc",
+          "//runtime/bin/dart_io_api_impl.cc",
+          "//runtime/bin/io_service.cc",
+          "//runtime/bin/io_service_no_ssl.cc",
+        ]
+        if (invoker.profile == "core") {
+          defines += [ "NAPI_RUNTIME_NO_REGEXP" ]
+          sources += [ "$generated/bootstrap_no_regexp.cc" ]
+        }
+      }
+      if (is_win) {
+        deps += [ ":node_api_imports" ]
+        if (!defined(libs)) {
+          libs = []
+        }
+        libs += [
+          get_label_info(":node_api_imports", "target_gen_dir") +
+              "/node_api.lib",
+          "advapi32.lib",
+          "bcrypt.lib",
+          "dbghelp.lib",
+          "ntdll.lib",
+          "pathcch.lib",
+          "shell32.lib",
+          "ole32.lib",
+          "iphlpapi.lib",
+          "psapi.lib",
+          "ws2_32.lib",
+          "Rpcrt4.lib",
+          "shlwapi.lib",
+          "winmm.lib",
+        ]
+      }
+      if (is_linux) {
+        inputs = [ "src/exports.map" ]
+        ldflags = [
+          "-Wl,-Bsymbolic",
+          "-Wl,--version-script=" +
+              rebase_path("src/exports.map", root_build_dir),
+        ]
+      } else if (is_mac) {
+        ldflags = [
+          "-Wl,-undefined,dynamic_lookup",
+          "-Wl,-sectcreate,__CUSTOM,__space_for_note,/dev/null",
+          "-Wl,-exported_symbol,_napi_register_module_v1",
+        ]
+      }
+    }
+  }
+}
+
+runtime_profile("runtime_image") {
+  profile = "full"
+  output_name = "napi_runtime"
+}
+
+runtime_profile("runtime_core") {
+  profile = "core"
+  output_name = "napi_runtime_core"
+}
+
+runtime_profile("runtime_regexp") {
+  profile = "regexp"
+  output_name = "napi_runtime_regexp"
+}
+
+action("frontend_packages") {
+  script = "tool/sdk_package_config.py"
+  inputs = [
+    "//DEPS",
+    "//tools/VERSION",
+  ]
+  outputs = [ "$target_gen_dir/package_config.json" ]
+  args = [
+    "--sdk",
+    rebase_path("//", root_build_dir),
+    "--output",
+    rebase_path(outputs[0], root_build_dir),
+  ]
+}
+
+can_build_frontend = (host_os == target_os && host_cpu == target_cpu) ||
+                     (host_os == "linux" && target_os == "win" &&
+                      target_cpu == "x64")
+if (can_build_frontend) {
+  action("frontend_aot") {
+    script = "tool/build_frontend.py"
+    deps = [ ":frontend_packages" ]
+    packages = get_label_info(":frontend_packages", "target_gen_dir") +
+               "/package_config.json"
+    sources = [
+      "src/compiler/frontend.dart",
+      "src/compiler/node_version.dart",
+    ]
+    inputs = [
+      packages,
+      "//DEPS",
+      "//tools/VERSION",
+    ]
+    outputs = [ "$root_out_dir/frontend.aot" ]
+    args = [
+      "--sdk", rebase_path(napi_bootstrap_sdk, root_build_dir),
+      "--packages", rebase_path(packages, root_build_dir),
+      "--entry", rebase_path(sources[0], root_build_dir),
+      "--output", rebase_path(outputs[0], root_build_dir),
+    ]
+    if (host_os != target_os || host_cpu != target_cpu) {
+      generator = "//runtime/bin:gen_snapshot_product_windows_x64($host_toolchain)"
+      deps += [ generator ]
+      executable = get_label_info(generator, "root_out_dir") +
+                   "/gen_snapshot_product_windows_x64"
+      args += [
+        "--target-os", "windows",
+        "--gen-snapshot", rebase_path(executable, root_build_dir),
+      ]
+    }
+  }
+}
+
+group("compiler") {
+  deps = [
+    ":compiler_backend",
+    ":compiler_frontend",
+    ":compiler_library",
+    ":runtime_core",
+    ":runtime_image",
+    ":runtime_regexp",
+  ]
+  if (can_build_frontend) {
+    deps += [ ":frontend_aot" ]
+  }
+}

@@ -2,3 +2,5 @@ include: package:lints/recommended.yaml
 analyzer:
   exclude:
     - .dart_tool/**
+    # Built against the pinned Dart SDK's private compiler packages.
+    - src/compiler/*.dart

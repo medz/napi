@@ -1,9 +1,0 @@
-name: dart_counter
-description: A Dart Counter exported to JavaScript with napi.
-version: 0.0.0
-publish_to: none
-environment:
-  sdk: '3.13.5'
-dependencies:
-  napi:
-    path: ..

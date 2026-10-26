@@ -58,6 +58,7 @@ int initialize(
   export('unhandledError', _unhandledError);
   export('delay', _delay);
   export('httpRoundtrip', _httpRoundtrip);
+  export('httpsStatus', _httpsStatus);
   export('isolateRun', _isolateRun);
   export('isolateReadFile', _isolateReadFile);
   export('isolateSpawn', _isolateSpawn);
@@ -192,6 +193,22 @@ Js _environment(Js env, Js info) => _guard(
 Js _readFile(Js env, Js info) => _guard(() {
   final path = _node.text(_argument(info));
   return _promise(() => File(path).readAsString());
+});
+
+Js _httpsStatus(Js env, Js info) => _guard(() {
+  final uri = Uri.parse(_node.text(_argument(info)));
+  return _promise(() async {
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 10);
+    try {
+      final request = await client.getUrl(uri);
+      final response = await request.close();
+      await response.drain<void>();
+      return response.statusCode;
+    } finally {
+      client.close(force: true);
+    }
+  });
 });
 
 Js _fileRoundtrip(Js env, Js info) => _guard(() {
