@@ -9,6 +9,7 @@ for (const [target, fixture] of [
   ['classes', 'annotated_classes.cts'],
   ['collections', 'annotated_collections.cts'],
   ['callbacks', 'annotated_callbacks.cts'],
+  ['futures', 'annotated_futures.cts'],
 ]) {
   const consumer = resolve(process.argv[2], target, 'consumer.cts');
   copyFileSync(join(__dirname, fixture), consumer);

@@ -19,6 +19,7 @@ enum ValueKind {
   map,
   typedData,
   function,
+  future,
 }
 
 enum TypedDataKind {
@@ -279,10 +280,7 @@ final class _Reader {
       throw FormatException(
         '@NAPI $name: generic functions are not supported yet.',
       );
-    if (function.dartAsyncMarker != AsyncMarker.Sync)
-      throw FormatException(
-        '@NAPI $name: async and generator functions are not supported yet.',
-      );
+    _checkAsync(function, name);
     final substitution = _substitution(owner, target);
     ExportParameter parameter(FunctionParameter parameter, bool required) {
       final parameterName = parameter is NamedParameter
@@ -330,6 +328,20 @@ final class _Reader {
       owner: owner,
       constructor: constructor,
     );
+  }
+
+  void _checkAsync(FunctionNode function, String name) {
+    if (function.dartAsyncMarker == AsyncMarker.Async &&
+        function.returnType is VoidType) {
+      throw FormatException(
+        '@NAPI $name: async void exports are not supported; return Future<void> instead.',
+      );
+    }
+    if (function.dartAsyncMarker != AsyncMarker.Sync &&
+        function.dartAsyncMarker != AsyncMarker.Async)
+      throw FormatException(
+        '@NAPI $name: generator functions are not supported yet.',
+      );
   }
 
   bool _visible(Member member) =>
@@ -427,6 +439,9 @@ final class _Reader {
           _function(member, name, owner: cls),
         );
       } else if (member is Field || member is Procedure && member.isGetter) {
+        if (member is Procedure) {
+          _checkAsync(member.function, '${cls.name}.${member.name.text}');
+        }
         getters[member.name] = member;
       } else if (_annotation(member) != null) {
         throw FormatException(
@@ -544,7 +559,18 @@ final class _Reader {
           classExport: exported,
         );
       final library = type.classNode.enclosingLibrary.importUri.toString();
-      if (library == 'dart:core') {
+      if (library == 'dart:async' && type.classNode.name == 'Future') {
+        return ExportType(
+          type,
+          ValueKind.future,
+          nullable: type.nullability == Nullability.nullable,
+          element: _type(
+            type.typeArguments.single,
+            '$context: Future value',
+            result: true,
+          ),
+        );
+      } else if (library == 'dart:core') {
         if (type.classNode.name == 'List') {
           return ExportType(
             type,

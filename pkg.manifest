@@ -88,6 +88,9 @@ test/native/annotated_collections.dart
 test/native/annotated_functions.cjs
 test/native/annotated_functions.cts
 test/native/annotated_functions.dart
+test/native/annotated_futures.cjs
+test/native/annotated_futures.cts
+test/native/annotated_futures.dart
 test/native/build.dart
 test/native/build_assembly.dart
 test/native/build_package.dart

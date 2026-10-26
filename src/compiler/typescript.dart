@@ -38,7 +38,7 @@ String typeScriptDeclarations(ExportModule exports) {
       );
       if (property.writeType != null) {
         output.writeln(
-          '  ${prefix}set ${_member(property.name)}(value: ${_type(property.writeType!)});',
+          '  ${prefix}set ${_member(property.name)}(value: ${_type(property.writeType!, output: false)});',
         );
       }
     }
@@ -59,18 +59,18 @@ String typeScriptDeclarations(ExportModule exports) {
   return output.toString();
 }
 
-String _parameters(ExportSignature function) {
+String _parameters(ExportSignature function, {bool output = true}) {
   final required = function.positional
       .where((parameter) => parameter.required)
       .length;
   final tuples = <String>[];
   final options = function.named.isEmpty
       ? null
-      : '{ ${function.named.map((parameter) => '${jsonEncode(parameter.name)}${parameter.required ? '' : '?'}: ${_type(parameter.type)};').join(' ')} }';
+      : '{ ${function.named.map((parameter) => '${jsonEncode(parameter.name)}${parameter.required ? '' : '?'}: ${_type(parameter.type, output: !output)};').join(' ')} }';
   for (var count = required; count <= function.positional.length; ++count) {
     final parameters = [
       for (var i = 0; i < count; ++i)
-        '${_label(function.positional[i].name, i)}: ${_type(function.positional[i].type)}',
+        '${_label(function.positional[i].name, i)}: ${_type(function.positional[i].type, output: !output)}',
     ];
     if (options == null ||
         !function.named.any((parameter) => parameter.required)) {
@@ -82,7 +82,7 @@ String _parameters(ExportSignature function) {
   return '...args: ${tuples.join(' | ')}';
 }
 
-String _type(ExportType type) {
+String _type(ExportType type, {bool output = true}) {
   final value = switch (type.kind) {
     ValueKind.boolean => 'boolean',
     ValueKind.integer || ValueKind.doubleValue || ValueKind.number => 'number',
@@ -93,12 +93,17 @@ String _type(ExportType type) {
     ValueKind.never => 'never',
     ValueKind.object => type.classExport!.name,
     ValueKind.function =>
-      '((${_parameters(type.signature!)}) => ${_type(type.signature!.result)})',
+      '((${_parameters(type.signature!, output: output)}) => ${_type(type.signature!.result, output: output)})',
+    ValueKind.future =>
+      output
+          ? 'globalThis.Promise<globalThis.Awaited<${_type(type.element!, output: output)}>>'
+          : 'globalThis.Promise<${_type(type.element!, output: output)}>',
     ValueKind.list =>
       type.element!.nullable
-          ? '(${_type(type.element!)})[]'
-          : '${_type(type.element!)}[]',
-    ValueKind.map => '{ [key: string]: ${_type(type.element!)} }',
+          ? '(${_type(type.element!, output: output)})[]'
+          : '${_type(type.element!, output: output)}[]',
+    ValueKind.map =>
+      '{ [key: string]: ${_type(type.element!, output: output)} }',
     ValueKind.typedData =>
       'globalThis.${switch (type.typedDataKind!) {
         TypedDataKind.int8 => 'Int8Array',

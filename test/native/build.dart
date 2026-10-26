@@ -21,6 +21,7 @@ Future<void> main(List<String> args) async {
       ('classes', 'annotated_classes.dart'),
       ('collections', 'annotated_collections.dart'),
       ('callbacks', 'annotated_callbacks.dart'),
+      ('futures', 'annotated_futures.dart'),
     ])
       NativeTarget(
         entry: File('${source.path}/$entry'),
@@ -129,6 +130,24 @@ Future<void> main(List<String> args) async {
         (
           '@NAPI() void inspect(T Function<T>(T) callback) {}',
           'generic function types are not supported yet',
+        ),
+      ],
+    ),
+    (
+      'futures',
+      'annotated_futures.dart',
+      [
+        (
+          '@NAPI() int nested(Future<Future<int>> value) => 1;',
+          'nested Future inputs are not supported',
+        ),
+        (
+          '@NAPI() void invalid() async {}',
+          'async void exports are not supported; return Future<void> instead',
+        ),
+        (
+          '@NAPI() class Invalid { void get ignored async {} }',
+          'async void exports are not supported; return Future<void> instead',
         ),
       ],
     ),

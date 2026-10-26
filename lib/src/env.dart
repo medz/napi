@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
 import 'dart:typed_data';
@@ -490,6 +491,129 @@ final class Env {
       if (handle != nullptr) return JsFunction._(this, handle, _scope!);
     }
     return _newFunction<F>('', invoke, identity: value);
+  }
+
+  // ignore: unused_element
+  Future<T> _readFuture<T>(JsObject value, T Function(JsArguments) read) {
+    final isPromise = _arena<Bool>();
+    _check(node.napiIsPromise(_handle, _encode(value), isPromise));
+    if (!isPromise.value) throw ArgumentError('Expected a JavaScript Promise');
+    final result = Completer<T>();
+    final resolve = function('', (arguments) {
+      if (!result.isCompleted) {
+        try {
+          result.complete(read(arguments));
+        } catch (error, stack) {
+          result.completeError(error, stack);
+        }
+      }
+      return undefined;
+    });
+    final reject = function('', (arguments) {
+      if (!result.isCompleted) {
+        try {
+          result.completeError(JsException(arguments[0]));
+        } catch (error, stack) {
+          result.completeError(error, stack);
+        }
+      }
+      return undefined;
+    });
+    value.get<JsFunction>('then').call([resolve, reject], receiver: value);
+    return result.future;
+  }
+
+  // ignore: unused_element
+  JsObject _writeFuture<T>(Future<T> value, Object? Function(T) write) {
+    _arena;
+    final ready =
+        Completer<(JsReference<JsFunction>, JsReference<JsFunction>)?>();
+
+    node.NapiValue errorValue(Object error) {
+      try {
+        return _errorValue(error);
+      } catch (_) {
+        return _errorValue(
+          ArgumentError('Cannot convert Dart callback exception to JavaScript'),
+        );
+      }
+    }
+
+    void reject(JsFunction function, Object error) {
+      function.call([_decode<Object?>(errorValue(error))]);
+    }
+
+    Future<void> settle(
+      void Function(JsFunction resolve, JsFunction reject) complete,
+    ) async {
+      try {
+        final references = await ready.future;
+        if (references == null) return;
+        try {
+          if (!_closed) {
+            withScope(() => complete(references.$1.value, references.$2.value));
+          }
+        } finally {
+          try {
+            references.$1.dispose();
+          } finally {
+            references.$2.dispose();
+          }
+        }
+      } catch (_) {
+        // Teardown or a failed Node operation must not leave an unhandled Future.
+      }
+    }
+
+    unawaited(
+      value.then<void>(
+        (result) => settle((resolve, rejectFunction) {
+          try {
+            resolve.call([write(result)]);
+          } catch (error) {
+            reject(rejectFunction, error);
+          }
+        }),
+        onError: (Object error, StackTrace stack) =>
+            settle((_, rejectFunction) => reject(rejectFunction, error)),
+      ),
+    );
+
+    final deferred = _arena<node.NapiDeferred>();
+    final promise = _arena<node.NapiValue>();
+    try {
+      _check(node.napiCreatePromise(_handle, deferred, promise));
+      final thenable = object();
+      thenable.defineValue(
+        'then',
+        function('', (arguments) {
+          if (ready.isCompleted) return undefined;
+          JsReference<JsFunction>? resolve;
+          try {
+            resolve = arguments.get<JsFunction>(0).retain();
+            final reject = arguments.get<JsFunction>(1).retain();
+            ready.complete((resolve, reject));
+          } catch (_) {
+            ready.complete(null);
+            resolve?.dispose();
+            rethrow;
+          }
+          return undefined;
+        }),
+      );
+      // Consume the opaque deferred before returning to Node. Only ordinary
+      // references, covered by Env cleanup, survive the assimilation job.
+      final handle = deferred.value;
+      deferred.value = nullptr;
+      _check(node.napiResolveDeferred(_handle, handle, thenable._handle));
+      return JsObject._(this, promise.value, _scope!);
+    } catch (error) {
+      if (!ready.isCompleted) ready.complete(null);
+      if (deferred.value != nullptr) {
+        node.napiRejectDeferred(_handle, deferred.value, errorValue(error));
+      }
+      rethrow;
+    }
   }
 
   // ignore: unused_element
@@ -1200,10 +1324,9 @@ final class Env {
     }
   }
 
-  void _throw(Object error) {
+  node.NapiValue _errorValue(Object error) {
     if (error is JsException) {
-      node.napiThrow(_handle, _encode(error.value));
-      return;
+      return _encode(error.value);
     }
     String message;
     try {
@@ -1226,8 +1349,10 @@ final class Env {
         (out) => node.napiCreateError(_handle, nullptr, value, out),
       );
     }
-    node.napiThrow(_handle, exception);
+    return exception;
   }
+
+  void _throw(Object error) => node.napiThrow(_handle, _errorValue(error));
 
   void _reportError(Object error) {
     try {

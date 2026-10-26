@@ -136,7 +136,8 @@ final class Calls {
     ValueKind.list ||
     ValueKind.map ||
     ValueKind.typedData ||
-    ValueKind.function => true,
+    ValueKind.function ||
+    ValueKind.future => true,
     _ => false,
   };
 
@@ -145,6 +146,12 @@ final class Calls {
     ExportType type,
     Expression Function(DartType) read,
   ) {
+    if (type.kind == ValueKind.future &&
+        type.element!.kind == ValueKind.future) {
+      throw const FormatException(
+        '@NAPI: nested Future inputs are not supported because JavaScript Promises flatten their value.',
+      );
+    }
     if (!_isComposite(type)) return read(type.dartType);
     final baseType = type.kind == ValueKind.function
         ? functionType
@@ -183,6 +190,12 @@ final class Calls {
         types: [type.dartType.withDeclaredNullability(Nullability.nonNullable)],
       ),
       ValueKind.function => _readFunction(env, type.signature!, source()),
+      ValueKind.future => call(
+        VariableGet(env),
+        method(envClass, '_readFuture'),
+        [source(), _futureReader(env, type.element!)],
+        types: [type.element!.dartType],
+      ),
       _ => throw StateError('Not a composite type: ${type.kind}'),
     };
     return Let(
@@ -269,6 +282,12 @@ final class Calls {
         [source(), IntLiteral(_typedArrayKind(type.typedDataKind!))],
       ),
       ValueKind.function => _writeFunction(env, type.signature!, source),
+      ValueKind.future => call(
+        VariableGet(env),
+        method(envClass, '_writeFuture'),
+        [source(), _elementWriter(env, type.element!)],
+        types: [type.element!.dartType],
+      ),
       _ => throw StateError('Not a composite type: ${type.kind}'),
     };
     return Let(
@@ -508,6 +527,24 @@ final class Calls {
     );
   }
 
+  Expression _futureReader(PositionalParameter env, ExportType element) {
+    final args = PositionalParameter(
+      cosmeticName: 'arguments',
+      type: argumentsType,
+    );
+    return FunctionExpression(
+      FunctionNode(
+        ReturnStatement(
+          element.kind == ValueKind.voidValue
+              ? null
+              : _argument(env, args, 0, element),
+        ),
+        positionalParameters: [args],
+        returnType: element.dartType,
+      ),
+    );
+  }
+
   Expression _elementWriter(PositionalParameter env, ExportType element) {
     final value = PositionalParameter(
       cosmeticName: 'value',
@@ -515,7 +552,11 @@ final class Calls {
     );
     return FunctionExpression(
       FunctionNode(
-        ReturnStatement(_encode(env, element, VariableGet(value))),
+        ReturnStatement(
+          element.kind == ValueKind.voidValue
+              ? _constant('undefined')
+              : _encode(env, element, VariableGet(value)),
+        ),
         positionalParameters: [value],
         returnType: core.objectNullableRawType,
       ),
