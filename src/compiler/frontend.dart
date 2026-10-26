@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:ffi' show Abi;
 import 'dart:io';
 
 import 'package:dart2native/dart2native_macho.dart' as macho;
@@ -106,7 +107,7 @@ Future<void> _compile(
     throw FormatException(diagnostics.join('\n'));
   }
   final component = compiled.component!;
-  final declarations = _configureEntrypoint(
+  final exports = _configureEntrypoint(
     component,
     source,
     File(entry).absolute.uri,
@@ -172,8 +173,29 @@ Future<void> _compile(
   } finally {
     await output.close();
   }
-  if (declarations != null) {
-    await File('$outputPath.d.ts').writeAsString(declarations);
+  if (exports != null) {
+    final platform = switch ((Abi.current(), targetOS)) {
+      (Abi.macosArm64, 'macos') => 'macos_arm64',
+      (Abi.linuxArm64, 'linux') => 'linux_arm64',
+      (Abi.windowsX64, 'windows') => 'windows_x64',
+      _ => throw FormatException(
+        'The frontend target "$targetOS" does not match a supported host ABI: '
+        '${Abi.current()}.',
+      ),
+    };
+    await File('$outputPath.d.ts').writeAsString(exports.declarations);
+    await File('$outputPath.exports.json').writeAsString(
+      jsonEncode({
+        'format': 1,
+        'platform': platform,
+        'napi': compatibility.napi,
+        'node': versions.nodeConstraintText(compatibility.nodes),
+        'exports': [
+          for (final entry in exports.names)
+            {'name': entry.name, 'kind': entry.kind},
+        ],
+      }),
+    );
   }
 }
 
@@ -306,7 +328,8 @@ void main() {}
   return file.absolute.uri;
 }
 
-String? _configureEntrypoint(
+({String declarations, List<({String name, String kind})> names})?
+_configureEntrypoint(
   Component component,
   Uri entry,
   Uri addon,
@@ -385,7 +408,14 @@ String? _configureEntrypoint(
     );
     connect('afterPump', findProcedure(module, 'afterPump')!);
     connect('dispose', findProcedure(module, 'dispose')!);
-    return typeScriptDeclarations(annotated);
+    return (
+      declarations: typeScriptDeclarations(annotated),
+      names: [
+        for (final cls in annotated.classes) (name: cls.name, kind: 'class'),
+        for (final function in annotated.functions)
+          (name: function.name, kind: 'function'),
+      ],
+    );
   }
 
   if (register != null) {

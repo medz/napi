@@ -1,5 +1,5 @@
 {
-  "abi": 1,
+  "abi": 2,
   "platform": "macos_arm64",
   "dart": {
     "version": "3.13.5",
@@ -15,12 +15,12 @@
       "sha256": "341b7d89b43f33c44847bb49d3126ae723843821424e6f265ba60c87ad731c15"
     },
     "compiler.dylib": {
-      "size": 90832,
-      "sha256": "c7dc85ade3c03eec06868d776254a3c90d87cda180ef7d9b6c53b2c0c7082ec0"
+      "size": 91248,
+      "sha256": "4cb76d0cd9e7313f5ff67df2f5f51d314c9604a4766c909fed31e3d1a7bda1dc"
     },
     "frontend.aot": {
-      "size": 9143176,
-      "sha256": "8eeee7e2d36a0cdaeefcb3aa9e7a90572ea43a6ce778c1aa0aeb13e5d8dd11c9"
+      "size": 9159560,
+      "sha256": "fde2bc7bab54408320d2ef319d8fdc6957bce8afdcd8df93157db6fd93df75dc"
     },
     "frontend.dylib": {
       "size": 4607312,

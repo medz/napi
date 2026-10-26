@@ -102,6 +102,60 @@ binding's Dart reference. Inheritance between exported classes is not supported
 yet; the compiler rejects those declarations. Returning the same object through
 two different exported class types is rejected while its first wrapper is alive.
 
+## npm packages
+
+Use `PackageBuild` in your Dart build script to produce an installable package:
+
+```dart
+final compiler = Compiler([
+  PackageBuild(
+    entry: File('lib/addon.dart'),
+    output: Directory('dist/npm'),
+    name: '@acme/addon',
+    version: '1.0.0',
+  ),
+]);
+```
+
+The output includes the native addon, runtime notices, CJS/ESM entries and
+TypeScript declarations. Consumers install it with `npm install ./dist/npm`:
+
+```js
+import { add } from '@acme/addon';
+console.log(add(20, 22)); // 42
+```
+
+`require('@acme/addon')` exposes the same bindings. Package entries require
+Node.js 12.22 or later, plus any newer version required by the exported APIs.
+No install-time compilation is needed.
+
+For multiple platforms, build on each platform and keep its output directory,
+including `.napi.json`. Assemble the artifacts in a separate build script:
+
+```dart
+final compiler = Compiler([
+  PackageBuild.fromArtifacts(
+    artifacts: [
+      NativeArtifact(File('macos/.napi.json')),
+      NativeArtifact(File('linux/.napi.json')),
+      NativeArtifact(File('windows/.napi.json')),
+    ],
+    output: Directory('dist/npm'),
+    name: '@acme/addon',
+    version: '1.0.0',
+  ),
+]);
+```
+
+Assembly does not run the compiler or load foreign addons. Artifacts must expose
+the same declarations. Publish the packages under `platforms/` before publishing
+the root package; npm selects the matching platform dependency. The root package
+also loads directly from the complete build directory.
+
+Choose an empty output directory or a previous `PackageBuild` output. Rebuilds
+reject unknown files instead of deleting them. Switching output directories can
+briefly make the package unavailable; a failed switch restores the old directory.
+
 ## Manual registration
 
 For low-level bindings, use `void register(Env env, JsObject exports)` instead:

@@ -26,7 +26,6 @@ shared_library("compiler_library") {
   } else if (is_mac) {
     ldflags = [
       "-Wl,-exported_symbol,_napi_compile",
-      "-Wl,-exported_symbol,_napi_compile_declarations",
       "-Wl,-exported_symbol,_napi_compiler_free",
     ]
   }

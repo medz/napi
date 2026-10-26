@@ -61,6 +61,7 @@ jobs:
               path: '$packagePath'
           "@ | Set-Content "$smoke/pubspec.yaml"
           Copy-Item test/native/*.dart $smoke
+          Copy-Item example/counter.dart (Join-Path $smoke 'package_counter.dart')
           Copy-Item experiments/native-image/payload.dart $smoke
           Copy-Item experiments/native-image/node_api.dart $smoke
           $output = Join-Path $smoke 'build'
@@ -70,6 +71,17 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             dart build.dart $output
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            dart build_package.dart (Join-Path $smoke 'package_counter.dart') (Join-Path $output 'package')
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $compilerAssets = Join-Path $package 'lib/src/compiler/assets'
+            $unavailable = Join-Path $smoke 'sdk-unavailable'
+            Move-Item -LiteralPath $compilerAssets -Destination $unavailable
+            try {
+              dart build_assembly.dart (Join-Path $output 'package/.napi.json') (Join-Path $output 'assembled')
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            } finally {
+              Move-Item -LiteralPath $unavailable -Destination $compilerAssets
+            }
           } finally { Pop-Location }
           $images = Join-Path $smoke 'images'
           New-Item -ItemType Directory -Force $images | Out-Null
@@ -80,6 +92,10 @@ jobs:
           node --expose-gc test/native/verify.cjs $output $images
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node test/native/verify_types.cjs $output
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm --prefix test/native run verify-package -- (Join-Path $output 'package')
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm --prefix test/native run verify-package -- (Join-Path $output 'assembled')
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           foreach ($profile in 'core', 'regexp', 'full') {
             Push-Location (Join-Path $output $profile)
@@ -94,3 +110,11 @@ jobs:
               Write-Host "$profile npm: $($packed[0].size) bytes packed, $($packed[0].unpackedSize) bytes unpacked"
             } finally { Pop-Location }
           }
+
+      - name: Upload the Windows native package
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-windows-x64
+          path: '${{ runner.temp }}/napi smoke 中文/build/package'
+          include-hidden-files: true
+          retention-days: 1

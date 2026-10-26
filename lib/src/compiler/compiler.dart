@@ -1,4 +1,5 @@
 import 'native/compile.dart';
+import 'package/build.dart';
 import 'target.dart';
 
 /// A compiler configured with output targets.
@@ -18,6 +19,8 @@ final class Compiler {
       switch (target) {
         case NativeTarget():
           await compileNative(target);
+        case PackageBuild():
+          await buildPackage(target);
       }
     }
   }
