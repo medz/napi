@@ -29,67 +29,61 @@ jobs:
         run: |
           dart pub get
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          dart format --output=none --set-exit-if-changed lib
+          dart format --output=none --set-exit-if-changed lib test/native
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           dart analyze
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           dart pub publish --dry-run
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $archive = Join-Path $env:RUNNER_TEMP 'napi.tar.gz'
+          dart pub publish --skip-validation "--to-archive=$archive"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Compile and load a native addon
+      - name: Build a fresh consumer and load all runtime profiles
         run: |
-          $smoke = Join-Path $env:RUNNER_TEMP 'napi-smoke'
-          New-Item -ItemType Directory -Force $smoke | Out-Null
+          $package = Join-Path $env:RUNNER_TEMP 'napi-package'
+          $smoke = Join-Path $env:RUNNER_TEMP 'napi smoke 中文'
+          New-Item -ItemType Directory -Force $package, $smoke | Out-Null
+          tar -xzf (Join-Path $env:RUNNER_TEMP 'napi.tar.gz') -C $package
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $packagePath = $package.Replace('\', '/')
+          @"
+          name: napi_native_smoke
+          environment:
+            sdk: ^3.12.0
+          dependencies:
+            napi:
+              path: '$packagePath'
+          "@ | Set-Content "$smoke/pubspec.yaml"
+          Copy-Item test/native/*.dart $smoke
           Copy-Item experiments/native-image/payload.dart $smoke
           Copy-Item experiments/native-image/node_api.dart $smoke
-          @'
-          import 'dart:io';
-          import 'package:napi/compiler.dart';
-          Future<void> main(List<String> args) => Compiler([
-            NativeTarget(entry: File(args[0]), output: File(args[1])),
-          ]).run([]);
-          '@ | Set-Content "$smoke/build.dart"
-          dart --packages=.dart_tool/package_config.json "$smoke/build.dart" "$smoke/payload.dart" "$smoke/addon.node"
+          $output = Join-Path $smoke 'build'
+          Push-Location $smoke
+          try {
+            dart pub get --offline
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            dart build.dart $output
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } finally { Pop-Location }
+          $images = Join-Path $smoke 'images'
+          New-Item -ItemType Directory -Force $images | Out-Null
+          $assets = Join-Path $package 'lib/src/compiler/assets/windows_x64'
+          Copy-Item "$assets/runtime*.node" $images
+          Copy-Item "$assets/NOTICES" $images
+          Remove-Item -Recurse -Force $package
+          node --expose-gc test/native/verify.cjs $output $images
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          @'
-          const assert = require('node:assert/strict');
-          const { join } = require('node:path');
-          const { Worker } = require('node:worker_threads');
-          const [path, directory] = process.argv.slice(2);
-          const timeout = setTimeout(() => process.exit(1), 30000);
-          async function main() {
-            const addon = require(path);
-            assert.equal(addon.answer, 42);
-            assert.equal(addon.add(20, 22), 42);
-            assert.equal(JSON.parse(addon.environment()).operatingSystem, 'windows');
-            const file = join(directory, 'roundtrip.txt');
-            assert.equal(await addon.fileRoundtrip(file, 'Dart 中文'), 'Dart 中文');
-            assert.equal(await addon.isolateReadFile(file), 'Dart 中文');
-            assert.equal(await addon.httpRoundtrip('hello'), 'Dart HTTP: hello');
-            assert.equal(await addon.isolateRun(21), 42);
-            assert.equal(await addon.isolateSpawn(21), 42);
-            await Promise.all(Array.from({ length: 4 }, () => new Promise((resolve, reject) => {
-              let result;
-              const worker = new Worker(`
-                const { parentPort, workerData } = require('node:worker_threads');
-                const addon = require(workerData);
-                addon.isolateRun(21).then(value => parentPort.postMessage(value));
-              `, { eval: true, workerData: path });
-              worker.on('message', value => { result = value; });
-              worker.on('error', reject);
-              worker.on('exit', code => {
-                try {
-                  assert.equal(code, 0);
-                  assert.equal(result, 42);
-                  resolve();
-                } catch (error) { reject(error); }
-              });
-            })));
+          foreach ($profile in 'core', 'regexp', 'full') {
+            Push-Location (Join-Path $output $profile)
+            try {
+              $packed = npm pack --json --ignore-scripts --offline | Out-String | ConvertFrom-Json
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+              $paths = @($packed[0].files | ForEach-Object { $_.path })
+              if ($paths.Count -ne 3 -or 'addon.node' -notin $paths -or
+                  'package.json' -notin $paths -or 'NOTICES' -notin $paths) {
+                throw "Unexpected npm package files: $paths"
+              }
+              Write-Host "$profile npm: $($packed[0].size) bytes packed, $($packed[0].unpackedSize) bytes unpacked"
+            } finally { Pop-Location }
           }
-          main().then(() => {
-            clearTimeout(timeout);
-            console.log('Native addon, dart:io, isolates and Workers passed.');
-          }, error => { console.error(error); process.exit(1); });
-          '@ | Set-Content "$smoke/verify.cjs"
-          node "$smoke/verify.cjs" "$smoke/addon.node" $smoke
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

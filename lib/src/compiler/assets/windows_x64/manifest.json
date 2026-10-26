@@ -11,8 +11,8 @@
       "sha256": "a483a737d2c19121edc5ab53fa7471833aa4e93771b6b3b24c7a6417b0f68338"
     },
     "backend.dll": {
-      "size": 4347904,
-      "sha256": "d65ea82d3277842a871c9aa18fdf9d5491b8cb21213af898026f5553ed3c9635"
+      "size": 4348416,
+      "sha256": "2305e470aaa83606e29009aa68c2e2bb864aeb811e4044284334c17bcd3824ce"
     },
     "compiler.dll": {
       "size": 246784,
@@ -24,23 +24,23 @@
     },
     "frontend.dll": {
       "size": 5099520,
-      "sha256": "a68b98bc0efab746987138959f229e286b3808aa3e02a2d6aed56a9c8e0bc800"
+      "sha256": "39d7f6157f34a76aaffc369f4e9fe182956e92808a13d1c42bac6be8d059471f"
     },
     "platform.dill": {
       "size": 8663064,
       "sha256": "de7a14dba344519c58539d5fd570362ea64e56d3b750c8b3c4aab8cbc9815d4b"
     },
     "runtime-core.node": {
-      "size": 1816064,
-      "sha256": "01025c419e8b614b4822080fa12b7a5650010ec11c7ef41dbbd9b40eb7ad38d4"
+      "size": 1816576,
+      "sha256": "cbac27deca9407f66369b8bc77710b3d89e60f538f079765ca490246f84e1674"
     },
     "runtime-regexp.node": {
-      "size": 3771904,
-      "sha256": "df6092764d3263a29555628bcc2435b418da7535600d13ef5750d6ce96777e0b"
+      "size": 3772416,
+      "sha256": "43e9d7e3efce592301cd75f7aaec1e9b56b9407bc18dcce466e6882d39418b34"
     },
     "runtime.node": {
       "size": 5119488,
-      "sha256": "ffdad91d1aaf76d42719728cf4f551e1185161c33c0f49dcd0b235a5af4fc3c2"
+      "sha256": "2c8d664d81be5a5820fba5941b3c36d8778fa94c459c1f6574ba8d0ffd822f6b"
     }
   }
 }

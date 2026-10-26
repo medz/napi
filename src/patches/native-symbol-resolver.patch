@@ -1,0 +1,98 @@
+diff --git a/runtime/vm/native_symbol_win.cc b/runtime/vm/native_symbol_win.cc
+--- a/runtime/vm/native_symbol_win.cc
++++ b/runtime/vm/native_symbol_win.cc
+@@ -16,27 +16,42 @@
+ 
+ static bool running_ = false;
+ static Mutex* lock_ = nullptr;
++#ifndef DART_TARGET_OS_WINDOWS_UWP
++static HANDLE process_handle_ = nullptr;
++#endif
+ 
+ void NativeSymbolResolver::Init() {
+-  ASSERT(running_ == false);
+   if (lock_ == nullptr) {
+     lock_ = new Mutex();
+   }
+-  running_ = true;
++  MutexLocker lock(lock_);
++  ASSERT(running_ == false);
+ 
+ // Symbol resolution API's used in this file are not supported
+ // when compiled in UWP.
+ #ifndef DART_TARGET_OS_WINDOWS_UWP
++  HANDLE current_process = GetCurrentProcess();
++  HANDLE process_handle = nullptr;
++  if (!DuplicateHandle(current_process, current_process, current_process,
++                       &process_handle, 0, FALSE, DUPLICATE_SAME_ACCESS)) {
++    DWORD error = GetLastError();
++    OS::PrintErr("Failed to init NativeSymbolResolver (DuplicateHandle %" Pu32
++                 ")\n",
++                 error);
++    return;
++  }
+   SymSetOptions(SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS);
+-  HANDLE hProcess = GetCurrentProcess();
+-  if (!SymInitialize(hProcess, nullptr, TRUE)) {
++  if (!SymInitialize(process_handle, nullptr, TRUE)) {
+     DWORD error = GetLastError();
+     OS::PrintErr("Failed to init NativeSymbolResolver (SymInitialize %" Pu32
+                  ")\n",
+                  error);
++    CloseHandle(process_handle);
+     return;
+   }
++  process_handle_ = process_handle;
+ #endif
++  running_ = true;
+ }
+ 
+ void NativeSymbolResolver::Cleanup() {
+@@ -46,13 +61,14 @@
+   }
+   running_ = false;
+ #ifndef DART_TARGET_OS_WINDOWS_UWP
+-  HANDLE hProcess = GetCurrentProcess();
+-  if (!SymCleanup(hProcess)) {
++  if (!SymCleanup(process_handle_)) {
+     DWORD error = GetLastError();
+     OS::PrintErr("Failed to shutdown NativeSymbolResolver (SymCleanup  %" Pu32
+                  ")\n",
+                  error);
+   }
++  CloseHandle(process_handle_);
++  process_handle_ = nullptr;
+ #endif
+ }
+ 
+@@ -71,13 +87,12 @@
+     *start = 0;
+   }
+   memset(&buffer[0], 0, sizeof(buffer));
+-  HANDLE hProcess = GetCurrentProcess();
+   DWORD64 address = static_cast<DWORD64>(pc);
+   PSYMBOL_INFO pSymbol = reinterpret_cast<PSYMBOL_INFO>(&buffer[0]);
+   pSymbol->SizeOfStruct = kSymbolInfoSize;
+   pSymbol->MaxNameLen = kMaxNameLength;
+   DWORD64 displacement;
+-  BOOL r = SymFromAddr(hProcess, address, &displacement, pSymbol);
++  BOOL r = SymFromAddr(process_handle_, address, &displacement, pSymbol);
+   if (r == FALSE) {
+     return nullptr;
+   }
+@@ -119,10 +134,14 @@
+ #ifdef DART_TARGET_OS_WINDOWS_UWP
+   return false;
+ #else
++  MutexLocker lock(lock_);
++  if (!running_) {
++    return false;
++  }
+   Context context;
+   context.pc = pc;
+   context.success = false;
+-  if (!EnumerateLoadedModulesEx(GetCurrentProcess(), EnumerateModulesCallback,
++  if (!EnumerateLoadedModulesEx(process_handle_, EnumerateModulesCallback,
+                                 &context)) {
+     return false;
+   }

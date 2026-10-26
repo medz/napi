@@ -37,6 +37,7 @@ lib/src/compiler/native/compile.dart
 lib/src/compiler/native/sdk.dart
 lib/src/compiler/target.dart
 lib/sys/node.dart
+src/README.md
 src/addon.cc
 src/compiler/backend.cc
 src/compiler/backend.map
@@ -51,10 +52,15 @@ src/exports.map
 src/image.h
 src/node.def
 src/patches/embedder-targets.patch
+src/patches/native-symbol-resolver.patch
 src/patches/precompiler-recovery.patch
 src/patches/private-dart-api.patch
 src/runtime.cc
 src/runtime.h
+test/native/build.dart
+test/native/counter.dart
+test/native/regexp.dart
+test/native/verify.cjs
 tool/build_frontend.py
 tool/package_compiler.py
 tool/runtime_archive.py

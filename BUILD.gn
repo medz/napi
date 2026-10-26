@@ -3,8 +3,11 @@ import("//runtime/runtime_args.gni")
 
 declare_args() {
   napi_bootstrap_sdk = "//tools/sdks/dart-sdk"
+  napi_node_headers = ""
 }
 
+assert(napi_node_headers != "",
+       "Set napi_node_headers to the directory containing node_api.h")
 assert(!is_linux || dart_runtime_mode != "release",
        "Use profile runtime mode with is_product=true to retain Timeline")
 
@@ -255,7 +258,7 @@ template("runtime_profile") {
       ]
       include_dirs = [
         "src",
-        "node",
+        napi_node_headers,
         "//runtime",
         "//third_party",
         "//third_party/perfetto/src/include",
