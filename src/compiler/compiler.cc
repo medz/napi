@@ -1,5 +1,6 @@
 #include "compiler.h"
 
+#include <array>
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
@@ -164,9 +165,10 @@ struct Sdk {
 
 struct Workspace {
   fs::path path;
+  bool preserve = false;
 
   ~Workspace() {
-    if (path.empty()) return;
+    if (path.empty() || preserve) return;
     std::error_code ignored;
     fs::remove_all(path, ignored);
   }
@@ -297,25 +299,133 @@ bool ReplaceOutput(const fs::path& candidate,
                   MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
     return true;
   }
-  *error = "Cannot replace the native output (Windows error " +
+  *error = "Cannot replace " + Utf8(output) + " (Windows error " +
            std::to_string(GetLastError()) + ")";
   return false;
 #else
   std::error_code status;
   fs::rename(candidate, output, status);
   if (!status) return true;
-  *error = "Cannot replace the native output: " + status.message();
+  *error = "Cannot replace " + Utf8(output) + ": " + status.message();
   return false;
 #endif
 }
 
-}  // namespace
+bool InspectOutput(const fs::path& path, std::string* error) {
+  std::error_code status;
+  const auto type = fs::symlink_status(path, status);
+  if (status && status != std::errc::no_such_file_or_directory) {
+    *error = "Cannot inspect " + Utf8(path) + ": " + status.message();
+    return false;
+  }
+  if (fs::exists(type) && !fs::is_regular_file(type)) {
+    *error = "Output must be a regular file: " + Utf8(path);
+    return false;
+  }
+  return true;
+}
 
-NAPI_COMPILER_EXPORT int napi_compile(const char* entry,
-                                      const char* output,
-                                      const char* packages,
-                                      const char* node,
-                                      char** error) {
+bool DifferentFiles(const fs::path& left,
+                     const fs::path& right,
+                     std::string* error) {
+  std::error_code status;
+  const bool left_exists = fs::exists(left, status);
+  if (status) {
+    *error = "Cannot inspect " + Utf8(left) + ": " + status.message();
+    return false;
+  }
+  const bool right_exists = fs::exists(right, status);
+  if (status) {
+    *error = "Cannot inspect " + Utf8(right) + ": " + status.message();
+    return false;
+  }
+  const bool equivalent =
+      left_exists && right_exists && fs::equivalent(left, right, status);
+  if (status) {
+    *error = "Cannot compare output paths: " + status.message();
+    return false;
+  }
+  status.clear();
+  const auto first = fs::weakly_canonical(left, status);
+  if (status) {
+    *error = "Cannot resolve " + Utf8(left) + ": " + status.message();
+    return false;
+  }
+  const auto second = fs::weakly_canonical(right, status);
+  if (status) {
+    *error = "Cannot resolve " + Utf8(right) + ": " + status.message();
+    return false;
+  }
+  if (equivalent || first == second) {
+    *error = "Entry and output paths must refer to different files: " +
+             Utf8(left) + " and " + Utf8(right);
+    return false;
+  }
+  return true;
+}
+
+struct PendingOutput {
+  fs::path candidate;
+  fs::path destination;
+  fs::path backup;
+  Workspace* workspace;
+  bool backed_up = false;
+  bool installed = false;
+};
+
+bool CommitOutputs(std::array<PendingOutput, 2>& outputs,
+                    std::string* error) {
+  auto rollback = [&] {
+    for (auto it = outputs.rbegin(); it != outputs.rend(); ++it) {
+      std::string detail;
+      if (it->backed_up) {
+        if (!ReplaceOutput(it->backup, it->destination, &detail)) {
+          it->workspace->preserve = true;
+          *error += "; original retained at " + Utf8(it->backup) + ": " + detail;
+        }
+      } else if (it->installed) {
+        std::error_code status;
+        fs::remove(it->destination, status);
+        if (status) {
+          *error += "; cannot remove incomplete output " +
+                    Utf8(it->destination) + ": " + status.message();
+        }
+      }
+    }
+  };
+  for (auto& output : outputs) {
+    std::error_code status;
+    const bool exists = fs::exists(output.destination, status);
+    if (status) {
+      *error = "Cannot inspect " + Utf8(output.destination) + ": " +
+               status.message();
+      rollback();
+      return false;
+    }
+    if (exists) {
+      if (!ReplaceOutput(output.destination, output.backup, error)) {
+        rollback();
+        return false;
+      }
+      output.backed_up = true;
+    }
+  }
+  for (auto& output : outputs) {
+    if (!ReplaceOutput(output.candidate, output.destination, error)) {
+      rollback();
+      return false;
+    }
+    output.installed = true;
+  }
+  return true;
+}
+
+int Compile(const char* entry,
+             const char* output,
+             const char* packages,
+             const char* node,
+             const char* declarations,
+             char** error) {
   std::lock_guard<std::mutex> lock(compile_mutex);
   if (error != nullptr) *error = nullptr;
   if (entry == nullptr || output == nullptr || *entry == '\0' ||
@@ -334,29 +444,42 @@ NAPI_COMPILER_EXPORT int napi_compile(const char* entry,
   if (status || destination.extension() != ".node") {
     return Error(error, "Native output must be a .node file");
   }
-  const auto output_status = fs::symlink_status(destination, status);
-  if (status && status != std::errc::no_such_file_or_directory) {
-    return Error(error,
-                 "Cannot inspect the native output: " + status.message());
+  std::string message;
+  if (!InspectOutput(destination, &message) ||
+      !DifferentFiles(source, destination, &message)) {
+    return Error(error, message);
   }
-  if (fs::exists(output_status)) {
-    if (!fs::is_regular_file(output_status)) {
-      return Error(error, "Native output must be a regular file");
+  fs::path declaration_path;
+  if (declarations != nullptr) {
+    declaration_path = fs::absolute(Path(declarations), status);
+    if (status || !Utf8(declaration_path.filename()).ends_with(".d.ts")) {
+      return Error(error, "Declarations output must be a .d.ts file");
     }
-    if (fs::equivalent(source, destination, status)) {
-      return Error(error, "Entry and output must be different files");
+    if (!InspectOutput(declaration_path, &message) ||
+        !DifferentFiles(source, declaration_path, &message) ||
+        !DifferentFiles(destination, declaration_path, &message)) {
+      return Error(error, message);
     }
-    if (status)
-      return Error(error, "Cannot inspect the existing native output");
   }
   static Sdk sdk;
   if (!sdk.error.empty()) return Error(error, sdk.error);
   fs::create_directories(destination.parent_path(), status);
   if (status)
     return Error(error, "Cannot create output directory: " + status.message());
+  if (declarations != nullptr) {
+    fs::create_directories(declaration_path.parent_path(), status);
+    if (status) {
+      return Error(error, "Cannot create declarations directory: " +
+                              status.message());
+    }
+  }
   Workspace workspace;
-  std::string message;
   if (!workspace.Create(destination.parent_path(), &message)) {
+    return Error(error, message);
+  }
+  Workspace declaration_workspace;
+  if (declarations != nullptr &&
+      !declaration_workspace.Create(declaration_path.parent_path(), &message)) {
     return Error(error, message);
   }
   const std::string input = Utf8(source);
@@ -396,6 +519,19 @@ NAPI_COMPILER_EXPORT int napi_compile(const char* entry,
     sdk.frontend_free(component_error);
     return Error(error, message);
   }
+  const fs::path declaration_candidate =
+      declaration_workspace.path / "bindings.d.ts";
+  if (declarations != nullptr) {
+    const fs::path generated = workspace.path / "app.dill.d.ts";
+    if (!fs::is_regular_file(generated, status)) {
+      return Error(error,
+                   "TypeScript declarations require annotation-based exports");
+    }
+    if (!fs::copy_file(generated, declaration_candidate, status)) {
+      return Error(error, "Cannot read generated declarations: " +
+                              status.message());
+    }
+  }
   // Dart's own ELF writer emits the machine code; no assembler is involved.
   result = sdk.backend(kernel.c_str(), snapshot.c_str(), 0, &component_error);
   if (result != 0) {
@@ -421,17 +557,55 @@ NAPI_COMPILER_EXPORT int napi_compile(const char* entry,
     sdk.frontend_free(component_error);
     return Error(error, message);
   }
-  if (!ReplaceOutput(candidate, destination, &message)) {
-    return Error(error, message);
-  }
 #else
   if (!AppendSnapshot(sdk.directory / runtime, workspace.path / "app.aot",
-                      candidate, &message) ||
-      !ReplaceOutput(candidate, destination, &message)) {
+                      candidate, &message)) {
     return Error(error, message);
   }
 #endif
+  if (declarations == nullptr) {
+    if (!ReplaceOutput(candidate, destination, &message)) {
+      return Error(error, message);
+    }
+  } else {
+    if (!InspectOutput(destination, &message) ||
+        !InspectOutput(declaration_path, &message) ||
+        !DifferentFiles(source, destination, &message) ||
+        !DifferentFiles(source, declaration_path, &message) ||
+        !DifferentFiles(destination, declaration_path, &message)) {
+      return Error(error, message);
+    }
+    std::array<PendingOutput, 2> outputs = {{
+        {candidate, destination, workspace.path / "previous.node", &workspace},
+        {declaration_candidate, declaration_path,
+         declaration_workspace.path / "previous.d.ts", &declaration_workspace},
+    }};
+    if (!CommitOutputs(outputs, &message)) return Error(error, message);
+  }
   return 0;
+}
+
+}  // namespace
+
+NAPI_COMPILER_EXPORT int napi_compile(const char* entry,
+                                      const char* output,
+                                      const char* packages,
+                                      const char* node,
+                                      char** error) {
+  return Compile(entry, output, packages, node, nullptr, error);
+}
+
+NAPI_COMPILER_EXPORT int napi_compile_declarations(const char* entry,
+                                                   const char* output,
+                                                   const char* packages,
+                                                   const char* node,
+                                                   const char* declarations,
+                                                   char** error) {
+  if (error != nullptr) *error = nullptr;
+  if (declarations == nullptr || *declarations == '\0') {
+    return Error(error, "Declarations output path is required");
+  }
+  return Compile(entry, output, packages, node, declarations, error);
 }
 
 NAPI_COMPILER_EXPORT void napi_compiler_free(char* error) {

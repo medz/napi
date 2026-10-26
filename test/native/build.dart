@@ -16,6 +16,11 @@ Future<void> main(List<String> args) async {
         entry: File('${source.path}/$entry'),
         output: File('${output.path}/$profile/addon.node'),
       ),
+    NativeTarget(
+      entry: File('${source.path}/annotated_functions.dart'),
+      output: File('${output.path}/annotated/addon.node'),
+      declarations: File('${output.path}/annotated/addon.d.ts'),
+    ),
   ]).run([]);
 
   final core = File('${output.path}/core/addon.node');
@@ -56,5 +61,62 @@ Future<void> main(List<String> args) async {
   }
   await Compiler([
     NativeTarget(entry: File('${source.path}/counter.dart'), output: core),
+  ]).run([]);
+
+  final annotated = File('${output.path}/annotated/addon.node');
+  final declarations = File('${output.path}/annotated/addon.d.ts');
+  final binary = await annotated.readAsBytes();
+  final types = await declarations.readAsString();
+  final invalid = await source.createTemp('.annotations-');
+  try {
+    final entry = File('${invalid.path}/addon.dart');
+    for (final (declaration, expected) in [
+      ('@NAPI() T identity<T>(T value) => value;', 'generic functions'),
+      (
+        '@NAPI() int length(List<int> values) => values.length;',
+        'unsupported parameter type',
+      ),
+      ('@NAPI() List<int> values() => [1];', 'unsupported return type'),
+      (
+        "@NAPI(name: 'same') int first() => 1;\n"
+            "@NAPI(name: 'same') int second() => 2;",
+        'Duplicate JavaScript export',
+      ),
+      ('@NAPI() int get value => 1;', 'Unsupported annotated declaration'),
+    ]) {
+      await entry.writeAsString(
+        "import 'package:napi/napi.dart';\n$declaration\n",
+      );
+      String? failure;
+      try {
+        await Compiler([
+          NativeTarget(
+            entry: entry,
+            output: annotated,
+            declarations: declarations,
+          ),
+        ]).run([]);
+      } on StateError catch (error) {
+        failure = error.message.toString();
+      }
+      if (failure == null || !failure.contains(expected)) {
+        throw StateError('Expected annotation rejection, got $failure');
+      }
+      final current = await annotated.readAsBytes();
+      if (current.length != binary.length ||
+          binary.indexed.any((byte) => current[byte.$1] != byte.$2) ||
+          await declarations.readAsString() != types) {
+        throw StateError('Invalid annotation changed the existing output');
+      }
+    }
+  } finally {
+    await invalid.delete(recursive: true);
+  }
+  await Compiler([
+    NativeTarget(
+      entry: File('${source.path}/annotated_functions.dart'),
+      output: annotated,
+      declarations: declarations,
+    ),
   ]).run([]);
 }

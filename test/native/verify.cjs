@@ -5,6 +5,7 @@ const { copyFileSync, readFileSync, statSync, writeFileSync } = require('node:fs
 const { join, resolve } = require('node:path');
 const { Worker } = require('node:worker_threads');
 const verifyEnv = require('./env.cjs');
+const verifyAnnotatedFunctions = require('./annotated_functions.cjs');
 
 const [output, images] = process.argv.slice(2).map(path => resolve(path));
 const timeout = setTimeout(() => process.exit(1), 30000);
@@ -64,6 +65,7 @@ async function main() {
     console.log(`${profile}: addon ${statSync(path).size} bytes`);
   }
   verifyEnv.verifyInitializationFailure(join(output, 'failed', 'addon.node'));
+  verifyAnnotatedFunctions(join(output, 'annotated', 'addon.node'));
   const path = join(output, 'full', 'addon.node');
   const addon = require(path);
   assert.equal(addon.answer, 42);

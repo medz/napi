@@ -26,6 +26,7 @@ shared_library("compiler_library") {
   } else if (is_mac) {
     ldflags = [
       "-Wl,-exported_symbol,_napi_compile",
+      "-Wl,-exported_symbol,_napi_compile_declarations",
       "-Wl,-exported_symbol,_napi_compiler_free",
     ]
   }
@@ -389,7 +390,10 @@ if (can_build_frontend) {
                "/package_config.json"
     sources = [
       "src/compiler/frontend.dart",
+      "src/compiler/bindings.dart",
+      "src/compiler/exports.dart",
       "src/compiler/node_version.dart",
+      "src/compiler/typescript.dart",
     ]
     inputs = [
       packages,

@@ -67,6 +67,28 @@ base class JsObject extends _JsValue {
 
   Object? operator [](String key) => get<Object?>(key);
 
+  /// Checks for an own property without reading its value.
+  bool hasOwn(String key) {
+    _check();
+    final result = _env._arena<Bool>();
+    _env._check(
+      node.napiHasOwnProperty(_env._handle, _handle, _env._encode(key), result),
+    );
+    return result.value;
+  }
+
+  /// Defines an own data property without invoking an inherited setter.
+  void defineValue(String key, Object? value) {
+    _check();
+    final property = _env._arena<node.NapiPropertyDescriptor>();
+    property.ref
+      ..name = _env._encode(key)
+      ..value = _env._encode(value)
+      ..attributes =
+          node.napiWritable | node.napiEnumerable | node.napiConfigurable;
+    _env._check(node.napiDefineProperties(_env._handle, _handle, 1, property));
+  }
+
   T get<T>(String key) {
     _check();
     final result = _env._arena<node.NapiValue>();
@@ -189,6 +211,9 @@ final class JsArguments {
 
   int get length => _values.length;
   bool get isEmpty => _values.isEmpty;
+
+  /// The environment for this call.
+  Env get env => _env;
 
   Object? operator [](int index) => get<Object?>(index);
 

@@ -25,6 +25,11 @@ jobs:
         with:
           node-version: 24.19.0
 
+      - name: Install the TypeScript compiler
+        run: |
+          npm ci --prefix test/native --ignore-scripts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Check the Dart package
         run: |
           dart pub get
@@ -73,6 +78,8 @@ jobs:
           Copy-Item "$assets/NOTICES" $images
           Remove-Item -Recurse -Force $package
           node --expose-gc test/native/verify.cjs $output $images
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node test/native/verify_types.cjs $output
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           foreach ($profile in 'core', 'regexp', 'full') {
             Push-Location (Join-Path $output $profile)

@@ -23,6 +23,25 @@ typedef _Compile =
       Pointer<Pointer<Utf8>>,
     );
 
+typedef _CompileDeclarationsNative =
+    Int32 Function(
+      Pointer<Utf8>,
+      Pointer<Utf8>,
+      Pointer<Utf8>,
+      Pointer<Utf8>,
+      Pointer<Utf8>,
+      Pointer<Pointer<Utf8>>,
+    );
+typedef _CompileDeclarations =
+    int Function(
+      Pointer<Utf8>,
+      Pointer<Utf8>,
+      Pointer<Utf8>,
+      Pointer<Utf8>,
+      Pointer<Utf8>,
+      Pointer<Pointer<Utf8>>,
+    );
+
 /// Calls the complete compilation entry point in the bundled Dart SDK library.
 final class NativeSdk {
   NativeSdk._(DynamicLibrary library)
@@ -33,10 +52,17 @@ final class NativeSdk {
           .lookupFunction<
             Void Function(Pointer<Utf8>),
             void Function(Pointer<Utf8>)
-          >('napi_compiler_free');
+          >('napi_compiler_free'),
+      _compileDeclarations = library.providesSymbol('napi_compile_declarations')
+          ? library.lookupFunction<
+              _CompileDeclarationsNative,
+              _CompileDeclarations
+            >('napi_compile_declarations')
+          : null;
 
   final _Compile _compile;
   final void Function(Pointer<Utf8>) _free;
+  final _CompileDeclarations? _compileDeclarations;
 
   static Future<NativeSdk> current() async {
     final platform = switch (Abi.current()) {
@@ -70,13 +96,29 @@ final class NativeSdk {
     using((arena) {
       final error = arena<Pointer<Utf8>>();
       try {
-        final status = _compile(
-          target.entry.absolute.path.toNativeUtf8(allocator: arena),
-          target.output.absolute.path.toNativeUtf8(allocator: arena),
-          nullptr,
-          target.node?.toNativeUtf8(allocator: arena) ?? nullptr,
-          error,
+        final entry = target.entry.absolute.path.toNativeUtf8(allocator: arena);
+        final output = target.output.absolute.path.toNativeUtf8(
+          allocator: arena,
         );
+        final node = target.node?.toNativeUtf8(allocator: arena) ?? nullptr;
+        final declarations = target.declarations;
+        final int status;
+        if (declarations == null) {
+          status = _compile(entry, output, nullptr, node, error);
+        } else {
+          final compile = _compileDeclarations;
+          if (compile == null) {
+            throw StateError('The bundled SDK cannot generate declarations');
+          }
+          status = compile(
+            entry,
+            output,
+            nullptr,
+            node,
+            declarations.absolute.path.toNativeUtf8(allocator: arena),
+            error,
+          );
+        }
         if (status != 0) {
           throw StateError(
             error.value == nullptr

@@ -4,16 +4,13 @@ Node-API bindings for Dart.
 
 ## Native compilation
 
-Declare the exports in `lib/addon.dart`:
+Annotate functions in `lib/addon.dart`:
 
 ```dart
-import 'package:napi/env.dart';
+import 'package:napi/napi.dart';
 
-void register(Env env, JsObject exports) {
-  exports['add'] = env.function('add', (args) {
-    return args.get<int>(0) + args.get<int>(1);
-  });
-}
+@NAPI()
+int add(int a, int b) => a + b;
 ```
 
 Build it with your own Dart script:
@@ -26,6 +23,7 @@ final compiler = Compiler([
   NativeTarget(
     entry: File('lib/addon.dart'),
     output: File('dist/addon.node'),
+    declarations: File('dist/addon.d.ts'),
     node: '^24.0.0',
   ),
 ]);
@@ -50,10 +48,36 @@ Omit `node` to infer the minimum requirements from referenced APIs. A supplied
 range uses Dart version constraint syntax, with `||` for alternatives, and must
 be compatible with those APIs. Compilation failures preserve an existing output.
 
-The compiler connects `register` to the Node environment. It must be a synchronous
-`void` function taking `Env` and `JsObject`. Annotation-based exports are not
-implemented yet. Raw addons can still provide the `initialize`, `afterPump` and
-`dispose` hooks used by the [native experiment](experiments/native-image/payload.dart).
+Omit `declarations` to generate only the binary. Declaration output requires
+annotated exports. Scalar functions support positional parameters, named options,
+nullable values and Dart defaults. A named parameter group becomes the final JS
+options argument. Explicit `undefined` is a value; it does not select a Dart
+default. For optional options fields, enable TypeScript's
+`exactOptionalPropertyTypes` to reject invalid explicit `undefined` statically.
+
+Use `@NAPI(name: 'anotherName')` to change an export's name. Exports are selected
+from the entry library and its re-exports. An explicitly annotated private
+function can be exported. Unsupported declarations and conflicting names produce
+a build error.
+
+## Manual registration
+
+For low-level bindings, use `void register(Env env, JsObject exports)` instead:
+
+```dart
+import 'package:napi/env.dart';
+
+void register(Env env, JsObject exports) {
+  exports.defineValue('add', env.function('add', (args) {
+    return args.get<int>(0) + args.get<int>(1);
+  }));
+}
+```
+
+The compiler connects this synchronous entry to the Node environment. Manual
+registration and annotation exports are separate entry modes. Raw addons can
+also provide the `initialize`, `afterPump` and `dispose` hooks used by the
+[native experiment](experiments/native-image/payload.dart).
 
 ## Classes
 
