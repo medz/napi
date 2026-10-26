@@ -19,16 +19,16 @@ String typeScriptDeclarations(ExportModule exports) {
     output.writeln(
       constructor == null
           ? '  private constructor();'
-          : '  constructor(${_parameters(constructor)});',
+          : '  constructor(${_parameters(constructor.signature)});',
     );
     for (final function in cls.methods) {
       output.writeln(
-        '  ${_member(function.name)}(${_parameters(function)}): ${_type(function.result)};',
+        '  ${_member(function.name)}(${_parameters(function.signature)}): ${_type(function.signature.result)};',
       );
     }
     for (final function in cls.staticMethods) {
       output.writeln(
-        '  static ${_member(function.name)}(${_parameters(function)}): ${_type(function.result)};',
+        '  static ${_member(function.name)}(${_parameters(function.signature)}): ${_type(function.signature.result)};',
       );
     }
     void property(ExportProperty property, {required bool static}) {
@@ -53,13 +53,13 @@ String typeScriptDeclarations(ExportModule exports) {
   }
   for (final function in exports.functions) {
     output.writeln(
-      'export declare function ${function.name}(${_parameters(function)}): ${_type(function.result)};',
+      'export declare function ${function.name}(${_parameters(function.signature)}): ${_type(function.signature.result)};',
     );
   }
   return output.toString();
 }
 
-String _parameters(ExportFunction function) {
+String _parameters(ExportSignature function) {
   final required = function.positional
       .where((parameter) => parameter.required)
       .length;
@@ -92,6 +92,8 @@ String _type(ExportType type) {
     ValueKind.voidValue => 'void',
     ValueKind.never => 'never',
     ValueKind.object => type.classExport!.name,
+    ValueKind.function =>
+      '((${_parameters(type.signature!)}) => ${_type(type.signature!.result)})',
     ValueKind.list =>
       type.element!.nullable
           ? '(${_type(type.element!)})[]'

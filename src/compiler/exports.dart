@@ -18,6 +18,7 @@ enum ValueKind {
   list,
   map,
   typedData,
+  function,
 }
 
 enum TypedDataKind {
@@ -42,6 +43,7 @@ final class ExportType {
     this.classExport,
     this.element,
     this.typedDataKind,
+    this.signature,
   });
   final DartType dartType;
   final ValueKind kind;
@@ -49,6 +51,7 @@ final class ExportType {
   final ExportClass? classExport;
   final ExportType? element;
   final TypedDataKind? typedDataKind;
+  final ExportSignature? signature;
 }
 
 final class ExportParameter {
@@ -64,23 +67,30 @@ final class ExportParameter {
   final Expression? defaultValue;
 }
 
+final class ExportSignature {
+  const ExportSignature({
+    required this.type,
+    required this.positional,
+    required this.named,
+    required this.result,
+  });
+  final FunctionType type;
+  final List<ExportParameter> positional;
+  final List<ExportParameter> named;
+  final ExportType result;
+}
+
 final class ExportFunction {
   const ExportFunction({
     required this.target,
     required this.name,
-    required this.positional,
-    required this.named,
-    required this.result,
     required this.signature,
     this.owner,
     this.constructor = false,
   });
   final Member target;
   final String name;
-  final List<ExportParameter> positional;
-  final List<ExportParameter> named;
-  final ExportType result;
-  final FunctionType signature;
+  final ExportSignature signature;
   final ExportClass? owner;
   final bool constructor;
   bool get instance => !constructor && target.isInstanceMember;
@@ -292,29 +302,31 @@ final class _Reader {
     return ExportFunction(
       target: target,
       name: name,
-      positional: [
-        for (var i = 0; i < function.positionalParameters.length; ++i)
-          parameter(
-            function.positionalParameters[i],
-            i < function.requiredParameterCount,
-          ),
-      ],
-      named: [
-        for (final value in function.namedParameters)
-          parameter(value, value.isRequired),
-      ],
-      result: constructor
-          ? _type(owner!.dartType, name)
-          : _type(
-              substitution.substituteType(function.returnType),
-              '$name: return',
-              result: true,
+      signature: ExportSignature(
+        positional: [
+          for (var i = 0; i < function.positionalParameters.length; ++i)
+            parameter(
+              function.positionalParameters[i],
+              i < function.requiredParameterCount,
             ),
-      signature:
-          substitution.substituteType(
-                function.computeFunctionType(Nullability.nonNullable),
-              )
-              as FunctionType,
+        ],
+        named: [
+          for (final value in function.namedParameters)
+            parameter(value, value.isRequired),
+        ],
+        result: constructor
+            ? _type(owner!.dartType, name)
+            : _type(
+                substitution.substituteType(function.returnType),
+                '$name: return',
+                result: true,
+              ),
+        type:
+            substitution.substituteType(
+                  function.computeFunctionType(Nullability.nonNullable),
+                )
+                as FunctionType,
+      ),
       owner: owner,
       constructor: constructor,
     );
@@ -472,6 +484,46 @@ final class _Reader {
   }
 
   ExportType _type(DartType type, String context, {bool result = false}) {
+    if (type is FunctionType) {
+      if (type.typeParameters.isNotEmpty) {
+        throw FormatException(
+          '@NAPI $context: generic function types are not supported yet.',
+        );
+      }
+      return ExportType(
+        type,
+        ValueKind.function,
+        nullable: type.nullability == Nullability.nullable,
+        signature: ExportSignature(
+          type: type.withDeclaredNullability(Nullability.nonNullable),
+          positional: [
+            for (var i = 0; i < type.positionalParameters.length; ++i)
+              ExportParameter(
+                name: 'arg$i',
+                type: _type(
+                  type.positionalParameters[i],
+                  '$context: parameter $i',
+                ),
+                required: i < type.requiredParameterCount,
+                defaultValue: null,
+              ),
+          ],
+          named: [
+            for (final parameter in type.namedParameters)
+              ExportParameter(
+                name: parameter.name,
+                type: _type(
+                  parameter.type,
+                  '$context: parameter ${parameter.name}',
+                ),
+                required: parameter.isRequired,
+                defaultValue: null,
+              ),
+          ],
+          result: _type(type.returnType, '$context: return', result: true),
+        ),
+      );
+    }
     if (type is NullType) return ExportType(type, ValueKind.nullValue);
     if (type is NeverType)
       return ExportType(

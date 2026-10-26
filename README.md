@@ -132,6 +132,34 @@ binding's Dart reference. Inheritance between exported classes is not supported
 yet; the compiler rejects those declarations. Returning the same object through
 two different exported class types is rejected while its first wrapper is alive.
 
+## Functions and callbacks
+
+Use ordinary Dart function types for callbacks and returned closures:
+
+```dart
+@NAPI()
+int apply(int Function(int) transform, int value) => transform(value);
+
+@NAPI()
+int Function(int) multiplier(int factor) => (value) => factor * value;
+```
+
+```js
+apply(value => value + 1, 41); // 42
+multiplier(3)(14); // 42
+```
+
+Callbacks can be stored and called later on the same Dart isolate. Returning a
+JS callback preserves its identity; returning the same Dart closure through the
+same function type reuses its live JS function. Different function types receive
+separate adapters. Collecting the JS function releases its Dart closure and
+captured values. Optional arguments keep the actual Dart function's defaults
+and distinguish omission from `null` and `undefined`.
+
+Arguments and results use the same conversions as other annotated functions,
+including nested collections and exported classes. Generic function types are
+not supported yet.
+
 ## npm packages
 
 Use `PackageBuild` in your Dart build script to produce an installable package:
@@ -209,8 +237,9 @@ Use `env.defineClass<T>` for explicit class bindings. Instance methods and sette
 receive `(T, JsArguments)`; instance getters receive `T`. Constructors, static
 methods and static setters receive only `JsArguments`; static getters take no
 arguments. An optional `finalize` callback can release resources; it must not access
-JavaScript during environment cleanup. Registration callbacks remain live until
-their environment ends.
+JavaScript during environment cleanup. Class registrations remain live until
+their environment ends. Functions created with `env.function` release their Dart
+callbacks when JavaScript collects them.
 
 ## Values and references
 

@@ -20,6 +20,7 @@ Future<void> main(List<String> args) async {
       ('annotated', 'annotated_functions.dart'),
       ('classes', 'annotated_classes.dart'),
       ('collections', 'annotated_collections.dart'),
+      ('callbacks', 'annotated_callbacks.dart'),
     ])
       NativeTarget(
         entry: File('${source.path}/$entry'),
@@ -33,14 +34,23 @@ Future<void> main(List<String> args) async {
   final temporary = await source.createTemp('.entrypoint-');
   try {
     final entry = File('${temporary.path}/addon.dart');
-    for (final (declaration, expected) in [
+    for (final (declaration, expected, node) in [
       (
         'void register(Env env, JsObject exports) async {}',
         'must be synchronous void register(Env env, JsObject exports)',
+        null,
       ),
       (
         'void register(int env, int exports) {}',
         'must declare void register(Env env, JsObject exports)',
+        null,
+      ),
+      (
+        'int initialize(int environment, int exports, int callJs, int owner, '
+            'int finalizer, int hasLivePorts) => 0;\n'
+            'void afterPump() {}\nvoid dispose() {}',
+        '10.17.0',
+        '10.16.0',
       ),
     ]) {
       await entry.writeAsString(
@@ -48,12 +58,16 @@ Future<void> main(List<String> args) async {
       );
       String? failure;
       try {
-        await Compiler([NativeTarget(entry: entry, output: core)]).run([]);
+        await Compiler([
+          NativeTarget(entry: entry, output: core, node: node),
+        ]).run([]);
       } on StateError catch (error) {
         failure = error.message.toString();
       }
       if (failure == null || !failure.contains(expected)) {
-        throw StateError('Expected register signature rejection, got $failure');
+        throw StateError(
+          'Expected entry or compatibility rejection, got $failure',
+        );
       }
       final current = await core.readAsBytes();
       if (current.length != original.length ||
@@ -105,6 +119,16 @@ Future<void> main(List<String> args) async {
         (
           'class Hidden {}\n@NAPI() Hidden echo(Hidden value) => value;',
           'class type must be exported',
+        ),
+      ],
+    ),
+    (
+      'callbacks',
+      'annotated_callbacks.dart',
+      [
+        (
+          '@NAPI() void inspect(T Function<T>(T) callback) {}',
+          'generic function types are not supported yet',
         ),
       ],
     ),

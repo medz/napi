@@ -1,7 +1,7 @@
 import 'package:pub_semver/pub_semver.dart';
 
-// The embedder uses thread-safe functions, which require Node-API 4.
-const minimumNodeApi = 4;
+// Function wrappers use finalizers, which require Node-API 5.
+const minimumNodeApi = 5;
 
 // https://nodejs.org/api/n-api.html#node-api-version-matrix
 const _nodeVersions = {
