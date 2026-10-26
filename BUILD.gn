@@ -391,6 +391,7 @@ if (can_build_frontend) {
     sources = [
       "src/compiler/frontend.dart",
       "src/compiler/bindings.dart",
+      "src/compiler/calls.dart",
       "src/compiler/exports.dart",
       "src/compiler/node_version.dart",
       "src/compiler/typescript.dart",

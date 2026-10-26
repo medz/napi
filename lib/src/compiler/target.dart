@@ -11,7 +11,7 @@ sealed class Target {
 /// A native Node-API addon to compile.
 ///
 /// Uses the bundled compiler and runtime for the current platform. The entry
-/// generates bindings for annotated top-level scalar functions. It also accepts
+/// generates bindings for annotated functions and classes. It also accepts
 /// `void register(Env env, JsObject exports)` or the low-level
 /// initialize/afterPump/dispose hooks for explicit registration.
 ///
