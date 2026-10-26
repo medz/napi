@@ -7,6 +7,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <mutex>
 #include <string>
 
@@ -420,20 +421,25 @@ bool CommitOutputs(std::array<PendingOutput, 2>& outputs,
   return true;
 }
 
-int Compile(const char* entry,
-             const char* output,
-             const char* packages,
-             const char* node,
-             const char* declarations,
-             char** error) {
+int Compile(const NapiCompileOptions* options, char** metadata, char** error) {
   std::lock_guard<std::mutex> lock(compile_mutex);
+  if (metadata != nullptr) *metadata = nullptr;
   if (error != nullptr) *error = nullptr;
+  if (options == nullptr) return Error(error, "Compilation options are required");
+  const char* entry = options->entry;
+  const char* output = options->output;
+  const char* packages = options->packages;
+  const char* node = options->node;
+  const char* declarations = options->declarations;
   if (entry == nullptr || output == nullptr || *entry == '\0' ||
       *output == '\0') {
     return Error(error, "Entry and output paths are required");
   }
   if (node != nullptr && *node == '\0') {
     return Error(error, "The Node.js version constraint must not be empty");
+  }
+  if (declarations != nullptr && *declarations == '\0') {
+    return Error(error, "Declarations output path must not be empty");
   }
   std::error_code status;
   const fs::path source = fs::canonical(Path(entry), status);
@@ -519,6 +525,29 @@ int Compile(const char* entry,
     sdk.frontend_free(component_error);
     return Error(error, message);
   }
+  std::unique_ptr<char, decltype(&std::free)> report(nullptr, &std::free);
+  if (metadata != nullptr) {
+    const fs::path generated = workspace.path / "app.dill.exports.json";
+    if (!fs::is_regular_file(generated, status)) {
+      return Error(error,
+                   "Compilation metadata requires annotation-based exports");
+    }
+    std::ifstream input(generated, std::ios::binary | std::ios::ate);
+    const std::streamsize size = input ? input.tellg() : std::streampos(-1);
+    if (size <= 0) {
+      return Error(error, "Cannot read generated compilation metadata");
+    }
+    report.reset(static_cast<char*>(std::malloc(static_cast<size_t>(size) + 1)));
+    if (report == nullptr) {
+      return Error(error, "Cannot allocate compilation metadata");
+    }
+    input.seekg(0);
+    input.read(report.get(), size);
+    if (!input) {
+      return Error(error, "Cannot read generated compilation metadata");
+    }
+    report.get()[size] = '\0';
+  }
   const fs::path declaration_candidate =
       declaration_workspace.path / "bindings.d.ts";
   if (declarations != nullptr) {
@@ -582,32 +611,18 @@ int Compile(const char* entry,
     }};
     if (!CommitOutputs(outputs, &message)) return Error(error, message);
   }
+  if (metadata != nullptr) *metadata = report.release();
   return 0;
 }
 
 }  // namespace
 
-NAPI_COMPILER_EXPORT int napi_compile(const char* entry,
-                                      const char* output,
-                                      const char* packages,
-                                      const char* node,
+NAPI_COMPILER_EXPORT int napi_compile(const NapiCompileOptions* options,
+                                      char** metadata,
                                       char** error) {
-  return Compile(entry, output, packages, node, nullptr, error);
+  return Compile(options, metadata, error);
 }
 
-NAPI_COMPILER_EXPORT int napi_compile_declarations(const char* entry,
-                                                   const char* output,
-                                                   const char* packages,
-                                                   const char* node,
-                                                   const char* declarations,
-                                                   char** error) {
-  if (error != nullptr) *error = nullptr;
-  if (declarations == nullptr || *declarations == '\0') {
-    return Error(error, "Declarations output path is required");
-  }
-  return Compile(entry, output, packages, node, declarations, error);
-}
-
-NAPI_COMPILER_EXPORT void napi_compiler_free(char* error) {
-  std::free(error);
+NAPI_COMPILER_EXPORT void napi_compiler_free(char* value) {
+  std::free(value);
 }

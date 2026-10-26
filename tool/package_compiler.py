@@ -157,7 +157,7 @@ def package(args):
         revision = subprocess.check_output(
             ["git", "-C", str(args.sdk), "rev-parse", "HEAD"], text=True).strip()
         (staging / "manifest.json").write_text(
-            json.dumps({"abi": 1, "platform": platform,
+            json.dumps({"abi": 2, "platform": platform,
                         "dart": {"version": version, "revision": revision},
                         "files": entries}, indent=2) + "\n",
             encoding="utf-8")

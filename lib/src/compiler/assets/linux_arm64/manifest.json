@@ -1,5 +1,5 @@
 {
-  "abi": 1,
+  "abi": 2,
   "platform": "linux_arm64",
   "dart": {
     "version": "3.13.5",
@@ -15,12 +15,12 @@
       "sha256": "be8e467ee4aaf9648672bb0428c5bf55eedf0171a293591e572607311ea7aab9"
     },
     "compiler.so": {
-      "size": 502944,
-      "sha256": "7c1f4e3b4aff20d0a25675c542b50c3aa542fa020e333d21e2e03e0b0f98bd12"
+      "size": 505088,
+      "sha256": "d00f868018658d09f133ef80e57f4270a9c1de57dedcea9a0ed988ef12129f9c"
     },
     "frontend.aot": {
       "size": 9241480,
-      "sha256": "359fec13b0fb56926cbd449b4efd563b371dda2d5709e84e2f9b117a99ff8929"
+      "sha256": "25109011bb550657556a2804a92e6768b4221d06f9807c0fab43b581649c8354"
     },
     "frontend.so": {
       "size": 5280696,

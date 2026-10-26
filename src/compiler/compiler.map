@@ -1,7 +1,6 @@
 {
   global:
     napi_compile;
-    napi_compile_declarations;
     napi_compiler_free;
   local:
     *;

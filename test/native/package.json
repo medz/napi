@@ -1,6 +1,9 @@
 {
   "name": "napi-native-tests",
   "private": true,
+  "scripts": {
+    "verify-package": "node verify_package.cjs"
+  },
   "devDependencies": {
     "typescript": "5.9.3"
   }
