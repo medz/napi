@@ -26,10 +26,20 @@ final class Calls {
   late final argumentsClass = envLibrary.classes.singleWhere(
     (c) => c.name == 'JsArguments',
   );
+  late final functionClass = envLibrary.classes.singleWhere(
+    (c) => c.name == 'JsFunction',
+  );
+  late final referenceClass = envLibrary.classes.singleWhere(
+    (c) => c.name == 'JsReference',
+  );
   late final envType = InterfaceType(envClass, Nullability.nonNullable);
   late final objectType = InterfaceType(objectClass, Nullability.nonNullable);
   late final argumentsType = InterfaceType(
     argumentsClass,
+    Nullability.nonNullable,
+  );
+  late final functionType = InterfaceType(
+    functionClass,
     Nullability.nonNullable,
   );
 
@@ -125,7 +135,8 @@ final class Calls {
     ValueKind.object ||
     ValueKind.list ||
     ValueKind.map ||
-    ValueKind.typedData => true,
+    ValueKind.typedData ||
+    ValueKind.function => true,
     _ => false,
   };
 
@@ -135,9 +146,12 @@ final class Calls {
     Expression Function(DartType) read,
   ) {
     if (!_isComposite(type)) return read(type.dartType);
-    final rawType = type.nullable
-        ? objectType.withDeclaredNullability(Nullability.nullable)
+    final baseType = type.kind == ValueKind.function
+        ? functionType
         : objectType;
+    final rawType = type.nullable
+        ? baseType.withDeclaredNullability(Nullability.nullable)
+        : baseType;
     final raw = SyntheticVariable(
       cosmeticName: 'object${_next++}',
       type: rawType,
@@ -168,6 +182,7 @@ final class Calls {
         [source(), IntLiteral(_typedArrayKind(type.typedDataKind!))],
         types: [type.dartType.withDeclaredNullability(Nullability.nonNullable)],
       ),
+      ValueKind.function => _readFunction(env, type.signature!, source()),
       _ => throw StateError('Not a composite type: ${type.kind}'),
     };
     return Let(
@@ -253,6 +268,7 @@ final class Calls {
         method(envClass, _typedDataMethod(type, read: false)),
         [source(), IntLiteral(_typedArrayKind(type.typedDataKind!))],
       ),
+      ValueKind.function => _writeFunction(env, type.signature!, source),
       _ => throw StateError('Not a composite type: ${type.kind}'),
     };
     return Let(
@@ -265,6 +281,230 @@ final class Calls {
               objectType.withDeclaredNullability(Nullability.nullable),
             )
           : convert(),
+    );
+  }
+
+  Expression _constant(String name) => CloneVisitorNotMembers().clone(
+    envLibrary.fields
+        .singleWhere((field) => field.name.text == name)
+        .initializer!,
+  );
+
+  Expression _supplied(FunctionParameter parameter) => Not(
+    StaticInvocation(
+      core.index.getTopLevelProcedure('dart:core', 'identical'),
+      Arguments([VariableGet(parameter), _constant('_omittedArgument')]),
+    ),
+  );
+
+  Statement _append(LocalVariable list, Expression value) =>
+      ExpressionStatement(
+        InstanceInvocation(
+          InstanceAccessKind.Instance,
+          VariableGet(list),
+          Name('add'),
+          Arguments([value]),
+          interfaceTarget: method(core.listClass, 'add'),
+          functionType: FunctionType(
+            [core.objectNullableRawType],
+            const VoidType(),
+            Nullability.nonNullable,
+          ),
+        ),
+      );
+
+  Expression _readFunction(
+    PositionalParameter env,
+    ExportSignature signature,
+    Expression source,
+  ) {
+    final reference = PositionalParameter(
+      cosmeticName: 'reference',
+      type: InterfaceType(referenceClass, Nullability.nonNullable, [
+        functionType,
+      ]),
+    );
+    final positional = [
+      for (final parameter in signature.positional)
+        PositionalParameter(
+          cosmeticName: parameter.name,
+          type: parameter.required
+              ? parameter.type.dartType
+              : core.objectNullableRawType,
+          defaultValue: parameter.required
+              ? null
+              : _constant('_omittedArgument'),
+        ),
+    ];
+    final named = [
+      for (final parameter in signature.named)
+        NamedParameter(
+          parameterName: parameter.name,
+          type: parameter.required
+              ? parameter.type.dartType
+              : core.objectNullableRawType,
+          isRequired: parameter.required,
+          defaultValue: parameter.required
+              ? null
+              : _constant('_omittedArgument'),
+        ),
+    ];
+    final js = PositionalParameter(
+      cosmeticName: 'function',
+      type: functionType,
+    );
+    final statements = <Statement>[];
+    final arguments = local(
+      statements,
+      'arguments',
+      InterfaceType(core.listClass, Nullability.nonNullable, [
+        core.objectNullableRawType,
+      ]),
+      ListLiteral([], typeArgument: core.objectNullableRawType),
+    );
+    Expression encode(ExportParameter model, FunctionParameter parameter) =>
+        _encode(
+          env,
+          model.type,
+          model.required
+              ? VariableGet(parameter)
+              : (AsExpression(VariableGet(parameter), model.type.dartType)
+                  ..isTypeError = true),
+        );
+    for (var i = 0; i < positional.length; ++i) {
+      final model = signature.positional[i];
+      final append = _append(arguments, encode(model, positional[i]));
+      statements.add(
+        model.required
+            ? append
+            : IfStatement(_supplied(positional[i]), append, null),
+      );
+    }
+    if (named.isNotEmpty) {
+      final optionsStatements = <Statement>[];
+      final options = local(
+        optionsStatements,
+        'options',
+        objectType,
+        call(VariableGet(env), method(envClass, 'object'), []),
+      );
+      for (var i = 0; i < named.length; ++i) {
+        final model = signature.named[i];
+        final write = ExpressionStatement(
+          call(VariableGet(options), method(objectClass, 'defineValue'), [
+            StringLiteral(model.name),
+            encode(model, named[i]),
+          ]),
+        );
+        optionsStatements.add(
+          model.required
+              ? write
+              : IfStatement(_supplied(named[i]), write, null),
+        );
+      }
+      optionsStatements.add(_append(arguments, VariableGet(options)));
+      if (signature.named.any((parameter) => parameter.required)) {
+        statements.addAll(optionsStatements);
+      } else {
+        Expression present = _supplied(named.first);
+        for (final parameter in named.skip(1)) {
+          present = LogicalExpression(
+            present,
+            LogicalExpressionOperator.OR,
+            _supplied(parameter),
+          );
+        }
+        statements.add(IfStatement(present, Block(optionsStatements), null));
+      }
+    }
+    Expression invoke(DartType result) => call(
+      VariableGet(js),
+      method(functionClass, '_call'),
+      [VariableGet(arguments)],
+      types: [result],
+    );
+    if (signature.result.kind == ValueKind.voidValue) {
+      statements.add(ExpressionStatement(invoke(core.objectNullableRawType)));
+      statements.add(ReturnStatement());
+    } else {
+      statements.add(ReturnStatement(_decode(env, signature.result, invoke)));
+    }
+    final invocation = call(
+      VariableGet(env),
+      method(envClass, '_invokeFunction'),
+      [
+        VariableGet(reference),
+        FunctionExpression(
+          FunctionNode(
+            Block(statements),
+            positionalParameters: [js],
+            returnType: signature.result.dartType,
+          ),
+        ),
+      ],
+      types: [signature.result.dartType],
+    );
+    final wrapper = FunctionExpression(
+      FunctionNode(
+        ReturnStatement(invocation),
+        positionalParameters: positional,
+        namedParameters: named,
+        requiredParameterCount: signature.type.requiredParameterCount,
+        returnType: signature.result.dartType,
+      ),
+    );
+    return call(
+      VariableGet(env),
+      method(envClass, '_readFunction'),
+      [
+        source,
+        FunctionExpression(
+          FunctionNode(
+            ReturnStatement(wrapper),
+            positionalParameters: [reference],
+            returnType: signature.type,
+          ),
+        ),
+      ],
+      types: [signature.type],
+    );
+  }
+
+  Expression _writeFunction(
+    PositionalParameter env,
+    ExportSignature signature,
+    Expression Function() source,
+  ) {
+    final args = PositionalParameter(
+      cosmeticName: 'arguments',
+      type: argumentsType,
+    );
+    return call(
+      VariableGet(env),
+      method(envClass, '_writeFunction'),
+      [
+        source(),
+        FunctionExpression(
+          FunctionNode(
+            _callBody(
+              env,
+              args,
+              signature,
+              preserveDefaults: true,
+              tearOff: source,
+              invoke: (positional, named) => FunctionInvocation(
+                FunctionAccessKind.FunctionType,
+                source(),
+                Arguments(positional, named: named),
+                functionType: signature.type,
+              ),
+            ),
+            positionalParameters: [args],
+            returnType: core.objectNullableRawType,
+          ),
+        ),
+      ],
+      types: [signature.type],
     );
   }
 
@@ -361,7 +601,7 @@ final class Calls {
       target.name,
       args,
       interfaceTarget: target as Procedure,
-      functionType: function.signature,
+      functionType: function.signature.type,
     );
   }
 
@@ -377,15 +617,52 @@ final class Calls {
       cosmeticName: 'arguments',
       type: argumentsType,
     );
+    return procedure(
+      '_napiCall${_next++}',
+      [env, if (receiver != null) receiver, args],
+      rawResult
+          ? function.signature.result.dartType
+          : core.objectNullableRawType,
+      _callBody(
+        env,
+        args,
+        function.signature,
+        preserveDefaults: function.instance,
+        rawResult: rawResult,
+        invoke: (positional, named) =>
+            _invoke(function, receiver, positional, named),
+        tearOff: function.instance
+            ? () => InstanceTearOff(
+                InstanceAccessKind.Instance,
+                VariableGet(receiver!),
+                function.target.name,
+                interfaceTarget: function.target as Procedure,
+                resultType: function.signature.type,
+              )
+            : null,
+      ),
+    );
+  }
+
+  Block _callBody(
+    PositionalParameter env,
+    PositionalParameter args,
+    ExportSignature signature, {
+    required bool preserveDefaults,
+    required Expression Function(List<Expression>, List<NamedExpression>)
+    invoke,
+    Expression Function()? tearOff,
+    bool rawResult = false,
+  }) {
     final statements = <Statement>[];
-    final required = function.positional.where((p) => p.required).length;
+    final required = signature.positional.where((p) => p.required).length;
 
     // Omitted virtual arguments must reach the actual method, whose defaults
     // may differ from the exported interface's defaults.
-    if (function.instance && required < function.positional.length) {
+    if (preserveDefaults && required < signature.positional.length) {
       final positional = <LocalVariable>[];
       void decode(int index) {
-        final parameter = function.positional[index];
+        final parameter = signature.positional[index];
         positional.add(
           local(
             statements,
@@ -399,17 +676,21 @@ final class Calls {
       for (var index = 0; index < required; ++index) {
         decode(index);
       }
-      for (var count = required; count <= function.positional.length; ++count) {
+      for (
+        var count = required;
+        count <= signature.positional.length;
+        ++count
+      ) {
         final branch = <Statement>[];
         _return(
           branch,
           env,
-          _invoke(function, receiver, [
+          invoke([
             for (final parameter in positional) VariableGet(parameter),
           ], []),
-          function.result,
+          signature.result,
         );
-        if (count == function.positional.length) {
+        if (count == signature.positional.length) {
           statements.addAll(branch);
         } else {
           statements.add(
@@ -420,8 +701,8 @@ final class Calls {
       }
     } else {
       final positional = <Expression>[];
-      for (var i = 0; i < function.positional.length; ++i) {
-        final parameter = function.positional[i];
+      for (var i = 0; i < signature.positional.length; ++i) {
+        final parameter = signature.positional[i];
         // Keep conversion inside the presence branch, including class unwrap.
         final decoded = _argument(env, args, i, parameter.type);
         Expression value = decoded;
@@ -440,7 +721,7 @@ final class Calls {
       }
       final named = <NamedExpression>[];
       final sparse =
-          function.instance && function.named.any((p) => !p.required);
+          preserveDefaults && signature.named.any((p) => !p.required);
       LocalVariable? sparseArguments;
       if (sparse)
         sparseArguments = local(
@@ -456,9 +737,9 @@ final class Calls {
             valueType: core.objectNullableRawType,
           ),
         );
-      if (function.named.isNotEmpty) {
-        final requiredOptions = function.named.any((p) => p.required);
-        final position = function.positional.length;
+      if (signature.named.isNotEmpty) {
+        final requiredOptions = signature.named.any((p) => p.required);
+        final position = signature.positional.length;
         Expression getOptions() => call(
           VariableGet(args),
           method(argumentsClass, 'get'),
@@ -483,7 +764,7 @@ final class Calls {
         Expression optionsValue() => requiredOptions
             ? VariableGet(options)
             : NullCheck(VariableGet(options));
-        for (final parameter in function.named) {
+        for (final parameter in signature.named) {
           Expression present = call(
             optionsValue(),
             method(objectClass, 'hasOwn'),
@@ -561,32 +842,21 @@ final class Calls {
         invocation = StaticInvocation(
           method(core.functionClass, 'apply'),
           Arguments([
-            InstanceTearOff(
-              InstanceAccessKind.Instance,
-              VariableGet(receiver!),
-              function.target.name,
-              interfaceTarget: function.target as Procedure,
-              resultType: function.signature,
-            ),
+            tearOff!(),
             ListLiteral(positional, typeArgument: core.objectNullableRawType),
             VariableGet(sparseArguments!),
           ]),
         );
-        if (function.result.kind != ValueKind.voidValue) {
-          invocation = AsExpression(invocation, function.result.dartType)
+        if (signature.result.kind != ValueKind.voidValue) {
+          invocation = AsExpression(invocation, signature.result.dartType)
             ..isTypeError = true;
         }
       } else {
-        invocation = _invoke(function, receiver, positional, named);
+        invocation = invoke(positional, named);
       }
-      _return(statements, env, invocation, function.result, raw: rawResult);
+      _return(statements, env, invocation, signature.result, raw: rawResult);
     }
-    return procedure(
-      '_napiCall${_next++}',
-      [env, if (receiver != null) receiver, args],
-      rawResult ? function.result.dartType : core.objectNullableRawType,
-      Block(statements),
-    );
+    return Block(statements);
   }
 
   Procedure property(ExportProperty property, {required bool setter}) {

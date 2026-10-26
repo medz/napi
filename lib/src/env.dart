@@ -137,7 +137,10 @@ base class JsObject extends _JsValue {
 final class JsFunction extends JsObject {
   JsFunction._(super.env, super.handle, super.scope) : super._();
 
-  Object? call(List<Object?> arguments, {Object? receiver = undefined}) {
+  Object? call(List<Object?> arguments, {Object? receiver = undefined}) =>
+      _call<Object?>(arguments, receiver: receiver);
+
+  T _call<T>(List<Object?> arguments, {Object? receiver = undefined}) {
     _check();
     final values = _env._arena<node.NapiValue>(arguments.length);
     for (var i = 0; i < arguments.length; i++) {
@@ -154,7 +157,7 @@ final class JsFunction extends JsObject {
         result,
       ),
     );
-    return _env._decode<Object?>(result.value);
+    return _env._decode<T>(result.value);
   }
 
   @override
@@ -270,10 +273,16 @@ final class _ClassDefinition {
   JsReference<JsFunction>? constructor;
 }
 
+final class _BoundFunction {
+  const _BoundFunction(this.value, this.reference);
+  final Function value;
+  final node.NapiRef reference;
+}
+
 /// Dart operations on the Node environment supplied to a module's register hook.
 ///
-/// Values are borrowed for the duration of a call. Registration callbacks stay
-/// alive until the environment ends. Env cannot be sent to another isolate.
+/// Values are borrowed for the duration of a call. Env cannot be sent to another
+/// isolate.
 final class Env {
   Env._(this._runtime) {
     _callback = NativeCallable<node.NapiCallback>.isolateLocal(
@@ -308,6 +317,9 @@ final class Env {
   final _objects = <int, _BoundObject>{};
   final _identity = Expando<int>();
   final _classes = <Type, _ClassDefinition?>{};
+  final _importedFunctions = Expando<JsReference<JsFunction>>();
+  final _functionIdentity = Expando<int>();
+  final _functions = <int, _BoundFunction>{};
   final _references = <int>{};
   int _nextToken = 1;
   bool _closed = false;
@@ -372,32 +384,105 @@ final class Env {
     _scope!,
   );
 
-  JsFunction function(String name, Object? Function(JsArguments) body) {
+  /// Creates a function that retains [body] until JavaScript collects it.
+  JsFunction function(String name, Object? Function(JsArguments) body) =>
+      _newFunction(name, body);
+
+  JsFunction _newFunction(
+    String name,
+    Object? Function(JsArguments) body, {
+    Function? identity,
+  }) {
     final (nativeName, length) = _functionName(name);
     final token = _nextToken++;
+    final previous = identity == null ? null : _functionIdentity[identity];
     _callbacks[token] = (arguments, receiver) {
       return _encode(body(arguments));
     };
+    Pointer<Void>? data;
+    node.NapiRef? reference;
     try {
+      data = _callbackData(token);
       final handle = _result(
         (out) => node.napiCreateFunction(
           _handle,
           nativeName,
           length,
           _runtime.callback,
-          _callbackData(token),
+          data!,
           out,
         ),
       );
       _nameFunction(handle, name);
+      if (identity != null) {
+        final out = _arena<node.NapiRef>();
+        _check(node.napiCreateReference(_handle, handle, 0, out));
+        reference = out.value;
+        _references.add(reference.address);
+        _functions[token] = _BoundFunction(identity, reference);
+        _functionIdentity[identity] = token;
+      }
+      _check(_runtime.trackFunction(handle, data));
       return JsFunction._(this, handle, _scope!);
     } catch (_) {
       _callbacks.remove(token);
+      _functions.remove(token);
+      if (identity != null && _functionIdentity[identity] == token) {
+        _functionIdentity[identity] = previous;
+      }
+      if (reference != null) {
+        _releaseReference(reference.address, check: false);
+      }
+      if (data != null) _runtime.trackFunction(nullptr, data);
       rethrow;
     }
   }
 
   // Called by compiler-generated bindings.
+  // ignore: unused_element
+  F _readFunction<F extends Function>(
+    JsFunction value,
+    F Function(JsReference<JsFunction>) bind,
+  ) {
+    _encode(value);
+    final reference = value.retain();
+    try {
+      final function = bind(reference);
+      _importedFunctions[function] = reference;
+      return function;
+    } catch (_) {
+      reference.dispose();
+      rethrow;
+    }
+  }
+
+  // ignore: unused_element
+  R _invokeFunction<R>(
+    JsReference<JsFunction> reference,
+    R Function(JsFunction) invoke,
+  ) {
+    R call() => invoke(reference.value);
+    return _scope == null ? withScope(call) : call();
+  }
+
+  // ignore: unused_element
+  JsFunction _writeFunction<F extends Function>(
+    F value,
+    Object? Function(JsArguments) invoke,
+  ) {
+    _arena;
+    final original = _importedFunctions[value];
+    if (original != null) return original.value;
+    final cached = _functions[_functionIdentity[value]];
+    if (cached != null) {
+      final handle = _result(
+        (out) => node.napiGetReferenceValue(_handle, cached.reference, out),
+      );
+      if (handle != nullptr) return JsFunction._(this, handle, _scope!);
+    }
+    return _newFunction('', invoke, identity: value);
+  }
+
   // ignore: unused_element
   List<T> _readList<T>(JsObject value, T Function(JsObject, int) read) {
     _encode(value);
@@ -1157,6 +1242,16 @@ final class Env {
 
   void _finalize(int token) {
     if (_closed) return;
+    if (_callbacks.remove(token) != null) {
+      final function = _functions.remove(token);
+      if (function != null) {
+        _releaseReference(function.reference.address, check: false);
+        if (_functionIdentity[function.value] == token) {
+          _functionIdentity[function.value] = null;
+        }
+      }
+      return;
+    }
     final object = _objects.remove(token);
     if (object == null) return;
     final reference = object.reference;
@@ -1179,6 +1274,7 @@ final class Env {
     final objects = _objects.entries.toList();
     _objects.clear();
     _classes.clear();
+    _functions.clear();
     _callbacks.clear();
     _getters.clear();
     _setters.clear();
@@ -1225,6 +1321,14 @@ void registerEnv(
 void disposeEnv(Env env) => env._close();
 
 Type _typeOf<T>() => T;
+
+// Distinguishes an omitted optional callback argument from null and undefined.
+// ignore: unused_element
+const _omittedArgument = _OmittedArgument();
+
+final class _OmittedArgument {
+  const _OmittedArgument();
+}
 
 int _typedDataSize(int kind) => switch (kind) {
   0 || 1 || 2 => 1,

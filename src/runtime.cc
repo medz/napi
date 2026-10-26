@@ -45,7 +45,9 @@ struct CallbackData {
   intptr_t token;
   napi_callback primary;
   napi_callback secondary;
+  CallbackData* previous;
   CallbackData* next;
+  Dart_Port port;
 };
 
 static_assert(offsetof(CallbackData, token) == sizeof(void*));
@@ -53,6 +55,7 @@ static_assert(offsetof(CallbackData, token) == sizeof(void*));
 using WrapCallback = int32_t (*)(void*, napi_env, napi_value, int64_t, intptr_t);
 using CallbackDataFactory =
     int32_t (*)(void*, intptr_t, napi_callback, napi_callback, void**);
+using TrackFunctionCallback = int32_t (*)(void*, napi_value, void*, int64_t);
 
 int32_t WrapValue(void* data,
                   napi_env env,
@@ -66,6 +69,10 @@ int32_t CreateCallbackData(void* data,
                            napi_callback primary,
                            napi_callback secondary,
                            void** output);
+int32_t TrackFunction(void* data,
+                      napi_value function,
+                      void* callback_data,
+                      int64_t port);
 napi_value ThrowError(napi_env env, const char* message);
 
 struct Owner {
@@ -75,9 +82,10 @@ struct Owner {
   napi_callback callback = Callback;
   napi_callback setter = SetterCallback;
   CallbackDataFactory create_callback_data = CreateCallbackData;
+  TrackFunctionCallback track_function = TrackFunction;
   Dart_Isolate isolate = nullptr;
   napi_env env = nullptr;
-  // Wrapping and both Node finalizers run on this environment's thread.
+  // Wrapping, tracking and Node finalizers run on this environment's thread.
   size_t references = 1;
   bool closing = false;
   bool initialize_started = false;
@@ -103,6 +111,8 @@ static_assert(offsetof(Owner, callback) == 2 * sizeof(void*));
 static_assert(offsetof(Owner, setter) == 3 * sizeof(void*));
 static_assert(offsetof(Owner, create_callback_data) == 4 * sizeof(void*));
 static_assert(sizeof(CallbackDataFactory) == sizeof(void*));
+static_assert(offsetof(Owner, track_function) == 5 * sizeof(void*));
+static_assert(sizeof(TrackFunctionCallback) == sizeof(void*));
 
 struct WrappedValue {
   Owner* owner;
@@ -115,6 +125,28 @@ void ReleaseOwner(Owner* owner) {
 
 void ReleaseCallbackOwner(void* data) {
   ReleaseOwner(static_cast<Owner*>(data));
+}
+
+void DeleteCallbackData(CallbackData* callback) {
+  if (callback->previous != nullptr) {
+    callback->previous->next = callback->next;
+  } else {
+    callback->owner->callbacks = callback->next;
+  }
+  if (callback->next != nullptr) {
+    callback->next->previous = callback->previous;
+  }
+  delete callback;
+}
+
+void FinalizeFunction(napi_env, void* data, void*) {
+  auto* callback = static_cast<CallbackData*>(data);
+  Owner* owner = callback->owner;
+  if (!owner->closing) {
+    Dart_PostInteger(callback->port, callback->token);
+  }
+  DeleteCallbackData(callback);
+  ReleaseOwner(owner);
 }
 
 int32_t CreateCallbackData(void* data,
@@ -130,7 +162,7 @@ int32_t CreateCallbackData(void* data,
     return napi_invalid_arg;
   }
   auto* callback = new (std::nothrow) CallbackData{
-      owner, token, primary, secondary, nullptr};
+      owner, token, primary, secondary, nullptr, nullptr, ILLEGAL_PORT};
   if (callback == nullptr) return napi_generic_failure;
   if (!owner->callback_cleanup_registered) {
     ++owner->references;
@@ -144,9 +176,40 @@ int32_t CreateCallbackData(void* data,
     owner->callback_cleanup_registered = true;
   }
   callback->next = owner->callbacks;
+  if (callback->next != nullptr) callback->next->previous = callback;
   owner->callbacks = callback;
   *output = callback;
   return napi_ok;
+}
+
+int32_t TrackFunction(void* data,
+                      napi_value function,
+                      void* callback_data,
+                      int64_t port) {
+  auto* owner = static_cast<Owner*>(data);
+  auto* callback = static_cast<CallbackData*>(callback_data);
+  if (owner == nullptr || callback == nullptr || callback->owner != owner ||
+      callback->port != ILLEGAL_PORT) {
+    return napi_invalid_arg;
+  }
+  // Only a record that has not been attached to a JS function can be abandoned.
+  if (function == nullptr) {
+    DeleteCallbackData(callback);
+    return napi_ok;
+  }
+  if (owner->child || owner->closing || port <= 0 ||
+      callback->primary == nullptr || callback->secondary != nullptr) {
+    return napi_invalid_arg;
+  }
+  callback->port = port;
+  ++owner->references;
+  const napi_status status = napi_add_finalizer(
+      owner->env, function, callback, FinalizeFunction, nullptr, nullptr);
+  if (status != napi_ok) {
+    callback->port = ILLEGAL_PORT;
+    ReleaseOwner(owner);
+  }
+  return status;
 }
 
 napi_value DispatchCallback(napi_env env,

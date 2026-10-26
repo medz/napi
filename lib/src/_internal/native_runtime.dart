@@ -17,6 +17,9 @@ typedef _CreateCallbackData =
       Pointer<Pointer<Void>>,
     );
 
+typedef _TrackFunction =
+    Int32 Function(Pointer<Void>, node.NapiValue, Pointer<Void>, Int64);
+
 /// The fixed prefix shared with Owner in src/runtime.cc.
 final class _Owner extends Struct {
   external node.NapiThreadsafeFunction threadsafe;
@@ -24,6 +27,7 @@ final class _Owner extends Struct {
   external Pointer<NativeFunction<node.NapiCallback>> callback;
   external Pointer<NativeFunction<node.NapiCallback>> setter;
   external Pointer<NativeFunction<_CreateCallbackData>> createCallbackData;
+  external Pointer<NativeFunction<_TrackFunction>> trackFunction;
 }
 
 /// The callback record prefix shared with CallbackData in src/runtime.cc.
@@ -113,6 +117,18 @@ final class NativeRuntime {
       .asFunction<
         int Function(Pointer<Void>, node.NapiEnv, node.NapiValue, int, int)
       >()(_owner.cast(), env, object, _port.sendPort.nativePort, token);
+
+  // A null function abandons an untracked callback record after creation fails.
+  int trackFunction(node.NapiValue function, Pointer<Void> data) =>
+      _owner.ref.trackFunction
+          .asFunction<
+            int Function(Pointer<Void>, node.NapiValue, Pointer<Void>, int)
+          >()(
+        _owner.cast(),
+        function,
+        data,
+        function == nullptr ? 0 : _port.sendPort.nativePort,
+      );
 
   void wake() {
     if (_closed || _wakePending) return;
