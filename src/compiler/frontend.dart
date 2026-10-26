@@ -335,7 +335,7 @@ String? _configureEntrypoint(
 
   final wrapper = findLibrary(entry)!;
   final library = findLibrary(addon)!;
-  final annotated = readExports(library, packages);
+  final annotated = readExports(component, library, packages);
   final register = findProcedure(library, 'register');
   final initialize = findProcedure(library, 'initialize');
   if (annotated.isEmpty && register != null && initialize != null) {
@@ -364,7 +364,9 @@ String? _configureEntrypoint(
   }
 
   if (annotated.isNotEmpty) {
-    final targets = {for (final function in annotated) function.target};
+    final targets = {
+      for (final function in annotated.functions) function.target,
+    };
     if ((register != null && !targets.contains(register)) ||
         (initialize != null && !targets.contains(initialize))) {
       throw const FormatException(

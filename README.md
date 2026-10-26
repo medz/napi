@@ -49,7 +49,7 @@ range uses Dart version constraint syntax, with `||` for alternatives, and must
 be compatible with those APIs. Compilation failures preserve an existing output.
 
 Omit `declarations` to generate only the binary. Declaration output requires
-annotated exports. Scalar functions support positional parameters, named options,
+annotated exports. Functions support positional parameters, named options,
 nullable values and Dart defaults. A named parameter group becomes the final JS
 options argument. Explicit `undefined` is a value; it does not select a Dart
 default. For optional options fields, enable TypeScript's
@@ -59,6 +59,48 @@ Use `@NAPI(name: 'anotherName')` to change an export's name. Exports are selecte
 from the entry library and its re-exports. An explicitly annotated private
 function can be exported. Unsupported declarations and conflicting names produce
 a build error.
+
+## Classes
+
+Annotate a Dart class to expose its public constructors, methods and properties:
+
+```dart
+import 'package:napi/napi.dart';
+
+@NAPI()
+class Counter {
+  Counter([this.value = 0]);
+
+  int value;
+  int increment([int step = 1]) => value += step;
+  Counter same() => this;
+}
+```
+
+Run the [Counter example](example/counter.dart) with
+`dart run example/build.dart`, then:
+
+```js
+const { Counter } = require('./build/counter.node');
+const counter = new Counter(5);
+counter.increment(); // 6
+counter.value = 10;
+counter.increment(2); // 12
+counter.same() === counter; // true
+```
+
+Named constructors become static factories, such as `Counter.named(options)`.
+Static Dart members are properties of the JS constructor. Final fields and
+getters without setters are read-only. Private members stay private unless
+explicitly annotated. Class export names must also be valid TypeScript class
+names. Method calls preserve the actual Dart implementation's
+defaults, including when a function returns an unexported subclass.
+
+Passing a bound instance back to Dart unwraps the original object. Returning that
+object again reuses its live JS instance. JavaScript collection releases the
+binding's Dart reference. Inheritance between exported classes is not supported
+yet; the compiler rejects those declarations. Returning the same object through
+two different exported class types is rejected while its first wrapper is alive.
 
 ## Manual registration
 
@@ -79,28 +121,12 @@ registration and annotation exports are separate entry modes. Raw addons can
 also provide the `initialize`, `afterPump` and `dispose` hooks used by the
 [native experiment](experiments/native-image/payload.dart).
 
-## Classes
-
-Use `env.defineClass<T>` to register a Dart-backed JavaScript class. Constructors
-and methods receive `JsArguments`; getters receive the Dart instance, and setters
-receive the instance and arguments. Calling the Dart constructor or method without
-an optional argument preserves its Dart default.
-
-The [Counter example](example/counter.dart) defines a constructor, method and
-getter/setter. Run `dart run example/build.dart`, then:
-
-```js
-const { Counter } = require('./build/counter.node');
-const counter = new Counter(5);
-counter.increment(); // 6
-counter.value = 10;
-counter.increment(2); // 12
-```
-
-An instance retains its Dart object until JavaScript collects it or its environment
-ends. An optional `finalize` callback can release Dart resources; it must not access
-JavaScript during environment cleanup. Registration callbacks remain live for the
-lifetime of their environment.
+Use `env.defineClass<T>` for explicit class bindings. Instance methods and setters
+receive `(T, JsArguments)`; instance getters receive `T`. Constructors, static
+methods and static setters receive only `JsArguments`; static getters take no
+arguments. An optional `finalize` callback can release resources; it must not access
+JavaScript during environment cleanup. Registration callbacks remain live until
+their environment ends.
 
 ## Values and references
 

@@ -53,6 +53,7 @@ src/addon.cc
 src/compiler/backend.cc
 src/compiler/backend.map
 src/compiler/bindings.dart
+src/compiler/calls.dart
 src/compiler/compiler.cc
 src/compiler/compiler.h
 src/compiler/compiler.map
@@ -71,6 +72,9 @@ src/patches/precompiler-recovery.patch
 src/patches/private-dart-api.patch
 src/runtime.cc
 src/runtime.h
+test/native/annotated_classes.cjs
+test/native/annotated_classes.cts
+test/native/annotated_classes.dart
 test/native/annotated_functions.cjs
 test/native/annotated_functions.cts
 test/native/annotated_functions.dart

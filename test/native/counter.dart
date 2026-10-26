@@ -34,6 +34,16 @@ void register(Env env, JsObject exports) {
     'Other',
     constructor: (_) => Other(),
   );
+  exports['Label'] = env.defineClass<String>(
+    'Label',
+    constructor: (args) => args.get<String>(0),
+    getters: {'value': (self) => self},
+  );
+  exports['RecordLabel'] = env.defineClass<Object>(
+    'RecordLabel',
+    constructor: (_) => const (7, 'record'),
+    getters: {'value': (self) => (self as (int, String)).$2},
+  );
   exports['echoInt'] = env.function('echoInt', (args) => args.get<int>(0));
   exports['returnMinInt'] = env.function(
     'returnMinInt',

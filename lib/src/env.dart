@@ -233,10 +233,21 @@ final class JsArguments {
 }
 
 final class _BoundObject {
-  _BoundObject(this.value, this.definition, this.finalize);
+  _BoundObject(this.value, this.definition, this.reference, this.finalize);
   final Object value;
-  final Object definition;
+  final _ClassDefinition definition;
+  final node.NapiRef? reference;
   final void Function()? finalize;
+}
+
+final class _PendingWrap {
+  _PendingWrap(this.value);
+  final Object value;
+}
+
+final class _ClassDefinition {
+  final pending = <_PendingWrap>[];
+  JsReference<JsFunction>? constructor;
 }
 
 /// Dart operations on the Node environment supplied to a module's register hook.
@@ -275,6 +286,8 @@ final class Env {
   final _setters =
       <int, node.NapiValue Function(JsArguments, node.NapiValue)>{};
   final _objects = <int, _BoundObject>{};
+  final _identity = Expando<int>();
+  final _classes = <Type, _ClassDefinition?>{};
   final _references = <int>{};
   int _nextToken = 1;
   bool _closed = false;
@@ -364,25 +377,153 @@ final class Env {
     }
   }
 
+  /// Gets the Dart object carried by a wrapper from this environment.
+  ///
+  /// The wrapper must have been created by [defineClass]; changing a JavaScript
+  /// object's prototype does not make it a Dart instance.
+  T unwrap<T extends Object>(JsObject value) {
+    value._check();
+    if (!identical(value._env, this)) throw ArgumentError('Wrong environment');
+    return _unwrap<T>(value._handle);
+  }
+
+  T _unwrap<T extends Object>(node.NapiValue handle) {
+    final valid = _arena<Bool>();
+    final status = node.napiCheckObjectTypeTag(_handle, handle, _tag, valid);
+    if (status != node.NapiStatus.ok.index || !valid.value) {
+      throw ArgumentError('Invalid $T receiver');
+    }
+    final token = _arena<Pointer<Void>>();
+    _check(node.napiUnwrap(_handle, handle, token));
+    final object = _objects[token.value.address];
+    if (object == null || object.value is! T) {
+      throw ArgumentError('Invalid $T receiver');
+    }
+    return object.value as T;
+  }
+
+  /// Returns the JavaScript wrapper for a Dart object of a registered class.
+  ///
+  /// Reuses a live wrapper without running the Dart constructor. If the previous
+  /// wrapper was collected, creates another using the registered JS constructor.
+  /// A new wrapper requires exactly one [defineClass] registration for T.
+  /// A live wrapper for a different registered class cannot be reused as T.
+  /// `num`, `String`, `bool`, records and FFI values receive independent wrappers.
+  JsObject wrap<T extends Object>(T value) {
+    if (!_classes.containsKey(T)) {
+      throw StateError('No JavaScript class is registered for $T');
+    }
+    final definition = _classes[T];
+    final existing = _cachedObject(value, definition: definition);
+    if (existing != null) return JsObject._(this, existing, _scope!);
+    if (definition == null) {
+      throw StateError('More than one JavaScript class is registered for $T');
+    }
+    final pending = _PendingWrap(value);
+    definition.pending.add(pending);
+    try {
+      final constructor = definition.constructor!.value;
+      final handle = _result(
+        (out) =>
+            node.napiNewInstance(_handle, constructor._handle, 0, nullptr, out),
+      );
+      return JsObject._(this, handle, _scope!);
+    } finally {
+      definition.pending.remove(pending);
+    }
+  }
+
+  node.NapiValue? _cachedObject(Object value, {_ClassDefinition? definition}) {
+    // Check the scope even when this object has never been wrapped.
+    _arena;
+    if (!_cacheableObject(value)) return null;
+    final token = _identity[value];
+    final object = _objects[token];
+    if (object == null) return null;
+    final handle = _result(
+      (out) => node.napiGetReferenceValue(_handle, object.reference!, out),
+    );
+    if (handle == nullptr) return null;
+    if (definition != null && !identical(object.definition, definition)) {
+      throw StateError(
+        'Dart object is already bound to another JavaScript class',
+      );
+    }
+    return handle;
+  }
+
+  node.NapiValue _bindObject(
+    Object value,
+    _ClassDefinition definition,
+    node.NapiValue self,
+    void Function()? finalize,
+  ) {
+    final existing = _cachedObject(value, definition: definition);
+    if (existing != null) return existing;
+    node.NapiRef? reference;
+    if (_cacheableObject(value)) {
+      final out = _arena<node.NapiRef>();
+      _check(node.napiCreateReference(_handle, self, 0, out));
+      reference = out.value;
+      _references.add(reference.address);
+    }
+    final token = _nextToken++;
+    final previous = reference == null ? null : _identity[value];
+    try {
+      _check(node.napiTypeTagObject(_handle, self, _tag));
+      _objects[token] = _BoundObject(value, definition, reference, finalize);
+      if (reference != null) _identity[value] = token;
+      _check(_runtime.wrap(self, token));
+      return self;
+    } catch (_) {
+      _objects.remove(token);
+      if (reference != null) {
+        if (_identity[value] == token) _identity[value] = previous;
+        _releaseReference(reference.address, check: false);
+      }
+      rethrow;
+    }
+  }
+
   /// Defines a JavaScript class whose instances own Dart objects of type T.
   ///
-  /// Finalizers run after the JS GC notification is delivered to Dart, or during
-  /// environment cleanup. Cleanup finalizers must not access JavaScript.
+  /// Static members belong to the constructor rather than its prototype.
+  /// Finalizers run after a JS wrapper is collected, or during environment
+  /// cleanup. Rewrapping an identity-cached object before its old GC notification
+  /// arrives does not finalize the new wrapper. Cleanup finalizers must not
+  /// access JavaScript.
   JsFunction defineClass<T extends Object>(
     String name, {
     required T Function(JsArguments) constructor,
     Map<String, Object? Function(T, JsArguments)> methods = const {},
     Map<String, Object? Function(T)> getters = const {},
     Map<String, void Function(T, JsArguments)> setters = const {},
+    Map<String, Object? Function(JsArguments)> staticMethods = const {},
+    Map<String, Object? Function()> staticGetters = const {},
+    Map<String, void Function(JsArguments)> staticSetters = const {},
     void Function(T)? finalize,
   }) {
     final (nativeName, length) = _functionName(name);
-    for (final key in methods.keys) {
-      if (getters.containsKey(key) || setters.containsKey(key)) {
-        throw ArgumentError('Member $key is both a method and an accessor');
+    final keys = {...methods.keys, ...getters.keys, ...setters.keys};
+    final staticKeys = {
+      ...staticMethods.keys,
+      ...staticGetters.keys,
+      ...staticSetters.keys,
+    };
+    if (staticKeys.contains('prototype')) {
+      throw ArgumentError('Static member prototype is reserved by JavaScript');
+    }
+    for (final (methodNames, getterNames, setterNames) in [
+      (methods.keys, getters.keys, setters.keys),
+      (staticMethods.keys, staticGetters.keys, staticSetters.keys),
+    ]) {
+      for (final key in methodNames) {
+        if (getterNames.contains(key) || setterNames.contains(key)) {
+          throw ArgumentError('Member $key is both a method and an accessor');
+        }
       }
     }
-    final definition = Object();
+    final definition = _ClassDefinition();
     final registrations = <int>[];
     int register(node.NapiValue Function(JsArguments, node.NapiValue) body) {
       final token = _nextToken++;
@@ -391,76 +532,75 @@ final class Env {
       return token;
     }
 
-    T receiver(node.NapiValue handle) {
-      final valid = _arena<Bool>();
-      final status = node.napiCheckObjectTypeTag(_handle, handle, _tag, valid);
-      if (status != node.NapiStatus.ok.index || !valid.value) {
-        throw ArgumentError('Invalid $name receiver');
-      }
-      final token = _arena<Pointer<Void>>();
-      _check(node.napiUnwrap(_handle, handle, token));
-      final object = _objects[token.value.address];
-      if (object == null || !identical(object.definition, definition)) {
-        throw ArgumentError('Invalid $name receiver');
-      }
-      return object.value as T;
-    }
-
     final constructorToken = register((arguments, self) {
-      final value = constructor(arguments);
-      final token = _nextToken++;
-      final bound = _BoundObject(
+      final value = definition.pending.isEmpty
+          ? constructor(arguments)
+          : definition.pending.removeLast().value as T;
+      return _bindObject(
         value,
         definition,
+        self,
         finalize == null ? null : () => finalize(value),
       );
-      _check(node.napiTypeTagObject(_handle, self, _tag));
-      _objects[token] = bound;
-      try {
-        _check(_runtime.wrap(self, token));
-      } catch (_) {
-        _objects.remove(token);
-        rethrow;
-      }
-      return self;
     });
-    final keys = {...methods.keys, ...getters.keys, ...setters.keys};
-    final properties = _arena<node.NapiPropertyDescriptor>(keys.length);
+    final properties = _arena<node.NapiPropertyDescriptor>(
+      keys.length + staticKeys.length,
+    );
     var index = 0;
+    JsReference<JsFunction>? retained;
     try {
-      for (final key in keys) {
-        final descriptor = properties[index++];
-        descriptor
-          ..name = _encode(key)
-          ..attributes = node.napiConfigurable;
-        final method = methods[key];
-        if (method != null) {
-          final token = register(
-            (args, self) => _encode(method(receiver(self), args)),
-          );
+      for (final isStatic in [false, true]) {
+        for (final key in isStatic ? staticKeys : keys) {
+          final descriptor = properties[index++];
+          final attributes =
+              node.napiConfigurable | (isStatic ? node.napiStatic : 0);
           descriptor
-            ..method = _runtime.callback
-            ..data = _callbackData(token)
-            ..attributes = node.napiWritable | node.napiConfigurable;
-          continue;
-        }
-        final getter = getters[key];
-        final setter = setters[key];
-        // Getter/setter functions have independent entry points: JS can call an
-        // accessor directly with any argument count.
-        final token = _nextToken++;
-        registrations.add(token);
-        descriptor.data = _callbackData(token, accessor: true);
-        if (getter != null) {
-          _getters[token] = (args, self) => _encode(getter(receiver(self)));
-          descriptor.getter = _runtime.callback;
-        }
-        if (setter != null) {
-          _setters[token] = (args, self) {
-            setter(receiver(self), args);
-            return _encode(undefined);
-          };
-          descriptor.setter = _runtime.setter;
+            ..name = _encode(key)
+            ..attributes = attributes;
+          if (isStatic
+              ? staticMethods.containsKey(key)
+              : methods.containsKey(key)) {
+            final token = register(
+              (args, self) => _encode(
+                isStatic
+                    ? staticMethods[key]!(args)
+                    : methods[key]!(_unwrap<T>(self), args),
+              ),
+            );
+            descriptor
+              ..method = _runtime.callback
+              ..data = _callbackData(token)
+              ..attributes = attributes | node.napiWritable;
+            continue;
+          }
+          // Getter/setter functions have independent entry points: JS can call an
+          // accessor directly with any argument count.
+          final token = _nextToken++;
+          registrations.add(token);
+          descriptor.data = _callbackData(token, accessor: true);
+          if (isStatic
+              ? staticGetters.containsKey(key)
+              : getters.containsKey(key)) {
+            _getters[token] = (args, self) => _encode(
+              isStatic
+                  ? staticGetters[key]!()
+                  : getters[key]!(_unwrap<T>(self)),
+            );
+            descriptor.getter = _runtime.callback;
+          }
+          if (isStatic
+              ? staticSetters.containsKey(key)
+              : setters.containsKey(key)) {
+            _setters[token] = (args, self) {
+              if (isStatic) {
+                staticSetters[key]!(args);
+              } else {
+                setters[key]!(_unwrap<T>(self), args);
+              }
+              return _encode(undefined);
+            };
+            descriptor.setter = _runtime.setter;
+          }
         }
       }
       final handle = _result(
@@ -470,16 +610,21 @@ final class Env {
           length,
           _runtime.callback,
           _callbackData(constructorToken),
-          keys.length,
+          keys.length + staticKeys.length,
           properties,
           out,
         ),
       );
-      _nameFunction(handle, name);
+      if (!staticKeys.contains('name')) _nameFunction(handle, name);
+      final function = JsFunction._(this, handle, _scope!);
+      retained = function.retain();
+      definition.constructor = retained;
+      _classes.update(T, (_) => null, ifAbsent: () => definition);
       // Only this registration requires new; ordinary functions remain callable.
       _constructors.add(constructorToken);
-      return JsFunction._(this, handle, _scope!);
+      return function;
     } catch (_) {
+      retained?.dispose();
       for (final token in registrations) {
         _callbacks.remove(token);
         _getters.remove(token);
@@ -832,6 +977,12 @@ final class Env {
     if (_closed) return;
     final object = _objects.remove(token);
     if (object == null) return;
+    final reference = object.reference;
+    if (reference != null) {
+      _releaseReference(reference.address, check: false);
+      if (_identity[object.value] != token) return;
+      _identity[object.value] = null;
+    }
     final callback = object.finalize;
     if (callback != null) withScope(callback);
   }
@@ -843,8 +994,9 @@ final class Env {
       node.napiDeleteReference(_handle, node.NapiRef.fromAddress(reference));
     }
     _references.clear();
-    final objects = _objects.values.toList();
+    final objects = _objects.entries.toList();
     _objects.clear();
+    _classes.clear();
     _callbacks.clear();
     _getters.clear();
     _setters.clear();
@@ -855,7 +1007,12 @@ final class Env {
     calloc.free(_tag);
     Object? firstError;
     StackTrace? firstStack;
-    for (final object in objects) {
+    for (final entry in objects) {
+      final object = entry.value;
+      if (object.reference != null) {
+        if (_identity[object.value] != entry.key) continue;
+        _identity[object.value] = null;
+      }
       try {
         object.finalize?.call();
       } catch (error, stack) {
@@ -886,3 +1043,12 @@ void registerEnv(
 void disposeEnv(Env env) => env._close();
 
 Type _typeOf<T>() => T;
+
+bool _cacheableObject(Object value) =>
+    value is! num &&
+    value is! String &&
+    value is! bool &&
+    value is! Record &&
+    value is! Pointer &&
+    value is! Struct &&
+    value is! Union;
