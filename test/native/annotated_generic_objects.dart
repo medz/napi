@@ -127,19 +127,19 @@ class ReferenceNext {
 @NAPI.object()
 class DistinctNext {
   @NAPI()
-  DistinctNext({required ScalarNext next});
+  DistinctNext({required NestedOther next});
 
   @NAPI()
   DistinctNext get next => this;
 }
 
 @NAPI.object()
-class ScalarNext {
+class NestedOther {
   @NAPI()
-  ScalarNext(this.next);
+  NestedOther(this.next);
 
   @NAPI()
-  final int next;
+  final ScalarValue next;
 }
 
 @NAPI.object()
@@ -156,6 +156,27 @@ class EmptyReferenceView {
 
   @NAPI()
   final Empty? value;
+}
+
+@NAPI.object()
+class Stringifier {
+  @NAPI()
+  // ignore: prefer_initializing_formals
+  Stringifier({required String Function() toString}) : _toString = toString;
+
+  final String Function() _toString;
+  @NAPI(name: 'toString')
+  String Function() get value => _toString;
+}
+
+@NAPI.object()
+class StringifierView {
+  @NAPI()
+  StringifierView({required Empty value})
+    : value = Stringifier(toString: () => 'ok');
+
+  @NAPI()
+  final Stringifier value;
 }
 
 @NAPI.object()
@@ -194,6 +215,35 @@ class ClassValueView {
 
   @NAPI()
   final IntegerValue value;
+}
+
+@NAPI.object()
+class AmountValueView {
+  @NAPI()
+  AmountValueView({required ScalarValue value})
+    : value = Amount(value: '${value.value}');
+
+  @NAPI()
+  final Amount value;
+}
+
+@NAPI.object()
+class LinkedA {
+  @NAPI()
+  LinkedA({required LinkedB? next})
+    : next = next == null ? null : LinkedA(next: next.next);
+
+  @NAPI()
+  final LinkedA? next;
+}
+
+@NAPI.object()
+class LinkedB {
+  @NAPI()
+  LinkedB({required this.next});
+
+  @NAPI()
+  final LinkedB? next;
 }
 
 @NAPI.object()
@@ -535,6 +585,10 @@ Handler<Amount> nativeHandler() =>
     Handler(run: (value) => Amount(value: '${value.value + 1}'));
 
 @NAPI()
+Handler<AmountValueView> nativeAmountValueHandler() =>
+    Handler(run: (value) => value);
+
+@NAPI()
 Handler<List<Amount>> nativeListHandler() => Handler(run: (value) => value);
 
 @NAPI()
@@ -600,10 +654,16 @@ bool distinctNextUsesSelf(DistinctNext value) => identical(value.next, value);
 EmptyReferenceView echoEmptyReferenceView(EmptyReferenceView value) => value;
 
 @NAPI()
+StringifierView echoStringifierView(StringifierView value) => value;
+
+@NAPI()
 RecordValue echoRecordValue(RecordValue value) => value;
 
 @NAPI()
 ClassValueView echoClassValueView(ClassValueView value) => value;
+
+@NAPI()
+LinkedA echoLinkedA(LinkedA value) => value;
 
 @NAPI()
 FunctionLoop<int> echoFunctionLoop(FunctionLoop<int> value) => value;

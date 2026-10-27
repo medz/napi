@@ -95,16 +95,28 @@ const forgedReferenceNext: addon.ReferenceNext = { next: null };
 addon.echoReferenceNext({ next: 'wrong' });
 declare const distinctNext: addon.DistinctNext;
 const distinctChild: addon.DistinctNext = distinctNext.next;
-const distinctUsesSelf: boolean = addon.distinctNextUsesSelf({ next: { next: 7 } });
+const distinctUsesSelf: boolean = addon.distinctNextUsesSelf({ next: { next: { value: 7 } } });
 // @ts-expect-error These distinct constructor and getter shapes need output identity.
 const forgedDistinctNext: addon.DistinctNext = { next: distinctNext };
 const emptyReferenceView: addon.EmptyReferenceView = { value: {} };
 const echoedEmptyReferenceView: addon.EmptyReferenceView =
   addon.echoEmptyReferenceView(emptyReferenceView);
+const stringifierView: addon.StringifierView = { value: {} };
+const echoedStringifierView: addon.StringifierView = addon.echoStringifierView(stringifierView);
+const stringifiedValue: string = echoedStringifierView.value.toString();
 const recordValue: addon.RecordValue = { value: { value: 7 } };
 const echoedRecordValue: addon.RecordValue = addon.echoRecordValue(recordValue);
 const classValueView: addon.ClassValueView = { value: { value: 7 } };
 const echoedClassValueView: addon.ClassValueView = addon.echoClassValueView(classValueView);
+const amountValueHandler: addon.Handler<addon.AmountValueView> = addon.nativeAmountValueHandler();
+const amountValueView: addon.AmountValueView = amountValueHandler.run({ value: { value: 7 } });
+// @ts-expect-error The outer constructor uses ScalarValue's numeric input.
+amountValueHandler.run({ value: { value: '7' } });
+// @ts-expect-error The outer output has a different constructor projection.
+const forgedAmountValueView: addon.AmountValueView = { value: amount };
+const linkedValue: addon.LinkedA = { next: { next: null } };
+const linkedOutput: addon.LinkedA = addon.echoLinkedA(linkedValue);
+const linkedNext: addon.LinkedA | null = linkedOutput.next;
 const functionLoop: addon.FunctionLoop<number> = addon.echoFunctionLoop({
   value: [1], next: { value: [() => 7], next: null },
 });

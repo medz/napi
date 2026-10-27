@@ -63,6 +63,13 @@ final class _Writer {
     _projection = _unique('_NapiProjection');
     _scalar = _unique('_NapiScalar');
     _awaited = _unique('_NapiAwaited');
+    for (final cls in _objects.keys) {
+      _classParameters.addAll(cls.typeParameters);
+      final arguments = <ExportTypeParameter, ExportType>{};
+      final parameters = _substituteParameters(cls.typeParameters, arguments);
+      _inputParameters[cls] = parameters;
+      _classParameters.addAll(parameters);
+    }
     _analyzeDifferences();
   }
   final ExportModule exports;
@@ -75,7 +82,10 @@ final class _Writer {
         ExportClass,
         ({String output, String fields, String input, List<String> inputs})
       >{};
-  final _differences = <ExportClass, _Difference>{};
+  final _differences = <_ObjectPair, _Difference>{};
+  final _pendingDifferences = <_ObjectPair>[];
+  final _inputParameters = <ExportClass, List<ExportTypeParameter>>{};
+  final _classParameters = <ExportTypeParameter>{};
   final _parameterTypes =
       <ExportTypeParameter, ({String output, String input})>{};
   late final String _inputKey;
@@ -244,6 +254,7 @@ final class _Writer {
         output: _parameterNames[parameter]!,
         input: _objects[cls]!.inputs[i],
       );
+      _parameterTypes[_inputParameters[cls]![i]] = _parameterTypes[parameter]!;
     }
     try {
       return body();
@@ -254,10 +265,43 @@ final class _Writer {
     }
   }
 
-  void _analyzeDifferences() {
-    for (final cls in _objects.keys) {
-      final difference = _differences[cls] = _Difference();
-      final constructor = cls.constructor;
+  _Difference _requireDifference(ExportClass left, ExportClass right) {
+    final key = (left: left, right: right);
+    return _differences.putIfAbsent(key, () {
+      _pendingDifferences.add(key);
+      return _Difference();
+    });
+  }
+
+  ExportType _declaredObject(ExportClass cls) => ExportType(
+    cls.dartType,
+    ValueKind.object,
+    classExport: cls,
+    typeArguments: [
+      for (final parameter in cls.typeParameters)
+        ExportType(
+          parameter.invocationType,
+          ValueKind.typeParameter,
+          parameter: parameter,
+          representation: parameter.defaultType,
+        ),
+    ],
+  );
+
+  Map<ExportTypeParameter, ExportType> _edgeArguments(_TypePair edge) => {
+    for (var i = 0; i < edge.left.classExport!.typeParameters.length; ++i)
+      edge.left.classExport!.typeParameters[i]: edge.left.typeArguments[i],
+    for (var i = 0; i < edge.right.classExport!.typeParameters.length; ++i)
+      _inputParameters[edge.right.classExport!]![i]:
+          edge.right.typeArguments[i],
+  };
+
+  void _buildDifferences() {
+    while (_pendingDifferences.isNotEmpty) {
+      final key = _pendingDifferences.removeLast();
+      final difference = _differences[key]!;
+      final output = key.left, input = key.right;
+      final constructor = input.constructor;
       if (constructor == null) {
         difference.always = true;
         continue;
@@ -269,53 +313,89 @@ final class _Writer {
         ])
           p.name: p,
       };
-      if (inputs.length != cls.properties.length ||
-          cls.properties.any((p) => !inputs.containsKey(p.name)) ||
+      if (output != input &&
+          inputs.isEmpty &&
+          output.properties.every(
+            (property) => _objectMemberNames.contains(property.name),
+          )) {
+        final own = _declaredObject(output);
+        _collectDifference(own, own, difference);
+        _collectDifference(
+          own,
+          ExportType(
+            input.dartType,
+            ValueKind.jsReference,
+            referenceKind: JsReferenceKind.object,
+          ),
+          difference,
+        );
+        for (final pair in difference.pairs.entries) {
+          difference.paths[pair.key] = [(node: key, pair: pair.value)];
+        }
+        continue;
+      }
+      if (inputs.length != output.properties.length ||
+          output.properties.any((p) => !inputs.containsKey(p.name)) ||
           inputs.values.any((p) => !p.required)) {
         difference.always = true;
         continue;
       }
-      for (final property in cls.properties) {
+      final own = _declaredObject(output);
+      _collectDifference(own, own, difference);
+      final arguments = {
+        for (var i = 0; i < input.typeParameters.length; ++i)
+          input.typeParameters[i]: ExportType(
+            _inputParameters[input]![i].invocationType,
+            ValueKind.typeParameter,
+            parameter: _inputParameters[input]![i],
+          ),
+      };
+      for (final property in output.properties) {
         _collectDifference(
           property.readType!,
-          inputs[property.name]!.type,
+          _substituteType(inputs[property.name]!.type, arguments),
           difference,
         );
       }
-    }
-    for (final entry in _differences.entries) {
-      for (final pair in entry.value.pairs.entries) {
-        entry.value.paths[pair.key] = [(cls: entry.key, pair: pair.value)];
+      for (final pair in difference.pairs.entries) {
+        difference.paths[pair.key] = [(node: key, pair: pair.value)];
       }
     }
+  }
 
+  void _analyzeDifferences() {
+    for (final cls in _objects.keys) {
+      _requireDifference(cls, cls);
+    }
+    _solveDifferences();
+  }
+
+  void _solveDifferences() {
+    if (_pendingDifferences.isEmpty) return;
     var changed = true;
-    while (changed) {
+    while (changed || _pendingDifferences.isNotEmpty) {
+      _buildDifferences();
       changed = false;
-      for (final entry in _differences.entries) {
+      for (final entry in _differences.entries.toList()) {
         final difference = entry.value;
         if (difference.always) continue;
         for (final edge in difference.edges.values.toList()) {
-          final nested = edge.left.classExport!;
-          final source = _differences[nested]!;
+          final source =
+              _differences[(
+                left: edge.left.classExport!,
+                right: edge.right.classExport!,
+              )]!;
           if (source.always) {
             difference.always = true;
             changed = true;
             break;
           }
-          final left = {
-            for (var i = 0; i < nested.typeParameters.length; ++i)
-              nested.typeParameters[i]: edge.left.typeArguments[i],
-          };
-          final right = {
-            for (var i = 0; i < nested.typeParameters.length; ++i)
-              nested.typeParameters[i]: edge.right.typeArguments[i],
-          };
+          final arguments = _edgeArguments(edge);
           for (final pair in source.pairs.entries.toList()) {
             final next = _substituteDifference(
               pair.value,
-              left,
-              right,
+              arguments,
+              arguments,
               locals: edge.locals,
             );
             if (next.always) {
@@ -327,22 +407,21 @@ final class _Writer {
               if (difference.pairs.containsKey(value.key)) continue;
               final path = source.paths[pair.key]!;
               final parameters = _pairParameters(value.value);
-              // Compare one leaf's substitution path, not unrelated leaves.
               if (parameters.isNotEmpty &&
                   path.any(
                     (step) =>
-                        step.cls == entry.key &&
+                        step.node == entry.key &&
                         _pairParameters(step.pair) == parameters &&
                         _pairDepth(step.pair) < _pairDepth(value.value),
                   )) {
                 throw FormatException(
-                  '@NAPI.object ${entry.key.name}: recursive input/output projections expand at different rates.',
+                  '@NAPI.object ${entry.key.left.name}: recursive input/output projections expand at different rates.',
                 );
               }
               difference.pairs[value.key] = value.value;
               difference.paths[value.key] = [
                 ...path,
-                (cls: entry.key, pair: value.value),
+                (node: entry.key, pair: value.value),
               ];
               changed = true;
             }
@@ -390,9 +469,7 @@ final class _Writer {
         right.kind == ValueKind.typeParameter) {
       if (left.parameter == right.parameter &&
           left.parameter != null &&
-          !_objects.keys.any(
-            (cls) => cls.typeParameters.contains(left.parameter),
-          )) {
+          !_classParameters.contains(left.parameter)) {
         return;
       }
       pair();
@@ -412,11 +489,10 @@ final class _Writer {
       return;
     }
     if (left.kind == ValueKind.object) {
-      if (left.classExport == right.classExport && left.classExport!.isObject) {
+      if (left.classExport!.isObject && right.classExport!.isObject) {
+        _requireDifference(left.classExport!, right.classExport!);
         final value = _TypePair(left, right, locals: locals);
         result.edges[_pairKey(value)] = value;
-      } else if (_differentObjectSchemas(left, right)) {
-        result.always = true;
       } else if (_typeKey(left) != _typeKey(right)) {
         pair();
       }
@@ -580,51 +656,6 @@ final class _Writer {
             leftPrimitive != rightPrimitive ||
         left.kind != right.kind && leftArray == true && rightArray == true ||
         _rawObjectDifference(left, right);
-  }
-
-  bool _differentObjectSchemas(ExportType left, ExportType right) {
-    final output = left.classExport!, input = right.classExport!;
-    if (!output.isObject || !input.isObject) return false;
-    final constructor = input.constructor;
-    if (constructor == null) return true;
-    final fields = {
-      for (final property in output.properties)
-        if (!_objectMemberNames.contains(property.name)) property.name,
-    };
-    final inputs = {
-      for (final parameter in [
-        ...constructor.signature.positional,
-        ...constructor.signature.named,
-      ])
-        parameter.name: parameter,
-    };
-    final parameters = {
-      for (final parameter in inputs.values)
-        if (parameter.required && !_objectMemberNames.contains(parameter.name))
-          parameter.name,
-    };
-    if (fields.length != parameters.length || !fields.containsAll(parameters)) {
-      return true;
-    }
-    final outputArguments = {
-      for (var i = 0; i < output.typeParameters.length; ++i)
-        output.typeParameters[i]: left.typeArguments[i],
-    };
-    final inputArguments = {
-      for (var i = 0; i < input.typeParameters.length; ++i)
-        input.typeParameters[i]: right.typeArguments[i],
-    };
-    for (final property in output.properties) {
-      final parameter = inputs[property.name];
-      if (parameter != null &&
-          _knownRepresentationDifference(
-            _substituteType(property.readType!, outputArguments),
-            _substituteType(parameter.type, inputArguments),
-          )) {
-        return true;
-      }
-    }
-    return false;
   }
 
   bool _rawObjectDifference(ExportType left, ExportType right) {
@@ -990,7 +1021,7 @@ final class _Writer {
     while (type.kind == ValueKind.typeParameter) {
       final parameter = type.parameter!;
       if (!seen.add(parameter)) return null;
-      if (_objects.keys.any((cls) => cls.typeParameters.contains(parameter))) {
+      if (_classParameters.contains(parameter)) {
         return seen.length > 1 ? type : null;
       }
       type = parameter.bound;
@@ -1018,7 +1049,7 @@ final class _Writer {
     if (difference.always) return 'false';
     final pairs = difference.pairs.values;
     if (pairs.isEmpty) return 'true';
-    final conditions = <String>[];
+    final conditions = <String>{};
     for (final pair in pairs) {
       final locals = pair.locals.toSet();
       if (_mentions(pair.left, locals) || _mentions(pair.right, locals)) {
@@ -1036,33 +1067,31 @@ final class _Writer {
   }
 
   String _condition(ExportClass cls) =>
-      _differenceCondition(_differences[cls]!);
+      _differenceCondition(_differences[(left: cls, right: cls)]!);
 
   String _functionCondition(ExportType type) {
     // Schema leaves avoid asking TypeScript to compare a recursive signature.
     final difference = _Difference();
     _collectDifference(type, type, difference);
+    _solveDifferences();
     final pending = difference.edges.values.toList();
     final seen = <String>{};
     while (pending.isNotEmpty && !difference.always) {
       final edge = pending.removeLast();
       if (!seen.add(_pairKey(edge))) continue;
-      final cls = edge.left.classExport!;
-      final source = _differences[cls]!;
+      _solveDifferences();
+      final source =
+          _differences[(
+            left: edge.left.classExport!,
+            right: edge.right.classExport!,
+          )]!;
       if (source.always) return 'false';
-      final left = {
-        for (var i = 0; i < cls.typeParameters.length; ++i)
-          cls.typeParameters[i]: edge.left.typeArguments[i],
-      };
-      final right = {
-        for (var i = 0; i < cls.typeParameters.length; ++i)
-          cls.typeParameters[i]: edge.right.typeArguments[i],
-      };
+      final arguments = _edgeArguments(edge);
       for (final pair in source.pairs.values) {
         final next = _substituteDifference(
           pair,
-          left,
-          right,
+          arguments,
+          arguments,
           locals: edge.locals,
         );
         difference.always |= next.always;
@@ -1626,6 +1655,7 @@ final class _Writer {
 }
 
 typedef _AwaitedBranch = ({ExportType type, bool resolve});
+typedef _ObjectPair = ({ExportClass left, ExportClass right});
 
 final class _TypePair {
   const _TypePair(this.left, this.right, {this.locals = const []});
@@ -1638,7 +1668,7 @@ final class _Difference {
   bool always = false;
   final pairs = <String, _TypePair>{};
   final edges = <String, _TypePair>{};
-  final paths = <String, List<({ExportClass cls, _TypePair pair})>>{};
+  final paths = <String, List<({_ObjectPair node, _TypePair pair})>>{};
 }
 
 ExportType _copyType(
