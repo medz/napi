@@ -13,6 +13,12 @@ Stream<int> numbers(int count, [int milliseconds = 0]) async* {
 }
 
 @NAPI()
+Stream<int> failingValues() async* {
+  yield 1;
+  throw StateError('stream failed');
+}
+
+@NAPI()
 Future<List<int>> collect(Stream<int> values) => values.toList();
 
 @NAPI()
@@ -93,6 +99,14 @@ class StreamState {
   bool started = false;
   bool finished = false;
   int emitted = 0;
+
+  Stream<int> unsafeValues() async* {
+    try {
+      yield 9007199254740992;
+    } finally {
+      finished = true;
+    }
+  }
 
   Stream<int> values([int count = 3, int milliseconds = 0]) async* {
     started = true;

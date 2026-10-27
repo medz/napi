@@ -68,6 +68,16 @@ function worker(path, mode) {
 module.exports = async function verifyAnnotatedStreams(path) {
   const addon = require(path);
   assert.deepEqual(await values(addon.numbers(3)), [0, 1, 2]);
+  const failing = addon.failingValues();
+  assert.deepEqual(await failing.next(), { value: 1, done: false });
+  await assert.rejects(failing.next(), /stream failed/);
+  assert.deepEqual(await failing.next(), { value: undefined, done: true });
+  const unsafeState = new addon.StreamState();
+  const unsafe = unsafeState.unsafeValues();
+  await assert.rejects(unsafe.next(), RangeError);
+  assert.deepEqual(await unsafe.next(), { value: undefined, done: true });
+  await addon.delay();
+  assert.equal(unsafeState.finished, true);
   assert.deepEqual(await values(addon.nullableValues()), [1, null]);
   assert.deepEqual(await values(addon.voidValues()), [undefined, undefined]);
   assert.equal(await addon.countVoids((async function* () { yield 1; yield null; })()), 2);
