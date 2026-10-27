@@ -46,6 +46,7 @@ const echoedFnHolder: addon.FnHolder = addon.echoFnHolder(fnHolder);
 const genericNumber: number = echoedFnHolder.run(7);
 const genericString: string = echoedFnHolder.run('hello');
 const appliedGenericNumber: number = addon.applyFnHolder(fnHolder, 7);
+const scalarBound: boolean = addon.scalarBound({ run: value => value });
 const stringHandler = addon.nativeStringHandler();
 const stringValue = stringHandler.run({ value: '7' });
 const thenableHandler = addon.nativeThenableHandler();

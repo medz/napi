@@ -58,6 +58,15 @@ class FnHolder {
 }
 
 @NAPI.object()
+class BoundHolder<U> {
+  @NAPI()
+  BoundHolder({required this.run});
+
+  @NAPI()
+  final T Function<T extends U>(T) run;
+}
+
+@NAPI.object()
 class StringInput {
   @NAPI()
   // ignore: prefer_initializing_formals
@@ -182,6 +191,10 @@ FnHolder echoFnHolder(FnHolder value) => value;
 
 @NAPI()
 int applyFnHolder(FnHolder value, int input) => value.run<int>(input);
+
+@NAPI()
+bool scalarBound(BoundHolder<num> holder) =>
+    holder.run<double>(3).runtimeType == double;
 
 @NAPI()
 Handler<StringInput> nativeStringHandler() => Handler(run: (value) => value);

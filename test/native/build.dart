@@ -408,6 +408,34 @@ Future<void> main(List<String> args) async {
               '@NAPI() void invalid(Readout<int> value) {}',
           'has no annotated input constructor',
         ),
+        (
+          '@NAPI.object() class Item { @NAPI() Item(this.value); '
+              '@NAPI() final int value; } '
+              '@NAPI.object() class Holder<T> { @NAPI() Holder(this.run); '
+              '@NAPI() final U Function<U extends T>(U) run; } '
+              '@NAPI() void invalid(Holder<Item> value) {}',
+          'generic bounds must preserve JavaScript values',
+        ),
+        (
+          '@NAPI.object() class Item { @NAPI() Item(this.value); '
+              '@NAPI() final int value; } '
+              '@NAPI.object() class Holder<T> { @NAPI() Holder(this.run); '
+              '@NAPI() final U Function<U extends T>(U) run; } '
+              '@NAPI.object() class Outer<T> { @NAPI() Outer(this.inner); '
+              '@NAPI() final Holder<T> inner; } '
+              '@NAPI() void invalid(Outer<Item> value) {}',
+          'generic bounds must preserve JavaScript values',
+        ),
+        (
+          '@NAPI.object() class Holder<T> { @NAPI() Holder(this.run); '
+              '@NAPI() final U Function<U extends T>(U) run; } '
+              '@NAPI.object() class Step<T> { '
+              '@NAPI() Step({required this.holder, this.next}); '
+              '@NAPI() final Holder<T> holder; '
+              '@NAPI() final Step<List<T>>? next; } '
+              '@NAPI() void invalid(Step<int> value) {}',
+          'generic bounds must preserve JavaScript values',
+        ),
       ],
     ),
     (

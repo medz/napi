@@ -76,6 +76,8 @@ module.exports = async function verifyAnnotatedGenericObjects(path) {
   const fnHolder = addon.echoFnHolder({ run: value => value });
   assert.equal(fnHolder.run('hello'), 'hello');
   assert.equal(addon.applyFnHolder(fnHolder, 7), 7);
+  assert.equal(addon.scalarBound({ run: value => value }), true);
+  assert.throws(() => addon.scalarBound({ run: () => 'wrong' }), TypeError);
   assert.deepEqual(addon.nativeStringHandler().run({ value: '7' }), { value: '7' });
   assert.throws(() => addon.nativeStringHandler().run({ value: 7 }), TypeError);
   assert.equal(await addon.nativeThenableHandler().run(Promise.resolve({ value: '7' })), 7);
