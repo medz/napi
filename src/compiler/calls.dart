@@ -25,6 +25,7 @@ final class Calls {
   Map<ExportTypeParameter, PositionalParameter> _readCodecs = const {};
   Map<ExportTypeParameter, PositionalParameter> _writeCodecs = const {};
   Map<ExportTypeParameter, PositionalParameter> _codecDirections = const {};
+  Map<ExportTypeParameter, LocalVariable?> _genericValues = const {};
 
   DartType _dartType(ExportType type) =>
       _codecTypes.substituteType(type.dartType);
@@ -285,6 +286,18 @@ final class Calls {
     Expression Function(DartType) read,
   ) {
     if (type.kind == ValueKind.typeParameter) {
+      if (_genericValues.containsKey(type.parameter)) {
+        return call(
+          VariableGet(env),
+          method(envClass, '_readGenericValue'),
+          [
+            read(core.objectNullableRawType),
+            if (_genericValues[type.parameter] case final values?)
+              VariableGet(values),
+          ],
+          types: [_dartType(type)],
+        );
+      }
       final codec = _readCodecs[type.parameter];
       if (codec != null) {
         final raw = SyntheticVariable(
@@ -483,6 +496,18 @@ final class Calls {
     Expression value,
   ) {
     if (type.kind == ValueKind.typeParameter) {
+      if (_genericValues.containsKey(type.parameter)) {
+        return call(
+          VariableGet(env),
+          method(envClass, '_writeGenericValue'),
+          [
+            value,
+            if (_genericValues[type.parameter] case final values?)
+              VariableGet(values),
+          ],
+          types: [_dartType(type)],
+        );
+      }
       final codec = _writeCodecs[type.parameter];
       if (codec != null) {
         final result = SyntheticVariable(
@@ -1025,10 +1050,66 @@ final class Calls {
         ),
       );
 
+  Expression _withFunctionGenerics(
+    ExportSignature signature, {
+    required bool erased,
+    required Expression Function(List<TypeParameter>, List<DartType>) build,
+  }) {
+    final parameters = signature.typeParameters;
+    if (parameters.isEmpty) return build(const [], const []);
+    final savedTypes = _codecTypes;
+    final savedValues = _genericValues;
+    final fresh = getFreshTypeParameters([
+      for (final parameter in parameters) parameter.target,
+    ]);
+    final freshTypes = Substitution.combine(fresh.substitution, savedTypes);
+    for (var i = 0; i < parameters.length; ++i) {
+      fresh.freshTypeParameters[i]
+        ..bound = freshTypes.substituteType(parameters[i].bound.dartType)
+        ..defaultType = freshTypes.substituteType(
+          parameters[i].defaultType.dartType,
+        );
+    }
+    final arguments = erased
+        ? [
+            for (final parameter in parameters)
+              savedTypes.substituteType(parameter.actualType),
+          ]
+        : fresh.freshTypeArguments;
+    _codecTypes = Substitution.combine(
+      Substitution.fromPairs([
+        for (final parameter in parameters) parameter.target,
+      ], arguments),
+      savedTypes,
+    );
+    _genericValues = {
+      ...savedValues,
+      for (final parameter in parameters) parameter: null,
+    };
+    try {
+      return build(erased ? const [] : fresh.freshTypeParameters, arguments);
+    } finally {
+      _codecTypes = savedTypes;
+      _genericValues = savedValues;
+    }
+  }
+
   Expression _readFunction(
     PositionalParameter env,
     ExportSignature signature,
     Expression source,
+  ) => _withFunctionGenerics(
+    signature,
+    erased: false,
+    build: (parameters, _) =>
+        _readFunctionBody(env, signature, source, parameters),
+  );
+
+  Expression _readFunctionBody(
+    PositionalParameter env,
+    ExportSignature signature,
+    Expression source,
+    List<TypeParameter> typeParameters,
   ) {
     final reference = PositionalParameter(
       cosmeticName: 'reference',
@@ -1066,6 +1147,20 @@ final class Calls {
       type: functionType,
     );
     final statements = <Statement>[];
+    if (signature.typeParameters.isNotEmpty) {
+      final valuesClass = envLibrary.classes.singleWhere(
+        (cls) => cls.name == '_GenericValues',
+      );
+      for (final parameter in signature.typeParameters) {
+        final values = local(
+          statements,
+          '${parameter.name}Values',
+          InterfaceType(valuesClass, Nullability.nonNullable),
+          ConstructorInvocation(valuesClass.constructors.single, Arguments([])),
+        );
+        _genericValues = {..._genericValues, parameter: values};
+      }
+    }
     final arguments = local(
       statements,
       'arguments',
@@ -1159,6 +1254,7 @@ final class Calls {
     final wrapper = FunctionExpression(
       FunctionNode(
         ReturnStatement(invocation),
+        typeParameters: typeParameters,
         positionalParameters: positional,
         namedParameters: named,
         requiredParameterCount: signature.type.requiredParameterCount,
@@ -1221,16 +1317,28 @@ final class Calls {
 
   Expression _adapterValue(ExportSignature signature) {
     if (_needsFunctionAdapter(signature)) return BoolLiteral(true);
-    return _anyDirection([
-      for (final parameter in [...signature.positional, ...signature.named])
-        _directionalValue(parameter.type),
-      _directionalValue(signature.result),
-    ]);
+    final savedValues = _genericValues;
+    _genericValues = {
+      ...savedValues,
+      for (final parameter in signature.typeParameters) parameter: null,
+    };
+    try {
+      return _anyDirection([
+        for (final parameter in [...signature.positional, ...signature.named])
+          _directionalValue(parameter.type),
+        _directionalValue(signature.result),
+      ]);
+    } finally {
+      _genericValues = savedValues;
+    }
   }
 
   Expression _directionalValue(ExportType type) {
     if (_directional(type)) return BoolLiteral(true);
     if (type.kind == ValueKind.typeParameter && type.parameter!.reified) {
+      if (_genericValues.containsKey(type.parameter)) {
+        return BoolLiteral(false);
+      }
       final flag = _codecDirections[type.parameter];
       if (flag == null) {
         throw StateError('Missing direction for ${type.parameter!.name}');
@@ -1255,8 +1363,26 @@ final class Calls {
     PositionalParameter env,
     ExportSignature signature,
     Expression Function() source,
+  ) => _withFunctionGenerics(
+    signature,
+    erased: true,
+    build: (_, arguments) =>
+        _writeFunctionBody(env, signature, source, arguments),
+  );
+
+  Expression _writeFunctionBody(
+    PositionalParameter env,
+    ExportSignature signature,
+    Expression Function() source,
+    List<DartType> typeArguments,
   ) {
     final adapter = _adapterValue(signature);
+    final invocationType = typeArguments.isEmpty
+        ? _signatureType(signature)
+        : FunctionTypeInstantiator.instantiate(
+            _signatureType(signature),
+            typeArguments,
+          );
     final args = PositionalParameter(
       cosmeticName: 'arguments',
       type: argumentsType,
@@ -1277,8 +1403,8 @@ final class Calls {
               invoke: (positional, named) => FunctionInvocation(
                 FunctionAccessKind.FunctionType,
                 source(),
-                Arguments(positional, named: named),
-                functionType: _signatureType(signature),
+                Arguments(positional, named: named, types: typeArguments),
+                functionType: invocationType,
               ),
             ),
             positionalParameters: [args],

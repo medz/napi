@@ -1,6 +1,7 @@
 import 'package:kernel/ast.dart';
 import 'package:kernel/class_hierarchy.dart';
 import 'package:kernel/core_types.dart';
+import 'package:kernel/src/bounds_checks.dart' show calculateBounds;
 import 'package:kernel/type_algebra.dart';
 import 'package:package_config/package_config.dart';
 
@@ -1272,46 +1273,79 @@ final class _Reader {
       );
     }
     if (type is FunctionType) {
-      if (type.typeParameters.isNotEmpty) {
-        throw FormatException(
-          '@NAPI $context: generic function types are not supported yet.',
-        );
-      }
-      return ExportType(
-        _actual(type),
-        ValueKind.function,
-        nullable: type.nullability == Nullability.nullable,
-        signature: ExportSignature(
-          type:
-              _actual(type.withDeclaredNullability(Nullability.nonNullable))
-                  as FunctionType,
-          positional: [
-            for (var i = 0; i < type.positionalParameters.length; ++i)
-              ExportParameter(
-                name: 'arg$i',
-                type: _type(
-                  type.positionalParameters[i],
-                  '$context: parameter $i',
-                ),
-                required: i < type.requiredParameterCount,
-                defaultValue: null,
-              ),
-          ],
-          named: [
-            for (final parameter in type.namedParameters)
-              ExportParameter(
-                name: parameter.name,
-                type: _type(
-                  parameter.type,
-                  '$context: parameter ${parameter.name}',
-                ),
-                required: parameter.isRequired,
-                defaultValue: null,
-              ),
-          ],
-          result: _type(type.returnType, '$context: return', result: true),
-        ),
+      final savedParameters = Map<TypeParameter, ExportTypeParameter>.of(
+        _parameters,
       );
+      try {
+        final signatureType =
+            _actual(type.withDeclaredNullability(Nullability.nonNullable))
+                as FunctionType;
+        final fresh = getFreshTypeParametersFromStructuralParameters(
+          type.typeParameters,
+        );
+        // Structural parameters can retain `dynamic` defaults after lowering.
+        final objectClass = hierarchy.coreTypes.objectClass;
+        for (final parameter in fresh.freshTypeParameters) {
+          final bound = parameter.bound;
+          if (bound is InterfaceType &&
+              bound.classNode == objectClass &&
+              bound.nullability == Nullability.nonNullable) {
+            parameter.defaultType = bound;
+          }
+        }
+        final defaults = calculateBounds(
+          fresh.freshTypeParameters,
+          objectClass,
+        );
+        for (var i = 0; i < defaults.length; ++i) {
+          fresh.freshTypeParameters[i].defaultType = defaults[i];
+        }
+        final body =
+            fresh.substitute(type.withoutTypeParameters) as FunctionType;
+        final parameters = _typeParameters(
+          fresh.freshTypeParameters,
+          context,
+          reified: true,
+        );
+        return ExportType(
+          _actual(type),
+          ValueKind.function,
+          nullable: type.nullability == Nullability.nullable,
+          signature: ExportSignature(
+            type: signatureType,
+            typeParameters: parameters,
+            positional: [
+              for (var i = 0; i < body.positionalParameters.length; ++i)
+                ExportParameter(
+                  name: 'arg$i',
+                  type: _type(
+                    body.positionalParameters[i],
+                    '$context: parameter $i',
+                  ),
+                  required: i < body.requiredParameterCount,
+                  defaultValue: null,
+                ),
+            ],
+            named: [
+              for (final parameter in body.namedParameters)
+                ExportParameter(
+                  name: parameter.name,
+                  type: _type(
+                    parameter.type,
+                    '$context: parameter ${parameter.name}',
+                  ),
+                  required: parameter.isRequired,
+                  defaultValue: null,
+                ),
+            ],
+            result: _type(body.returnType, '$context: return', result: true),
+          ),
+        );
+      } finally {
+        _parameters
+          ..clear()
+          ..addAll(savedParameters);
+      }
     }
     if (type is NullType) return ExportType(_actual(type), ValueKind.nullValue);
     if (type is NeverType)
