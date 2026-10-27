@@ -18,6 +18,7 @@ enum ValueKind {
   list,
   map,
   typedData,
+  dateTime,
   function,
   future,
   stream,
@@ -1104,6 +1105,7 @@ final class _Reader {
           'num' => ValueKind.number,
           'String' => ValueKind.string,
           'BigInt' => ValueKind.bigint,
+          'DateTime' => ValueKind.dateTime,
           'Object' => ValueKind.opaque,
           _ => null,
         };

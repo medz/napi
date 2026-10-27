@@ -148,6 +148,7 @@ final class Calls {
     ValueKind.list ||
     ValueKind.map ||
     ValueKind.typedData ||
+    ValueKind.dateTime ||
     ValueKind.function ||
     ValueKind.future ||
     ValueKind.stream ||
@@ -225,6 +226,11 @@ final class Calls {
         method(envClass, _typedDataMethod(type, read: true)),
         [source(), IntLiteral(_typedArrayKind(type.typedDataKind!))],
         types: [type.dartType.withDeclaredNullability(Nullability.nonNullable)],
+      ),
+      ValueKind.dateTime => call(
+        VariableGet(env),
+        method(envClass, '_readDate'),
+        [source()],
       ),
       ValueKind.function => _readFunction(env, type.signature!, source()),
       ValueKind.record => _readRecord(env, type, source),
@@ -343,6 +349,11 @@ final class Calls {
         VariableGet(env),
         method(envClass, _typedDataMethod(type, read: false)),
         [source(), IntLiteral(_typedArrayKind(type.typedDataKind!))],
+      ),
+      ValueKind.dateTime => call(
+        VariableGet(env),
+        method(envClass, '_writeDate'),
+        [source()],
       ),
       ValueKind.function => _writeFunction(env, type.signature!, source),
       ValueKind.record => _writeRecord(env, type, source),
@@ -838,7 +849,7 @@ final class Calls {
 
   bool _directional(ExportType type) => switch (type.kind) {
     ValueKind.object => type.classExport!.isObject,
-    ValueKind.future || ValueKind.stream => true,
+    ValueKind.future || ValueKind.stream || ValueKind.dateTime => true,
     ValueKind.list || ValueKind.map => _directional(type.element!),
     ValueKind.record =>
       type.recordFields!.positional.any(_directional) ||

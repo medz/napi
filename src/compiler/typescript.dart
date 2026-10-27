@@ -328,6 +328,7 @@ final class _Writer {
       ValueKind.number => 'number',
       ValueKind.string => 'string',
       ValueKind.bigint => 'bigint',
+      ValueKind.dateTime => 'globalThis.Date',
       ValueKind.nullValue => 'null',
       ValueKind.voidValue => 'void',
       ValueKind.never => 'never',

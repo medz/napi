@@ -30,6 +30,7 @@ Future<void> main(List<String> args) async {
       ('objects', 'annotated_objects.dart'),
       ('properties', 'annotated_properties.dart'),
       ('generics', 'annotated_generics.dart'),
+      ('dates', 'annotated_dates.dart'),
     ])
       NativeTarget(
         entry: File('${source.path}/$entry'),
@@ -383,6 +384,16 @@ Future<void> main(List<String> args) async {
           '@NAPI() class Box<T> { @NAPI() Box(this.value); @NAPI() T value; } '
               '@NAPI() int consume(Box<int> value) => value.value;',
           'non-default generic class arguments are not supported',
+        ),
+      ],
+    ),
+    (
+      'dates',
+      'annotated_dates.dart',
+      [
+        (
+          '@NAPI() T invalid<T extends DateTime>(T value) => value;',
+          'generic bounds must preserve JavaScript values',
         ),
       ],
     ),
