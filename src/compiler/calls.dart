@@ -162,6 +162,9 @@ final class Calls {
     ExportType type,
     Expression Function(DartType) read,
   ) {
+    if (type.kind == ValueKind.typeParameter) {
+      return _decode(env, type.representation!, read);
+    }
     if (type.kind == ValueKind.opaque || type.kind == ValueKind.dynamicValue) {
       return call(
         VariableGet(env),
@@ -296,6 +299,9 @@ final class Calls {
     ExportType type,
     Expression value,
   ) {
+    if (type.kind == ValueKind.typeParameter) {
+      return _encode(env, type.representation!, value);
+    }
     if (type.kind == ValueKind.voidValue) {
       return BlockExpression(
         Block([ExpressionStatement(value)]),
@@ -988,7 +994,11 @@ final class Calls {
     List<Expression> positional,
     List<NamedExpression> named,
   ) {
-    final args = Arguments(positional, named: named);
+    final args = Arguments(
+      positional,
+      named: named,
+      types: function.typeArguments,
+    );
     final target = function.target;
     if (target is Constructor) return ConstructorInvocation(target, args);
     if (!function.instance) return StaticInvocation(target as Procedure, args);
@@ -1029,13 +1039,18 @@ final class Calls {
         invoke: (positional, named) =>
             _invoke(function, receiver, positional, named),
         tearOff: function.instance
-            ? () => InstanceTearOff(
-                InstanceAccessKind.Instance,
-                VariableGet(receiver!),
-                function.target.name,
-                interfaceTarget: function.target as Procedure,
-                resultType: function.signature.type,
-              )
+            ? () {
+                final result = InstanceTearOff(
+                  InstanceAccessKind.Instance,
+                  VariableGet(receiver!),
+                  function.target.name,
+                  interfaceTarget: function.target as Procedure,
+                  resultType: function.tearOffType!,
+                );
+                return function.typeArguments.isEmpty
+                    ? result
+                    : Instantiation(result, function.typeArguments);
+              }
             : null,
       ),
     );

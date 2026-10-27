@@ -28,6 +28,7 @@ for (const [target, fixture] of [
   ['references', 'annotated_js_references.cts'],
   ['objects', 'annotated_objects.cts'],
   ['properties', 'annotated_properties.cts'],
+  ['generics', 'annotated_generics.cts'],
 ]) {
   const consumer = resolve(process.argv[2], target, 'consumer.cts');
   copyFileSync(join(__dirname, fixture), consumer);
@@ -39,6 +40,17 @@ writeFileSync(propertiesCjs,
   readFileSync(join(__dirname, 'annotated_properties.cts'), 'utf8')
     .replace("require('./addon')", "require('./addon.cjs')"));
 verify([propertiesCjs], true);
+const genericPackage = resolve(process.argv[2], 'generics', 'package-consumer.mts');
+writeFileSync(genericPackage, `import api, { Box, echoBox, identity } from '../generics-package/index.mjs';
+const value: Box<number> = new Box<number>(42);
+const fromDefault: Box<number> = new api.Box<number>(7);
+api.box = value;
+const same: Box<number> = echoBox(fromDefault);
+const text: string = identity<string>('hello');
+// @ts-expect-error Generic class aliases retain their type parameter.
+value.value = '42';
+`);
+verify([genericPackage], true);
 for (const [directory, specifier] of [
   ['properties-mts', './addon.mjs'],
   ['properties-package', '../properties-package/index.mjs'],
