@@ -60,3 +60,20 @@ T reference<T extends JsReference<JsObject>>(T value) => value;
 
 @NAPI()
 T apply<T>(T value, T Function(T) callback) => callback(value);
+
+class Base<T> {
+  @NAPI()
+  U echo<U extends T>(U value) => value;
+}
+
+@NAPI()
+class NumericChild extends Base<num> {
+  @NAPI()
+  NumericChild();
+}
+
+@NAPI()
+class GenericNumericChild<U extends num> extends Base<U> {
+  @NAPI()
+  GenericNumericChild();
+}

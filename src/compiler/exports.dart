@@ -380,6 +380,20 @@ final class _Reader {
       }
     }
     _members(null, readable, writable, names, static: true);
+    final exportedMembers = <Member>{
+      for (final cls in module.classes) ...[
+        if (cls.constructor != null) cls.constructor!.target,
+        for (final method in [...cls.methods, ...cls.staticMethods])
+          method.target,
+        for (final property in [
+          ...cls.properties,
+          ...cls.staticProperties,
+        ]) ...[
+          if (property.getter != null) property.getter!,
+          if (property.setter != null) property.setter!,
+        ],
+      ],
+    };
     for (final declaration in declarations.whereType<Class>()) {
       if (classes.containsKey(declaration) || enums.containsKey(declaration))
         continue;
@@ -388,7 +402,7 @@ final class _Reader {
         ...declaration.procedures,
         ...declaration.fields,
       ]) {
-        if (_annotation(member) != null)
+        if (_annotation(member) != null && !exportedMembers.contains(member))
           throw FormatException(
             'Unsupported annotated declaration: ${declaration.name}.${member.name.text} belongs to a class that is not exported.',
           );
@@ -460,15 +474,22 @@ final class _Reader {
 
   List<ExportTypeParameter> _typeParameters(
     List<TypeParameter> parameters,
-    String context,
-  ) {
+    String context, {
+    Substitution substitution = Substitution.empty,
+  }) {
     final models = [
       for (final parameter in parameters)
-        ExportTypeParameter(parameter, _actual(parameter.defaultType)),
+        ExportTypeParameter(
+          parameter,
+          _actual(substitution.substituteType(parameter.defaultType)),
+        ),
     ];
     _parameters.addAll({for (final model in models) model.target: model});
     for (final model in models) {
-      model.bound = _type(model.target.bound, '$context: bound ${model.name}');
+      model.bound = _type(
+        substitution.substituteType(model.target.bound),
+        '$context: bound ${model.name}',
+      );
       ExportType representation = model.bound;
       while (representation.kind == ValueKind.typeParameter) {
         representation = representation.representation!;
@@ -492,7 +513,7 @@ final class _Reader {
         );
       }
       model.defaultType = _type(
-        model.target.defaultType,
+        substitution.substituteType(model.target.defaultType),
         '$context: default ${model.name}',
       );
     }
@@ -513,6 +534,7 @@ final class _Reader {
       _parameters,
     );
     try {
+      final substitution = _substitution(owner, target);
       final List<ExportTypeParameter> typeParameters;
       if (constructor) {
         typeParameters = owner!.typeParameters;
@@ -521,9 +543,12 @@ final class _Reader {
           _parameters[function.typeParameters[i]] = typeParameters[i];
         }
       } else {
-        typeParameters = _typeParameters(function.typeParameters, name);
+        typeParameters = _typeParameters(
+          function.typeParameters,
+          name,
+          substitution: substitution,
+        );
       }
-      final substitution = _substitution(owner, target);
       ExportParameter parameter(FunctionParameter parameter, bool required) {
         final parameterName =
             constructor && owner!.isObject && parameter.isWildcard

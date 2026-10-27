@@ -1,7 +1,5 @@
 import 'dart:convert';
 
-import 'package:kernel/ast.dart' show TypeParameter;
-
 import 'exports.dart';
 
 String typeScriptDeclarations(ExportModule exports, {bool esm = false}) =>
@@ -36,7 +34,7 @@ final class _Writer {
   final ExportModule exports;
   final bool esm;
   final Set<String> _names;
-  final _parameterNames = <TypeParameter, String>{};
+  final _parameterNames = <ExportTypeParameter, String>{};
   final _inputs = <ExportClass, String>{};
   final _inputQueue = <ExportClass>[];
 
@@ -53,10 +51,10 @@ final class _Writer {
     List<ExportTypeParameter> enclosing = const [],
   }) {
     final used = {
-      for (final parameter in enclosing) _parameterNames[parameter.target]!,
+      for (final parameter in enclosing) _parameterNames[parameter]!,
     };
     for (final parameter in parameters) {
-      final existing = _parameterNames[parameter.target];
+      final existing = _parameterNames[parameter];
       if (existing != null) {
         used.add(existing);
         continue;
@@ -69,7 +67,7 @@ final class _Writer {
           used.contains(name)) {
         name += '_';
       }
-      _parameterNames[parameter.target] = name;
+      _parameterNames[parameter] = name;
       used.add(name);
     }
   }
@@ -111,7 +109,7 @@ final class _Writer {
     ExportTypeParameter parameter, [
     ExportType? defaultType,
   ]) {
-    final name = _parameterNames[parameter.target]!;
+    final name = _parameterNames[parameter]!;
     final bound = parameter.bound;
     final constraint =
         bound.kind == ValueKind.dynamicValue ||
@@ -128,7 +126,7 @@ final class _Writer {
   String _parameterArguments(List<ExportTypeParameter> parameters) =>
       parameters.isEmpty
       ? ''
-      : '<${parameters.map((parameter) => _parameterNames[parameter.target]!).join(', ')}>';
+      : '<${parameters.map((parameter) => _parameterNames[parameter]!).join(', ')}>';
 
   String _input(ExportClass cls) {
     if (cls.constructor == null) {
@@ -333,7 +331,7 @@ final class _Writer {
       ValueKind.nullValue => 'null',
       ValueKind.voidValue => 'void',
       ValueKind.never => 'never',
-      ValueKind.typeParameter => _parameterNames[type.parameter!.target]!,
+      ValueKind.typeParameter => _parameterNames[type.parameter!]!,
       ValueKind.object =>
         '${type.classExport!.isObject && !output ? _input(type.classExport!) : type.classExport!.name}'
             '${type.typeArguments.isEmpty ? '' : '<${type.typeArguments.map((argument) => _type(argument, output: output)).join(', ')}>'}',

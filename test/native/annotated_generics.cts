@@ -29,6 +29,10 @@ const objectValue: number = object.value;
 const callback = addon.reference((value: number) => value + 1);
 const result: number = callback(3);
 const applied: number = addon.apply(3, value => value + 1);
+const child = new addon.NumericChild();
+const inherited: number = child.echo<number>(1.5);
+const genericChild = new addon.GenericNumericChild<number>();
+const genericInherited: number = genericChild.echo(1.5);
 
 // @ts-expect-error Explicit function type arguments preserve the relation.
 addon.identity<string>(42);
@@ -56,3 +60,7 @@ addon.reference(7);
 addon.apply<number>(3, () => '4');
 // @ts-expect-error Omitted class type arguments default to unknown.
 defaultBox.value.missing;
+// @ts-expect-error Inherited method bounds substitute Base<T> with num.
+child.echo<string>('wrong');
+// @ts-expect-error Method and owner parameters named U retain separate bounds.
+genericChild.echo<string>('wrong');

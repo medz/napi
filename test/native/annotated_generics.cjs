@@ -55,6 +55,13 @@ module.exports = async function verifyAnnotatedGenerics(path, packageDirectory) 
   assert.throws(() => addon.reference(symbol), TypeError);
   assert.equal(addon.apply(3, value => value + 1), 4);
   assert.equal(addon.apply(object, value => { assert.equal(value, object); return next; }), next);
+  const child = new addon.NumericChild();
+  assert.equal(child.echo(7), 7);
+  assert.equal(child.echo(1.5), 1.5);
+  assert.throws(() => child.echo('wrong'), TypeError);
+  const genericChild = new addon.GenericNumericChild();
+  assert.equal(genericChild.echo(1.5), 1.5);
+  assert.throws(() => genericChild.echo('wrong'), TypeError);
   if (packageDirectory) {
     const common = require(join(packageDirectory, 'index.cjs'));
     const module = await import(pathToFileURL(join(packageDirectory, 'index.mjs')).href);
