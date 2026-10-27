@@ -160,6 +160,26 @@ not change the copy. A declaration of `List<int>` always produces a JS Array,
 including when its Dart implementation returns a `Uint8List`. `ByteData`,
 `ByteBuffer` and SIMD lists are not supported yet.
 
+## Dates
+
+Dart `DateTime` values map to JavaScript `Date`:
+
+```dart
+@NAPI()
+DateTime addDay(DateTime value) => value.add(const Duration(days: 1));
+```
+
+```js
+const result = addon.addDay(new Date('2026-01-01T00:00:00Z'));
+console.log(result.toISOString()); // 2026-01-02T00:00:00.000Z
+```
+
+Dates are copied. Inputs become UTC `DateTime` values; JS Date does not preserve
+a Dart local/UTC flag or a time zone. Outputs use `millisecondsSinceEpoch`,
+discarding sub-millisecond precision. This follows Dart's signed timestamp
+semantics: `-1` microsecond becomes `-1` millisecond. Invalid Date inputs throw a
+`RangeError`; other JS types are rejected.
+
 ## Records
 
 Use Dart records to exchange structured values:
@@ -382,7 +402,7 @@ multiplier(3)(14); // 42
 
 Callbacks can be stored and called later on the same Dart isolate. Returning a
 JS callback preserves its identity for signatures with symmetric conversions,
-such as scalar arguments and results. Data classes, Futures and Streams require
+such as scalar arguments and results. Data classes, dates, Futures and Streams require
 an adapter, including when nested in a signature, so a returned function may
 differ from the original JS callback. Use `JsReference<JsFunction>` when passing
 the original function without conversion.

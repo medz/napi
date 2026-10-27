@@ -18,6 +18,7 @@ const verifyAnnotatedJsReferences = require('./annotated_js_references.cjs');
 const verifyAnnotatedObjects = require('./annotated_objects.cjs');
 const verifyAnnotatedProperties = require('./annotated_properties.cjs');
 const verifyAnnotatedGenerics = require('./annotated_generics.cjs');
+const verifyAnnotatedDates = require('./annotated_dates.cjs');
 
 const [output, images] = process.argv.slice(2).map(path => resolve(path));
 const timeout = setTimeout(() => process.exit(1), 30000);
@@ -98,6 +99,7 @@ async function main() {
     join(output, 'properties-package'), join(output, 'properties-assembled'),
   ]);
   await verifyAnnotatedGenerics(join(output, 'generics', 'addon.node'), join(output, 'generics-package'));
+  verifyAnnotatedDates(join(output, 'dates', 'addon.node'));
   const path = join(output, 'full', 'addon.node');
   const addon = require(path);
   assert.equal(addon.answer, 42);

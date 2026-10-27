@@ -926,6 +926,36 @@ final class Env {
   }
 
   // ignore: unused_element
+  DateTime _readDate(JsObject value) {
+    final handle = _encode(value);
+    final isDate = _arena<Bool>();
+    _check(node.napiIsDate(_handle, handle, isDate));
+    if (!isDate.value) throw ArgumentError('Expected a JavaScript Date');
+    final time = _arena<Double>();
+    _check(node.napiGetDateValue(_handle, handle, time));
+    if (!time.value.isFinite) throw RangeError('Invalid JavaScript Date');
+    return DateTime.fromMillisecondsSinceEpoch(time.value.toInt(), isUtc: true);
+  }
+
+  // ignore: unused_element
+  JsObject _writeDate(DateTime value) {
+    final milliseconds = value.millisecondsSinceEpoch;
+    RangeError.checkValueInInterval(
+      milliseconds,
+      -8640000000000000,
+      8640000000000000,
+      'millisecondsSinceEpoch',
+    );
+    return JsObject._(
+      this,
+      _result(
+        (out) => node.napiCreateDate(_handle, milliseconds.toDouble(), out),
+      ),
+      _scope!,
+    );
+  }
+
+  // ignore: unused_element
   List<T> _readList<T>(JsObject value, T Function(JsObject, int) read) {
     _encode(value);
     return List<T>.generate(value._arrayLength, (index) => read(value, index));
