@@ -371,14 +371,26 @@ final class _Writer {
       result.pairs[_pairKey(value)] = value;
     }
 
+    final leftTop =
+        left.kind == ValueKind.opaque || left.kind == ValueKind.dynamicValue;
+    final rightTop =
+        right.kind == ValueKind.opaque || right.kind == ValueKind.dynamicValue;
+    if (leftTop != rightTop &&
+        left.kind != ValueKind.typeParameter &&
+        right.kind != ValueKind.typeParameter) {
+      result.always = true;
+      return;
+    }
     if (left.nullable != right.nullable) {
       final a = _includesNull(left), b = _includesNull(right);
-      if (a != null && b != null && a != b) {
-        result.always = true;
-      } else {
+      if (a == null || b == null) {
         pair();
+        return;
       }
-      return;
+      if (a != b) {
+        result.always = true;
+        return;
+      }
     }
     if (left.kind == ValueKind.typeParameter ||
         right.kind == ValueKind.typeParameter) {
@@ -398,7 +410,19 @@ final class _Writer {
       return;
     }
     if (left.kind != right.kind) {
-      pair();
+      final leftArray = _isJsArray(left), rightArray = _isJsArray(right);
+      final leftPrimitive = _isJsPrimitive(left),
+          rightPrimitive = _isJsPrimitive(right);
+      if (leftArray != null && rightArray != null && leftArray != rightArray ||
+          leftPrimitive != null &&
+              rightPrimitive != null &&
+              leftPrimitive != rightPrimitive ||
+          leftArray == true && rightArray == true) {
+        // The remaining array kind mismatch is a fixed tuple versus a List.
+        result.always = true;
+      } else {
+        pair();
+      }
       return;
     }
     if (left.kind == ValueKind.object) {
@@ -534,6 +558,39 @@ final class _Writer {
     ValueKind.dynamicValue ||
     ValueKind.opaque => null,
     _ => type.nullable || type.kind == ValueKind.nullValue,
+  };
+
+  bool? _isJsArray(ExportType type) => switch (type.kind) {
+    ValueKind.list => true,
+    ValueKind.record => type.recordFields!.named.isEmpty,
+    ValueKind.typeParameter ||
+    ValueKind.dynamicValue ||
+    ValueKind.opaque => null,
+    ValueKind.jsReference when type.referenceKind == JsReferenceKind.object =>
+      null,
+    _ => false,
+  };
+
+  bool? _isJsPrimitive(ExportType type) => switch (type.kind) {
+    ValueKind.boolean ||
+    ValueKind.integer ||
+    ValueKind.doubleValue ||
+    ValueKind.number ||
+    ValueKind.string ||
+    ValueKind.bigint ||
+    ValueKind.nullValue ||
+    ValueKind.undefined ||
+    ValueKind.enumeration => true,
+    ValueKind.jsReference when type.referenceKind == JsReferenceKind.symbol =>
+      true,
+    ValueKind.typeParameter ||
+    ValueKind.dynamicValue ||
+    ValueKind.opaque ||
+    ValueKind.voidValue ||
+    ValueKind.never => null,
+    ValueKind.jsReference when type.referenceKind == JsReferenceKind.object =>
+      null,
+    _ => false,
   };
 
   int _parameterId(ExportTypeParameter parameter) =>

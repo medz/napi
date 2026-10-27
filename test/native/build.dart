@@ -411,16 +411,6 @@ Future<void> main(List<String> args) async {
               'throw UnimplementedError();',
           'thenable resolution does not have a finite type',
         ),
-        for (final argument in ['T Function()', '(T,)'])
-          (
-            '@NAPI.object() class Loop<T> { '
-                '@NAPI() Loop({required List<T> value, required this.next}) '
-                ': value = value.first; '
-                '@NAPI() final T value; '
-                '@NAPI() final Loop<$argument>? next; } '
-                '@NAPI() Loop<int> invalid(Loop<int> value) => value;',
-            'recursive input/output projections expand at different rates',
-          ),
         (
           '@NAPI.object() class Readout<T> { Readout(this.value); '
               '@NAPI() final T value; } '

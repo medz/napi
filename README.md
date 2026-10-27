@@ -510,7 +510,8 @@ For function-valued generic arguments with asymmetric conversions, keep the
 inferred generated type or derive it with TypeScript's `ReturnType`. A handwritten
 arrow type does not retain the generated input/output association.
 
-Recursive constructor/getter differences that keep expanding are not yet supported.
+Recursive projections that cannot yet be resolved to finite input/output
+constraints produce a build error.
 
 ## Generics
 

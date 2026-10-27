@@ -75,6 +75,28 @@ const chained: addon.Chain = addon.echoChain(chain).next().next();
 declare const nullableNext: addon.NullableNext;
 const nonnullableNext: addon.NullableNext = nullableNext.next;
 const nextUsesSelf: boolean = addon.nullableNextUsesSelf({ next: null });
+const listNextChain: addon.ListNextChain = addon.echoListNextChain({
+  next: [{ next: null }],
+});
+const listNextChild: addon.ListNextChain | null = listNextChain.next;
+// @ts-expect-error The constructor takes an array, not the getter's object shape.
+addon.echoListNextChain({ next: { next: null } });
+const opaqueNext: addon.OpaqueNext = addon.echoOpaqueNext({ next: 'anything' });
+const opaqueChild: addon.OpaqueNext | null = opaqueNext.next;
+// @ts-expect-error The constructor's Object parameter is non-nullable.
+addon.echoOpaqueNext({ next: null });
+// @ts-expect-error The broad constructor input differs from the getter's data type.
+const forgedOpaqueNext: addon.OpaqueNext = { next: null };
+const recordValue: addon.RecordValue = { value: { value: 7 } };
+const echoedRecordValue: addon.RecordValue = addon.echoRecordValue(recordValue);
+const functionLoop: addon.FunctionLoop<number> = addon.echoFunctionLoop({
+  value: [1], next: { value: [() => 7], next: null },
+});
+const loopFunction: (() => number) | undefined = functionLoop.next?.value;
+const recordLoop: addon.RecordLoop<number> = addon.echoRecordLoop({
+  value: [1], next: { value: [[2]], next: null },
+});
+const loopTuple: [number] | undefined = recordLoop.next?.value;
 const asyncChain: addon.AsyncChain = addon.echoAsyncChain({
   next: Promise.resolve({ next: Promise.resolve(null) }),
 });

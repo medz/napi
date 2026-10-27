@@ -96,6 +96,69 @@ class NullableNext {
 }
 
 @NAPI.object()
+class ListNextChain {
+  @NAPI()
+  // ignore: prefer_initializing_formals
+  ListNextChain({required List<ListNextChain?>? next}) : _next = next;
+
+  final List<ListNextChain?>? _next;
+  @NAPI()
+  ListNextChain? get next => _next?.firstOrNull;
+}
+
+@NAPI.object()
+class OpaqueNext {
+  @NAPI()
+  OpaqueNext({required Object next});
+
+  @NAPI()
+  OpaqueNext? get next => null;
+}
+
+@NAPI.object()
+class ScalarValue {
+  @NAPI()
+  ScalarValue(this.value);
+
+  @NAPI()
+  final int value;
+}
+
+@NAPI.object()
+class RecordValue {
+  @NAPI()
+  RecordValue({required ({int value}) value})
+    : value = ScalarValue(value.value);
+
+  @NAPI()
+  final ScalarValue value;
+}
+
+@NAPI.object()
+class FunctionLoop<T> {
+  @NAPI()
+  FunctionLoop({required List<T> value, required this.next})
+    : value = value.first;
+
+  @NAPI()
+  final T value;
+  @NAPI()
+  final FunctionLoop<T Function()>? next;
+}
+
+@NAPI.object()
+class RecordLoop<T> {
+  @NAPI()
+  RecordLoop({required List<T> value, required this.next})
+    : value = value.first;
+
+  @NAPI()
+  final T value;
+  @NAPI()
+  final RecordLoop<(T,)>? next;
+}
+
+@NAPI.object()
 class AsyncChain {
   @NAPI()
   AsyncChain({required this.next});
@@ -458,6 +521,21 @@ Chain echoChain(Chain value) => value;
 
 @NAPI()
 bool nullableNextUsesSelf(NullableNext value) => identical(value.next, value);
+
+@NAPI()
+ListNextChain echoListNextChain(ListNextChain value) => value;
+
+@NAPI()
+OpaqueNext echoOpaqueNext(OpaqueNext value) => value;
+
+@NAPI()
+RecordValue echoRecordValue(RecordValue value) => value;
+
+@NAPI()
+FunctionLoop<int> echoFunctionLoop(FunctionLoop<int> value) => value;
+
+@NAPI()
+RecordLoop<int> echoRecordLoop(RecordLoop<int> value) => value;
 
 @NAPI()
 AsyncChain echoAsyncChain(AsyncChain value) => value;
