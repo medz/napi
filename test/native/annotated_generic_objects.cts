@@ -87,8 +87,24 @@ const opaqueChild: addon.OpaqueNext | null = opaqueNext.next;
 addon.echoOpaqueNext({ next: null });
 // @ts-expect-error The broad constructor input differs from the getter's data type.
 const forgedOpaqueNext: addon.OpaqueNext = { next: null };
+const referenceNext: addon.ReferenceNext = addon.echoReferenceNext({ next: {} });
+const referenceChild: addon.ReferenceNext | null = referenceNext.next;
+// @ts-expect-error A raw object reference is broader than this data type.
+const forgedReferenceNext: addon.ReferenceNext = { next: null };
+// @ts-expect-error JsObject references do not accept primitive strings.
+addon.echoReferenceNext({ next: 'wrong' });
+declare const distinctNext: addon.DistinctNext;
+const distinctChild: addon.DistinctNext = distinctNext.next;
+const distinctUsesSelf: boolean = addon.distinctNextUsesSelf({ next: { next: 7 } });
+// @ts-expect-error These distinct constructor and getter shapes need output identity.
+const forgedDistinctNext: addon.DistinctNext = { next: distinctNext };
+const emptyReferenceView: addon.EmptyReferenceView = { value: {} };
+const echoedEmptyReferenceView: addon.EmptyReferenceView =
+  addon.echoEmptyReferenceView(emptyReferenceView);
 const recordValue: addon.RecordValue = { value: { value: 7 } };
 const echoedRecordValue: addon.RecordValue = addon.echoRecordValue(recordValue);
+const classValueView: addon.ClassValueView = { value: { value: 7 } };
+const echoedClassValueView: addon.ClassValueView = addon.echoClassValueView(classValueView);
 const functionLoop: addon.FunctionLoop<number> = addon.echoFunctionLoop({
   value: [1], next: { value: [() => 7], next: null },
 });

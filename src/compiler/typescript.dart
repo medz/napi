@@ -371,13 +371,7 @@ final class _Writer {
       result.pairs[_pairKey(value)] = value;
     }
 
-    final leftTop =
-        left.kind == ValueKind.opaque || left.kind == ValueKind.dynamicValue;
-    final rightTop =
-        right.kind == ValueKind.opaque || right.kind == ValueKind.dynamicValue;
-    if (leftTop != rightTop &&
-        left.kind != ValueKind.typeParameter &&
-        right.kind != ValueKind.typeParameter) {
+    if (_fixedTopDifference(left, right)) {
       result.always = true;
       return;
     }
@@ -410,15 +404,7 @@ final class _Writer {
       return;
     }
     if (left.kind != right.kind) {
-      final leftArray = _isJsArray(left), rightArray = _isJsArray(right);
-      final leftPrimitive = _isJsPrimitive(left),
-          rightPrimitive = _isJsPrimitive(right);
-      if (leftArray != null && rightArray != null && leftArray != rightArray ||
-          leftPrimitive != null &&
-              rightPrimitive != null &&
-              leftPrimitive != rightPrimitive ||
-          leftArray == true && rightArray == true) {
-        // The remaining array kind mismatch is a fixed tuple versus a List.
+      if (_knownRepresentationDifference(left, right)) {
         result.always = true;
       } else {
         pair();
@@ -429,6 +415,8 @@ final class _Writer {
       if (left.classExport == right.classExport && left.classExport!.isObject) {
         final value = _TypePair(left, right, locals: locals);
         result.edges[_pairKey(value)] = value;
+      } else if (_differentObjectSchemas(left, right)) {
+        result.always = true;
       } else if (_typeKey(left) != _typeKey(right)) {
         pair();
       }
@@ -559,6 +547,121 @@ final class _Writer {
     ValueKind.opaque => null,
     _ => type.nullable || type.kind == ValueKind.nullValue,
   };
+
+  bool _requiredObjectKey(String name, ExportType type) =>
+      !_objectMemberNames.contains(name) || !_mayCall(type);
+
+  bool _fixedTopDifference(ExportType left, ExportType right) {
+    final leftTop =
+        left.kind == ValueKind.opaque || left.kind == ValueKind.dynamicValue;
+    final rightTop =
+        right.kind == ValueKind.opaque || right.kind == ValueKind.dynamicValue;
+    return leftTop != rightTop &&
+        left.kind != ValueKind.typeParameter &&
+        right.kind != ValueKind.typeParameter;
+  }
+
+  bool _knownRepresentationDifference(ExportType left, ExportType right) {
+    if (left.kind == ValueKind.typeParameter ||
+        right.kind == ValueKind.typeParameter) {
+      return false;
+    }
+    if (_fixedTopDifference(left, right)) return true;
+    if (left.nullable != right.nullable) {
+      final a = _includesNull(left), b = _includesNull(right);
+      if (a != null && b != null && a != b) return true;
+    }
+    final leftArray = _isJsArray(left), rightArray = _isJsArray(right);
+    final leftPrimitive = _isJsPrimitive(left),
+        rightPrimitive = _isJsPrimitive(right);
+    return leftArray != null && rightArray != null && leftArray != rightArray ||
+        leftPrimitive != null &&
+            rightPrimitive != null &&
+            leftPrimitive != rightPrimitive ||
+        left.kind != right.kind && leftArray == true && rightArray == true ||
+        _rawObjectDifference(left, right);
+  }
+
+  bool _differentObjectSchemas(ExportType left, ExportType right) {
+    final output = left.classExport!, input = right.classExport!;
+    if (!output.isObject || !input.isObject) return false;
+    final constructor = input.constructor;
+    if (constructor == null) return true;
+    final fields = {
+      for (final property in output.properties)
+        if (!_objectMemberNames.contains(property.name)) property.name,
+    };
+    final inputs = {
+      for (final parameter in [
+        ...constructor.signature.positional,
+        ...constructor.signature.named,
+      ])
+        parameter.name: parameter,
+    };
+    final parameters = {
+      for (final parameter in inputs.values)
+        if (parameter.required && !_objectMemberNames.contains(parameter.name))
+          parameter.name,
+    };
+    if (fields.length != parameters.length || !fields.containsAll(parameters)) {
+      return true;
+    }
+    final outputArguments = {
+      for (var i = 0; i < output.typeParameters.length; ++i)
+        output.typeParameters[i]: left.typeArguments[i],
+    };
+    final inputArguments = {
+      for (var i = 0; i < input.typeParameters.length; ++i)
+        input.typeParameters[i]: right.typeArguments[i],
+    };
+    for (final property in output.properties) {
+      final parameter = inputs[property.name];
+      if (parameter != null &&
+          _knownRepresentationDifference(
+            _substituteType(property.readType!, outputArguments),
+            _substituteType(parameter.type, inputArguments),
+          )) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool _rawObjectDifference(ExportType left, ExportType right) {
+    final rawLeft =
+        left.kind == ValueKind.jsReference &&
+        left.referenceKind == JsReferenceKind.object;
+    final rawRight =
+        right.kind == ValueKind.jsReference &&
+        right.referenceKind == JsReferenceKind.object;
+    if (!rawLeft && !rawRight) return false;
+    final type = rawLeft ? right : left;
+    if (_isJsArray(type) == true ||
+        type.kind == ValueKind.function ||
+        type.kind == ValueKind.jsReference &&
+            type.referenceKind == JsReferenceKind.function) {
+      return true;
+    }
+    if (type.kind != ValueKind.object || !type.classExport!.isObject) {
+      return false;
+    }
+    final cls = type.classExport!;
+    if (rawRight) {
+      return cls.properties.any(
+        (property) => _requiredObjectKey(property.name, property.readType!),
+      );
+    }
+    final constructor = cls.constructor;
+    return constructor != null &&
+        [
+          ...constructor.signature.positional,
+          ...constructor.signature.named,
+        ].any(
+          (parameter) =>
+              parameter.required &&
+              _requiredObjectKey(parameter.name, parameter.type),
+        );
+  }
 
   bool? _isJsArray(ExportType type) => switch (type.kind) {
     ValueKind.list => true,
@@ -1566,6 +1669,16 @@ String _label(String name, int index) =>
     RegExp(r'^[a-zA-Z_$][a-zA-Z0-9_$]*$').hasMatch(name) ? name : 'arg$index';
 
 String _member(String name) => name == 'constructor' ? '["constructor"]' : name;
+
+const _objectMemberNames = {
+  'constructor',
+  'toString',
+  'toLocaleString',
+  'valueOf',
+  'hasOwnProperty',
+  'isPrototypeOf',
+  'propertyIsEnumerable',
+};
 
 const _reservedParameterNames = {
   'any',

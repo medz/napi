@@ -116,6 +116,49 @@ class OpaqueNext {
 }
 
 @NAPI.object()
+class ReferenceNext {
+  @NAPI()
+  ReferenceNext({required JsReference<JsObject>? next});
+
+  @NAPI()
+  ReferenceNext? get next => null;
+}
+
+@NAPI.object()
+class DistinctNext {
+  @NAPI()
+  DistinctNext({required ScalarNext next});
+
+  @NAPI()
+  DistinctNext get next => this;
+}
+
+@NAPI.object()
+class ScalarNext {
+  @NAPI()
+  ScalarNext(this.next);
+
+  @NAPI()
+  final int next;
+}
+
+@NAPI.object()
+class Empty {
+  @NAPI()
+  Empty();
+}
+
+@NAPI.object()
+class EmptyReferenceView {
+  @NAPI()
+  EmptyReferenceView({required JsReference<JsObject>? value})
+    : value = value == null ? null : Empty();
+
+  @NAPI()
+  final Empty? value;
+}
+
+@NAPI.object()
 class ScalarValue {
   @NAPI()
   ScalarValue(this.value);
@@ -132,6 +175,25 @@ class RecordValue {
 
   @NAPI()
   final ScalarValue value;
+}
+
+@NAPI.object()
+class IntegerValue {
+  @NAPI()
+  IntegerValue(this.value);
+
+  @NAPI()
+  final int value;
+}
+
+@NAPI.object()
+class ClassValueView {
+  @NAPI()
+  ClassValueView({required ScalarValue value})
+    : value = IntegerValue(value.value);
+
+  @NAPI()
+  final IntegerValue value;
 }
 
 @NAPI.object()
@@ -529,7 +591,19 @@ ListNextChain echoListNextChain(ListNextChain value) => value;
 OpaqueNext echoOpaqueNext(OpaqueNext value) => value;
 
 @NAPI()
+ReferenceNext echoReferenceNext(ReferenceNext value) => value;
+
+@NAPI()
+bool distinctNextUsesSelf(DistinctNext value) => identical(value.next, value);
+
+@NAPI()
+EmptyReferenceView echoEmptyReferenceView(EmptyReferenceView value) => value;
+
+@NAPI()
 RecordValue echoRecordValue(RecordValue value) => value;
+
+@NAPI()
+ClassValueView echoClassValueView(ClassValueView value) => value;
 
 @NAPI()
 FunctionLoop<int> echoFunctionLoop(FunctionLoop<int> value) => value;

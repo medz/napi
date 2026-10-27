@@ -121,7 +121,13 @@ module.exports = async function verifyAnnotatedGenericObjects(path) {
   assert.throws(() => addon.echoListNextChain({ next: { next: null } }), TypeError);
   assert.deepEqual(addon.echoOpaqueNext({ next: 'anything' }), { next: null });
   assert.throws(() => addon.echoOpaqueNext({ next: null }), TypeError);
+  assert.deepEqual(addon.echoReferenceNext({ next: {} }), { next: null });
+  assert.throws(() => addon.echoReferenceNext({ next: 'wrong' }), TypeError);
+  assert.equal(addon.distinctNextUsesSelf({ next: { next: 7 } }), true);
+  assert.deepEqual(addon.echoEmptyReferenceView({ value: { token: 7 } }), { value: {} });
+  assert.deepEqual(addon.echoEmptyReferenceView({ value: null }), { value: null });
   assert.deepEqual(addon.echoRecordValue({ value: { value: 7 } }), { value: { value: 7 } });
+  assert.deepEqual(addon.echoClassValueView({ value: { value: 7 } }), { value: { value: 7 } });
   const functionLoop = addon.echoFunctionLoop({
     value: [1], next: { value: [() => 7], next: null },
   });
