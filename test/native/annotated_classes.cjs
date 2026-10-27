@@ -4,8 +4,9 @@ const assert = require('node:assert/strict');
 const { setImmediate: nextTurn } = require('node:timers/promises');
 
 module.exports = async function verifyAnnotatedClasses(path) {
-  const { Counter, Other, FactoryCounter, NamedOnly,
-    echoCounter, echoNullableCounter, derived, sharedCounter, multiCounter, multiOther } = require(path);
+  const { Counter, Other, FactoryCounter, NamedOnly, Visibility, ReturnedOnly,
+    echoCounter, echoNullableCounter, derived, sharedCounter, multiCounter, multiOther,
+    returnedOnly } = require(path);
   Counter.created = 0;
   const a = new Counter();
   const b = new Counter(5);
@@ -74,6 +75,37 @@ module.exports = async function verifyAnnotatedClasses(path) {
   const namedOnly = NamedOnly.create();
   assert(namedOnly instanceof NamedOnly);
   assert.equal(namedOnly.value, 4);
+
+  const visible = new Visibility();
+  assert.equal(visible.id, 7);
+  assert.throws(() => { visible.id = 9; }, TypeError);
+  assert.equal(visible.lazy, 11);
+  assert.throws(() => { visible.lazy = 13; }, TypeError);
+  assert.equal(visible.lazy, 11);
+  for (const name of ['hiddenField', 'hiddenMethod', 'hiddenAccessor', 'unsupported', 'unsupportedMethod']) {
+    assert.equal(name in visible, false);
+  }
+  for (const name of ['named', 'hidden', 'hiddenStaticField', 'hiddenStaticMethod']) {
+    assert.equal(Object.hasOwn(Visibility, name), false);
+  }
+  const reader = Object.getOwnPropertyDescriptor(Visibility.prototype, 'readOnly');
+  assert.equal(typeof reader.get, 'function');
+  assert.equal(reader.set, undefined);
+  assert.equal(visible.readOnly, 3);
+  assert.throws(() => { visible.readOnly = 9; }, TypeError);
+  assert.equal(visible.readOnly, 3);
+  const writer = Object.getOwnPropertyDescriptor(Visibility.prototype, 'writeOnly');
+  assert.equal(writer.get, undefined);
+  assert.equal(typeof writer.set, 'function');
+  assert.equal(visible.writeOnly, undefined);
+  visible.writeOnly = 23;
+  assert.equal(visible.readStored(), 23);
+  assert.equal(visible.writeOnly, undefined);
+  assert.throws(() => new ReturnedOnly(1), TypeError);
+  const returned = returnedOnly();
+  assert(returned instanceof ReturnedOnly);
+  assert.equal(returned.value, 19);
+  assert.equal(returned.read(), 19);
 
   const { get, set } = Object.getOwnPropertyDescriptor(Counter.prototype, 'value');
   for (const value of [{}, Object.create(Counter.prototype), new Other()]) {

@@ -6,6 +6,8 @@ import 'package:meta/meta_meta.dart';
 export 'js_types.dart';
 
 /// Exports a Dart declaration using its name, or [name] when supplied.
+///
+/// Annotate a class and each constructor, field, accessor or method to expose.
 @Target({
   TargetKind.type,
   TargetKind.function,

@@ -83,7 +83,9 @@ Future<int> countVoids(Stream<void> values) async {
 
 @NAPI()
 class StreamValue {
+  @NAPI()
   StreamValue(this.value);
+  @NAPI()
   int value;
 }
 
@@ -96,10 +98,17 @@ Stream<StreamValue?> repeatValue(StreamValue value) async* {
 
 @NAPI()
 class StreamState {
+  @NAPI()
+  StreamState();
+
+  @NAPI()
   bool started = false;
+  @NAPI()
   bool finished = false;
+  @NAPI()
   int emitted = 0;
 
+  @NAPI()
   Stream<int> unsafeValues() async* {
     try {
       yield 9007199254740992;
@@ -108,6 +117,7 @@ class StreamState {
     }
   }
 
+  @NAPI()
   Stream<int> values([int count = 3, int milliseconds = 0]) async* {
     started = true;
     try {

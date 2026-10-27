@@ -147,7 +147,9 @@ int invokeRequiredNamed(RequiredNamedCallback callback) => callback(value: 3);
 
 @NAPI()
 class Box {
+  @NAPI()
   Box(this.value);
+  @NAPI()
   int value;
 }
 
@@ -163,10 +165,13 @@ List<Map<String, Box?>> Function() nestedBoxes(Box value) =>
 
 @NAPI()
 class Calculator {
+  @NAPI()
   Calculator(int factor) : operation = ((value) => value * factor);
 
+  @NAPI()
   IntCallback operation;
 
+  @NAPI()
   int apply(int value, IntCallback callback) => operation(callback(value));
 }
 

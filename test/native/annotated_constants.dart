@@ -32,9 +32,12 @@ const snapshot = (
 
 @NAPI()
 class Point {
+  @NAPI()
   const Point([this.value = _initial]);
+  @NAPI()
   final int value;
 
+  @NAPI()
   int plus([int amount = 1]) => value + amount;
 }
 
