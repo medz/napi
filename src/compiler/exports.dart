@@ -19,6 +19,8 @@ enum ValueKind {
   map,
   typedData,
   dateTime,
+  byteBuffer,
+  byteData,
   function,
   future,
   stream,
@@ -1116,6 +1118,16 @@ final class _Reader {
             nullable: type.nullability == Nullability.nullable,
           );
       } else if (library == 'dart:typed_data') {
+        if (type.classNode.name == 'ByteBuffer' ||
+            type.classNode.name == 'ByteData') {
+          return ExportType(
+            _actual(type),
+            type.classNode.name == 'ByteBuffer'
+                ? ValueKind.byteBuffer
+                : ValueKind.byteData,
+            nullable: type.nullability == Nullability.nullable,
+          );
+        }
         final kind = switch (type.classNode.name) {
           'Int8List' => TypedDataKind.int8,
           'Uint8List' => TypedDataKind.uint8,

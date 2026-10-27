@@ -329,6 +329,8 @@ final class _Writer {
       ValueKind.string => 'string',
       ValueKind.bigint => 'bigint',
       ValueKind.dateTime => 'globalThis.Date',
+      ValueKind.byteBuffer => 'globalThis.ArrayBuffer',
+      ValueKind.byteData => 'globalThis.DataView',
       ValueKind.nullValue => 'null',
       ValueKind.voidValue => 'void',
       ValueKind.never => 'never',

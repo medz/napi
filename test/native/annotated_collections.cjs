@@ -137,4 +137,10 @@ module.exports = function verifyAnnotatedCollections(path) {
   addon.changeSavedByte(2, 7);
   assert.equal(saved[2], 3);
   assert.deepEqual(Array.from(addon.savedBytes()), [1, 2, 7]);
+  const detached = new Uint8Array(1);
+  structuredClone(detached.buffer, { transfer: [detached.buffer] });
+  assert.throws(() => addon.echoUint8(detached), TypeError);
+  const shared = new Uint8Array(new SharedArrayBuffer(1));
+  shared[0] = 7;
+  assert.deepEqual(Array.from(addon.echoUint8(shared)), [7]);
 };
