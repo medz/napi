@@ -160,6 +160,37 @@ Arguments and results use the same conversions as other annotated functions,
 including nested collections and exported classes. Generic function types are
 not supported yet.
 
+## Futures
+
+Return a `Future` to expose an asynchronous function, or accept one to await a
+JavaScript Promise:
+
+```dart
+@NAPI()
+Future<int> addLater(int value) async {
+  await Future<void>.delayed(const Duration(milliseconds: 1));
+  return value + 1;
+}
+
+@NAPI()
+Future<int> addFromPromise(Future<int> value) async => await value + 1;
+```
+
+```js
+await addLater(41); // 42
+await addFromPromise(Promise.resolve(41)); // 42
+```
+
+Future parameters require a Promise. Its completed value is checked against the
+declared Dart type. Completion errors reject the returned Promise, including
+errors converting a Dart result; JS rejection reasons retain their identity.
+`Future<void>` resolves to `undefined`. Use it instead of `async void`.
+
+Results follow standard Promise resolution: returned thenables are adopted, and
+nested Futures are flattened. Directly nested Future parameters cannot preserve
+their Dart structure and are rejected during compilation. Futures inside lists
+and maps are supported.
+
 ## npm packages
 
 Use `PackageBuild` in your Dart build script to produce an installable package:
