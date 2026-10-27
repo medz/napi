@@ -32,6 +32,7 @@ Future<void> main(List<String> args) async {
       ('generics', 'annotated_generics.dart'),
       ('dates', 'annotated_dates.dart'),
       ('binary-views', 'annotated_binary_views.dart'),
+      ('simd', 'annotated_simd.dart'),
     ])
       NativeTarget(
         entry: File('${source.path}/$entry'),

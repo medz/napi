@@ -1166,6 +1166,54 @@ final class Env {
     );
   }
 
+  // ignore: unused_element
+  T _readSimdList<T extends TypedData>(JsObject value, int expectedKind) {
+    final data = _readTypedData<TypedData>(value, expectedKind);
+    if (data.lengthInBytes % 16 != 0) {
+      throw ArgumentError('SIMD arrays require a multiple of 16 bytes');
+    }
+    final offset = data.offsetInBytes;
+    final length = data.lengthInBytes ~/ 16;
+    return (switch (expectedKind) {
+          5 => data.buffer.asInt32x4List(offset, length),
+          7 => data.buffer.asFloat32x4List(offset, length),
+          8 => data.buffer.asFloat64x2List(offset, length),
+          _ => throw ArgumentError('Unsupported SIMD TypedArray kind'),
+        })
+        as T;
+  }
+
+  // ignore: unused_element
+  T _readSimd<T>(JsObject value, int expectedKind) {
+    final data = _readSimdList<TypedData>(value, expectedKind);
+    if (data.lengthInBytes != 16) {
+      throw ArgumentError('SIMD vectors require exactly 16 bytes');
+    }
+    return (switch (expectedKind) {
+          5 => (data as Int32x4List)[0],
+          7 => (data as Float32x4List)[0],
+          8 => (data as Float64x2List)[0],
+          _ => throw ArgumentError('Unsupported SIMD TypedArray kind'),
+        })
+        as T;
+  }
+
+  // ignore: unused_element
+  JsObject _writeSimd(Object value, int expectedKind) {
+    final TypedData data;
+    switch (expectedKind) {
+      case 5:
+        data = Int32x4List(1)..[0] = value as Int32x4;
+      case 7:
+        data = Float32x4List(1)..[0] = value as Float32x4;
+      case 8:
+        data = Float64x2List(1)..[0] = value as Float64x2;
+      default:
+        throw ArgumentError('Unsupported SIMD TypedArray kind');
+    }
+    return _writeTypedData(data, expectedKind);
+  }
+
   @Available(napi: 6)
   // ignore: unused_element
   T _readBigIntTypedData<T extends TypedData>(
