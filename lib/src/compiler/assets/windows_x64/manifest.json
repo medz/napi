@@ -16,11 +16,11 @@
     },
     "compiler.dll": {
       "size": 271360,
-      "sha256": "d94739c2bdeb01a76c46b9d65e009425b2a778ed6688e76d80fd454133e456b4"
+      "sha256": "d36e8857f853f1ed2ffe0df6b31231e5762b619f2cb615193b4ef6f6d3e99e25"
     },
     "frontend.aot": {
       "size": 9257864,
-      "sha256": "92aadc66881a5259c873ff2018ff0f7910fedbb0d9b675d2a04c627196f8e9d4"
+      "sha256": "0f909f9c6333c3564e162bd2096a1b85405a5343ddb2ab443decf352c1c3a852"
     },
     "frontend.dll": {
       "size": 5099520,

@@ -115,6 +115,7 @@ final class Artifact {
           kind != 'function' &&
           kind != 'enum' &&
           kind != 'value' &&
+          kind != 'property' &&
           kind != 'type') {
         throw FormatException('Unsupported native export kind: $kind.');
       }

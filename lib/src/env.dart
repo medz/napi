@@ -1347,6 +1347,44 @@ final class Env {
 
   final _constructors = <int>{};
 
+  // Called by generated top-level property bindings.
+  // ignore: unused_element
+  void _defineProperty(
+    JsObject target,
+    String name, {
+    Object? Function()? getter,
+    void Function(JsArguments)? setter,
+  }) {
+    target._check();
+    if (target._env != this) {
+      throw ArgumentError('JavaScript value belongs to another environment');
+    }
+    final token = _nextToken++;
+    try {
+      final property = _arena<node.NapiPropertyDescriptor>();
+      property.ref
+        ..name = _encode(name)
+        ..attributes = node.napiEnumerable | node.napiConfigurable
+        ..data = _callbackData(token, accessor: true);
+      if (getter != null) {
+        _getters[token] = (args, self) => _encode(getter());
+        property.ref.getter = _runtime.callback;
+      }
+      if (setter != null) {
+        _setters[token] = (args, self) {
+          setter(args);
+          return _encode(undefined);
+        };
+        property.ref.setter = _runtime.setter;
+      }
+      _check(node.napiDefineProperties(_handle, target._handle, 1, property));
+    } catch (_) {
+      _getters.remove(token);
+      _setters.remove(token);
+      rethrow;
+    }
+  }
+
   Pointer<Void> _callbackData(int token, {bool accessor = false}) {
     final result = _arena<Pointer<Void>>();
     _check(

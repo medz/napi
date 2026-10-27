@@ -2,20 +2,30 @@ import 'dart:convert';
 
 import 'exports.dart';
 
-String typeScriptDeclarations(ExportModule exports) => _Writer(exports).write();
+String typeScriptDeclarations(ExportModule exports, {bool esm = false}) =>
+    _Writer(exports, esm: esm).write();
 
 final class _Writer {
-  _Writer(this.exports)
+  _Writer(this.exports, {required this.esm})
     : _names = {
         ...exports.classes.map((value) => value.name),
         ...exports.functions.map((value) => value.name),
         ...exports.enums.map((value) => value.name),
         ...exports.constants.map((value) => value.name),
+        ...exports.properties.map((value) => value.name),
       };
   final ExportModule exports;
+  final bool esm;
   final Set<String> _names;
   final _inputs = <ExportClass, String>{};
   final _inputQueue = <ExportClass>[];
+
+  String _unique(String name) {
+    while (!_names.add(name)) {
+      name += '_';
+    }
+    return name;
+  }
 
   String _input(ExportClass cls) {
     if (cls.constructor == null) {
@@ -24,10 +34,7 @@ final class _Writer {
       );
     }
     return _inputs.putIfAbsent(cls, () {
-      var name = '_NapiObjectInput${_inputs.length}';
-      while (!_names.add(name)) {
-        name += '_';
-      }
+      final name = _unique('_NapiObjectInput${_inputs.length}');
       _inputQueue.add(cls);
       return name;
     });
@@ -35,19 +42,21 @@ final class _Writer {
 
   String write() {
     final output = StringBuffer();
+    final commonJsObject = !esm && exports.properties.isNotEmpty;
+    final prefix = commonJsObject ? '' : 'export ';
     for (final enumeration in exports.enums) {
-      output.writeln('export declare const ${enumeration.name}: {');
+      output.writeln('${prefix}declare const ${enumeration.name}: {');
       for (final value in enumeration.cases) {
         output.writeln('  readonly ${jsonEncode(value.name)}: ${value.index};');
       }
       output.writeln('};');
       output.writeln(
-        'export type ${enumeration.name} = typeof ${enumeration.name}[keyof typeof ${enumeration.name}];',
+        '${prefix}type ${enumeration.name} = typeof ${enumeration.name}[keyof typeof ${enumeration.name}];',
       );
     }
     for (final cls in exports.classes) {
       if (cls.isObject) {
-        output.writeln('export interface ${cls.name} {');
+        output.writeln('${prefix}interface ${cls.name} {');
         for (final property in cls.properties) {
           output.writeln(
             '  ${jsonEncode(property.name)}: ${_type(property.readType!)};',
@@ -56,7 +65,7 @@ final class _Writer {
         output.writeln('}');
         continue;
       }
-      output.writeln('export declare class ${cls.name} {');
+      output.writeln('${prefix}declare class ${cls.name} {');
       var brand = '__napiBrand';
       final names = {
         ...cls.methods.map((m) => m.name),
@@ -104,14 +113,15 @@ final class _Writer {
     }
     for (final function in exports.functions) {
       output.writeln(
-        'export declare function ${function.name}(${_parameters(function.signature)}): ${_type(function.signature.result)};',
+        '${prefix}declare function ${function.name}(${_parameters(function.signature)}): ${_type(function.signature.result)};',
       );
     }
     for (final value in exports.constants) {
       output.writeln(
-        'export declare const ${value.name}: ${_type(value.type)};',
+        '${prefix}declare const ${value.name}: ${_type(value.type)};',
       );
     }
+    if (esm || commonJsObject) _binding(output);
     for (var i = 0; i < _inputQueue.length; ++i) {
       final cls = _inputQueue[i];
       final signature = cls.constructor!.signature;
@@ -123,8 +133,51 @@ final class _Writer {
       }
       output.writeln('}');
     }
-    if (_inputQueue.isNotEmpty) output.writeln('export {};');
+    if (!commonJsObject) output.writeln('export {};');
     return output.toString();
+  }
+
+  void _binding(StringBuffer output) {
+    final binding = _unique('_NapiBinding');
+    output.writeln('declare const $binding: {');
+    for (final name in [
+      ...exports.classes
+          .where((value) => !value.isObject)
+          .map((value) => value.name),
+      ...exports.functions.map((value) => value.name),
+      ...exports.enums.map((value) => value.name),
+      ...exports.constants.map((value) => value.name),
+    ]) {
+      output.writeln('  readonly ${jsonEncode(name)}: typeof $name;');
+    }
+    for (final property in exports.properties) {
+      output.writeln(
+        '  get ${_member(property.name)}(): ${property.readType == null ? 'undefined' : _type(property.readType!)};',
+      );
+      if (property.writeType != null) {
+        output.writeln(
+          '  set ${_member(property.name)}(value: ${_type(property.writeType!, output: false)});',
+        );
+      }
+    }
+    output.writeln('};');
+    final aliases = <String, String>{};
+    for (final name in [
+      ...exports.classes.map((value) => value.name),
+      ...exports.enums.map((value) => value.name),
+    ]) {
+      final alias = _unique('_NapiType${aliases.length}');
+      aliases[name] = alias;
+      output.writeln('type $alias = $name;');
+    }
+    if (aliases.isNotEmpty) {
+      output.writeln('declare namespace $binding {');
+      for (final entry in aliases.entries) {
+        output.writeln('  type ${entry.key} = ${entry.value};');
+      }
+      output.writeln('}');
+    }
+    output.writeln(esm ? 'export default $binding;' : 'export = $binding;');
   }
 
   String _parameters(ExportSignature function, {bool output = true}) {

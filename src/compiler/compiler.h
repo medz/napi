@@ -16,7 +16,7 @@ struct NapiCompileOptions {
 };
 
 // Paths, metadata and errors use UTF-8. Null packages enables discovery;
-// null declarations skips .d.ts output. Null metadata skips reading the report.
+// null declarations skips TypeScript output. Null metadata skips reading the report.
 // The caller releases returned metadata and errors with napi_compiler_free().
 NAPI_COMPILER_EXPORT int napi_compile(const NapiCompileOptions* options,
                                       char** metadata,

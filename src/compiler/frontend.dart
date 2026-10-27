@@ -184,6 +184,7 @@ Future<void> _compile(
       ),
     };
     await File('$outputPath.d.ts').writeAsString(exports.declarations);
+    await File('$outputPath.d.mts').writeAsString(exports.esmDeclarations);
     await File('$outputPath.exports.json').writeAsString(
       jsonEncode({
         'format': 1,
@@ -328,7 +329,11 @@ void main() {}
   return file.absolute.uri;
 }
 
-({String declarations, List<({String name, String kind})> names})?
+({
+  String declarations,
+  String esmDeclarations,
+  List<({String name, String kind})> names,
+})?
 _configureEntrypoint(
   Component component,
   Uri entry,
@@ -410,6 +415,7 @@ _configureEntrypoint(
     connect('dispose', findProcedure(module, 'dispose')!);
     return (
       declarations: typeScriptDeclarations(annotated),
+      esmDeclarations: typeScriptDeclarations(annotated, esm: true),
       names: [
         for (final enumeration in annotated.enums)
           (name: enumeration.name, kind: 'enum'),
@@ -419,6 +425,8 @@ _configureEntrypoint(
           (name: function.name, kind: 'function'),
         for (final value in annotated.constants)
           (name: value.name, kind: 'value'),
+        for (final property in annotated.properties)
+          (name: property.name, kind: 'property'),
       ],
     );
   }

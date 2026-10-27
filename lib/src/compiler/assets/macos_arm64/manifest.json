@@ -16,11 +16,11 @@
     },
     "compiler.dylib": {
       "size": 91248,
-      "sha256": "4cb76d0cd9e7313f5ff67df2f5f51d314c9604a4766c909fed31e3d1a7bda1dc"
+      "sha256": "e1824f05346e7722f090d52b9c0a07981fe8420e19ffa7a34bd1a24e83fcc9e4"
     },
     "frontend.aot": {
       "size": 9241480,
-      "sha256": "b7cb712eb4bf22363ffff76ddd09c295ebcd4f72c44efe16c54d9e4620efc7a4"
+      "sha256": "84819b17a3ff8f1bf0348d55e6b0bb0bca3327035f1aeee5d5a8bc7c35e90d15"
     },
     "frontend.dylib": {
       "size": 4607312,

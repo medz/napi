@@ -16,6 +16,7 @@ const verifyAnnotatedEnums = require('./annotated_enums.cjs');
 const verifyAnnotatedConstants = require('./annotated_constants.cjs');
 const verifyAnnotatedJsReferences = require('./annotated_js_references.cjs');
 const verifyAnnotatedObjects = require('./annotated_objects.cjs');
+const verifyAnnotatedProperties = require('./annotated_properties.cjs');
 
 const [output, images] = process.argv.slice(2).map(path => resolve(path));
 const timeout = setTimeout(() => process.exit(1), 30000);
@@ -91,6 +92,9 @@ async function main() {
   await verifyAnnotatedJsReferences(join(output, 'references', 'addon.node'));
   await verifyAnnotatedObjects(join(output, 'objects', 'addon.node'), [
     join(output, 'objects-package'), join(output, 'objects-assembled'),
+  ]);
+  await verifyAnnotatedProperties(join(output, 'properties', 'addon.node'), [
+    join(output, 'properties-package'), join(output, 'properties-assembled'),
   ]);
   const path = join(output, 'full', 'addon.node');
   const addon = require(path);
