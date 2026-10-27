@@ -39,6 +39,20 @@ const functionResult = functionHandler.run(amount => {
   return { value: String(amountValue + 1) };
 });
 const functionAmount: addon.Amount = functionResult({ value: '5' });
+const swapHandler = addon.nativeSwapHandler();
+const swapFactory: () => addon.Swap<number, addon.Amount> = swapHandler.run(() => ({
+  value: 1, next: { value: { value: '7' }, next: null },
+}));
+const swappedAmount: number | undefined = swapFactory().next?.value.value;
+// @ts-expect-error Swapping type arguments retains Amount's String constructor input.
+swapHandler.run(() => ({ value: 1, next: { value: { value: 7 }, next: null } }));
+const nestedCallbackHandler: addon.Handler<ReturnType<typeof addon.getNestedCallback>> =
+  addon.nativeNestedCallbackHandler();
+const nestedCallback = nestedCallbackHandler.run(holder => {
+  const transform = holder.run(amount => ({ value: String(amount.value + 2) }));
+  const result: addon.Amount = transform({ value: '5' });
+});
+nestedCallback({ run: original => amount => ({ value: String(amount.value + 1) }) });
 const futureHandler: addon.Handler<Promise<addon.Amount>> = addon.nativeFutureHandler();
 const futureAmount: Promise<addon.Amount> = futureHandler.run(Promise.resolve({ value: '7' }));
 const fnHolder: addon.FnHolder = { run: value => value };
@@ -118,6 +132,22 @@ const thenableChain: addon.ThenableChain = addon.echoThenableChain({
   then: resolve => resolve(7), next: Promise.resolve(null),
 });
 const thenableNext: Promise<number | null> = thenableChain.next;
+const nullableThenChain: addon.NullableThenChain = addon.echoNullableThenChain({
+  then: null, next: Promise.resolve(null),
+});
+const nullableThenNext: Promise<number | addon.NullableThenChain | null> = nullableThenChain.next;
+const nullableThenFuture = addon.asyncEchoNullableThenChain({
+  then: null, next: Promise.resolve(null),
+});
+const nullableThenResult: Promise<number | addon.NullableThenChain> = nullableThenFuture;
+// @ts-expect-error A callable then may resolve a number.
+const nullableThenObjectOnly: Promise<addon.NullableThenChain> = nullableThenFuture;
+// @ts-expect-error A null then preserves the object.
+const nullableThenNumberOnly: Promise<number> = nullableThenFuture;
+const finiteThenableHost: addon.FiniteThenableHost = addon.echoFiniteThenableHost({
+  future: Promise.resolve({ value: { value: 7 } }),
+});
+const finiteThenableValue: Promise<number> = finiteThenableHost.future;
 interface Wrapped<T> { handler: addon.Handler<T>; }
 const wrapped: Wrapped<addon.Amount> = { handler };
 // @ts-expect-error Erasing Amount identity would change the handler's constructor input.

@@ -506,8 +506,11 @@ to `Amount`. Constructor inputs remain ordinary objects. Symmetric types such as
 `Handler<number>` still accept object literals. The identity adds no JavaScript
 properties or symbols.
 
-Recursive data classes whose constructor and getter types expand at different
-rates are not yet supported.
+For function-valued generic arguments with asymmetric conversions, keep the
+inferred generated type or derive it with TypeScript's `ReturnType`. A handwritten
+arrow type does not retain the generated input/output association.
+
+Recursive constructor/getter differences that keep expanding are not yet supported.
 
 ## Generics
 
@@ -670,6 +673,10 @@ Results follow standard Promise resolution: returned thenables are adopted, and
 nested Futures are flattened. Directly nested Future parameters cannot preserve
 their Dart structure and are rejected during compilation. Futures inside lists
 and maps are supported.
+
+With a nullable `then`, the return type includes both the unchanged object and
+any declared fulfilled value. Thenables without a finite resolved type are
+rejected during compilation.
 
 ## Streams
 

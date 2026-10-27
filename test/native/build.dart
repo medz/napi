@@ -402,6 +402,15 @@ Future<void> main(List<String> args) async {
       'generic-objects',
       'annotated_generic_objects.dart',
       [
+        (
+          '@NAPI.object() class GrowingThenable<T> { '
+              '@NAPI() GrowingThenable(); '
+              '@NAPI() void Function(void Function(GrowingThenable<List<T>>)) '
+              'get then => throw UnimplementedError(); } '
+              '@NAPI() Future<GrowingThenable<int>> invalid() => '
+              'throw UnimplementedError();',
+          'thenable resolution does not have a finite type',
+        ),
         for (final argument in ['T Function()', '(T,)'])
           (
             '@NAPI.object() class Loop<T> { '

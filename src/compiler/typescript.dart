@@ -411,11 +411,22 @@ final class _Writer {
       return;
     }
     if (left.kind == ValueKind.future) {
-      final awaited = _awaitedType(left.element!);
-      if (awaited != null) {
-        _collectDifference(awaited, right.element!, result, locals: locals);
-      } else {
-        pair();
+      for (final branch in _awaitedTypes(left.element!)) {
+        if (branch.resolve) {
+          final value = _TypePair(
+            _copyType(left, element: branch.type),
+            right,
+            locals: locals,
+          );
+          result.pairs[_pairKey(value)] = value;
+        } else {
+          _collectDifference(
+            branch.type,
+            right.element!,
+            result,
+            locals: locals,
+          );
+        }
       }
       return;
     }
@@ -605,17 +616,16 @@ final class _Writer {
     return used.toList();
   }
 
-  int _pairDepth(_TypePair pair) {
-    int depth(ExportType type) {
-      final children = _typeChildren(type).toList();
-      return 1 +
-          (children.isEmpty
-              ? 0
-              : children.map(depth).reduce((a, b) => a > b ? a : b));
-    }
-
-    return depth(pair.left) + depth(pair.right);
+  int _typeDepth(ExportType type) {
+    final children = _typeChildren(type).toList();
+    return 1 +
+        (children.isEmpty
+            ? 0
+            : children.map(_typeDepth).reduce((a, b) => a > b ? a : b));
   }
+
+  int _pairDepth(_TypePair pair) =>
+      _typeDepth(pair.left) + _typeDepth(pair.right);
 
   Iterable<ExportType> _typeChildren(ExportType type) sync* {
     if (type.element != null) yield type.element!;
@@ -646,17 +656,8 @@ final class _Writer {
                       parameter.bound.kind != ValueKind.opaque &&
                       parameter.bound.kind != ValueKind.dynamicValue);
       case ValueKind.object:
-        final cls = type.classExport!;
-        return !cls.properties.any(
-              (p) =>
-                  p.name == 'then' &&
-                  p.readType != null &&
-                  _mayCall(p.readType!),
-            ) &&
-            !cls.methods.any((p) => p.name == 'then') &&
-            (cls.superclass == null || _awaitPreserves(cls.superclass!));
       case ValueKind.record:
-        final then = type.recordFields!.named['then'];
+        final then = _thenType(type);
         return then == null || !_mayCall(then);
       case ValueKind.map:
         return !_mayCall(type.element!);
@@ -678,63 +679,146 @@ final class _Writer {
     _ => false,
   };
 
-  ExportType? _awaitedType(ExportType type, [Set<String>? seen]) {
-    if (_awaitPreserves(type)) return type;
-    final visited = seen ?? <String>{};
-    if (!visited.add(_typeKey(type))) return null;
+  ExportType? _thenType(ExportType type) {
+    if (type.kind == ValueKind.record) return type.recordFields!.named['then'];
+    final cls = type.classExport!;
     ExportType? then;
-    if (type.kind == ValueKind.future) {
-      then = type.element;
-    } else if (type.kind == ValueKind.object) {
-      final cls = type.classExport!;
-      for (final property in cls.properties) {
-        if (property.name == 'then') then = property.readType;
-      }
-      for (final method in cls.methods) {
-        if (method.name == 'then') {
-          then = ExportType(
-            method.signature.type,
-            ValueKind.function,
-            signature: method.signature,
-          );
-        }
-      }
-      final arguments = {
-        for (var i = 0; i < cls.typeParameters.length; ++i)
-          cls.typeParameters[i]: type.typeArguments[i],
-      };
-      if (then != null) then = _substituteType(then, arguments);
-      if (then == null && cls.superclass != null) {
-        final inherited = _awaitedType(
-          _substituteType(cls.superclass!, arguments),
-          visited,
+    for (final property in cls.properties) {
+      if (property.name == 'then') then = property.readType;
+    }
+    for (final method in cls.methods) {
+      if (method.name == 'then') {
+        then = ExportType(
+          method.signature.type,
+          ValueKind.function,
+          signature: method.signature,
         );
-        return inherited == null || !type.nullable || inherited.nullable
-            ? inherited
-            : _copyType(inherited, nullable: true);
       }
-    } else if (type.kind == ValueKind.record) {
-      then = type.recordFields!.named['then'];
     }
-    if (type.kind != ValueKind.future) {
-      if (then?.nullable != false) return null;
+    final arguments = {
+      for (var i = 0; i < cls.typeParameters.length; ++i)
+        cls.typeParameters[i]: type.typeArguments[i],
+    };
+    if (then != null) return _substituteType(then, arguments);
+    return cls.superclass == null
+        ? null
+        : _thenType(_substituteType(cls.superclass!, arguments));
+  }
+
+  bool _embedsType(ExportType from, ExportType to) {
+    if (_typeKey(from) == _typeKey(to)) return true;
+    final children = _typeChildren(to).toList();
+    if (children.any((child) => _embedsType(from, child))) return true;
+    if (from.kind != to.kind ||
+        from.nullable != to.nullable ||
+        from.classExport != to.classExport ||
+        from.parameter != to.parameter ||
+        from.typedDataKind != to.typedDataKind ||
+        from.simdKind != to.simdKind ||
+        from.referenceKind != to.referenceKind ||
+        from.enumExport != to.enumExport) {
+      return false;
+    }
+    final original = _typeChildren(from).toList();
+    return original.length == children.length &&
+        original.isNotEmpty &&
+        [
+          for (var i = 0; i < original.length; ++i)
+            _embedsType(original[i], children[i]),
+        ].every((value) => value);
+  }
+
+  List<_AwaitedBranch> _awaitedTypes(
+    ExportType type, [
+    List<({ExportType type, bool stop})> path = const [],
+  ]) {
+    if (_awaitPreserves(type)) return [(type: type, resolve: false)];
+    final base = _copyType(type, nullable: false);
+    final values = <_AwaitedBranch>[
+      if (type.nullable)
+        (type: ExportType(type.dartType, ValueKind.nullValue), resolve: false),
+    ];
+    final key = _typeKey(base);
+    final repeated = path.indexWhere((step) => _typeKey(step.type) == key);
+    if (repeated >= 0) {
+      if (type.nullable || path.skip(repeated).any((step) => step.stop)) {
+        return values;
+      }
+      throw FormatException(
+        '@NAPI ${type.classExport?.name ?? 'Future'}: thenable resolution does not have a finite type.',
+      );
+    }
+    if (base.kind == ValueKind.object &&
+        path.any(
+          (step) =>
+              step.type.classExport == base.classExport &&
+              _typeDepth(step.type) < _typeDepth(base) &&
+              _embedsType(step.type, base),
+        )) {
+      throw FormatException(
+        '@NAPI ${type.classExport!.name}: thenable resolution does not have a finite type.',
+      );
+    }
+    ExportType? then;
+    if (base.kind == ValueKind.future) {
+      then = base.element;
+    } else if (base.kind == ValueKind.object || base.kind == ValueKind.record) {
+      then = _thenType(base);
+    } else {
+      values.add((type: base, resolve: true));
+      return _normalizeAwaited(values);
+    }
+    final nullableThen =
+        base.kind != ValueKind.future && then?.nullable == true;
+    final stop = type.nullable || nullableThen;
+    if (nullableThen) values.add((type: base, resolve: false));
+    if (base.kind != ValueKind.future) {
       final signature = then?.signature;
-      if (signature == null || signature.positional.isEmpty) return null;
-      final callback = signature.positional.first.type.signature;
-      if (callback == null || callback.positional.isEmpty) return null;
-      then = callback.positional.first.type;
-      if (_mentions(then, {
-        ...signature.typeParameters,
-        ...callback.typeParameters,
-      })) {
-        return null;
+      final callback = signature?.positional.firstOrNull?.type.signature;
+      then = callback?.positional.firstOrNull?.type;
+      if (then == null ||
+          _mentions(then, {
+            ...?signature?.typeParameters,
+            ...?callback?.typeParameters,
+          })) {
+        values.add((
+          type: ExportType(type.dartType, ValueKind.opaque, nullable: true),
+          resolve: false,
+        ));
+        return _normalizeAwaited(values);
       }
     }
-    if (then == null) return null;
-    final value = _awaitedType(then, visited);
-    return value == null || !type.nullable || value.nullable
-        ? value
-        : _copyType(value, nullable: true);
+    if (then != null) {
+      values.addAll(_awaitedTypes(then, [...path, (type: base, stop: stop)]));
+    }
+    return _normalizeAwaited(values);
+  }
+
+  List<_AwaitedBranch> _normalizeAwaited(List<_AwaitedBranch> branches) {
+    final nullable = branches.any(
+      (branch) => branch.type.kind == ValueKind.nullValue,
+    );
+    final values = <String, _AwaitedBranch>{};
+    for (final branch in branches) {
+      if (nullable && branch.type.kind == ValueKind.nullValue) continue;
+      final value = (
+        type: nullable ? _copyType(branch.type, nullable: true) : branch.type,
+        resolve: branch.resolve,
+      );
+      values['${value.resolve}:${_typeKey(value.type)}'] = value;
+    }
+    return values.isEmpty && branches.isNotEmpty
+        ? [branches.first]
+        : values.values.toList();
+  }
+
+  String _awaitedBranchType(_AwaitedBranch branch, {bool metadata = true}) {
+    final value = _type(branch.type, metadata: metadata);
+    if (!branch.resolve) return value;
+    final bound = _awaitBound(branch.type);
+    return bound == null
+        ? 'globalThis.Awaited<$value>'
+        : '$_awaited<$value, ${_type(bound, metadata: metadata)}>';
   }
 
   bool _mentions(ExportType type, Set<ExportTypeParameter> parameters) =>
@@ -853,14 +937,25 @@ final class _Writer {
   String? _futureCondition(ExportType type) {
     final element = type.element!;
     if (_awaitPreserves(element)) return _recoveryCondition(element);
-    final awaited = _awaitedType(element);
-    if (awaited == null) {
-      final bound = _awaitBound(element);
-      return bound == null
-          ? null
-          : '$_scalar<${_type(bound, metadata: false)}> extends true ? true : $_same<$_inputOf<${_type(type, metadata: false)}>, ${_type(type, output: false, metadata: false)}>';
+    final conditions = <String>{};
+    for (final branch in _awaitedTypes(element)) {
+      if (!branch.resolve && _typeKey(branch.type) == _typeKey(element)) {
+        conditions.add(_recoveryCondition(element));
+        continue;
+      }
+      final condition =
+          '$_same<$_inputOf<${_awaitedBranchType(branch, metadata: false)}>, ${_type(element, output: false, metadata: false)}>';
+      final bound = branch.resolve ? _awaitBound(branch.type) : null;
+      conditions.add(
+        bound == null
+            ? condition
+            : '($_scalar<${_type(bound, metadata: false)}> extends true ? true : $condition)',
+      );
     }
-    return '$_same<$_inputOf<${_type(awaited, metadata: false)}>, ${_type(element, output: false, metadata: false)}>';
+    conditions.remove('true');
+    return conditions.isEmpty
+        ? 'true'
+        : '[${conditions.join(', ')}] extends true[] ? true : false';
   }
 
   String write() {
@@ -1108,9 +1203,6 @@ final class _Writer {
   }
 
   String _type(ExportType type, {bool output = true, bool metadata = true}) {
-    final awaitBound = type.kind == ValueKind.future
-        ? _awaitBound(type.element!)
-        : null;
     final value = switch (type.kind) {
       ValueKind.boolean => 'boolean',
       ValueKind.integer ||
@@ -1150,8 +1242,8 @@ final class _Writer {
       ValueKind.function =>
         '(${_generics(type.signature!.typeParameters, defaults: false, metadata: metadata)}(${_parameters(type.signature!, output: output, metadata: metadata)}) => ${_type(type.signature!.result, output: output, metadata: metadata)})',
       ValueKind.future =>
-        output && !_awaitPreserves(type.element!)
-            ? 'globalThis.Promise<${awaitBound != null ? '$_awaited<${_type(type.element!, output: output, metadata: metadata)}, ${_type(awaitBound, metadata: metadata)}>' : 'globalThis.Awaited<${_type(type.element!, output: output, metadata: metadata)}>'}>'
+        output
+            ? 'globalThis.Promise<${_awaitedTypes(type.element!).map((branch) => _awaitedBranchType(branch, metadata: metadata)).join(' | ')}>'
             : 'globalThis.Promise<${_type(type.element!, output: output, metadata: metadata)}>',
       ValueKind.record => _record(type, output: output, metadata: metadata),
       ValueKind.stream =>
@@ -1192,7 +1284,7 @@ final class _Writer {
     final projected = project
         ? condition == 'true'
               ? value
-              : '$_projection<$value, ${_type(_copyType(type, nullable: false), output: false, metadata: false)}${condition == null ? '' : ', $condition'}>'
+              : '$_projection<$value, ${_type(_copyType(type, nullable: false), output: false)}${condition == null ? '' : ', $condition'}>'
         : value;
     return type.nullable && type.kind != ValueKind.opaque
         ? '$projected | null'
@@ -1301,17 +1393,16 @@ final class _Writer {
       ...locals,
       ...pair.locals,
     ]);
-    final leftArguments = {...left};
-    final scope = _substituteParameters(originals, leftArguments);
+    final arguments = {...left};
+    final scope = _substituteParameters(originals, arguments);
     // Callback constraints were compared separately; both sides share its binder.
-    final rightArguments = {
-      ...right,
-      for (final original in originals) original: leftArguments[original]!,
+    final localArguments = {
+      for (final original in originals) original: arguments[original]!,
     };
     final result = _Difference();
     _collectDifference(
-      _substituteType(leftType, leftArguments),
-      _substituteType(rightType, rightArguments),
+      _substituteType(leftType, localArguments),
+      _substituteType(rightType, localArguments),
       result,
       locals: scope,
     );
@@ -1373,6 +1464,8 @@ final class _Writer {
     );
   }
 }
+
+typedef _AwaitedBranch = ({ExportType type, bool resolve});
 
 final class _TypePair {
   const _TypePair(this.left, this.right, {this.locals = const []});

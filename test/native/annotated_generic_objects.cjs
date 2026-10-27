@@ -72,6 +72,34 @@ module.exports = async function verifyAnnotatedGenericObjects(path) {
     return { value: String(amount.value + 1) };
   });
   assert.deepEqual(functionResult({ value: '5' }), { value: 6 });
+  const swapFactory = addon.nativeSwapHandler().run(() => ({
+    value: 1, next: { value: { value: '7' }, next: null },
+  }));
+  assert.deepEqual(swapFactory(), {
+    value: 1, next: { value: { value: 7 }, next: null },
+  });
+  let nestedCalls = 0;
+  addon.getNestedCallback()({
+    run: original => {
+      assert.deepEqual(original({ value: '3' }), { value: 4 });
+      return amount => {
+        assert.deepEqual(amount, { value: 7 });
+        nestedCalls++;
+        return { value: '9' };
+      };
+    },
+  });
+  assert.equal(nestedCalls, 1);
+  const nestedCallback = addon.nativeNestedCallbackHandler().run(holder => {
+    const transform = holder.run(amount => ({ value: String(amount.value + 2) }));
+    assert.deepEqual(transform({ value: '5' }), { value: 6 });
+  });
+  nestedCallback({
+    run: original => {
+      assert.deepEqual(original({ value: '3' }), { value: 5 });
+      return amount => ({ value: String(amount.value + 1) });
+    },
+  });
   assert.deepEqual(await addon.nativeFutureHandler().run(Promise.resolve({ value: '7' })), { value: 7 });
   const fnHolder = addon.echoFnHolder({ run: value => value });
   assert.equal(fnHolder.run('hello'), 'hello');
@@ -134,6 +162,22 @@ module.exports = async function verifyAnnotatedGenericObjects(path) {
   });
   assert.equal(await thenableChain.next, null);
   assert.equal(await Promise.resolve(thenableChain), 7);
+  const nullableThenChain = addon.echoNullableThenChain({
+    then: null, next: Promise.resolve(null),
+  });
+  assert.equal(nullableThenChain.then, null);
+  assert.equal(await nullableThenChain.next, null);
+  const nullThenResult = await addon.asyncEchoNullableThenChain({
+    then: null, next: Promise.resolve(null),
+  });
+  assert.equal(nullThenResult.then, null);
+  assert.equal(await addon.asyncEchoNullableThenChain({
+    then: resolve => resolve(7), next: Promise.resolve(null),
+  }), 7);
+  const finiteThenableHost = addon.echoFiniteThenableHost({
+    future: Promise.resolve({ value: { value: 7 } }),
+  });
+  assert.equal(await finiteThenableHost.future, 7);
   assert.deepEqual(addon.applyAmount({ value: '4' }, {
     run: value => ({ value: String(value.value + 1) }),
   }), { value: 5 });

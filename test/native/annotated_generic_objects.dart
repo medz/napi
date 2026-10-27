@@ -281,6 +281,38 @@ class ThenableChain {
 }
 
 @NAPI.object()
+class NullableThenChain {
+  @NAPI()
+  NullableThenChain({required this.then, required this.next});
+
+  @NAPI()
+  final void Function(void Function(int))? then;
+  @NAPI()
+  final Future<NullableThenChain?> next;
+}
+
+@NAPI.object()
+class FiniteThenable<T> {
+  @NAPI()
+  // ignore: prefer_initializing_formals
+  FiniteThenable({required T value}) : _value = value;
+
+  final T _value;
+  @NAPI()
+  void Function(void Function(T)) get then =>
+      (resolve) => resolve(_value);
+}
+
+@NAPI.object()
+class FiniteThenableHost {
+  @NAPI()
+  FiniteThenableHost({required this.future});
+
+  @NAPI()
+  final Future<FiniteThenable<FiniteThenable<int>>> future;
+}
+
+@NAPI.object()
 class Readout<T> {
   Readout(this.value);
 
@@ -307,6 +339,19 @@ class Recursive<T> {
   @NAPI()
   final Recursive<List<T>>? next;
 }
+
+@NAPI.object()
+class Swap<A, B> {
+  @NAPI()
+  Swap({required this.value, required this.next});
+
+  @NAPI()
+  final A value;
+  @NAPI()
+  final Swap<B, A>? next;
+}
+
+typedef NestedObjectCallback = void Function(Handler<Amount Function(Amount)>);
 
 @NAPI()
 Envelope<int> echoInt(Envelope<int> value) => value;
@@ -373,6 +418,22 @@ Handler<Map<String, Amount>> nativeMapHandler() =>
 
 @NAPI()
 Handler<Amount Function(Amount)> nativeFunctionHandler() =>
+    Handler(run: (value) => value);
+
+@NAPI()
+Handler<Swap<int, Amount> Function()> nativeSwapHandler() =>
+    Handler(run: (value) => value);
+
+@NAPI()
+NestedObjectCallback getNestedCallback() => (handler) {
+  final transform = handler.run(
+    (amount) => Amount(value: '${amount.value + 1}'),
+  );
+  transform(Amount(value: '7'));
+};
+
+@NAPI()
+Handler<NestedObjectCallback> nativeNestedCallbackHandler() =>
     Handler(run: (value) => value);
 
 @NAPI()
@@ -452,6 +513,17 @@ ThenableRecordHolder echoThenableRecordHolder(ThenableRecordHolder value) =>
 
 @NAPI()
 ThenableChain echoThenableChain(ThenableChain value) => value;
+
+@NAPI()
+NullableThenChain echoNullableThenChain(NullableThenChain value) => value;
+
+@NAPI()
+Future<NullableThenChain> asyncEchoNullableThenChain(
+  NullableThenChain value,
+) async => value;
+
+@NAPI()
+FiniteThenableHost echoFiniteThenableHost(FiniteThenableHost value) => value;
 
 @NAPI()
 Amount applyAmount(Amount value, Handler<Amount> handler) => handler.run(value);
