@@ -81,24 +81,34 @@ base class JsObject extends _JsValue {
   }
 
   /// Defines an own data property without invoking an inherited setter.
-  void defineValue(String key, Object? value) {
+  void defineValue(String key, Object? value) => _defineValue(key, value);
+
+  void _defineValue(
+    Object key,
+    Object? value, {
+    int attributes =
+        node.napiWritable | node.napiEnumerable | node.napiConfigurable,
+  }) {
     _check();
     final property = _env._arena<node.NapiPropertyDescriptor>();
     property.ref
       ..name = _env._encode(key)
       ..value = _env._encode(value)
-      ..attributes =
-          node.napiWritable | node.napiEnumerable | node.napiConfigurable;
+      ..attributes = attributes;
     _env._check(node.napiDefineProperties(_env._handle, _handle, 1, property));
   }
 
-  T get<T>(String key) {
+  T get<T>(String key) => _get<T>(key);
+
+  T _get<T>(Object key) => _env._decode<T>(_property(key));
+
+  node.NapiValue _property(Object key) {
     _check();
     final result = _env._arena<node.NapiValue>();
     _env._check(
       node.napiGetProperty(_env._handle, _handle, _env._encode(key), result),
     );
-    return _env._decode<T>(result.value);
+    return result.value;
   }
 
   T _element<T>(int index) {
@@ -228,10 +238,18 @@ final class JsReference<T> {
 
 /// Arguments supplied to a JavaScript call, with strict Dart conversions.
 final class JsArguments {
-  JsArguments._(this._env, this._values, this._scope);
+  JsArguments._(this._env, this._values, this._scope, [this._receiverHandle]);
   final Env _env;
   final List<node.NapiValue> _values;
   final _Scope _scope;
+  final node.NapiValue? _receiverHandle;
+
+  JsObject get _receiver {
+    if (!_scope.active) {
+      throw StateError('JavaScript arguments left their scope');
+    }
+    return _env._decode<JsObject>(_receiverHandle!);
+  }
 
   int get length => _values.length;
   bool get isEmpty => _values.isEmpty;
@@ -281,6 +299,37 @@ final class _BoundFunction {
   final node.NapiRef reference;
 }
 
+final class _StreamState<T> {
+  _StreamState(Stream<T> value, this.write) : iterator = StreamIterator(value);
+
+  final StreamIterator<T> iterator;
+  final Object? Function(T) write;
+  Future<void> _tail = Future<void>.value();
+  Future<void>? _cancellation;
+  bool _closed = false;
+
+  Future<(bool, T?)> next() {
+    final result = _tail.then<(bool, T?)>((_) async {
+      if (_closed) return (true, null);
+      try {
+        if (await iterator.moveNext()) return (false, iterator.current);
+        _closed = true;
+        return (true, null);
+      } catch (_) {
+        _closed = true;
+        rethrow;
+      }
+    });
+    _tail = result.then<void>((_) {}, onError: (Object _, StackTrace _) {});
+    return result;
+  }
+
+  Future<void> cancel() {
+    _closed = true;
+    return _cancellation ??= Future<void>.sync(() => iterator.cancel());
+  }
+}
+
 /// Dart operations on the Node environment supplied to a module's register hook.
 ///
 /// Values are borrowed for the duration of a call. Env cannot be sent to another
@@ -323,6 +372,7 @@ final class Env {
   final _functionIdentity = Expando<Map<Type, int>>();
   final _functions = <int, _BoundFunction>{};
   final _references = <int>{};
+  JsReference<JsSymbol>? _asyncIteratorSymbol;
   int _nextToken = 1;
   bool _closed = false;
   _Scope? _scope;
@@ -616,6 +666,261 @@ final class Env {
       }
       rethrow;
     }
+  }
+
+  JsSymbol get _asyncIterator {
+    final cached = _asyncIteratorSymbol;
+    if (cached != null) return cached.value;
+    final symbol = global
+        .get<JsObject>('Symbol')
+        .get<JsSymbol>('asyncIterator');
+    _asyncIteratorSymbol = symbol.retain();
+    return symbol;
+  }
+
+  Future<T> _awaitValue<T>(Object? value, T Function(JsArguments) read) {
+    final handle = _encode(value);
+    final deferred = _arena<node.NapiDeferred>();
+    final promise = _arena<node.NapiValue>();
+    _check(node.napiCreatePromise(_handle, deferred, promise));
+    _check(node.napiResolveDeferred(_handle, deferred.value, handle));
+    return _readFuture(JsObject._(this, promise.value, _scope!), read);
+  }
+
+  JsObject _streamRequest<R>(
+    JsArguments arguments,
+    Future<R> Function() operation,
+    Object? Function(R) write,
+  ) {
+    final receiver = arguments._receiver.retain();
+    try {
+      return _writeFuture(
+        Future<R>.sync(operation).whenComplete(receiver.dispose),
+        write,
+      );
+    } catch (_) {
+      receiver.dispose();
+      rethrow;
+    }
+  }
+
+  // ignore: unused_element
+  JsObject _writeStream<T>(Stream<T> value, Object? Function(T) write) {
+    if (!_classes.containsKey(_StreamState<T>)) {
+      final symbol = _asyncIterator;
+      JsObject result(_StreamState<T> state, (bool, T?) step) {
+        final object = this.object();
+        object.defineValue('done', step.$1);
+        try {
+          object.defineValue(
+            'value',
+            step.$1 ? undefined : state.write(step.$2 as T),
+          );
+        } catch (_) {
+          state.cancel().ignore();
+          rethrow;
+        }
+        return object;
+      }
+
+      final constructor = defineClass<_StreamState<T>>(
+        'DartStreamIterator',
+        constructor: (_) =>
+            throw StateError('Stream iterators cannot be constructed'),
+        methods: {
+          'next': (state, arguments) => _streamRequest(
+            arguments,
+            state.next,
+            (step) => result(state, step),
+          ),
+          'return': (state, arguments) => _streamRequest(arguments, () async {
+            await state.cancel();
+            return (true, null as T?);
+          }, (step) => result(state, step)),
+        },
+        finalize: (state) => state.cancel().ignore(),
+      );
+      constructor
+          .get<JsObject>('prototype')
+          ._defineValue(
+            symbol,
+            function(
+              '[Symbol.asyncIterator]',
+              (arguments) => arguments._receiver,
+            ),
+            attributes: node.napiWritable | node.napiConfigurable,
+          );
+    }
+    return wrap(_StreamState(value, write));
+  }
+
+  // ignore: unused_element
+  Stream<T> _readStream<T>(JsObject value, T Function(JsArguments) read) {
+    final method = value._get<JsFunction>(_asyncIterator);
+    JsReference<JsObject>? source = value.retain();
+    JsReference<JsFunction>? factory;
+    try {
+      factory = method.retain();
+    } catch (_) {
+      source.dispose();
+      rethrow;
+    }
+    JsReference<JsObject>? iterator;
+    JsReference<JsFunction>? next;
+    late final StreamController<T> controller;
+    var stopped = false;
+    var pulling = false;
+    Future<void>? cancellation;
+
+    void releaseSource() {
+      try {
+        source?.dispose();
+      } finally {
+        source = null;
+        factory?.dispose();
+        factory = null;
+      }
+    }
+
+    void release() {
+      try {
+        releaseSource();
+      } finally {
+        try {
+          iterator?.dispose();
+        } finally {
+          iterator = null;
+          next?.dispose();
+          next = null;
+        }
+      }
+    }
+
+    Future<void> closeIterator() {
+      try {
+        if (_closed || iterator == null) return Future<void>.value();
+        return withScope(() {
+          final receiver = iterator!.value;
+          final method = receiver['return'];
+          if (method == null || identical(method, undefined)) {
+            return Future<void>.value();
+          }
+          if (method is! JsFunction) {
+            throw ArgumentError('Async iterator return must be a function');
+          }
+          return _awaitValue<void>(method.call([], receiver: receiver), (args) {
+            args.get<JsObject>(0);
+          });
+        });
+      } finally {
+        release();
+      }
+    }
+
+    Future<void> cancel() {
+      if (cancellation != null) return cancellation!;
+      if (stopped) {
+        release();
+        return Future<void>.value();
+      }
+      stopped = true;
+      return cancellation = Future<void>.sync(closeIterator);
+    }
+
+    Future<void> pump() async {
+      if (pulling || stopped) return;
+      pulling = true;
+      try {
+        while (!stopped && !controller.isPaused) {
+          var codecFailed = false;
+          try {
+            final step = await withScope(() {
+              final receiver = iterator!.value;
+              return _awaitValue<(bool, T?)>(
+                next!.value.call([], receiver: receiver),
+                (arguments) {
+                  if (stopped) return (true, null);
+                  final object = arguments.get<JsObject>(0);
+                  final done = _result(
+                    (out) => node.napiCoerceToBool(
+                      _handle,
+                      object._property('done'),
+                      out,
+                    ),
+                  );
+                  if (_decode<bool>(done)) return (true, null);
+                  final element = object._property('value');
+                  try {
+                    return (
+                      false,
+                      read(JsArguments._(this, [element], _scope!)),
+                    );
+                  } catch (_) {
+                    codecFailed = true;
+                    rethrow;
+                  }
+                },
+              );
+            });
+            if (stopped) break;
+            if (step.$1) {
+              stopped = true;
+              release();
+              controller.close().ignore();
+              break;
+            }
+            controller.add(step.$2 as T);
+          } catch (error, stack) {
+            if (stopped) break;
+            stopped = true;
+            if (codecFailed) {
+              try {
+                await Future<void>.sync(closeIterator);
+              } catch (_) {
+                // Preserve the element conversion error if cleanup also fails.
+              }
+            } else {
+              release();
+            }
+            controller.addError(error, stack);
+            controller.close().ignore();
+            break;
+          }
+        }
+      } finally {
+        pulling = false;
+      }
+    }
+
+    controller = StreamController<T>(
+      sync: true,
+      onListen: () {
+        try {
+          withScope(() {
+            final receiver = source!.value;
+            final object = factory!.value._call<JsObject>(
+              [],
+              receiver: receiver,
+            );
+            final method = object.get<JsFunction>('next');
+            iterator = object.retain();
+            next = method.retain();
+          });
+          releaseSource();
+          pump().ignore();
+        } catch (error, stack) {
+          stopped = true;
+          release();
+          scheduleMicrotask(() {
+            controller.addError(error, stack);
+            controller.close().ignore();
+          });
+        }
+      },
+      onResume: () => pump().ignore(),
+      onCancel: cancel,
+    );
+    return controller.stream;
   }
 
   // ignore: unused_element
@@ -1112,6 +1417,7 @@ final class Env {
               this,
               List.generate(count.value, (i) => values[i]),
               _scope!,
+              self.value,
             ),
             self.value,
           );

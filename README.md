@@ -191,6 +191,49 @@ nested Futures are flattened. Directly nested Future parameters cannot preserve
 their Dart structure and are rejected during compilation. Futures inside lists
 and maps are supported.
 
+## Streams
+
+Use a Dart `Stream` to produce or consume an async iterable:
+
+```dart
+@NAPI()
+Stream<int> count(int limit) async* {
+  for (var value = 0; value < limit; value++) {
+    yield value;
+  }
+}
+
+@NAPI()
+Future<int> sum(Stream<int> values) async {
+  var total = 0;
+  await for (final value in values) {
+    total += value;
+  }
+  return total;
+}
+```
+
+```js
+for await (const value of count(3)) {
+  console.log(value); // 0, 1, 2
+}
+await sum((async function* () { yield 2; yield 3; })()); // 5
+```
+
+Each returned stream is a single async iterator with `next()` and `return()`.
+Concurrent `next()` calls are queued. Breaking out of `for await` or calling
+`return()` cancels the Dart subscription. In-flight requests keep their iterator
+alive; collection of an idle iterator also cancels its subscription.
+
+Input streams subscribe once and stop pulling while paused. Cancellation calls
+the JS iterator's `return()` when available. A producer that never completes its
+`return()` can also leave Dart cancellation pending.
+
+Stream events use the same conversions as other values. Promise-valued events
+are not flattened. Use `next()` when handling `Stream<Future<T>>`: TypeScript
+infers an awaited element in `for await` loops even though a native async
+iterator preserves the Promise value.
+
 ## npm packages
 
 Use `PackageBuild` in your Dart build script to produce an installable package:

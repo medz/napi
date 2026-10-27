@@ -20,6 +20,7 @@ enum ValueKind {
   typedData,
   function,
   future,
+  stream,
 }
 
 enum TypedDataKind {
@@ -338,9 +339,10 @@ final class _Reader {
       );
     }
     if (function.dartAsyncMarker != AsyncMarker.Sync &&
-        function.dartAsyncMarker != AsyncMarker.Async)
+        function.dartAsyncMarker != AsyncMarker.Async &&
+        function.dartAsyncMarker != AsyncMarker.AsyncStar)
       throw FormatException(
-        '@NAPI $name: generator functions are not supported yet.',
+        '@NAPI $name: sync* generator functions are not supported yet.',
       );
   }
 
@@ -559,14 +561,16 @@ final class _Reader {
           classExport: exported,
         );
       final library = type.classNode.enclosingLibrary.importUri.toString();
-      if (library == 'dart:async' && type.classNode.name == 'Future') {
+      if (library == 'dart:async' &&
+          (type.classNode.name == 'Future' ||
+              type.classNode.name == 'Stream')) {
         return ExportType(
           type,
-          ValueKind.future,
+          type.classNode.name == 'Future' ? ValueKind.future : ValueKind.stream,
           nullable: type.nullability == Nullability.nullable,
           element: _type(
             type.typeArguments.single,
-            '$context: Future value',
+            '$context: ${type.classNode.name} value',
             result: true,
           ),
         );

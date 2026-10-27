@@ -137,7 +137,8 @@ final class Calls {
     ValueKind.map ||
     ValueKind.typedData ||
     ValueKind.function ||
-    ValueKind.future => true,
+    ValueKind.future ||
+    ValueKind.stream => true,
     _ => false,
   };
 
@@ -190,10 +191,13 @@ final class Calls {
         types: [type.dartType.withDeclaredNullability(Nullability.nonNullable)],
       ),
       ValueKind.function => _readFunction(env, type.signature!, source()),
-      ValueKind.future => call(
+      ValueKind.future || ValueKind.stream => call(
         VariableGet(env),
-        method(envClass, '_readFuture'),
-        [source(), _futureReader(env, type.element!)],
+        method(
+          envClass,
+          type.kind == ValueKind.future ? '_readFuture' : '_readStream',
+        ),
+        [source(), _valueReader(env, type.element!)],
         types: [type.element!.dartType],
       ),
       _ => throw StateError('Not a composite type: ${type.kind}'),
@@ -282,9 +286,12 @@ final class Calls {
         [source(), IntLiteral(_typedArrayKind(type.typedDataKind!))],
       ),
       ValueKind.function => _writeFunction(env, type.signature!, source),
-      ValueKind.future => call(
+      ValueKind.future || ValueKind.stream => call(
         VariableGet(env),
-        method(envClass, '_writeFuture'),
+        method(
+          envClass,
+          type.kind == ValueKind.future ? '_writeFuture' : '_writeStream',
+        ),
         [source(), _elementWriter(env, type.element!)],
         types: [type.element!.dartType],
       ),
@@ -527,7 +534,7 @@ final class Calls {
     );
   }
 
-  Expression _futureReader(PositionalParameter env, ExportType element) {
+  Expression _valueReader(PositionalParameter env, ExportType element) {
     final args = PositionalParameter(
       cosmeticName: 'arguments',
       type: argumentsType,
