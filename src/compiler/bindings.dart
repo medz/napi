@@ -17,15 +17,20 @@ Procedure generateRegister(
     type: calls.objectType,
   );
   final statements = <Statement>[];
-  void define(String name, Expression value) => statements.add(
-    ExpressionStatement(
-      calls.call(
-        VariableGet(target),
-        calls.method(calls.objectClass, 'defineValue'),
-        [StringLiteral(name), value],
-      ),
-    ),
-  );
+  void define(String name, Expression value, {bool readOnly = false}) =>
+      statements.add(
+        ExpressionStatement(
+          calls.call(
+            VariableGet(target),
+            calls.method(
+              calls.objectClass,
+              readOnly ? '_defineValue' : 'defineValue',
+            ),
+            [StringLiteral(name), value],
+            named: [if (readOnly) NamedExpression('attributes', IntLiteral(2))],
+          ),
+        ),
+      );
 
   for (final enumeration in exports.enums) {
     final object = calls.local(
@@ -177,6 +182,9 @@ Procedure generateRegister(
         calls.bind(calls.function(function), env),
       ]),
     );
+  }
+  for (final value in exports.constants) {
+    define(value.name, calls.constant(value, env), readOnly: true);
   }
   return calls.procedure(
     '_napiRegister',

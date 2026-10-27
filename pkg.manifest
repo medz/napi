@@ -85,6 +85,10 @@ test/native/annotated_classes.dart
 test/native/annotated_collections.cjs
 test/native/annotated_collections.cts
 test/native/annotated_collections.dart
+test/native/annotated_constants.cjs
+test/native/annotated_constants.cts
+test/native/annotated_constants.dart
+test/native/annotated_constants_exports.dart
 test/native/annotated_enums.cjs
 test/native/annotated_enums.cts
 test/native/annotated_enums.dart

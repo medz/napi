@@ -25,6 +25,7 @@ Future<void> main(List<String> args) async {
       ('streams', 'annotated_streams.dart'),
       ('records', 'annotated_records.dart'),
       ('enums', 'annotated_enums.dart'),
+      ('constants', 'annotated_constants.dart'),
     ])
       NativeTarget(
         entry: File('${source.path}/$entry'),
@@ -47,6 +48,24 @@ Future<void> main(List<String> args) async {
       artifacts: [NativeArtifact(File('${enumPackage.path}/.napi.json'))],
       output: Directory('${output.path}/enums-assembled'),
       name: '@fixture/enums-assembled',
+      version: '0.0.0',
+    ),
+  ]).run([]);
+
+  final constantPackage = Directory('${output.path}/constants-package');
+  await Compiler([
+    PackageBuild(
+      entry: File('${source.path}/annotated_constants.dart'),
+      output: constantPackage,
+      name: '@fixture/constants',
+      version: '0.0.0',
+    ),
+  ]).run([]);
+  await Compiler([
+    PackageBuild.fromArtifacts(
+      artifacts: [NativeArtifact(File('${constantPackage.path}/.napi.json'))],
+      output: Directory('${output.path}/constants-assembled'),
+      name: '@fixture/constants-assembled',
       version: '0.0.0',
     ),
   ]).run([]);
@@ -203,6 +222,22 @@ Future<void> main(List<String> args) async {
           "@NAPI(name: 'number') enum Invalid { ready }",
           'reserved TypeScript enum name',
         ),
+      ],
+    ),
+    (
+      'constants',
+      'annotated_constants.dart',
+      [
+        (
+          "@NAPI(name: 'same') const first = 1; "
+              "@NAPI(name: 'same') const second = 2;",
+          'Duplicate JavaScript export',
+        ),
+        (
+          "@NAPI() int same() => 1; @NAPI(name: 'same') const value = 2;",
+          'Duplicate JavaScript export',
+        ),
+        ('@NAPI() final value = 1;', 'Unsupported annotated declaration'),
       ],
     ),
   ]) {

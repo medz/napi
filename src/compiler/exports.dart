@@ -139,8 +139,20 @@ final class ExportModule {
   final functions = <ExportFunction>[];
   final classes = <ExportClass>[];
   final enums = <ExportEnum>[];
-  bool get isEmpty => functions.isEmpty && classes.isEmpty && enums.isEmpty;
+  final constants = <ExportConstant>[];
+  bool get isEmpty =>
+      functions.isEmpty &&
+      classes.isEmpty &&
+      enums.isEmpty &&
+      constants.isEmpty;
   bool get isNotEmpty => !isEmpty;
+}
+
+final class ExportConstant {
+  const ExportConstant(this.target, this.name, this.type);
+  final Field target;
+  final String name;
+  final ExportType type;
 }
 
 final class ExportEnum {
@@ -211,7 +223,7 @@ final class _Reader {
       for (final reference in entry.additionalExports)
         if (reference.node case final NamedNode node) node,
     };
-    final selected = <NamedNode>[];
+    final selected = <Member>[];
     final names = <String>{};
     for (final declaration in declarations) {
       if (declaration is! Annotatable ||
@@ -242,9 +254,13 @@ final class _Reader {
           !declaration.isExtensionMember &&
           !declaration.isExtensionTypeMember) {
         selected.add(declaration);
+      } else if (declaration is Field &&
+          declaration.enclosingClass == null &&
+          declaration.isConst) {
+        selected.add(declaration);
       } else {
         throw const FormatException(
-          'Unsupported annotated declaration: export a non-generic class, enum or top-level function.',
+          'Unsupported annotated declaration: export a non-generic class, enum, top-level function or const.',
         );
       }
     }
@@ -259,11 +275,21 @@ final class _Reader {
       }
       _class(cls);
     }
-    for (final declaration in selected.cast<Procedure>()) {
+    for (final declaration in selected) {
       final name = _name(declaration, declaration.name.text);
       if (!names.add(name))
         throw FormatException('Duplicate JavaScript export: $name.');
-      module.functions.add(_function(declaration, name));
+      if (declaration is Field) {
+        module.constants.add(
+          ExportConstant(
+            declaration,
+            name,
+            _type(declaration.type, '$name: constant'),
+          ),
+        );
+      } else {
+        module.functions.add(_function(declaration, name));
+      }
     }
     for (final declaration in declarations.whereType<Class>()) {
       if (classes.containsKey(declaration) || enums.containsKey(declaration))
