@@ -5,17 +5,24 @@ import 'package:napi/src/_internal/annotations.dart';
 
 @NAPI()
 class Versioned {
+  @NAPI()
+  Versioned();
+
+  @NAPI()
   @Available(napi: 10)
   int get value => 1;
 
+  @NAPI()
   @Available(napi: 6)
   set value(int next) {}
 }
 
 @NAPI()
 class Counter {
+  @NAPI()
   Counter([this.value = 0]);
 
+  @NAPI()
   int value;
 }
 
@@ -25,9 +32,12 @@ const _defaultFields = <String, List<int?>>{
 
 @NAPI()
 class FieldMap {
+  @NAPI()
   FieldMap([this.values = _defaultFields]);
 
+  @NAPI()
   Map<String, List<int?>> values;
+  @NAPI()
   Map<String, int?>? optional;
 }
 

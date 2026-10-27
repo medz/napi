@@ -450,8 +450,7 @@ final class _Reader {
       );
   }
 
-  bool _visible(Member member) =>
-      !member.name.isPrivate || _annotation(member) != null;
+  bool _isExported(Member member) => _annotation(member) != null;
 
   void _class(ExportClass cls) {
     final constructors = <Member>[
@@ -459,7 +458,7 @@ final class _Reader {
       ...cls.target.procedures.where((member) => member.isFactory),
     ];
     final staticNames = <String>{};
-    for (final target in constructors.where(_visible)) {
+    for (final target in constructors.where(_isExported)) {
       if (target.name.text.isEmpty) {
         if (_rename(target) != null)
           throw FormatException(
@@ -484,11 +483,14 @@ final class _Reader {
         .where(
           (member) =>
               member.enclosingClass != hierarchy.coreTypes.objectClass &&
-              _visible(member),
+              _isExported(member),
         );
     final writable = hierarchy
         .getInterfaceMembers(cls.target, setters: true)
-        .where(_visible);
+        .where(
+          (member) =>
+              _isExported(member) && !(member is Field && member.isFinal),
+        );
     _members(cls, readable, writable, <String>{}, static: false);
     _members(
       cls,
@@ -497,15 +499,15 @@ final class _Reader {
         ...cls.target.procedures.where(
           (member) => member.isStatic && !member.isFactory && !member.isSetter,
         ),
-      ].where(_visible),
+      ].where(_isExported),
       [
         ...cls.target.fields.where(
-          (member) => member.isStatic && member.hasSetter,
+          (member) => member.isStatic && member.hasSetter && !member.isFinal,
         ),
         ...cls.target.procedures.where(
           (member) => member.isStatic && member.isSetter,
         ),
-      ].where(_visible),
+      ].where(_isExported),
       staticNames,
       static: true,
     );

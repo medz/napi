@@ -33,7 +33,9 @@ const _defaultNamed = (enabled: true, label: 'default');
 
 @NAPI()
 class RecordBox {
+  @NAPI()
   RecordBox(this.value);
+  @NAPI()
   int value;
 }
 
@@ -44,9 +46,12 @@ class RecordBox {
 
 @NAPI()
 class RecordHolder {
+  @NAPI()
   RecordHolder(this.value);
+  @NAPI()
   (int, String) value;
 
+  @NAPI()
   (int, String) replace((int, String) next) {
     final previous = value;
     value = next;

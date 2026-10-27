@@ -38,10 +38,14 @@ Status? nullableStatus([Status? value]) => value;
 
 @NAPI()
 class Job {
+  @NAPI()
   Job([this.status = Status.ready]);
+  @NAPI()
   Status status;
+  @NAPI()
   Status? next;
 
+  @NAPI()
   Status finish() => status = Status.done;
 }
 

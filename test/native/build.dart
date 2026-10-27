@@ -187,7 +187,7 @@ Future<void> main(List<String> args) async {
           'async void exports are not supported; return Future<void> instead',
         ),
         (
-          '@NAPI() class Invalid { void get ignored async {} }',
+          '@NAPI() class Invalid { @NAPI() void get ignored async {} }',
           'async void exports are not supported; return Future<void> instead',
         ),
       ],

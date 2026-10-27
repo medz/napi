@@ -26,6 +26,40 @@ a.peer = null;
 a.reset();
 addon.Counter.created = 0;
 addon.Counter.limit = 17;
+const visible = new addon.Visibility();
+const id: number = visible.id;
+const lazy: number = visible.lazy;
+const readOnly: number = visible.readOnly;
+const writeOnly: undefined = visible.writeOnly;
+visible.writeOnly = 23;
+const stored: number = visible.readStored();
+const returned: addon.ReturnedOnly = addon.returnedOnly();
+const returnedValue: number = returned.value;
+
+// @ts-expect-error Unannotated constructors are unavailable.
+new addon.ReturnedOnly(1);
+// @ts-expect-error Unannotated named constructors are absent.
+addon.Visibility.named();
+// @ts-expect-error Unannotated public fields are absent.
+visible.hiddenField;
+// @ts-expect-error Unannotated public methods are absent.
+visible.hiddenMethod();
+// @ts-expect-error Unannotated accessors are absent.
+visible.hiddenAccessor;
+// @ts-expect-error Unannotated static fields are absent.
+addon.Visibility.hiddenStaticField;
+// @ts-expect-error Unannotated static methods are absent.
+addon.Visibility.hiddenStaticMethod();
+// @ts-expect-error Unsupported hidden members are not exposed.
+visible.unsupported;
+// @ts-expect-error Getter-only exports cannot be assigned.
+visible.readOnly = 9;
+// @ts-expect-error Setter-only exports retain their write type.
+visible.writeOnly = '23';
+// @ts-expect-error Explicitly exported final fields remain readonly.
+visible.id = 9;
+// @ts-expect-error Late final fields remain readonly.
+visible.lazy = 13;
 
 // @ts-expect-error Final Dart fields are readonly.
 a.kind = 'other';

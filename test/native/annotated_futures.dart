@@ -40,10 +40,14 @@ Future<int> pending() => Completer<int>().future;
 
 @NAPI()
 class AsyncCounter {
+  @NAPI()
   AsyncCounter([this.value = 0]);
+  @NAPI()
   int value;
 
+  @NAPI()
   Future<int> increment(int step) async => value += step;
+  @NAPI()
   Future<int> get doubled async => value * 2;
 }
 
@@ -71,6 +75,7 @@ class Thenable {
   Thenable(this.value);
   int value;
 
+  @NAPI()
   void then(void Function(int) resolve) => resolve(value);
 }
 

@@ -172,17 +172,23 @@ available to Dart code; expose their behavior through annotated functions.
 
 ## Classes
 
-Annotate a Dart class to expose its public constructors, methods and properties:
+Annotate a Dart class and the members you want to expose:
 
 ```dart
 import 'package:napi/napi.dart';
 
 @NAPI()
 class Counter {
+  @NAPI()
   Counter([this.value = 0]);
 
+  @NAPI()
   int value;
+
+  @NAPI()
   int increment([int step = 1]) => value += step;
+
+  @NAPI()
   Counter same() => this;
 }
 ```
@@ -199,12 +205,19 @@ counter.increment(2); // 12
 counter.same() === counter; // true
 ```
 
-Named constructors become static factories, such as `Counter.named(options)`.
-Static Dart members are properties of the JS constructor. Final fields and
-getters without setters are read-only. Private members stay private unless
-explicitly annotated. Class export names must also be valid TypeScript class
-names. Method calls preserve the actual Dart implementation's
-defaults, including when a function returns an unexported subclass.
+Only annotated members are exported. This includes constructors, named
+constructors and static members; unannotated members stay in Dart. Without an
+annotated unnamed constructor, JS cannot construct the class, but functions can
+still return its instances.
+
+Annotated named constructors become static factories, such as
+`Counter.named(options)`. An annotated field provides both accessors; a `final`
+field is read-only. Annotate explicit getters and setters separately to expose
+each direction. Private members can be exported by annotating them.
+
+Class export names must also be valid TypeScript class names. Method calls
+preserve the actual Dart implementation's defaults, including when a function
+returns an unexported subclass.
 
 Passing a bound instance back to Dart unwraps the original object. Returning that
 object again reuses its live JS instance. JavaScript collection releases the
