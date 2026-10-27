@@ -18,6 +18,8 @@ enum ValueKind {
   list,
   map,
   typedData,
+  simd,
+  simdList,
   dateTime,
   byteBuffer,
   byteData,
@@ -34,6 +36,8 @@ enum ValueKind {
 }
 
 enum JsReferenceKind { object, function, symbol }
+
+enum SimdKind { float32x4, int32x4, float64x2 }
 
 enum TypedDataKind {
   int8,
@@ -57,6 +61,7 @@ final class ExportType {
     this.classExport,
     this.element,
     this.typedDataKind,
+    this.simdKind,
     this.signature,
     this.recordFields,
     this.enumExport,
@@ -76,6 +81,7 @@ final class ExportType {
   final JsReferenceKind? referenceKind;
   final ExportType? element;
   final TypedDataKind? typedDataKind;
+  final SimdKind? simdKind;
   final ExportSignature? signature;
   final ({List<ExportType> positional, Map<String, ExportType> named})?
   recordFields;
@@ -1118,6 +1124,22 @@ final class _Reader {
             nullable: type.nullability == Nullability.nullable,
           );
       } else if (library == 'dart:typed_data') {
+        final simd = switch (type.classNode.name) {
+          'Float32x4' || 'Float32x4List' => SimdKind.float32x4,
+          'Int32x4' || 'Int32x4List' => SimdKind.int32x4,
+          'Float64x2' || 'Float64x2List' => SimdKind.float64x2,
+          _ => null,
+        };
+        if (simd != null) {
+          return ExportType(
+            _actual(type),
+            type.classNode.name.endsWith('List')
+                ? ValueKind.simdList
+                : ValueKind.simd,
+            nullable: type.nullability == Nullability.nullable,
+            simdKind: simd,
+          );
+        }
         if (type.classNode.name == 'ByteBuffer' ||
             type.classNode.name == 'ByteData') {
           return ExportType(

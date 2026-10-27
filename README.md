@@ -179,7 +179,31 @@ A returned `DataView` starts at offset zero in a new buffer containing only its
 visible bytes. DataView and TypedArray inputs backed by `SharedArrayBuffer` are
 also copied. `ByteBuffer` input requires an ordinary `ArrayBuffer`. Detached
 binary inputs throw `TypeError`; binary input conversion requires Node-API 7.
-SIMD types are not supported yet.
+
+SIMD values and lists use flat TypedArrays:
+
+| Dart value | Dart list | JavaScript | Lanes per vector |
+| --- | --- | --- | --- |
+| `Float32x4` | `Float32x4List` | `Float32Array` | 4 |
+| `Int32x4` | `Int32x4List` | `Int32Array` | 4 |
+| `Float64x2` | `Float64x2List` | `Float64Array` | 2 |
+
+```dart
+@NAPI()
+Float32x4 addVectors(Float32x4 a, Float32x4 b) => a + b;
+```
+
+```js
+const sum = addon.addVectors(
+  new Float32Array([1, 2, 3, 4]),
+  new Float32Array([10, 20, 30, 40]),
+); // Float32Array [11, 22, 33, 44]
+```
+
+Vector inputs require exactly one vector's lanes. SIMD list inputs require a
+multiple of that lane count, including zero. Conversion copies raw bytes,
+preserving NaN payloads and signed zero. Returned lists contain only their
+visible range. Ordinary `List<Float32x4>` uses a JS Array of Float32Arrays.
 
 ## Dates
 
@@ -424,9 +448,9 @@ multiplier(3)(14); // 42
 Callbacks can be stored and called later on the same Dart isolate. Returning a
 JS callback preserves its identity for signatures with symmetric conversions,
 such as scalar arguments and results. Data classes, dates, `ByteBuffer`,
-`ByteData`, Futures and Streams require an adapter, including when nested in a
-signature, so a returned function may
-differ from the original JS callback. Use `JsReference<JsFunction>` when passing
+`ByteData`, SIMD types, Futures and Streams require an adapter, including when
+nested in a signature, so a returned function may differ from the original JS
+callback. Use `JsReference<JsFunction>` when passing
 the original function without conversion.
 
 Returning the same Dart closure through the same function type reuses its live

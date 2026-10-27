@@ -328,6 +328,12 @@ final class _Writer {
       ValueKind.number => 'number',
       ValueKind.string => 'string',
       ValueKind.bigint => 'bigint',
+      ValueKind.simd || ValueKind.simdList =>
+        'globalThis.${switch (type.simdKind!) {
+          SimdKind.float32x4 => 'Float32Array',
+          SimdKind.int32x4 => 'Int32Array',
+          SimdKind.float64x2 => 'Float64Array',
+        }}',
       ValueKind.dateTime => 'globalThis.Date',
       ValueKind.byteBuffer => 'globalThis.ArrayBuffer',
       ValueKind.byteData => 'globalThis.DataView',

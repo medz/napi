@@ -148,6 +148,8 @@ final class Calls {
     ValueKind.list ||
     ValueKind.map ||
     ValueKind.typedData ||
+    ValueKind.simd ||
+    ValueKind.simdList ||
     ValueKind.dateTime ||
     ValueKind.byteBuffer ||
     ValueKind.byteData ||
@@ -227,6 +229,15 @@ final class Calls {
         VariableGet(env),
         method(envClass, _typedDataMethod(type, read: true)),
         [source(), IntLiteral(_typedArrayKind(type.typedDataKind!))],
+        types: [type.dartType.withDeclaredNullability(Nullability.nonNullable)],
+      ),
+      ValueKind.simd || ValueKind.simdList => call(
+        VariableGet(env),
+        method(
+          envClass,
+          type.kind == ValueKind.simd ? '_readSimd' : '_readSimdList',
+        ),
+        [source(), IntLiteral(_simdArrayKind(type.simdKind!))],
         types: [type.dartType.withDeclaredNullability(Nullability.nonNullable)],
       ),
       ValueKind.dateTime => call(
@@ -361,6 +372,14 @@ final class Calls {
         VariableGet(env),
         method(envClass, _typedDataMethod(type, read: false)),
         [source(), IntLiteral(_typedArrayKind(type.typedDataKind!))],
+      ),
+      ValueKind.simd || ValueKind.simdList => call(
+        VariableGet(env),
+        method(
+          envClass,
+          type.kind == ValueKind.simd ? '_writeSimd' : '_writeTypedData',
+        ),
+        [source(), IntLiteral(_simdArrayKind(type.simdKind!))],
       ),
       ValueKind.dateTime => call(
         VariableGet(env),
@@ -875,7 +894,9 @@ final class Calls {
     ValueKind.stream ||
     ValueKind.dateTime ||
     ValueKind.byteBuffer ||
-    ValueKind.byteData => true,
+    ValueKind.byteData ||
+    ValueKind.simd ||
+    ValueKind.simdList => true,
     ValueKind.list || ValueKind.map => _directional(type.element!),
     ValueKind.record =>
       type.recordFields!.positional.any(_directional) ||
@@ -969,6 +990,12 @@ final class Calls {
     if (read) return bigint ? '_readBigIntTypedData' : '_readTypedData';
     return bigint ? '_writeBigIntTypedData' : '_writeTypedData';
   }
+
+  int _simdArrayKind(SimdKind kind) => switch (kind) {
+    SimdKind.float32x4 => 7,
+    SimdKind.int32x4 => 5,
+    SimdKind.float64x2 => 8,
+  };
 
   int _typedArrayKind(TypedDataKind kind) => switch (kind) {
     TypedDataKind.int8 => 0,
