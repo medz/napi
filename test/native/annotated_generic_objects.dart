@@ -134,6 +134,16 @@ class DistinctNext {
 }
 
 @NAPI.object()
+class RecordNext {
+  @NAPI()
+  RecordNext({required ({int value}) next}) : _value = next.value;
+
+  final int _value;
+  @NAPI()
+  RecordNext get next => this;
+}
+
+@NAPI.object()
 class NestedOther {
   @NAPI()
   NestedOther(this.next);
@@ -649,6 +659,10 @@ ReferenceNext echoReferenceNext(ReferenceNext value) => value;
 
 @NAPI()
 bool distinctNextUsesSelf(DistinctNext value) => identical(value.next, value);
+
+@NAPI()
+bool recordNextMatches(RecordNext value, int expected) =>
+    value._value == expected && identical(value.next, value);
 
 @NAPI()
 EmptyReferenceView echoEmptyReferenceView(EmptyReferenceView value) => value;

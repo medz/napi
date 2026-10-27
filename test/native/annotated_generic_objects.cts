@@ -98,6 +98,11 @@ const distinctChild: addon.DistinctNext = distinctNext.next;
 const distinctUsesSelf: boolean = addon.distinctNextUsesSelf({ next: { next: { value: 7 } } });
 // @ts-expect-error These distinct constructor and getter shapes need output identity.
 const forgedDistinctNext: addon.DistinctNext = { next: distinctNext };
+declare const recordNext: addon.RecordNext;
+const recordNextChild: addon.RecordNext = recordNext.next;
+const recordNextMatches: boolean = addon.recordNextMatches({ next: { value: 7 } }, 7);
+// @ts-expect-error The constructor record differs from the recursive getter shape.
+const forgedRecordNext: addon.RecordNext = { next: recordNext };
 const emptyReferenceView: addon.EmptyReferenceView = { value: {} };
 const echoedEmptyReferenceView: addon.EmptyReferenceView =
   addon.echoEmptyReferenceView(emptyReferenceView);

@@ -86,6 +86,7 @@ final class _Writer {
   final _pendingDifferences = <_ObjectPair>[];
   final _inputParameters = <ExportClass, List<ExportTypeParameter>>{};
   final _classParameters = <ExportTypeParameter>{};
+  final _mixedPairs = <_TypePair>[];
   final _parameterTypes =
       <ExportTypeParameter, ({String output, String input})>{};
   late final String _inputKey;
@@ -483,6 +484,8 @@ final class _Writer {
     if (left.kind != right.kind) {
       if (_knownRepresentationDifference(left, right)) {
         result.always = true;
+      } else if (_isMixedRecordObject(left, right)) {
+        _collectMixedRecordObject(left, right, result, locals);
       } else {
         pair();
       }
@@ -627,6 +630,135 @@ final class _Writer {
   bool _requiredObjectKey(String name, ExportType type) =>
       !_objectMemberNames.contains(name) || !_mayCall(type);
 
+  bool _isMixedRecordObject(ExportType left, ExportType right) =>
+      left.kind == ValueKind.object &&
+          left.classExport!.isObject &&
+          right.kind == ValueKind.record &&
+          right.recordFields!.named.isNotEmpty ||
+      right.kind == ValueKind.object &&
+          right.classExport!.isObject &&
+          left.kind == ValueKind.record &&
+          left.recordFields!.named.isNotEmpty;
+
+  Map<String, ExportType> _recordProperties(ExportType type) => {
+    for (var i = 0; i < type.recordFields!.positional.length; ++i)
+      '\$${i + 1}': type.recordFields!.positional[i],
+    ...type.recordFields!.named,
+  };
+
+  bool _sameMixedSchema(_TypePair left, _TypePair right) {
+    bool same(ExportType a, ExportType b) =>
+        a.kind == b.kind &&
+        (a.kind == ValueKind.object
+            ? a.classExport == b.classExport
+            : a.dartType == b.dartType);
+    return same(left.left, right.left) && same(left.right, right.right);
+  }
+
+  void _collectMixedRecordObject(
+    ExportType left,
+    ExportType right,
+    _Difference result,
+    List<ExportTypeParameter> locals,
+  ) {
+    if (left.kind == ValueKind.object) {
+      _collectDifference(left, left, result, locals: locals);
+    }
+    final pair = _TypePair(left, right, locals: locals);
+    final key = _pairKey(pair);
+    if (_mixedPairs.any((old) => _pairKey(old) == key)) return;
+    if (_mixedPairs.any(
+      (old) =>
+          _sameMixedSchema(old, pair) &&
+          _pairDepth(old) < _pairDepth(pair) &&
+          _embedsType(old.left, left) &&
+          _embedsType(old.right, right),
+    )) {
+      throw FormatException(
+        '@NAPI.object: recursive input/output projections expand at different rates.',
+      );
+    }
+    _mixedPairs.add(pair);
+    try {
+      final output = left.kind == ValueKind.record
+          ? _recordProperties(left)
+          : {
+              for (final property in left.classExport!.properties)
+                property.name: _substituteType(property.readType!, {
+                  for (var i = 0; i < left.typeArguments.length; ++i)
+                    left.classExport!.typeParameters[i]: left.typeArguments[i],
+                }),
+            };
+      final input = <String, ExportType>{};
+      var optional = false;
+      if (right.kind == ValueKind.record) {
+        input.addAll(_recordProperties(right));
+      } else {
+        final cls = right.classExport!;
+        final constructor = cls.constructor;
+        if (constructor == null) {
+          result.always = true;
+          return;
+        }
+        final arguments = {
+          for (var i = 0; i < right.typeArguments.length; ++i)
+            cls.typeParameters[i]: right.typeArguments[i],
+        };
+        for (final parameter in [
+          ...constructor.signature.positional,
+          ...constructor.signature.named,
+        ]) {
+          input[parameter.name] = _substituteType(parameter.type, arguments);
+          optional |= !parameter.required;
+        }
+      }
+      if (input.isEmpty && output.keys.every(_objectMemberNames.contains)) {
+        _collectDifference(
+          left,
+          ExportType(
+            right.dartType,
+            ValueKind.jsReference,
+            referenceKind: JsReferenceKind.object,
+            nullable: right.nullable,
+          ),
+          result,
+          locals: locals,
+        );
+        return;
+      }
+      if (output.isEmpty && input.keys.every(_objectMemberNames.contains)) {
+        _collectDifference(
+          ExportType(
+            left.dartType,
+            ValueKind.jsReference,
+            referenceKind: JsReferenceKind.object,
+            nullable: left.nullable,
+          ),
+          right,
+          result,
+          locals: locals,
+        );
+        return;
+      }
+      if (output.length != input.length ||
+          output.keys.any((name) => !input.containsKey(name)) ||
+          optional) {
+        result.always = true;
+        return;
+      }
+      for (final entry in output.entries) {
+        _collectDifference(
+          entry.value,
+          input[entry.key]!,
+          result,
+          locals: locals,
+        );
+      }
+    } finally {
+      _mixedPairs.removeLast();
+    }
+  }
+
   bool _fixedTopDifference(ExportType left, ExportType right) {
     final leftTop =
         left.kind == ValueKind.opaque || left.kind == ValueKind.dynamicValue;
@@ -672,6 +804,11 @@ final class _Writer {
         type.kind == ValueKind.jsReference &&
             type.referenceKind == JsReferenceKind.function) {
       return true;
+    }
+    if (type.kind == ValueKind.record && type.recordFields!.named.isNotEmpty) {
+      return _recordProperties(
+        type,
+      ).entries.any((field) => _requiredObjectKey(field.key, field.value));
     }
     if (type.kind != ValueKind.object || !type.classExport!.isObject) {
       return false;

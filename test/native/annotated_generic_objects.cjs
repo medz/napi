@@ -124,6 +124,8 @@ module.exports = async function verifyAnnotatedGenericObjects(path) {
   assert.deepEqual(addon.echoReferenceNext({ next: {} }), { next: null });
   assert.throws(() => addon.echoReferenceNext({ next: 'wrong' }), TypeError);
   assert.equal(addon.distinctNextUsesSelf({ next: { next: { value: 7 } } }), true);
+  assert.equal(addon.recordNextMatches({ next: { value: 7 } }, 7), true);
+  assert.equal(addon.recordNextMatches({ next: { value: 7 } }, 8), false);
   assert.deepEqual(addon.echoEmptyReferenceView({ value: { token: 7 } }), { value: {} });
   assert.deepEqual(addon.echoEmptyReferenceView({ value: null }), { value: null });
   assert.equal(addon.echoStringifierView({ value: {} }).value.toString(), 'ok');
