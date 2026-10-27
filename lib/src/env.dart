@@ -929,14 +929,16 @@ final class Env {
     return List<T>.generate(value._arrayLength, (index) => read(value, index));
   }
 
+  JsObject _array(int length) => JsObject._(
+    this,
+    _result((out) => node.napiCreateArrayWithLength(_handle, length, out)),
+    _scope!,
+  );
+
   // ignore: unused_element
   JsObject _writeList<T>(List<T> value, Object? Function(T) write) {
     final length = value.length;
-    final result = JsObject._(
-      this,
-      _result((out) => node.napiCreateArrayWithLength(_handle, length, out)),
-      _scope!,
-    );
+    final result = _array(length);
     for (var index = 0; index < length; index++) {
       result.defineValue('$index', write(value[index]));
     }

@@ -91,6 +91,9 @@ test/native/annotated_functions.dart
 test/native/annotated_futures.cjs
 test/native/annotated_futures.cts
 test/native/annotated_futures.dart
+test/native/annotated_records.cjs
+test/native/annotated_records.cts
+test/native/annotated_records.dart
 test/native/annotated_streams.cjs
 test/native/annotated_streams.cts
 test/native/annotated_streams.dart

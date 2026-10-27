@@ -23,6 +23,7 @@ Future<void> main(List<String> args) async {
       ('callbacks', 'annotated_callbacks.dart'),
       ('futures', 'annotated_futures.dart'),
       ('streams', 'annotated_streams.dart'),
+      ('records', 'annotated_records.dart'),
     ])
       NativeTarget(
         entry: File('${source.path}/$entry'),

@@ -21,6 +21,7 @@ enum ValueKind {
   function,
   future,
   stream,
+  record,
 }
 
 enum TypedDataKind {
@@ -46,6 +47,7 @@ final class ExportType {
     this.element,
     this.typedDataKind,
     this.signature,
+    this.recordFields,
   });
   final DartType dartType;
   final ValueKind kind;
@@ -54,6 +56,8 @@ final class ExportType {
   final ExportType? element;
   final TypedDataKind? typedDataKind;
   final ExportSignature? signature;
+  final ({List<ExportType> positional, Map<String, ExportType> named})?
+  recordFields;
 }
 
 final class ExportParameter {
@@ -501,6 +505,26 @@ final class _Reader {
   }
 
   ExportType _type(DartType type, String context, {bool result = false}) {
+    if (type is RecordType) {
+      return ExportType(
+        type,
+        ValueKind.record,
+        nullable: type.nullability == Nullability.nullable,
+        recordFields: (
+          positional: [
+            for (var i = 0; i < type.positional.length; ++i)
+              _type(type.positional[i], '$context: record field \$${i + 1}'),
+          ],
+          named: {
+            for (final field in type.named)
+              field.name: _type(
+                field.type,
+                '$context: record field ${field.name}',
+              ),
+          },
+        ),
+      );
+    }
     if (type is FunctionType) {
       if (type.typeParameters.isNotEmpty) {
         throw FormatException(

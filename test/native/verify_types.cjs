@@ -11,6 +11,7 @@ for (const [target, fixture] of [
   ['callbacks', 'annotated_callbacks.cts'],
   ['futures', 'annotated_futures.cts'],
   ['streams', 'annotated_streams.cts'],
+  ['records', 'annotated_records.cts'],
 ]) {
   const consumer = resolve(process.argv[2], target, 'consumer.cts');
   copyFileSync(join(__dirname, fixture), consumer);
