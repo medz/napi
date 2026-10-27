@@ -17,6 +17,7 @@ enum ValueKind {
   object,
   list,
   map,
+  set,
   typedData,
   simd,
   simdList,
@@ -1088,6 +1089,14 @@ final class _Reader {
             ValueKind.list,
             nullable: type.nullability == Nullability.nullable,
             element: _type(type.typeArguments.single, '$context: List element'),
+          );
+        }
+        if (type.classNode.name == 'Set') {
+          return ExportType(
+            _actual(type),
+            ValueKind.set,
+            nullable: type.nullability == Nullability.nullable,
+            element: _type(type.typeArguments.single, '$context: Set element'),
           );
         }
         if (type.classNode.name == 'Map') {

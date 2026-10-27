@@ -335,6 +335,8 @@ final class _Writer {
           SimdKind.float64x2 => 'Float64Array',
         }}',
       ValueKind.dateTime => 'globalThis.Date',
+      ValueKind.set =>
+        'globalThis.Set<${_type(type.element!, output: output)}>',
       ValueKind.byteBuffer => 'globalThis.ArrayBuffer',
       ValueKind.byteData => 'globalThis.DataView',
       ValueKind.nullValue => 'null',

@@ -1016,6 +1016,59 @@ final class Env {
     return result;
   }
 
+  // ignore: unused_element
+  Set<T> _readSet<T>(JsObject value, T Function(JsArguments) read) {
+    _encode(value);
+    final iterator = value
+        .get<JsFunction>('values')
+        ._call<JsObject>([], receiver: value);
+    final next = iterator.get<JsFunction>('next');
+    final result = <T>{};
+    while (true) {
+      final step = next._call<JsObject>([], receiver: iterator);
+      final done = _result(
+        (out) => node.napiCoerceToBool(_handle, step._property('done'), out),
+      );
+      if (_decode<bool>(done)) return result;
+      final element = step._property('value');
+      try {
+        result.add(read(JsArguments._(this, [element], _scope!)));
+      } catch (_) {
+        try {
+          final close = iterator['return'];
+          if (close is JsFunction) close.call([], receiver: iterator);
+        } catch (_) {
+          // Iterator cleanup must not replace the conversion error.
+        }
+        rethrow;
+      }
+    }
+  }
+
+  // ignore: unused_element
+  JsObject _writeSet<T>(Set<T> value, Object? Function(T) write) {
+    final values = _array(value.length);
+    var index = 0;
+    for (final element in value) {
+      values.defineValue('${index++}', write(element));
+    }
+    final constructor = global.get<JsFunction>('Set');
+    final arguments = _arena<node.NapiValue>()..value = values._handle;
+    return JsObject._(
+      this,
+      _result(
+        (out) => node.napiNewInstance(
+          _handle,
+          constructor._handle,
+          1,
+          arguments,
+          out,
+        ),
+      ),
+      _scope!,
+    );
+  }
+
   void _checkAttached(node.NapiValue buffer) {
     final detached = _arena<Bool>();
     _check(node.napiIsDetachedArraybuffer(_handle, buffer, detached));

@@ -205,6 +205,26 @@ multiple of that lane count, including zero. Conversion copies raw bytes,
 preserving NaN payloads and signed zero. Returned lists contain only their
 visible range. Ordinary `List<Float32x4>` uses a JS Array of Float32Arrays.
 
+## Sets
+
+`Set<T>` maps to a JavaScript `Set`, with each element converted normally:
+
+```dart
+@NAPI()
+Set<int> echoSet(Set<int> values) => values;
+```
+
+```js
+const result = addon.echoSet(new Set([3, 1, 2]));
+console.log([...result]); // [3, 1, 2]
+```
+
+Sets are independent copies, populated in source iteration order. Equality
+follows the target collection's rules: JS normalizes `-0` to `0` and merges NaNs;
+Dart uses the converted elements' `==` and `hashCode`, so equal dates or records
+can merge. Opaque JS values retain their JS identity when returned, while Dart
+compares their reference wrappers.
+
 ## Dates
 
 Dart `DateTime` values map to JavaScript `Date`:
@@ -448,7 +468,7 @@ multiplier(3)(14); // 42
 Callbacks can be stored and called later on the same Dart isolate. Returning a
 JS callback preserves its identity for signatures with symmetric conversions,
 such as scalar arguments and results. Data classes, dates, `ByteBuffer`,
-`ByteData`, SIMD types, Futures and Streams require an adapter, including when
+`ByteData`, SIMD types, Sets, Futures and Streams require an adapter, including when
 nested in a signature, so a returned function may differ from the original JS
 callback. Use `JsReference<JsFunction>` when passing
 the original function without conversion.
