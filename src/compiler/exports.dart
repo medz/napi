@@ -134,10 +134,14 @@ final class ExportFunction {
     this.constructor = false,
     this.typeArguments = const [],
     this.tearOffType,
+    this.envPositional = const [],
+    this.envNamed = const [],
   });
   final Member target;
   final List<DartType> typeArguments;
   final FunctionType? tearOffType;
+  final List<int> envPositional;
+  final List<String> envNamed;
   final String name;
   final ExportSignature signature;
   final ExportClass? owner;
@@ -219,10 +223,21 @@ ExportModule readExports(
 final class _Reader {
   _Reader(Component component, PackageConfig packages)
     : annotationFile = packages.resolve(_annotationUri),
+      envClass = component.libraries
+          .where(
+            (library) =>
+                library.importUri == _envUri ||
+                library.fileUri == packages.resolve(_envUri),
+          )
+          .expand((library) => library.classes)
+          .where((cls) => cls.name == 'Env')
+          .firstOrNull,
       hierarchy = ClassHierarchy(component, CoreTypes(component));
 
   static final _annotationUri = Uri.parse('package:napi/napi.dart');
+  static final _envUri = Uri.parse('package:napi/src/env.dart');
   final Uri? annotationFile;
+  final Class? envClass;
   final ClassHierarchy hierarchy;
   final module = ExportModule();
   final classes = <Class, ExportClass>{};
@@ -559,22 +574,52 @@ final class _Reader {
           substitution: substitution,
         );
       }
-      ExportParameter parameter(FunctionParameter parameter, bool required) {
+      ExportParameter? parameter(FunctionParameter parameter, bool required) {
         final parameterName =
             constructor && owner!.isObject && parameter.isWildcard
             ? '_'
             : parameter is NamedParameter
             ? parameter.parameterName
             : parameter.cosmeticName ?? 'argument';
+        final type = substitution.substituteType(parameter.type);
+        if (type is InterfaceType && type.classNode == envClass) {
+          if (!required || type.nullability != Nullability.nonNullable) {
+            throw FormatException(
+              '@NAPI $name: parameter $parameterName: injected Env must be required and non-nullable.',
+            );
+          }
+          return null;
+        }
         return ExportParameter(
           name: parameterName,
-          type: _type(
-            substitution.substituteType(parameter.type),
-            '$name: parameter $parameterName',
-          ),
+          type: _type(type, '$name: parameter $parameterName'),
           required: required,
           defaultValue: parameter.defaultValue,
         );
+      }
+
+      final positional = <ExportParameter>[];
+      final named = <ExportParameter>[];
+      final envPositional = <int>[];
+      final envNamed = <String>[];
+      for (var i = 0; i < function.positionalParameters.length; ++i) {
+        final value = parameter(
+          function.positionalParameters[i],
+          i < function.requiredParameterCount,
+        );
+        if (value == null) {
+          envPositional.add(i);
+        } else {
+          positional.add(value);
+        }
+      }
+      for (final target in function.namedParameters) {
+        final value = parameter(target, target.isRequired);
+        if (value == null) {
+          envNamed.add(target.parameterName);
+        } else {
+          named.add(value);
+        }
       }
 
       final rawType =
@@ -599,17 +644,8 @@ final class _Reader {
         name: name,
         signature: ExportSignature(
           typeParameters: typeParameters,
-          positional: [
-            for (var i = 0; i < function.positionalParameters.length; ++i)
-              parameter(
-                function.positionalParameters[i],
-                i < function.requiredParameterCount,
-              ),
-          ],
-          named: [
-            for (final value in function.namedParameters)
-              parameter(value, value.isRequired),
-          ],
+          positional: positional,
+          named: named,
           result: constructor
               ? _type(
                   InterfaceType(owner!.target, Nullability.nonNullable, [
@@ -632,6 +668,8 @@ final class _Reader {
         constructor: constructor,
         typeArguments: arguments,
         tearOffType: rawType,
+        envPositional: envPositional,
+        envNamed: envNamed,
       );
     } finally {
       _parameters
@@ -990,6 +1028,11 @@ final class _Reader {
     if (result && type is VoidType)
       return ExportType(_actual(type), ValueKind.voidValue);
     if (type is InterfaceType) {
+      if (type.classNode == envClass) {
+        throw FormatException(
+          '@NAPI $context: Env is only supported as an injected required non-nullable parameter of an annotated function, method or constructor.',
+        );
+      }
       final typeLibrary = type.classNode.enclosingLibrary;
       if (typeLibrary.importUri.toString() == 'package:napi/src/env.dart' ||
           typeLibrary.fileUri == annotationFile?.resolve('src/env.dart')) {
