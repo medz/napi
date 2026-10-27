@@ -36,6 +36,7 @@ Future<void> main(List<String> args) async {
       ('sets', 'annotated_sets.dart'),
       ('env', 'annotated_env.dart'),
       ('inheritance', 'annotated_inheritance.dart'),
+      ('generic-objects', 'annotated_generic_objects.dart'),
     ])
       NativeTarget(
         entry: File('${source.path}/$entry'),
@@ -393,6 +394,18 @@ Future<void> main(List<String> args) async {
         (
           "@NAPI() int count = 1; @NAPI(name: 'count') int inspect() => 1;",
           'Duplicate JavaScript export',
+        ),
+      ],
+    ),
+    (
+      'generic-objects',
+      'annotated_generic_objects.dart',
+      [
+        (
+          '@NAPI.object() class Readout<T> { Readout(this.value); '
+              '@NAPI() final T value; } '
+              '@NAPI() void invalid(Readout<int> value) {}',
+          'has no annotated input constructor',
         ),
       ],
     ),

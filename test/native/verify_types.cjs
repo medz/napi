@@ -35,6 +35,7 @@ for (const [target, fixture] of [
   ['sets', 'annotated_sets.cts'],
   ['env', 'annotated_env.cts'],
   ['inheritance', 'annotated_inheritance.cts'],
+  ['generic-objects', 'annotated_generic_objects.cts'],
 ]) {
   const consumer = resolve(process.argv[2], target, 'consumer.cts');
   copyFileSync(join(__dirname, fixture), consumer);

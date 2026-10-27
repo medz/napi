@@ -24,6 +24,7 @@ const verifyAnnotatedSimd = require('./annotated_simd.cjs');
 const verifyAnnotatedSets = require('./annotated_sets.cjs');
 const verifyAnnotatedEnv = require('./annotated_env.cjs');
 const verifyAnnotatedInheritance = require('./annotated_inheritance.cjs');
+const verifyAnnotatedGenericObjects = require('./annotated_generic_objects.cjs');
 
 const [output, images] = process.argv.slice(2).map(path => resolve(path));
 const timeout = setTimeout(() => process.exit(1), 30000);
@@ -111,6 +112,7 @@ async function main() {
   await verifyAnnotatedEnv(join(output, 'env', 'addon.node'));
   await verifyAnnotatedInheritance(
     join(output, 'inheritance', 'addon.node'), join(output, 'inheritance-package'));
+  await verifyAnnotatedGenericObjects(join(output, 'generic-objects', 'addon.node'));
   const path = join(output, 'full', 'addon.node');
   const addon = require(path);
   assert.equal(addon.answer, 42);

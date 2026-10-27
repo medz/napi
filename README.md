@@ -441,6 +441,34 @@ functions when needed.
 Data-object conversion supports up to 128 nested data objects. Deeper or cyclic
 structures throw `RangeError`.
 
+Data classes can be generic. Concrete type arguments determine the Dart
+constructor and each property's conversion:
+
+```dart
+@NAPI.object()
+class Envelope<T> {
+  @NAPI()
+  Envelope({required this.value});
+
+  @NAPI()
+  final T value;
+}
+
+@NAPI()
+Envelope<int> addOne(Envelope<int> envelope) =>
+    Envelope(value: envelope.value + 1);
+```
+
+```js
+addon.addOne({ value: 41 }); // { value: 42 }
+```
+
+Type arguments also apply to nested data classes, collections and callbacks.
+Input and output shapes remain separate, including when an argument is another
+data class with different constructor and getter types.
+Callback fields that take the data class's type parameter, such as
+`T Function(T)`, currently produce a build error.
+
 ## Generics
 
 Dart type parameters become TypeScript generics:
@@ -476,7 +504,7 @@ identity when returned. The same rules apply to elements of `List<T>`,
 
 Bounds currently support scalars, `Object` and explicit `JsReference` types.
 Bounds that copy values or unwrap a bound class, non-default specializations of
-generic classes at the binding boundary, and callbacks with their own type
+bound classes at the binding boundary, and callbacks with their own type
 parameters produce a build error.
 
 ## Functions and callbacks

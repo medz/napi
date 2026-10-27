@@ -89,9 +89,13 @@ final class ExportType {
 }
 
 final class ExportTypeParameter {
-  ExportTypeParameter(this.target, this.actualType);
+  ExportTypeParameter(this.target, this.actualType, {this.reified = false});
   final TypeParameter target;
   final DartType actualType;
+  final bool reified;
+  DartType get invocationType => reified
+      ? TypeParameterType(target, target.computeNullabilityFromBound())
+      : actualType;
   String get name => target.name!;
   late final ExportType bound;
   late final ExportType defaultType;
@@ -185,7 +189,7 @@ final class ExportClass {
   final staticMethods = <ExportFunction>[];
   final staticProperties = <ExportProperty>[];
   InterfaceType get dartType => InterfaceType(target, Nullability.nonNullable, [
-    for (final parameter in typeParameters) parameter.actualType,
+    for (final parameter in typeParameters) parameter.invocationType,
   ]);
 }
 
@@ -309,12 +313,8 @@ final class _Reader {
           _annotation(declaration as Annotatable) == null)
         continue;
       if (_objectAnnotation(declaration as Annotatable) &&
-          (declaration is! Class ||
-              declaration.isEnum ||
-              declaration.typeParameters.isNotEmpty)) {
-        throw const FormatException(
-          '@NAPI.object can only annotate a non-generic class.',
-        );
+          (declaration is! Class || declaration.isEnum)) {
+        throw const FormatException('@NAPI.object can only annotate a class.');
       }
       if (declaration is Class) {
         final name = _name(declaration, declaration.name);
@@ -371,7 +371,11 @@ final class _Reader {
     }
     for (final cls in module.classes) {
       cls.typeParameters.addAll(
-        _typeParameters(cls.target.typeParameters, cls.name),
+        _typeParameters(
+          cls.target.typeParameters,
+          cls.name,
+          reified: cls.isObject,
+        ),
       );
       _parameters.clear();
     }
@@ -592,20 +596,26 @@ final class _Reader {
     return type == null ? Substitution.empty : Substitution.fromSupertype(type);
   }
 
-  DartType _actual(DartType type) => Substitution.fromMap({
-    for (final entry in _parameters.entries) entry.key: entry.value.actualType,
-  }).substituteType(type);
+  DartType _actual(DartType type, {bool reified = true}) =>
+      Substitution.fromMap({
+        for (final entry in _parameters.entries)
+          entry.key: reified
+              ? entry.value.invocationType
+              : entry.value.actualType,
+      }).substituteType(type);
 
   List<ExportTypeParameter> _typeParameters(
     List<TypeParameter> parameters,
     String context, {
     Substitution substitution = Substitution.empty,
+    bool reified = false,
   }) {
     final models = [
       for (final parameter in parameters)
         ExportTypeParameter(
           parameter,
           _actual(substitution.substituteType(parameter.defaultType)),
+          reified: reified,
         ),
     ];
     _parameters.addAll({for (final model in models) model.target: model});
@@ -730,7 +740,7 @@ final class _Reader {
               as FunctionType;
       final arguments = constructor
           ? owner!.typeParameters
-                .map((parameter) => parameter.actualType)
+                .map((parameter) => parameter.invocationType)
                 .toList()
           : rawType.typeParameters
                 .map((parameter) => parameter.defaultType)
@@ -794,9 +804,7 @@ final class _Reader {
 
   bool _isExported(Member member) {
     if (_objectAnnotation(member)) {
-      throw const FormatException(
-        '@NAPI.object can only annotate a non-generic class.',
-      );
+      throw const FormatException('@NAPI.object can only annotate a class.');
     }
     return _annotation(member) != null;
   }
@@ -1234,7 +1242,11 @@ final class _Reader {
         ValueKind.typeParameter,
         nullable: type.declaredNullability == Nullability.nullable,
         parameter: parameter,
-        representation: _type(actual, context, result: result),
+        representation: _type(
+          _actual(type, reified: false),
+          context,
+          result: result,
+        ),
       );
     }
     if (type is DynamicType)
@@ -1373,13 +1385,15 @@ final class _Reader {
       final exported = classes[type.classNode];
       if (exported != null) {
         final actual = _actual(type) as InterfaceType;
-        if (actual.typeArguments.length !=
-                exported.dartType.typeArguments.length ||
-            !List.generate(
-              actual.typeArguments.length,
-              (i) =>
-                  actual.typeArguments[i] == exported.dartType.typeArguments[i],
-            ).every((same) => same)) {
+        if (!exported.isObject &&
+            (actual.typeArguments.length !=
+                    exported.dartType.typeArguments.length ||
+                !List.generate(
+                  actual.typeArguments.length,
+                  (i) =>
+                      actual.typeArguments[i] ==
+                      exported.dartType.typeArguments[i],
+                ).every((same) => same))) {
           throw FormatException(
             '@NAPI $context: non-default generic class arguments are not supported: $type.',
           );
