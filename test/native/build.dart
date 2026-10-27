@@ -26,6 +26,7 @@ Future<void> main(List<String> args) async {
       ('records', 'annotated_records.dart'),
       ('enums', 'annotated_enums.dart'),
       ('constants', 'annotated_constants.dart'),
+      ('references', 'annotated_js_references.dart'),
     ])
       NativeTarget(
         entry: File('${source.path}/$entry'),
@@ -238,6 +239,20 @@ Future<void> main(List<String> args) async {
           'Duplicate JavaScript export',
         ),
         ('@NAPI() final value = 1;', 'Unsupported annotated declaration'),
+      ],
+    ),
+    (
+      'references',
+      'annotated_js_references.dart',
+      [
+        (
+          '@NAPI() JsReference<JsObject?> invalid(JsReference<JsObject?> value) => value;',
+          'JsReference requires non-nullable JsObject, JsFunction or JsSymbol',
+        ),
+        (
+          '@NAPI() JsReference<Object> invalid(JsReference<Object> value) => value;',
+          'JsReference requires non-nullable JsObject, JsFunction or JsSymbol',
+        ),
       ],
     ),
   ]) {

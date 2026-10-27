@@ -25,6 +25,7 @@ for (const [target, fixture] of [
   ['records', 'annotated_records.cts'],
   ['enums', 'annotated_enums.cts'],
   ['constants', 'annotated_constants.cts'],
+  ['references', 'annotated_js_references.cts'],
 ]) {
   const consumer = resolve(process.argv[2], target, 'consumer.cts');
   copyFileSync(join(__dirname, fixture), consumer);

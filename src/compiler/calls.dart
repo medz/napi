@@ -146,7 +146,8 @@ final class Calls {
     ValueKind.future ||
     ValueKind.stream ||
     ValueKind.record ||
-    ValueKind.enumeration => true,
+    ValueKind.enumeration ||
+    ValueKind.jsReference => true,
     _ => false,
   };
 
@@ -155,6 +156,14 @@ final class Calls {
     ExportType type,
     Expression Function(DartType) read,
   ) {
+    if (type.kind == ValueKind.opaque || type.kind == ValueKind.dynamicValue) {
+      return call(
+        VariableGet(env),
+        method(envClass, '_readValue'),
+        [read(core.objectNullableRawType)],
+        types: [type.dartType],
+      );
+    }
     if (type.kind == ValueKind.future &&
         type.element!.kind == ValueKind.future) {
       throw const FormatException(
@@ -165,6 +174,8 @@ final class Calls {
     final baseType = switch (type.kind) {
       ValueKind.function => functionType,
       ValueKind.enumeration => core.intNonNullableRawType,
+      ValueKind.jsReference =>
+        (type.dartType as InterfaceType).typeArguments.single as InterfaceType,
       _ => objectType,
     };
     final rawType = type.nullable
@@ -203,6 +214,12 @@ final class Calls {
       ValueKind.function => _readFunction(env, type.signature!, source()),
       ValueKind.record => _readRecord(env, type, source),
       ValueKind.enumeration => _readEnum(type.enumExport!, source),
+      ValueKind.jsReference => call(
+        VariableGet(env),
+        method(envClass, '_retain'),
+        [source()],
+        types: [(type.dartType as InterfaceType).typeArguments.single],
+      ),
       ValueKind.future || ValueKind.stream => call(
         VariableGet(env),
         method(
@@ -267,7 +284,7 @@ final class Calls {
     ExportType type,
     Expression value,
   ) {
-    if (!_isComposite(type)) return value;
+    if (!_isComposite(type) || type.kind == ValueKind.jsReference) return value;
     final result = SyntheticVariable(
       cosmeticName: 'result${_next++}',
       type: type.dartType,

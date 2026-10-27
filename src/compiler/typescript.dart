@@ -106,6 +106,14 @@ String _type(ExportType type, {bool output = true}) {
     ValueKind.never => 'never',
     ValueKind.object => type.classExport!.name,
     ValueKind.enumeration => type.enumExport!.name,
+    ValueKind.undefined => 'undefined',
+    ValueKind.dynamicValue => 'any',
+    ValueKind.opaque => type.nullable ? 'unknown' : '({} | undefined)',
+    ValueKind.jsReference => switch (type.referenceKind!) {
+      JsReferenceKind.object => 'object',
+      JsReferenceKind.function => 'globalThis.Function',
+      JsReferenceKind.symbol => 'symbol',
+    },
     ValueKind.function =>
       '((${_parameters(type.signature!, output: output)}) => ${_type(type.signature!.result, output: output)})',
     ValueKind.future =>
@@ -136,7 +144,9 @@ String _type(ExportType type, {bool output = true}) {
         TypedDataKind.float64 => 'Float64Array',
       }}',
   };
-  return type.nullable ? '$value | null' : value;
+  return type.nullable && type.kind != ValueKind.opaque
+      ? '$value | null'
+      : value;
 }
 
 String _record(ExportType type, {required bool output}) {

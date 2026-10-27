@@ -240,6 +240,40 @@ Arguments and results use the same conversions as other annotated functions,
 including nested collections and exported classes. Generic function types are
 not supported yet.
 
+## JavaScript values
+
+Use an owned reference to keep a JS object, function or Symbol in Dart:
+
+```dart
+@NAPI()
+Future<JsReference<JsObject>> returnLater(JsReference<JsObject> value) async {
+  await Future<void>.delayed(const Duration(milliseconds: 1));
+  return value;
+}
+```
+
+```js
+const value = {};
+await returnLater(value) === value; // true
+```
+
+`JsReference<JsObject>`, `JsReference<JsFunction>` and `JsReference<JsSymbol>`
+preserve JS identity across calls. Returning a reference does not consume it.
+Use `dispose()` when finished; references are also released by Dart collection
+and environment cleanup. Cross-heap reference cycles require explicit disposal.
+The reference's `value` is borrowed during a callback or `Env.withScope`.
+
+`Object?` accepts any JS value: scalars become Dart values, and objects,
+functions and Symbols become owned references. It generates TypeScript `unknown`;
+`dynamic` generates `any`. A non-nullable `Object` rejects `null` and still accepts
+JS `undefined`, represented by the exported `undefined` value. Use `JsUndefined`
+when a declaration specifically requires `undefined`.
+
+Opaque values keep their identity rather than reading object properties. They
+can return Dart scalars and JS references; use a concrete supported Dart type
+such as `List<int>` or a record to convert structured Dart results. Hiding a Dart
+container or class behind `Object?` does not serialize it automatically.
+
 ## Futures
 
 Return a `Future` to expose an asynchronous function, or accept one to await a
