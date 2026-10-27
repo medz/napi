@@ -98,6 +98,8 @@ String _type(ExportType type, {bool output = true}) {
       output
           ? 'globalThis.Promise<globalThis.Awaited<${_type(type.element!, output: output)}>>'
           : 'globalThis.Promise<${_type(type.element!, output: output)}>',
+    ValueKind.stream =>
+      'globalThis.${output ? 'AsyncIterableIterator' : 'AsyncIterable'}<${_type(type.element!, output: output)}>',
     ValueKind.list =>
       type.element!.nullable
           ? '(${_type(type.element!, output: output)})[]'
