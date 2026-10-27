@@ -503,8 +503,9 @@ identity when returned. The same rules apply to elements of `List<T>`,
 `Map<String, T>` and ordinary callback signatures.
 
 Bounds currently support scalars, `Object` and explicit `JsReference` types.
-Bounds that copy values or unwrap a bound class, non-default specializations of
-bound classes at the binding boundary produce a build error.
+Bounds that copy values or unwrap a bound class produce a build error.
+Non-default specializations of bound classes at the binding boundary also
+produce a build error.
 
 ## Functions and callbacks
 
