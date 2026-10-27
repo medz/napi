@@ -120,6 +120,33 @@ Records and their containers are copied; exported class instances inside them
 keep their identity. Record defaults use their actual Dart values, and fields
 can contain the other supported types, including callbacks, Futures and Streams.
 
+## Enums
+
+Annotate an enum to expose its cases as read-only numeric properties:
+
+```dart
+@NAPI()
+enum Status { ready, done }
+
+@NAPI()
+Status toggle(Status value) =>
+    value == Status.ready ? Status.done : Status.ready;
+```
+
+```js
+Status.ready; // 0
+toggle(Status.ready) === Status.done; // true
+```
+
+Values use Dart's `index`, so reordering cases changes their numeric values.
+Parameters accept only valid indices; names, fractional numbers and out-of-range
+indices are rejected. TypeScript exposes a read-only object and a union of its
+values, including with `isolatedModules` enabled.
+
+Use `@NAPI(name: 'anotherName')` on the enum or a case to rename it. Private
+cases must be explicitly annotated. Enhanced enum fields and methods remain
+available to Dart code; expose their behavior through annotated functions.
+
 ## Classes
 
 Annotate a Dart class to expose its public constructors, methods and properties:

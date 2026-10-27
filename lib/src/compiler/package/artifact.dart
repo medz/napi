@@ -107,10 +107,11 @@ final class Artifact {
       if (name is! String ||
           !RegExp(r'^[a-zA-Z_$][a-zA-Z0-9_$]*$').hasMatch(name) ||
           _reservedNames.contains(name) ||
-          (kind == 'class' && _reservedTypeNames.contains(name))) {
+          ((kind == 'class' || kind == 'enum') &&
+              _reservedTypeNames.contains(name))) {
         throw FormatException('Invalid native export name: $name.');
       }
-      if (kind != 'class' && kind != 'function') {
+      if (kind != 'class' && kind != 'function' && kind != 'enum') {
         throw FormatException('Unsupported native export kind: $kind.');
       }
       if (!names.add(name)) {

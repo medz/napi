@@ -139,7 +139,8 @@ final class Calls {
     ValueKind.function ||
     ValueKind.future ||
     ValueKind.stream ||
-    ValueKind.record => true,
+    ValueKind.record ||
+    ValueKind.enumeration => true,
     _ => false,
   };
 
@@ -155,9 +156,11 @@ final class Calls {
       );
     }
     if (!_isComposite(type)) return read(type.dartType);
-    final baseType = type.kind == ValueKind.function
-        ? functionType
-        : objectType;
+    final baseType = switch (type.kind) {
+      ValueKind.function => functionType,
+      ValueKind.enumeration => core.intNonNullableRawType,
+      _ => objectType,
+    };
     final rawType = type.nullable
         ? baseType.withDeclaredNullability(Nullability.nullable)
         : baseType;
@@ -193,6 +196,7 @@ final class Calls {
       ),
       ValueKind.function => _readFunction(env, type.signature!, source()),
       ValueKind.record => _readRecord(env, type, source),
+      ValueKind.enumeration => _readEnum(type.enumExport!, source),
       ValueKind.future || ValueKind.stream => call(
         VariableGet(env),
         method(
@@ -289,6 +293,16 @@ final class Calls {
       ),
       ValueKind.function => _writeFunction(env, type.signature!, source),
       ValueKind.record => _writeRecord(env, type, source),
+      ValueKind.enumeration => InstanceGet(
+        InstanceAccessKind.Instance,
+        source(),
+        Name('index'),
+        interfaceTarget: method(
+          core.index.getClass('dart:core', 'Enum'),
+          'index',
+        ),
+        resultType: core.intNonNullableRawType,
+      ),
       ValueKind.future || ValueKind.stream => call(
         VariableGet(env),
         method(
@@ -307,11 +321,39 @@ final class Calls {
               EqualsNull(VariableGet(result)),
               NullLiteral(),
               convert(),
-              objectType.withDeclaredNullability(Nullability.nullable),
+              (type.kind == ValueKind.enumeration
+                      ? core.intNonNullableRawType
+                      : objectType)
+                  .withDeclaredNullability(Nullability.nullable),
             )
           : convert(),
     );
   }
+
+  Expression _readEnum(ExportEnum enumeration, Expression Function() source) =>
+      ConditionalExpression(
+        LogicalExpression(
+          call(source(), method(core.numClass, '>='), [IntLiteral(0)]),
+          LogicalExpressionOperator.AND,
+          call(source(), method(core.numClass, '<'), [
+            IntLiteral(enumeration.cases.length),
+          ]),
+        ),
+        InstanceInvocation(
+          InstanceAccessKind.Instance,
+          CloneVisitorNotMembers().clone(enumeration.values.initializer!),
+          Name('[]'),
+          Arguments([source()]),
+          interfaceTarget: method(core.listClass, '[]'),
+          functionType: FunctionType(
+            [core.intNonNullableRawType],
+            enumeration.dartType,
+            Nullability.nonNullable,
+          ),
+        ),
+        failure('Invalid enum index for ${enumeration.name}'),
+        enumeration.dartType,
+      );
 
   Expression _readRecord(
     PositionalParameter env,

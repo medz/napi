@@ -24,12 +24,31 @@ Future<void> main(List<String> args) async {
       ('futures', 'annotated_futures.dart'),
       ('streams', 'annotated_streams.dart'),
       ('records', 'annotated_records.dart'),
+      ('enums', 'annotated_enums.dart'),
     ])
       NativeTarget(
         entry: File('${source.path}/$entry'),
         output: File('${output.path}/$target/addon.node'),
         declarations: File('${output.path}/$target/addon.d.ts'),
       ),
+  ]).run([]);
+
+  final enumPackage = Directory('${output.path}/enums-package');
+  await Compiler([
+    PackageBuild(
+      entry: File('${source.path}/annotated_enums.dart'),
+      output: enumPackage,
+      name: '@fixture/enums',
+      version: '0.0.0',
+    ),
+  ]).run([]);
+  await Compiler([
+    PackageBuild.fromArtifacts(
+      artifacts: [NativeArtifact(File('${enumPackage.path}/.napi.json'))],
+      output: Directory('${output.path}/enums-assembled'),
+      name: '@fixture/enums-assembled',
+      version: '0.0.0',
+    ),
   ]).run([]);
 
   final core = File('${output.path}/core/addon.node');
@@ -160,6 +179,29 @@ Future<void> main(List<String> args) async {
         (
           '@NAPI() Map<int, String> invalid(Map<int, String> value) => value;',
           'Map keys must be non-nullable String',
+        ),
+      ],
+    ),
+    (
+      'enums',
+      'annotated_enums.dart',
+      [
+        (
+          '@NAPI() enum Invalid { _hidden, ready }',
+          'Private enum case must be explicitly annotated',
+        ),
+        (
+          "@NAPI() enum Invalid { @NAPI(name: 'same') first, "
+              "@NAPI(name: 'same') second }",
+          'Duplicate JavaScript enum case',
+        ),
+        (
+          '@NAPI() enum Invalid { ready; @NAPI() int get code => 1; }',
+          'Only enum cases can be annotated',
+        ),
+        (
+          "@NAPI(name: 'number') enum Invalid { ready }",
+          'reserved TypeScript enum name',
         ),
       ],
     ),
