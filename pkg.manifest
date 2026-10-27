@@ -76,6 +76,9 @@ src/patches/precompiler-recovery.patch
 src/patches/private-dart-api.patch
 src/runtime.cc
 src/runtime.h
+test/native/annotated_binary_views.cjs
+test/native/annotated_binary_views.cts
+test/native/annotated_binary_views.dart
 test/native/annotated_callbacks.cjs
 test/native/annotated_callbacks.cts
 test/native/annotated_callbacks.dart

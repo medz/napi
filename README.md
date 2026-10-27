@@ -157,8 +157,29 @@ as `Uint8List`.
 
 Binary conversion copies only the view's range. Later writes on either side do
 not change the copy. A declaration of `List<int>` always produces a JS Array,
-including when its Dart implementation returns a `Uint8List`. `ByteData`,
-`ByteBuffer` and SIMD lists are not supported yet.
+including when its Dart implementation returns a `Uint8List`.
+
+`ByteBuffer` maps to JS `ArrayBuffer`, and `ByteData` maps to `DataView`:
+
+```dart
+@NAPI()
+ByteBuffer echoBuffer(ByteBuffer value) => value;
+
+@NAPI()
+ByteData echoView(ByteData value) => value;
+```
+
+```js
+const source = new Uint8Array([91, 1, 2, 3, 92]);
+const result = addon.echoView(new DataView(source.buffer, 1, 3));
+console.log([...new Uint8Array(result.buffer)]); // [1, 2, 3]
+```
+
+A returned `DataView` starts at offset zero in a new buffer containing only its
+visible bytes. DataView and TypedArray inputs backed by `SharedArrayBuffer` are
+also copied. `ByteBuffer` input requires an ordinary `ArrayBuffer`. Detached
+binary inputs throw `TypeError`; binary input conversion requires Node-API 7.
+SIMD types are not supported yet.
 
 ## Dates
 
@@ -402,8 +423,9 @@ multiplier(3)(14); // 42
 
 Callbacks can be stored and called later on the same Dart isolate. Returning a
 JS callback preserves its identity for signatures with symmetric conversions,
-such as scalar arguments and results. Data classes, dates, Futures and Streams require
-an adapter, including when nested in a signature, so a returned function may
+such as scalar arguments and results. Data classes, dates, `ByteBuffer`,
+`ByteData`, Futures and Streams require an adapter, including when nested in a
+signature, so a returned function may
 differ from the original JS callback. Use `JsReference<JsFunction>` when passing
 the original function without conversion.
 

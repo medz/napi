@@ -1016,6 +1016,82 @@ final class Env {
     return result;
   }
 
+  void _checkAttached(node.NapiValue buffer) {
+    final detached = _arena<Bool>();
+    _check(node.napiIsDetachedArraybuffer(_handle, buffer, detached));
+    if (detached.value) throw ArgumentError('ArrayBuffer is detached');
+  }
+
+  Uint8List _copyBytes(Pointer<Void> data, int length) {
+    final bytes = Uint8List(length);
+    if (length > 0) {
+      if (data == nullptr) throw StateError('Buffer has no accessible data');
+      bytes.setRange(0, length, data.cast<Uint8>().asTypedList(length));
+    }
+    return bytes;
+  }
+
+  node.NapiValue _createArrayBuffer(Uint8List bytes) {
+    final data = _arena<Pointer<Void>>();
+    final buffer = _result(
+      (out) => node.napiCreateArraybuffer(_handle, bytes.length, data, out),
+    );
+    if (bytes.isNotEmpty) {
+      data.value.cast<Uint8>().asTypedList(bytes.length).setAll(0, bytes);
+    }
+    return buffer;
+  }
+
+  // ignore: unused_element
+  ByteBuffer _readByteBuffer(JsObject value) {
+    final handle = _encode(value);
+    final isBuffer = _arena<Bool>();
+    _check(node.napiIsArraybuffer(_handle, handle, isBuffer));
+    if (!isBuffer.value) {
+      throw ArgumentError('Expected a JavaScript ArrayBuffer');
+    }
+    _checkAttached(handle);
+    final data = _arena<Pointer<Void>>();
+    final length = _arena<Size>();
+    _check(node.napiGetArraybufferInfo(_handle, handle, data, length));
+    return _copyBytes(data.value, length.value).buffer;
+  }
+
+  // ignore: unused_element
+  JsObject _writeByteBuffer(ByteBuffer value) =>
+      JsObject._(this, _createArrayBuffer(value.asUint8List()), _scope!);
+
+  // ignore: unused_element
+  ByteData _readByteData(JsObject value) {
+    final handle = _encode(value);
+    final isView = _arena<Bool>();
+    _check(node.napiIsDataview(_handle, handle, isView));
+    if (!isView.value) throw ArgumentError('Expected a JavaScript DataView');
+    final data = _arena<Pointer<Void>>();
+    final length = _arena<Size>();
+    final buffer = _arena<node.NapiValue>();
+    _check(
+      node.napiGetDataviewInfo(_handle, handle, length, data, buffer, nullptr),
+    );
+    _checkAttached(buffer.value);
+    return _copyBytes(data.value, length.value).buffer.asByteData();
+  }
+
+  // ignore: unused_element
+  JsObject _writeByteData(ByteData value) {
+    final length = value.lengthInBytes;
+    final buffer = _createArrayBuffer(
+      value.buffer.asUint8List(value.offsetInBytes, length),
+    );
+    return JsObject._(
+      this,
+      _result(
+        (out) => node.napiCreateDataview(_handle, length, buffer, 0, out),
+      ),
+      _scope!,
+    );
+  }
+
   // ignore: unused_element
   T _readTypedData<T extends TypedData>(JsObject value, int expectedKind) {
     final handle = _encode(value);
@@ -1027,6 +1103,7 @@ final class Env {
     final kind = _arena<Int32>();
     final length = _arena<Size>();
     final data = _arena<Pointer<Void>>();
+    final buffer = _arena<node.NapiValue>();
     _check(
       node.napiGetTypedarrayInfo(
         _handle,
@@ -1034,7 +1111,7 @@ final class Env {
         kind,
         length,
         data,
-        nullptr,
+        buffer,
         nullptr,
       ),
     );
@@ -1043,17 +1120,11 @@ final class Env {
         'Expected TypedArray kind $expectedKind, received ${kind.value}',
       );
     }
-    final bytes = Uint8List(length.value * _typedDataSize(expectedKind));
-    if (bytes.isNotEmpty) {
-      if (data.value == nullptr) {
-        throw StateError('TypedArray has no accessible data');
-      }
-      bytes.setRange(
-        0,
-        bytes.length,
-        data.value.cast<Uint8>().asTypedList(bytes.length),
-      );
-    }
+    _checkAttached(buffer.value);
+    final bytes = _copyBytes(
+      data.value,
+      length.value * _typedDataSize(expectedKind),
+    );
     return (switch (expectedKind) {
           0 => bytes.buffer.asInt8List(),
           1 => bytes,
@@ -1076,20 +1147,9 @@ final class Env {
   // ignore: unused_element
   JsObject _writeTypedData(TypedData value, int expectedKind) {
     final length = value.lengthInBytes;
-    final data = _arena<Pointer<Void>>();
-    final buffer = _result(
-      (out) => node.napiCreateArraybuffer(_handle, length, data, out),
+    final buffer = _createArrayBuffer(
+      value.buffer.asUint8List(value.offsetInBytes, length),
     );
-    if (length > 0) {
-      data.value
-          .cast<Uint8>()
-          .asTypedList(length)
-          .setRange(
-            0,
-            length,
-            value.buffer.asUint8List(value.offsetInBytes, length),
-          );
-    }
     return JsObject._(
       this,
       _result(

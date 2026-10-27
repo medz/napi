@@ -149,6 +149,8 @@ final class Calls {
     ValueKind.map ||
     ValueKind.typedData ||
     ValueKind.dateTime ||
+    ValueKind.byteBuffer ||
+    ValueKind.byteData ||
     ValueKind.function ||
     ValueKind.future ||
     ValueKind.stream ||
@@ -230,6 +232,16 @@ final class Calls {
       ValueKind.dateTime => call(
         VariableGet(env),
         method(envClass, '_readDate'),
+        [source()],
+      ),
+      ValueKind.byteBuffer || ValueKind.byteData => call(
+        VariableGet(env),
+        method(
+          envClass,
+          type.kind == ValueKind.byteBuffer
+              ? '_readByteBuffer'
+              : '_readByteData',
+        ),
         [source()],
       ),
       ValueKind.function => _readFunction(env, type.signature!, source()),
@@ -353,6 +365,16 @@ final class Calls {
       ValueKind.dateTime => call(
         VariableGet(env),
         method(envClass, '_writeDate'),
+        [source()],
+      ),
+      ValueKind.byteBuffer || ValueKind.byteData => call(
+        VariableGet(env),
+        method(
+          envClass,
+          type.kind == ValueKind.byteBuffer
+              ? '_writeByteBuffer'
+              : '_writeByteData',
+        ),
         [source()],
       ),
       ValueKind.function => _writeFunction(env, type.signature!, source),
@@ -849,7 +871,11 @@ final class Calls {
 
   bool _directional(ExportType type) => switch (type.kind) {
     ValueKind.object => type.classExport!.isObject,
-    ValueKind.future || ValueKind.stream || ValueKind.dateTime => true,
+    ValueKind.future ||
+    ValueKind.stream ||
+    ValueKind.dateTime ||
+    ValueKind.byteBuffer ||
+    ValueKind.byteData => true,
     ValueKind.list || ValueKind.map => _directional(type.element!),
     ValueKind.record =>
       type.recordFields!.positional.any(_directional) ||
