@@ -27,6 +27,30 @@ Procedure generateRegister(
     ),
   );
 
+  for (final enumeration in exports.enums) {
+    final object = calls.local(
+      statements,
+      enumeration.name,
+      calls.objectType,
+      calls.call(VariableGet(env), calls.method(calls.envClass, 'object'), []),
+    );
+    for (final value in enumeration.cases) {
+      statements.add(
+        ExpressionStatement(
+          calls.call(
+            VariableGet(object),
+            calls.method(calls.objectClass, '_defineValue'),
+            [StringLiteral(value.name), IntLiteral(value.index)],
+            named: [
+              // Node-API napi_enumerable; cases are not writable/configurable.
+              NamedExpression('attributes', IntLiteral(2)),
+            ],
+          ),
+        ),
+      );
+    }
+    define(enumeration.name, VariableGet(object));
+  }
   for (final cls in exports.classes) {
     final signature = FunctionTypeInstantiator.instantiate(
       calls

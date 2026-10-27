@@ -14,6 +14,7 @@ export 'js_types.dart';
   TargetKind.setter,
   TargetKind.constructor,
   TargetKind.field,
+  TargetKind.enumValue,
   TargetKind.topLevelVariable,
 })
 final class NAPI {

@@ -22,6 +22,7 @@ enum ValueKind {
   future,
   stream,
   record,
+  enumeration,
 }
 
 enum TypedDataKind {
@@ -48,11 +49,13 @@ final class ExportType {
     this.typedDataKind,
     this.signature,
     this.recordFields,
+    this.enumExport,
   });
   final DartType dartType;
   final ValueKind kind;
   final bool nullable;
   final ExportClass? classExport;
+  final ExportEnum? enumExport;
   final ExportType? element;
   final TypedDataKind? typedDataKind;
   final ExportSignature? signature;
@@ -135,8 +138,18 @@ final class ExportClass {
 final class ExportModule {
   final functions = <ExportFunction>[];
   final classes = <ExportClass>[];
-  bool get isEmpty => functions.isEmpty && classes.isEmpty;
+  final enums = <ExportEnum>[];
+  bool get isEmpty => functions.isEmpty && classes.isEmpty && enums.isEmpty;
   bool get isNotEmpty => !isEmpty;
+}
+
+final class ExportEnum {
+  const ExportEnum(this.target, this.name, this.values, this.cases);
+  final Class target;
+  final String name;
+  final Field values;
+  final List<({String name, int index})> cases;
+  InterfaceType get dartType => InterfaceType(target, Nullability.nonNullable);
 }
 
 ExportModule readExports(
@@ -155,6 +168,7 @@ final class _Reader {
   final ClassHierarchy hierarchy;
   final module = ExportModule();
   final classes = <Class, ExportClass>{};
+  final enums = <Class, ExportEnum>{};
 
   InstanceConstant? _annotation(Annotatable node) {
     for (final expression in node.annotations) {
@@ -203,23 +217,25 @@ final class _Reader {
       if (declaration is! Annotatable ||
           _annotation(declaration as Annotatable) == null)
         continue;
-      if (declaration is Class &&
-          !declaration.isEnum &&
-          declaration.typeParameters.isEmpty) {
+      if (declaration is Class && declaration.typeParameters.isEmpty) {
         final name = _name(declaration, declaration.name);
         if (_reservedTypeNames.contains(name)) {
           throw FormatException(
-            '@NAPI: "$name" is a reserved TypeScript class name. '
+            '@NAPI: "$name" is a reserved TypeScript ${declaration.isEnum ? 'enum' : 'class'} name. '
             'Choose another name with @NAPI(name: ...).',
           );
         }
-        final exported = ExportClass(declaration, name);
-        if (!names.add(exported.name))
-          throw FormatException(
-            'Duplicate JavaScript export: ${exported.name}.',
-          );
-        module.classes.add(exported);
-        classes[declaration] = exported;
+        if (!names.add(name))
+          throw FormatException('Duplicate JavaScript export: $name.');
+        if (declaration.isEnum) {
+          final exported = _enum(declaration, name);
+          module.enums.add(exported);
+          enums[declaration] = exported;
+        } else {
+          final exported = ExportClass(declaration, name);
+          module.classes.add(exported);
+          classes[declaration] = exported;
+        }
       } else if (declaration is Procedure &&
           declaration.enclosingClass == null &&
           declaration.kind == ProcedureKind.Method &&
@@ -228,7 +244,7 @@ final class _Reader {
         selected.add(declaration);
       } else {
         throw const FormatException(
-          'Unsupported annotated declaration: export a non-generic class or a top-level function.',
+          'Unsupported annotated declaration: export a non-generic class, enum or top-level function.',
         );
       }
     }
@@ -250,7 +266,8 @@ final class _Reader {
       module.functions.add(_function(declaration, name));
     }
     for (final declaration in declarations.whereType<Class>()) {
-      if (classes.containsKey(declaration)) continue;
+      if (classes.containsKey(declaration) || enums.containsKey(declaration))
+        continue;
       for (final member in [
         ...declaration.constructors,
         ...declaration.procedures,
@@ -263,6 +280,55 @@ final class _Reader {
       }
     }
     return module;
+  }
+
+  ExportEnum _enum(Class target, String name) {
+    final cases = <({String name, int index})>[];
+    final names = <String>{};
+    for (final member in [
+      ...target.fields,
+      ...target.constructors,
+      ...target.procedures,
+    ]) {
+      if (member is Field && member.isEnumElement) {
+        if (member.name.isPrivate && _annotation(member) == null) {
+          throw FormatException(
+            '@NAPI $name: Private enum case must be explicitly annotated: ${member.name.text}.',
+          );
+        }
+        final caseName = _name(member, member.name.text);
+        if (!names.add(caseName)) {
+          throw FormatException(
+            'Duplicate JavaScript enum case: $name.$caseName.',
+          );
+        }
+        final value =
+            (member.initializer as ConstantExpression).constant
+                as InstanceConstant;
+        final index =
+            value.fieldValues.entries
+                    .singleWhere(
+                      (entry) =>
+                          entry.key.asField.name.text == 'index' &&
+                          entry.key.asField.enclosingLibrary.importUri
+                                  .toString() ==
+                              'dart:core',
+                    )
+                    .value
+                as IntConstant;
+        cases.add((name: caseName, index: index.value));
+      } else if (_annotation(member) != null) {
+        throw FormatException(
+          '@NAPI $name: Only enum cases can be annotated: ${member.name.text}.',
+        );
+      }
+    }
+    return ExportEnum(
+      target,
+      name,
+      target.fields.singleWhere((field) => field.name.text == 'values'),
+      cases,
+    );
   }
 
   Substitution _substitution(ExportClass? owner, Member member) {
@@ -576,6 +642,14 @@ final class _Reader {
     if (result && type is VoidType)
       return ExportType(type, ValueKind.voidValue);
     if (type is InterfaceType) {
+      final enumeration = enums[type.classNode];
+      if (enumeration != null)
+        return ExportType(
+          type,
+          ValueKind.enumeration,
+          nullable: type.nullability == Nullability.nullable,
+          enumExport: enumeration,
+        );
       final exported = classes[type.classNode];
       if (exported != null)
         return ExportType(

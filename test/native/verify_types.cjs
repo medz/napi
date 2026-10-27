@@ -1,8 +1,19 @@
 'use strict';
 
-const { copyFileSync } = require('node:fs');
+const { copyFileSync, writeFileSync } = require('node:fs');
 const { join, resolve } = require('node:path');
 const { spawnSync } = require('node:child_process');
+
+function verify(consumers, isolated = false) {
+  const result = spawnSync(process.execPath, [
+    require.resolve('typescript/bin/tsc'),
+    '--strict', '--exactOptionalPropertyTypes', '--noEmit',
+    '--module', 'NodeNext', '--target', 'ES2020',
+    ...(isolated ? ['--isolatedModules'] : []), ...consumers,
+  ], { stdio: 'inherit' });
+  if (result.error) throw result.error;
+  if (result.status !== 0) process.exit(result.status ?? 1);
+}
 
 for (const [target, fixture] of [
   ['annotated', 'annotated_functions.cts'],
@@ -12,14 +23,27 @@ for (const [target, fixture] of [
   ['futures', 'annotated_futures.cts'],
   ['streams', 'annotated_streams.cts'],
   ['records', 'annotated_records.cts'],
+  ['enums', 'annotated_enums.cts'],
 ]) {
   const consumer = resolve(process.argv[2], target, 'consumer.cts');
   copyFileSync(join(__dirname, fixture), consumer);
-  const result = spawnSync(process.execPath, [
-    require.resolve('typescript/bin/tsc'),
-    '--strict', '--exactOptionalPropertyTypes', '--noEmit',
-    '--module', 'NodeNext', '--target', 'ES2020', consumer,
-  ], { stdio: 'inherit' });
-  if (result.error) throw result.error;
-  if (result.status !== 0) process.exit(result.status ?? 1);
+  verify([consumer], target === 'enums');
+}
+
+for (const directory of ['enums-package', 'enums-assembled']) {
+  const common = resolve(process.argv[2], 'enums', `${directory}.cts`);
+  const module = resolve(process.argv[2], 'enums', `${directory}.mts`);
+  writeFileSync(common, `import binding = require('../${directory}/index.cjs');
+const ready: binding.Status = binding.Status.ready;
+const done: binding.Status = binding.toggle(ready);
+// @ts-expect-error Enum values remain a numeric union in package declarations.
+const invalid: binding.Status = 2;
+`);
+  writeFileSync(module, `import { Status, toggle } from '../${directory}/index.mjs';
+const ready: Status = Status.ready;
+const done: Status = toggle(ready);
+// @ts-expect-error ESM re-exports retain the enum type and value.
+const invalid: Status = 2;
+`);
+  verify([common, module], true);
 }

@@ -4,6 +4,16 @@ import 'exports.dart';
 
 String typeScriptDeclarations(ExportModule exports) {
   final output = StringBuffer();
+  for (final enumeration in exports.enums) {
+    output.writeln('export declare const ${enumeration.name}: {');
+    for (final value in enumeration.cases) {
+      output.writeln('  readonly ${jsonEncode(value.name)}: ${value.index};');
+    }
+    output.writeln('};');
+    output.writeln(
+      'export type ${enumeration.name} = typeof ${enumeration.name}[keyof typeof ${enumeration.name}];',
+    );
+  }
   for (final cls in exports.classes) {
     output.writeln('export declare class ${cls.name} {');
     var brand = '__napiBrand';
@@ -92,6 +102,7 @@ String _type(ExportType type, {bool output = true}) {
     ValueKind.voidValue => 'void',
     ValueKind.never => 'never',
     ValueKind.object => type.classExport!.name,
+    ValueKind.enumeration => type.enumExport!.name,
     ValueKind.function =>
       '((${_parameters(type.signature!, output: output)}) => ${_type(type.signature!.result, output: output)})',
     ValueKind.future =>

@@ -85,6 +85,9 @@ test/native/annotated_classes.dart
 test/native/annotated_collections.cjs
 test/native/annotated_collections.cts
 test/native/annotated_collections.dart
+test/native/annotated_enums.cjs
+test/native/annotated_enums.cts
+test/native/annotated_enums.dart
 test/native/annotated_functions.cjs
 test/native/annotated_functions.cts
 test/native/annotated_functions.dart
