@@ -2,6 +2,7 @@ import addon = require('./addon');
 
 const value: Promise<number> = addon.asyncValue(7);
 const echoed: Promise<number> = addon.echoFuture(Promise.resolve(9));
+const offset: Promise<number> = addon.futureWithOffset(Promise.resolve(9), 2);
 const ignored: Promise<void> = addon.completeVoid(Promise.resolve());
 const nullableValue: Promise<number | null> = addon.nullableValue(Promise.resolve(null));
 const nullableFuture: Promise<number> | null = addon.nullableFuture();
@@ -27,6 +28,10 @@ async function values() {
 addon.echoFuture(7);
 // @ts-expect-error A Promise must fulfill with the declared type.
 addon.echoFuture(Promise.resolve('wrong'));
+// @ts-expect-error Arguments after a Future retain their declared types.
+addon.futureWithOffset(Promise.resolve(9), '2');
+// @ts-expect-error Every list element must be a Promise.
+addon.futureList([Promise.resolve(1), 1]);
 // @ts-expect-error Nullable Future values exclude undefined.
 addon.nullableFuture(undefined);
 // @ts-expect-error Nullable elements exclude undefined.

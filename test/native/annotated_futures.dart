@@ -10,6 +10,10 @@ Future<int> asyncValue(int value) async => value;
 Future<int> echoFuture(Future<int> value) => value;
 
 @NAPI()
+Future<int> futureWithOffset(Future<int> value, int offset) async =>
+    await value + offset;
+
+@NAPI()
 Future<void> completeVoid(Future<void> value) async => await value;
 
 @NAPI()

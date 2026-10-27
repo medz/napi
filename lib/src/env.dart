@@ -499,6 +499,8 @@ final class Env {
     _check(node.napiIsPromise(_handle, _encode(value), isPromise));
     if (!isPromise.value) throw ArgumentError('Expected a JavaScript Promise');
     final result = Completer<T>();
+    // A later conversion can fail before business code receives this Future.
+    result.future.ignore();
     final resolve = function('', (arguments) {
       if (!result.isCompleted) {
         try {

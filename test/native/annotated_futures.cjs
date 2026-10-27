@@ -51,6 +51,7 @@ module.exports = async function verifyAnnotatedFutures(path) {
   assert(value instanceof Promise);
   assert.equal(await value, 7);
   assert.equal(await addon.echoFuture(Promise.resolve(9)), 9);
+  assert.equal(await addon.futureWithOffset(Promise.resolve(9), 2), 11);
   assert.equal(await addon.delayed(11), 11);
   assert.equal(await addon.completeVoid(Promise.resolve('ignored')), undefined);
   assert.equal(await addon.nullableValue(Promise.resolve(null)), null);
@@ -74,7 +75,13 @@ module.exports = async function verifyAnnotatedFutures(path) {
     await rejectsWith(addon.echoFuture(Promise.reject(reason)), reason);
     await rejectsWith(addon.applyAsync(1, () => { throw reason; }), reason);
     await rejectsWith(addon.echoFuture(Promise.resolve({ get then() { throw reason; } })), reason);
+    assert.throws(() => addon.futureList([Promise.reject(reason), 1]), TypeError);
+    assert.equal(await addon.delayed(0), 0);
+    assert.throws(() => addon.futureWithOffset(Promise.reject(reason), 'wrong'), TypeError);
+    assert.equal(await addon.delayed(0), 0);
   }
+  assert.throws(() => addon.futureList([Promise.resolve('wrong'), 1]), TypeError);
+  assert.equal(await addon.delayed(0), 0);
   const getterError = {};
   await rejectsWith(addon.mapFuture(Promise.resolve({
     get value() { throw getterError; },
