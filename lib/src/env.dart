@@ -1545,10 +1545,30 @@ final class Env {
     return value;
   }
 
+  // Called by compiler-generated bindings.
+  // ignore: unused_element
+  T _readValue<T>(Object? value) {
+    final result = switch (value) {
+      JsFunction value => value.retain(),
+      JsObject value => value.retain(),
+      JsSymbol value => value.retain(),
+      _ => value,
+    };
+    return result as T;
+  }
+
   node.NapiValue _encode(Object? value) {
     if (value == null) return _result((out) => node.napiGetNull(_handle, out));
     if (identical(value, undefined)) {
       return _result((out) => node.napiGetUndefined(_handle, out));
+    }
+    if (value is JsReference) {
+      if (!identical(value._env, this)) {
+        throw ArgumentError(
+          'JavaScript reference belongs to another environment',
+        );
+      }
+      return _encode(value.value);
     }
     if (value is _JsValue) {
       value._check();

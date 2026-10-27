@@ -23,7 +23,13 @@ enum ValueKind {
   stream,
   record,
   enumeration,
+  jsReference,
+  undefined,
+  opaque,
+  dynamicValue,
 }
+
+enum JsReferenceKind { object, function, symbol }
 
 enum TypedDataKind {
   int8,
@@ -50,12 +56,14 @@ final class ExportType {
     this.signature,
     this.recordFields,
     this.enumExport,
+    this.referenceKind,
   });
   final DartType dartType;
   final ValueKind kind;
   final bool nullable;
   final ExportClass? classExport;
   final ExportEnum? enumExport;
+  final JsReferenceKind? referenceKind;
   final ExportType? element;
   final TypedDataKind? typedDataKind;
   final ExportSignature? signature;
@@ -597,6 +605,7 @@ final class _Reader {
   }
 
   ExportType _type(DartType type, String context, {bool result = false}) {
+    if (type is DynamicType) return ExportType(type, ValueKind.dynamicValue);
     if (type is RecordType) {
       return ExportType(
         type,
@@ -668,6 +677,51 @@ final class _Reader {
     if (result && type is VoidType)
       return ExportType(type, ValueKind.voidValue);
     if (type is InterfaceType) {
+      final typeLibrary = type.classNode.enclosingLibrary;
+      if (typeLibrary.importUri.toString() == 'package:napi/src/env.dart' ||
+          typeLibrary.fileUri == annotationFile?.resolve('src/env.dart')) {
+        if (type.classNode.name == 'JsUndefined') {
+          return ExportType(
+            type,
+            ValueKind.undefined,
+            nullable: type.nullability == Nullability.nullable,
+          );
+        }
+        if (type.classNode.name == 'JsReference') {
+          final inner = type.typeArguments.single;
+          final kind =
+              inner is InterfaceType &&
+                  inner.nullability == Nullability.nonNullable &&
+                  inner.classNode.enclosingLibrary == typeLibrary
+              ? switch (inner.classNode.name) {
+                  'JsObject' => JsReferenceKind.object,
+                  'JsFunction' => JsReferenceKind.function,
+                  'JsSymbol' => JsReferenceKind.symbol,
+                  _ => null,
+                }
+              : null;
+          if (kind == null) {
+            throw FormatException(
+              '@NAPI $context: JsReference requires non-nullable JsObject, JsFunction or JsSymbol.',
+            );
+          }
+          return ExportType(
+            type,
+            ValueKind.jsReference,
+            nullable: type.nullability == Nullability.nullable,
+            referenceKind: kind,
+          );
+        }
+        if (const {
+          'JsObject',
+          'JsFunction',
+          'JsSymbol',
+        }.contains(type.classNode.name)) {
+          throw FormatException(
+            '@NAPI $context: use JsReference<${type.classNode.name}> for JavaScript values in annotated APIs.',
+          );
+        }
+      }
       final enumeration = enums[type.classNode];
       if (enumeration != null)
         return ExportType(
@@ -730,6 +784,7 @@ final class _Reader {
           'num' => ValueKind.number,
           'String' => ValueKind.string,
           'BigInt' => ValueKind.bigint,
+          'Object' => ValueKind.opaque,
           _ => null,
         };
         if (kind != null)
