@@ -1261,7 +1261,7 @@ final class Calls {
     final receiver = property.instance
         ? PositionalParameter(
             cosmeticName: 'receiver',
-            type: property.owner.dartType,
+            type: property.owner!.dartType,
           )
         : null;
     final args = setter

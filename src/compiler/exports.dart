@@ -123,7 +123,7 @@ final class ExportProperty {
     this.writeType,
   });
   final String name;
-  final ExportClass owner;
+  final ExportClass? owner;
   final Member? getter;
   final Member? setter;
   final ExportType? readType;
@@ -149,11 +149,13 @@ final class ExportModule {
   final classes = <ExportClass>[];
   final enums = <ExportEnum>[];
   final constants = <ExportConstant>[];
+  final properties = <ExportProperty>[];
   bool get isEmpty =>
       functions.isEmpty &&
       classes.isEmpty &&
       enums.isEmpty &&
-      constants.isEmpty;
+      constants.isEmpty &&
+      properties.isEmpty;
   bool get isNotEmpty => !isEmpty;
 }
 
@@ -242,6 +244,8 @@ final class _Reader {
         if (reference.node case final NamedNode node) node,
     };
     final selected = <Member>[];
+    final readable = <Member>[];
+    final writable = <Member>[];
     final names = <String>{};
     for (final declaration in declarations) {
       if (declaration is! Annotatable ||
@@ -280,17 +284,31 @@ final class _Reader {
         }
       } else if (declaration is Procedure &&
           declaration.enclosingClass == null &&
-          declaration.kind == ProcedureKind.Method &&
           !declaration.isExtensionMember &&
           !declaration.isExtensionTypeMember) {
-        selected.add(declaration);
-      } else if (declaration is Field &&
-          declaration.enclosingClass == null &&
-          declaration.isConst) {
-        selected.add(declaration);
+        switch (declaration.kind) {
+          case ProcedureKind.Method:
+            selected.add(declaration);
+          case ProcedureKind.Getter:
+            readable.add(declaration);
+          case ProcedureKind.Setter:
+            writable.add(declaration);
+          default:
+            throw const FormatException(
+              'Unsupported annotated top-level declaration.',
+            );
+        }
+      } else if (declaration is Field && declaration.enclosingClass == null) {
+        if (declaration.isConst) {
+          selected.add(declaration);
+        } else {
+          readable.add(declaration);
+          if (!declaration.isFinal && declaration.hasSetter)
+            writable.add(declaration);
+        }
       } else {
         throw const FormatException(
-          'Unsupported annotated declaration: export a non-generic class, enum, top-level function or const.',
+          'Unsupported annotated declaration: export a non-generic class, enum, top-level function or property.',
         );
       }
     }
@@ -325,6 +343,7 @@ final class _Reader {
         module.functions.add(_function(declaration, name));
       }
     }
+    _members(null, readable, writable, names, static: true);
     for (final declaration in declarations.whereType<Class>()) {
       if (classes.containsKey(declaration) || enums.containsKey(declaration))
         continue;
@@ -613,64 +632,72 @@ final class _Reader {
   }
 
   void _memberName(
-    ExportClass cls,
+    ExportClass? cls,
     String name,
     Set<String> names, {
     required bool static,
   }) {
-    if (static && name == 'prototype') {
+    if (cls != null && static && name == 'prototype') {
       throw FormatException(
         '@NAPI ${cls.name}: reserved ${static ? 'static' : 'instance'} member name "$name".',
       );
     }
     if (!names.add(name))
-      throw FormatException('Duplicate JavaScript member: ${cls.name}.$name.');
+      throw FormatException(
+        cls == null
+            ? 'Duplicate JavaScript export: $name.'
+            : 'Duplicate JavaScript member: ${cls.name}.$name.',
+      );
   }
 
   void _members(
-    ExportClass cls,
+    ExportClass? cls,
     Iterable<Member> readable,
     Iterable<Member> writable,
     Set<String> names, {
     required bool static,
   }) {
+    String context(String name) => cls == null ? name : '${cls.name}.$name';
     final getters = <Name, Member>{};
     final setters = <Name, Member>{
       for (final member in writable) member.name: member,
     };
     for (final member in readable) {
-      if (cls.isObject && member is Procedure && !member.isGetter) {
+      if (cls?.isObject == true && member is Procedure && !member.isGetter) {
         throw FormatException(
-          '@NAPI.object ${cls.name}: only instance fields and getters can be exported as object properties: ${member.name.text}.',
+          '@NAPI.object ${cls!.name}: only instance fields and getters can be exported as object properties: ${member.name.text}.',
         );
       }
       if (member is Procedure && member.kind == ProcedureKind.Method) {
         final name = _name(member, member.name.text);
         _memberName(cls, name, names, static: static);
-        (static ? cls.staticMethods : cls.methods).add(
+        (static ? cls!.staticMethods : cls!.methods).add(
           _function(member, name, owner: cls),
         );
       } else if (member is Field || member is Procedure && member.isGetter) {
         if (member is Procedure) {
-          _checkAsync(member.function, '${cls.name}.${member.name.text}');
+          _checkAsync(member.function, context(member.name.text));
         }
         getters[member.name] = member;
       } else if (_annotation(member) != null) {
         throw FormatException(
-          'Unsupported annotated declaration: ${cls.name}.${member.name.text}.',
+          'Unsupported annotated declaration: ${context(member.name.text)}.',
         );
       }
     }
     for (final key in {...getters.keys, ...setters.keys}) {
       final getter = getters[key];
       final setter = setters[key];
+      final sourceName = (getter ?? setter)!.name.text;
+      if (cls == null && setter is Procedure)
+        _checkAsync(setter.function, sourceName);
       final readName = getter == null ? null : _rename(getter);
       final writeName = setter == null ? null : _rename(setter);
       if (readName != null && writeName != null && readName != writeName)
         throw FormatException(
-          '@NAPI ${cls.name}.${key.text}: getter and setter names must agree.',
+          '@NAPI ${context(sourceName)}: getter and setter names must agree.',
         );
-      final name = _checkName(readName ?? writeName ?? key.text);
+      final name = _checkName(readName ?? writeName ?? sourceName);
       _memberName(cls, name, names, static: static);
       final readType = getter == null
           ? null
@@ -680,7 +707,7 @@ final class _Reader {
                     ? getter.type
                     : (getter as Procedure).function.returnType,
               ),
-              '${cls.name}.$name: return',
+              '${context(name)}: return',
               result: true,
             );
       final writeType = setter == null
@@ -695,18 +722,23 @@ final class _Reader {
                           .single
                           .type,
               ),
-              '${cls.name}.$name: parameter',
+              '${context(name)}: parameter',
             );
-      (static ? cls.staticProperties : cls.properties).add(
-        ExportProperty(
-          name: name,
-          owner: cls,
-          getter: getter,
-          setter: setter,
-          readType: readType,
-          writeType: writeType,
-        ),
-      );
+      (cls == null
+              ? module.properties
+              : static
+              ? cls.staticProperties
+              : cls.properties)
+          .add(
+            ExportProperty(
+              name: name,
+              owner: cls,
+              getter: getter,
+              setter: setter,
+              readType: readType,
+              writeType: writeType,
+            ),
+          );
     }
   }
 

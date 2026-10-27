@@ -28,12 +28,40 @@ Future<void> main(List<String> args) async {
       ('constants', 'annotated_constants.dart'),
       ('references', 'annotated_js_references.dart'),
       ('objects', 'annotated_objects.dart'),
+      ('properties', 'annotated_properties.dart'),
     ])
       NativeTarget(
         entry: File('${source.path}/$entry'),
         output: File('${output.path}/$target/addon.node'),
         declarations: File('${output.path}/$target/addon.d.ts'),
       ),
+  ]).run([]);
+
+  await Compiler([
+    for (final extension in ['cts', 'mts'])
+      NativeTarget(
+        entry: File('${source.path}/annotated_properties.dart'),
+        output: File('${output.path}/properties-$extension/addon.node'),
+        declarations: File(
+          '${output.path}/properties-$extension/addon.d.$extension',
+        ),
+      ),
+    PackageBuild(
+      entry: File('${source.path}/annotated_properties.dart'),
+      output: Directory('${output.path}/properties-package'),
+      name: '@fixture/properties',
+      version: '0.0.0',
+    ),
+  ]).run([]);
+  await Compiler([
+    PackageBuild.fromArtifacts(
+      artifacts: [
+        NativeArtifact(File('${output.path}/properties-package/.napi.json')),
+      ],
+      output: Directory('${output.path}/properties-assembled'),
+      name: '@fixture/properties-assembled',
+      version: '0.0.0',
+    ),
   ]).run([]);
 
   final enumPackage = Directory('${output.path}/enums-package');
@@ -162,7 +190,10 @@ Future<void> main(List<String> args) async {
               "@NAPI(name: 'same') int second() => 2;",
           'Duplicate JavaScript export',
         ),
-        ('@NAPI() int get value => 1;', 'Unsupported annotated declaration'),
+        (
+          'class Hidden {} @NAPI() Hidden get value => Hidden();',
+          'class type must be exported',
+        ),
       ],
     ),
     (
@@ -257,7 +288,10 @@ Future<void> main(List<String> args) async {
           "@NAPI() int same() => 1; @NAPI(name: 'same') const value = 2;",
           'Duplicate JavaScript export',
         ),
-        ('@NAPI() final value = 1;', 'Unsupported annotated declaration'),
+        (
+          'class Hidden {} @NAPI() final value = Hidden();',
+          'class type must be exported',
+        ),
       ],
     ),
     (
@@ -308,6 +342,21 @@ Future<void> main(List<String> args) async {
         (
           '@NAPI.object() class Invalid { @NAPI() set value(int next) {} }',
           'only instance fields and getters',
+        ),
+      ],
+    ),
+    (
+      'properties',
+      'annotated_properties.dart',
+      [
+        (
+          "@NAPI(name: 'left') int get value => 1; "
+              "@NAPI(name: 'right') set value(int next) {}",
+          'getter and setter names must agree',
+        ),
+        (
+          "@NAPI() int count = 1; @NAPI(name: 'count') int inspect() => 1;",
+          'Duplicate JavaScript export',
         ),
       ],
     ),

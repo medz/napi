@@ -456,10 +456,15 @@ int Compile(const NapiCompileOptions* options, char** metadata, char** error) {
     return Error(error, message);
   }
   fs::path declaration_path;
+  bool esm_declarations = false;
   if (declarations != nullptr) {
     declaration_path = fs::absolute(Path(declarations), status);
-    if (status || !Utf8(declaration_path.filename()).ends_with(".d.ts")) {
-      return Error(error, "Declarations output must be a .d.ts file");
+    if (status) return Error(error, "Cannot resolve declarations output");
+    const std::string filename = Utf8(declaration_path.filename());
+    esm_declarations = filename.ends_with(".d.mts");
+    if (!esm_declarations && !filename.ends_with(".d.ts") &&
+        !filename.ends_with(".d.cts")) {
+      return Error(error, "Declarations output must be a .d.ts, .d.cts or .d.mts file");
     }
     if (!InspectOutput(declaration_path, &message) ||
         !DifferentFiles(source, declaration_path, &message) ||
@@ -551,7 +556,8 @@ int Compile(const NapiCompileOptions* options, char** metadata, char** error) {
   const fs::path declaration_candidate =
       declaration_workspace.path / "bindings.d.ts";
   if (declarations != nullptr) {
-    const fs::path generated = workspace.path / "app.dill.d.ts";
+    const fs::path generated = workspace.path /
+        (esm_declarations ? "app.dill.d.mts" : "app.dill.d.ts");
     if (!fs::is_regular_file(generated, status)) {
       return Error(error,
                    "TypeScript declarations require annotation-based exports");

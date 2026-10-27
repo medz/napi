@@ -186,6 +186,29 @@ Procedure generateRegister(
   for (final value in exports.constants) {
     define(value.name, calls.constant(value, env), readOnly: true);
   }
+  for (final property in exports.properties) {
+    statements.add(
+      ExpressionStatement(
+        calls.call(
+          VariableGet(env),
+          calls.method(calls.envClass, '_defineProperty'),
+          [VariableGet(target), StringLiteral(property.name)],
+          named: [
+            if (property.getter != null)
+              NamedExpression(
+                'getter',
+                calls.bind(calls.property(property, setter: false), env),
+              ),
+            if (property.setter != null)
+              NamedExpression(
+                'setter',
+                calls.bind(calls.property(property, setter: true), env),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
   return calls.procedure(
     '_napiRegister',
     [env, target],

@@ -30,7 +30,11 @@ final class NativeTarget extends Target {
   /// The output `.node` file.
   final File output;
 
-  /// An optional `.d.ts` output for annotation-based exports.
+  /// An optional TypeScript declaration output for annotation-based exports.
+  ///
+  /// Use `.d.cts` for CommonJS or `.d.mts` for an ESM wrapper. A `.d.ts` output
+  /// uses CommonJS declarations; its interpretation depends on the consumer's
+  /// package configuration.
   ///
   /// Omit this to produce only the native binary. Raw entry hooks do not carry
   /// enough information to generate declarations.

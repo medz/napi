@@ -1,6 +1,6 @@
 'use strict';
 
-const { copyFileSync, writeFileSync } = require('node:fs');
+const { copyFileSync, readFileSync, writeFileSync } = require('node:fs');
 const { join, resolve } = require('node:path');
 const { spawnSync } = require('node:child_process');
 
@@ -27,10 +27,41 @@ for (const [target, fixture] of [
   ['constants', 'annotated_constants.cts'],
   ['references', 'annotated_js_references.cts'],
   ['objects', 'annotated_objects.cts'],
+  ['properties', 'annotated_properties.cts'],
 ]) {
   const consumer = resolve(process.argv[2], target, 'consumer.cts');
   copyFileSync(join(__dirname, fixture), consumer);
   verify([consumer], target === 'enums');
+}
+
+const propertiesCjs = resolve(process.argv[2], 'properties-cts', 'consumer.cts');
+writeFileSync(propertiesCjs,
+  readFileSync(join(__dirname, 'annotated_properties.cts'), 'utf8')
+    .replace("require('./addon')", "require('./addon.cjs')"));
+verify([propertiesCjs], true);
+for (const [directory, specifier] of [
+  ['properties-mts', './addon.mjs'],
+  ['properties-package', '../properties-package/index.mjs'],
+  ['properties-assembled', '../properties-assembled/index.mjs'],
+]) {
+  const consumer = resolve(process.argv[2], directory === 'properties-mts' ? directory : 'properties', `${directory}.mts`);
+  writeFileSync(consumer, `import api, { Token, echoToken, twice, fixed } from '${specifier}';
+import type { Point } from '${specifier}';
+const token: Token = api.token;
+const same: Token = echoToken(token);
+api.token = new Token(7);
+api.count = 3;
+const count: number = api.count;
+const point: Point = api.point;
+api.point = { value: '7' };
+const value: number = twice(3);
+const constant: string = fixed;
+// @ts-expect-error Live properties are only available on the default export.
+import { count as namedCount } from '${specifier}';
+// @ts-expect-error Final default-export properties remain readonly.
+api.lazyFinal = 7;
+`);
+  verify([consumer], true);
 }
 
 for (const directory of ['objects-package', 'objects-assembled']) {

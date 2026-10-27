@@ -23,7 +23,7 @@ final compiler = Compiler([
   NativeTarget(
     entry: File('lib/addon.dart'),
     output: File('dist/addon.node'),
-    declarations: File('dist/addon.d.ts'),
+    declarations: File('dist/addon.d.cts'),
     node: '^24.0.0',
   ),
 ]);
@@ -49,7 +49,12 @@ range uses Dart version constraint syntax, with `||` for alternatives, and must
 be compatible with those APIs. Compilation failures preserve an existing output.
 
 Omit `declarations` to generate only the binary. Declaration output requires
-annotated exports. Functions support positional parameters, named options,
+annotated exports. Use `.d.cts` for CommonJS declarations, or `.d.mts` when
+providing an ESM wrapper. A `.d.ts` output uses CommonJS declarations and must be
+interpreted as CommonJS by the consuming package. `PackageBuild` generates both
+module formats and their declarations.
+
+Functions support positional parameters, named options,
 nullable values and Dart defaults. A named parameter group becomes the final JS
 options argument. Explicit `undefined` is a value; it does not select a Dart
 default. For optional options fields, enable TypeScript's
@@ -82,6 +87,48 @@ function results: containers become mutable JS copies, and exported class
 instances retain their identity. Function and constructor tear-offs are callable
 and preserve their Dart defaults. Package builds also provide ESM named exports
 and TypeScript declarations for constants.
+
+## Top-level properties
+
+Annotate a variable, `final` field or accessor to expose a live property:
+
+```dart
+@NAPI()
+int count = 0;
+
+@NAPI()
+final startedAt = DateTime.now().toIso8601String();
+
+@NAPI()
+int get doubled => count * 2;
+
+@NAPI()
+set doubled(int value) => count = value ~/ 2;
+```
+
+```js
+const addon = require('./dist/addon.node');
+addon.count = 3;
+console.log(addon.doubled); // 6
+addon.doubled = 10;
+console.log(addon.count); // 5
+```
+
+Reads and writes access the Dart declaration each time. Dart field initializers
+remain lazy, getters run on each read, and `final` fields are read-only. Annotate
+both accessors to export both directions; an unmarked getter or setter stays in
+Dart. Values use the same conversions as function arguments and results.
+
+With `PackageBuild`, use the ESM default import for live properties:
+
+```js
+import addon from 'my-addon';
+addon.count += 1;
+```
+
+Functions, classes and constants also have ESM named exports. Live properties
+are available on the default package object; destructuring them reads their
+current value once.
 
 ## Collections and binary data
 
