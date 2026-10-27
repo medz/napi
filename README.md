@@ -353,9 +353,40 @@ returns an unexported subclass.
 
 Passing a bound instance back to Dart unwraps the original object. Returning that
 object again reuses its live JS instance. JavaScript collection releases the
-binding's Dart reference. Inheritance between exported classes is not supported
-yet; the compiler rejects those declarations. Returning the same object through
-two different exported class types is rejected while its first wrapper is alive.
+binding's Dart reference.
+
+Export a subclass to preserve its relationship with an exported Dart superclass:
+
+```dart
+@NAPI()
+class StepCounter extends Counter {
+  @NAPI()
+  StepCounter([super.value = 0]);
+
+  @override
+  int increment([int step = 2]) => super.increment(step);
+}
+```
+
+```js
+const counter = new addon.StepCounter();
+counter instanceof addon.Counter; // true
+counter.increment(); // 2
+counter.same() === counter; // true
+```
+
+An override continues to implement an inherited exported member even without a
+second annotation. Annotate new members to export them. Dart virtual dispatch
+and the actual implementation's defaults still apply. Returned objects use their
+most specific exported class, including when a function's return type is a
+superclass. Passing the same instance through either type reuses its JS wrapper.
+
+The JS prototype chain follows Dart superclasses, including across unexported
+intermediate classes. Implementing an exported interface does not establish a JS
+superclass. Plain-object data classes cannot participate in this prototype chain.
+Static exports are inherited on the JS constructor. A same-named static export
+must have matching parameter or property types; factory results may return a
+subclass.
 
 ## Data classes as plain objects
 

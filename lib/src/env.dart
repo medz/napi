@@ -288,8 +288,40 @@ final class _PendingWrap {
 }
 
 final class _ClassDefinition {
+  _ClassDefinition(this.accepts);
+
+  final bool Function(Object) accepts;
   final pending = <_PendingWrap>[];
   JsReference<JsFunction>? constructor;
+  _ClassDefinition? parent;
+  final children = <_ClassDefinition>[];
+  Map<_ClassDefinition, _ClassSpecialization>? specializations;
+
+  _ClassDefinition select(Object value) {
+    _ClassDefinition? selected;
+    for (final child in children) {
+      if (!child.accepts(value)) continue;
+      if (selected != null) {
+        throw StateError(
+          'Dart object matches more than one JavaScript subclass',
+        );
+      }
+      selected = child;
+    }
+    return selected?.select(value) ?? this;
+  }
+}
+
+final class _ClassSpecialization {
+  const _ClassSpecialization({
+    required this.methods,
+    required this.getters,
+    required this.setters,
+  });
+
+  final Map<String, Object? Function(Object, JsArguments)> methods;
+  final Map<String, Object? Function(Object)> getters;
+  final Map<String, void Function(Object, JsArguments)> setters;
 }
 
 final class _BoundFunction {
@@ -1289,7 +1321,10 @@ final class Env {
     return _unwrap<T>(value._handle);
   }
 
-  T _unwrap<T extends Object>(node.NapiValue handle) {
+  T _unwrap<T extends Object>(node.NapiValue handle) =>
+      _boundObject<T>(handle).value as T;
+
+  _BoundObject _boundObject<T extends Object>(node.NapiValue handle) {
     final valid = _arena<Bool>();
     final status = node.napiCheckObjectTypeTag(_handle, handle, _tag, valid);
     if (status != node.NapiStatus.ok.index || !valid.value) {
@@ -1301,7 +1336,7 @@ final class Env {
     if (object == null || object.value is! T) {
       throw ArgumentError('Invalid $T receiver');
     }
-    return object.value as T;
+    return object;
   }
 
   /// Returns the JavaScript wrapper for a Dart object of a registered class.
@@ -1309,18 +1344,25 @@ final class Env {
   /// Reuses a live wrapper without running the Dart constructor. If the previous
   /// wrapper was collected, creates another using the registered JS constructor.
   /// A new wrapper requires exactly one [defineClass] registration for T.
-  /// A live wrapper for a different registered class cannot be reused as T.
+  /// Exported subclasses share their most specific registered wrapper.
+  /// A live wrapper for an unrelated registered class cannot be reused as T.
   /// `num`, `String`, `bool`, records and FFI values receive independent wrappers.
   JsObject wrap<T extends Object>(T value) {
     if (!_classes.containsKey(T)) {
       throw StateError('No JavaScript class is registered for $T');
     }
     final definition = _classes[T];
-    final existing = _cachedObject(value, definition: definition);
-    if (existing != null) return JsObject._(this, existing, _scope!);
     if (definition == null) {
+      final existing = _cachedObject(value);
+      if (existing != null) return JsObject._(this, existing, _scope!);
       throw StateError('More than one JavaScript class is registered for $T');
     }
+    return _wrapObject(value, definition.select(value));
+  }
+
+  JsObject _wrapObject(Object value, _ClassDefinition definition) {
+    final existing = _cachedObject(value, definition: definition);
+    if (existing != null) return JsObject._(this, existing, _scope!);
     final pending = _PendingWrap(value);
     definition.pending.add(pending);
     try {
@@ -1333,6 +1375,69 @@ final class Env {
     } finally {
       definition.pending.remove(pending);
     }
+  }
+
+  // Called after the compiler has registered both classes.
+  // ignore: unused_element
+  void _inheritClass<T extends Object, S extends Object>() {
+    _arena;
+    final child = _classes[T];
+    final parent = _classes[S];
+    if (child == null || parent == null) {
+      throw StateError('Inheritance requires uniquely registered classes');
+    }
+    if (child.parent != null) {
+      throw StateError('JavaScript class already has a superclass');
+    }
+    for (
+      _ClassDefinition? ancestor = parent;
+      ancestor != null;
+      ancestor = ancestor.parent
+    ) {
+      if (identical(ancestor, child)) {
+        throw StateError('JavaScript class inheritance cannot be cyclic');
+      }
+    }
+    final childConstructor = child.constructor!.value;
+    final parentConstructor = parent.constructor!.value;
+    final object = global.get<JsObject>('Object');
+    final setPrototype = object.get<JsFunction>('setPrototypeOf');
+    setPrototype.call([
+      childConstructor.get<JsObject>('prototype'),
+      parentConstructor.get<JsObject>('prototype'),
+    ], receiver: object);
+    setPrototype.call([childConstructor, parentConstructor], receiver: object);
+    child.parent = parent;
+    parent.children.add(child);
+  }
+
+  // Keeps the ancestor's public contract while converting its type parameters
+  // for a concrete descendant receiver.
+  // ignore: unused_element
+  void _specializeClass<T extends Object, S extends Object>({
+    Map<String, Object? Function(T, JsArguments)> methods = const {},
+    Map<String, Object? Function(T)> getters = const {},
+    Map<String, void Function(T, JsArguments)> setters = const {},
+  }) {
+    _arena;
+    final child = _classes[T];
+    final parent = _classes[S];
+    if (child == null || parent == null) {
+      throw StateError('Specialization requires uniquely registered classes');
+    }
+    (child.specializations ??= {})[parent] = _ClassSpecialization(
+      methods: methods.map(
+        (name, body) =>
+            MapEntry(name, (value, arguments) => body(value as T, arguments)),
+      ),
+      getters: getters.map(
+        (name, body) => MapEntry(name, (value) => body(value as T)),
+      ),
+      setters: setters.map(
+        (name, body) =>
+            MapEntry(name, (value, arguments) => body(value as T, arguments)),
+      ),
+    );
   }
 
   node.NapiValue? _cachedObject(Object value, {_ClassDefinition? definition}) {
@@ -1425,7 +1530,7 @@ final class Env {
         }
       }
     }
-    final definition = _ClassDefinition();
+    final definition = _ClassDefinition((value) => value is T);
     final registrations = <int>[];
     int register(node.NapiValue Function(JsArguments, node.NapiValue) body) {
       final token = _nextToken++;
@@ -1438,6 +1543,10 @@ final class Env {
       final value = definition.pending.isEmpty
           ? constructor(arguments)
           : definition.pending.removeLast().value as T;
+      final selected = definition.select(value);
+      if (!identical(selected, definition)) {
+        return _wrapObject(value, selected)._handle;
+      }
       return _bindObject(
         value,
         definition,
@@ -1445,15 +1554,20 @@ final class Env {
         finalize == null ? null : () => finalize(value),
       );
     });
+    final propertyCount = keys.length + staticKeys.length - methods.length;
     final properties = _arena<node.NapiPropertyDescriptor>(
-      keys.length + staticKeys.length,
+      propertyCount + methods.length,
     );
     var index = 0;
+    var methodIndex = propertyCount;
     JsReference<JsFunction>? retained;
     try {
       for (final isStatic in [false, true]) {
         for (final key in isStatic ? staticKeys : keys) {
-          final descriptor = properties[index++];
+          final descriptor =
+              properties[!isStatic && methods.containsKey(key)
+                  ? methodIndex++
+                  : index++];
           final attributes =
               node.napiConfigurable | (isStatic ? node.napiStatic : 0);
           descriptor
@@ -1462,17 +1576,37 @@ final class Env {
           if (isStatic
               ? staticMethods.containsKey(key)
               : methods.containsKey(key)) {
-            final token = register(
-              (args, self) => _encode(
-                isStatic
-                    ? staticMethods[key]!(args)
-                    : methods[key]!(_unwrap<T>(self), args),
-              ),
-            );
-            descriptor
-              ..method = _runtime.callback
-              ..data = _callbackData(token)
-              ..attributes = attributes | node.napiWritable;
+            final token = register((args, self) {
+              if (isStatic) return _encode(staticMethods[key]!(args));
+              final object = _boundObject<T>(self);
+              final specialized =
+                  object.definition.specializations?[definition]?.methods[key];
+              return _encode(
+                specialized == null
+                    ? methods[key]!(object.value as T, args)
+                    : specialized(object.value, args),
+              );
+            });
+            final data = _callbackData(token);
+            descriptor.attributes = attributes | node.napiWritable;
+            if (isStatic) {
+              descriptor
+                ..method = _runtime.callback
+                ..data = data;
+            } else {
+              final handle = _result(
+                (out) => node.napiCreateFunction(
+                  _handle,
+                  nullptr,
+                  0,
+                  _runtime.callback,
+                  data,
+                  out,
+                ),
+              );
+              _nameFunction(handle, key);
+              descriptor.value = handle;
+            }
             continue;
           }
           // Getter/setter functions have independent entry points: JS can call an
@@ -1483,11 +1617,17 @@ final class Env {
           if (isStatic
               ? staticGetters.containsKey(key)
               : getters.containsKey(key)) {
-            _getters[token] = (args, self) => _encode(
-              isStatic
-                  ? staticGetters[key]!()
-                  : getters[key]!(_unwrap<T>(self)),
-            );
+            _getters[token] = (args, self) {
+              if (isStatic) return _encode(staticGetters[key]!());
+              final object = _boundObject<T>(self);
+              final specialized =
+                  object.definition.specializations?[definition]?.getters[key];
+              return _encode(
+                specialized == null
+                    ? getters[key]!(object.value as T)
+                    : specialized(object.value),
+              );
+            };
             descriptor.getter = _runtime.callback;
           }
           if (isStatic
@@ -1497,7 +1637,16 @@ final class Env {
               if (isStatic) {
                 staticSetters[key]!(args);
               } else {
-                setters[key]!(_unwrap<T>(self), args);
+                final object = _boundObject<T>(self);
+                final specialized = object
+                    .definition
+                    .specializations?[definition]
+                    ?.setters[key];
+                if (specialized == null) {
+                  setters[key]!(object.value as T, args);
+                } else {
+                  specialized(object.value, args);
+                }
               }
               return _encode(undefined);
             };
@@ -1512,13 +1661,24 @@ final class Env {
           length,
           _runtime.callback,
           _callbackData(constructorToken),
-          keys.length + staticKeys.length,
+          propertyCount,
           properties,
           out,
         ),
       );
-      if (!staticKeys.contains('name')) _nameFunction(handle, name);
       final function = JsFunction._(this, handle, _scope!);
+      if (methods.isNotEmpty) {
+        final prototype = function.get<JsObject>('prototype');
+        _check(
+          node.napiDefineProperties(
+            _handle,
+            prototype._handle,
+            methods.length,
+            properties + propertyCount,
+          ),
+        );
+      }
+      if (!staticKeys.contains('name')) _nameFunction(handle, name);
       retained = function.retain();
       definition.constructor = retained;
       _classes.update(T, (_) => null, ifAbsent: () => definition);

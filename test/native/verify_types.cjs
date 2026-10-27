@@ -34,6 +34,7 @@ for (const [target, fixture] of [
   ['simd', 'annotated_simd.cts'],
   ['sets', 'annotated_sets.cts'],
   ['env', 'annotated_env.cts'],
+  ['inheritance', 'annotated_inheritance.cts'],
 ]) {
   const consumer = resolve(process.argv[2], target, 'consumer.cts');
   copyFileSync(join(__dirname, fixture), consumer);
@@ -56,6 +57,18 @@ const text: string = identity<string>('hello');
 value.value = '42';
 `);
 verify([genericPackage], true);
+const inheritancePackage = resolve(process.argv[2], 'inheritance', 'package-consumer.mts');
+writeFileSync(inheritancePackage, `import api, { Base, Derived, Leaf, GenericBase, NumDerived, echoBase } from '../inheritance-package/index.mjs';
+const leaf: Base = new Leaf();
+const derived: Derived = new api.Derived();
+const sameBrand: Base = echoBase(new api.Leaf());
+const factory: Derived = Derived.shared();
+const numeric: GenericBase<number> = new NumDerived();
+const values: number[] = numeric.copy([1, 2.5]);
+// @ts-expect-error A base instance does not acquire derived members.
+const invalid: Derived = new Base();
+`);
+verify([inheritancePackage], true);
 for (const [directory, specifier] of [
   ['properties-mts', './addon.mjs'],
   ['properties-package', '../properties-package/index.mjs'],
