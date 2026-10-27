@@ -30,6 +30,49 @@ final class _Writer {
     for (final function in exports.functions) {
       _registerParameters(function.signature.typeParameters);
     }
+    for (final cls in exports.classes.where((cls) => cls.isObject)) {
+      if (cls.typeParameters.isEmpty) continue;
+      bool opposite(ExportType type, {required bool reversed}) {
+        if (type.kind == ValueKind.typeParameter) {
+          return reversed && cls.typeParameters.contains(type.parameter);
+        }
+        final signature = type.signature;
+        if (signature != null) {
+          return [
+                ...signature.positional,
+                ...signature.named,
+              ].any((value) => opposite(value.type, reversed: !reversed)) ||
+              opposite(signature.result, reversed: reversed);
+        }
+        final fields = type.recordFields;
+        return (type.element != null &&
+                opposite(type.element!, reversed: reversed)) ||
+            type.typeArguments.any(
+              (value) => opposite(value, reversed: reversed),
+            ) ||
+            (fields != null &&
+                [
+                  ...fields.positional,
+                  ...fields.named.values,
+                ].any((value) => opposite(value, reversed: reversed)));
+      }
+
+      final constructor = cls.constructor?.signature;
+      if (cls.properties.any(
+            (value) => opposite(value.readType!, reversed: false),
+          ) ||
+          constructor != null &&
+              [
+                ...constructor.positional,
+                ...constructor.named,
+              ].any((value) => opposite(value.type, reversed: false))) {
+        throw FormatException(
+          '@NAPI.object ${cls.name}: generic data class parameters in callback '
+          'positions require separate input and output types; this mapping '
+          'is not supported yet.',
+        );
+      }
+    }
   }
   final ExportModule exports;
   final bool esm;

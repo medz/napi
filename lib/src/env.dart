@@ -1865,25 +1865,7 @@ final class Env {
       case node.NapiValueType.number:
         final out = _arena<Double>();
         _check(node.napiGetValueDouble(_handle, handle, out));
-        final number = out.value;
-        if (T == int || T == _typeOf<int?>()) {
-          if (!number.isFinite ||
-              number.abs() > 9007199254740991 ||
-              number != number.truncateToDouble()) {
-            throw RangeError('Expected a JavaScript safe integer');
-          }
-          value = number.toInt();
-        } else if (T == double || T == _typeOf<double?>()) {
-          value = number;
-        } else {
-          value =
-              number.isFinite &&
-                  number.abs() <= 9007199254740991 &&
-                  number == number.truncateToDouble() &&
-                  !(number == 0 && number.isNegative)
-              ? number.toInt()
-              : number;
-        }
+        value = out.value;
       case node.NapiValueType.string:
         final length = _arena<Size>();
         _check(
@@ -1929,6 +1911,33 @@ final class Env {
         value = JsObject._(this, handle, _scope!);
       case node.NapiValueType.external:
         throw ArgumentError('External Node-API values require raw bindings');
+    }
+    return _typedValue<T>(value);
+  }
+
+  // Reads a value already decoded by a generated composite conversion.
+  // ignore: unused_element
+  T _typedValue<T>(Object? value) {
+    if (value is num) {
+      final number = value.toDouble();
+      if (T == int || T == _typeOf<int?>()) {
+        if (!number.isFinite ||
+            number.abs() > 9007199254740991 ||
+            number != number.truncateToDouble()) {
+          throw RangeError('Expected a JavaScript safe integer');
+        }
+        value = number.toInt();
+      } else if (T == double || T == _typeOf<double?>()) {
+        value = number;
+      } else {
+        value =
+            number.isFinite &&
+                number.abs() <= 9007199254740991 &&
+                number == number.truncateToDouble() &&
+                !(number == 0 && number.isNegative)
+            ? number.toInt()
+            : number;
+      }
     }
     if (value is! T) {
       throw ArgumentError('Expected $T, received ${value.runtimeType}');
