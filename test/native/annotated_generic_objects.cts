@@ -103,6 +103,18 @@ const recordNextChild: addon.RecordNext = recordNext.next;
 const recordNextMatches: boolean = addon.recordNextMatches({ next: { value: 7 } }, 7);
 // @ts-expect-error The constructor record differs from the recursive getter shape.
 const forgedRecordNext: addon.RecordNext = { next: recordNext };
+declare const mapNext: addon.MapNext;
+const mapNextChild: addon.MapNext = mapNext.next;
+const mapNextMatches: boolean = addon.mapNextMatches({ next: { value: 7 } }, 7);
+// @ts-expect-error The input map and recursive output have different shapes.
+const forgedMapNext: addon.MapNext = { next: mapNext };
+declare const functionNext: addon.FunctionNext;
+const functionNextChild: addon.FunctionNext = functionNext.next;
+const functionNextUsesSelf: boolean = addon.functionNextUsesSelf({ next: () => {} });
+// @ts-expect-error A callable constructor input differs from this data type.
+const forgedFunctionNext: addon.FunctionNext = { next: functionNext };
+const optionalMapChain: addon.OptionalMapChain = addon.echoOptionalMapChain({ next: {} });
+const optionalMapValues: Record<string, addon.OptionalMapChain> = optionalMapChain.next;
 const emptyReferenceView: addon.EmptyReferenceView = { value: {} };
 const echoedEmptyReferenceView: addon.EmptyReferenceView =
   addon.echoEmptyReferenceView(emptyReferenceView);
@@ -138,6 +150,21 @@ const futureCallbackChain: addon.FutureCallbackChain = addon.echoFutureCallbackC
   next: Promise.resolve(() => futureCallbackChain),
 });
 const futureCallback: Promise<() => addon.FutureCallbackChain> = futureCallbackChain.next;
+const futureMapChain: addon.FutureMapChain = addon.echoFutureMapChain({
+  next: Promise.resolve({ one: () => futureMapChain }),
+});
+const futureMapNext: Promise<Record<string, () => addon.FutureMapChain>> = futureMapChain.next;
+const resolverMapFuture = addon.resolverMap(true);
+const resolverMapValue: Promise<number | Record<string, (resolve: (value: number) => void) => void>> =
+  resolverMapFuture;
+// @ts-expect-error A callable then can resolve the promise to a number.
+const resolverMapOnly: Promise<Record<string, (resolve: (value: number) => void) => void>> = resolverMapFuture;
+// @ts-expect-error An ordinary key preserves the map.
+const resolverNumberOnly: Promise<number> = resolverMapFuture;
+const scalarThenFuture = addon.scalarThenMap(() => 3);
+const scalarThenValue: Promise<unknown> = scalarThenFuture;
+// @ts-expect-error A preserved JS function can use extra then arguments to resolve any value.
+const scalarThenDeclaredOnly: Promise<number | Record<string, () => number>> = scalarThenFuture;
 const concreteCycle: addon.ConcreteCycleA = addon.echoConcreteCycle({
   value: '7', next: { value: Promise.resolve(9), next: null },
 });

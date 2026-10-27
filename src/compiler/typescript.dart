@@ -484,6 +484,8 @@ final class _Writer {
     if (left.kind != right.kind) {
       if (_knownRepresentationDifference(left, right)) {
         result.always = true;
+      } else if (_isMapObject(left, right)) {
+        _collectMapObject(left, right, result, locals);
       } else if (_isMixedRecordObject(left, right)) {
         _collectMixedRecordObject(left, right, result, locals);
       } else {
@@ -502,23 +504,7 @@ final class _Writer {
       return;
     }
     if (left.kind == ValueKind.future) {
-      for (final branch in _awaitedTypes(left.element!)) {
-        if (branch.resolve) {
-          final value = _TypePair(
-            _copyType(left, element: branch.type),
-            right,
-            locals: locals,
-          );
-          result.pairs[_pairKey(value)] = value;
-        } else {
-          _collectDifference(
-            branch.type,
-            right.element!,
-            result,
-            locals: locals,
-          );
-        }
-      }
+      _collectAwaitedDifference(left.element!, right.element!, result, locals);
       return;
     }
     if (left.kind == ValueKind.stream) {
@@ -630,6 +616,31 @@ final class _Writer {
   bool _requiredObjectKey(String name, ExportType type) =>
       !_objectMemberNames.contains(name) || !_mayCall(type);
 
+  void _collectAwaitedDifference(
+    ExportType left,
+    ExportType right,
+    _Difference result,
+    List<ExportTypeParameter> locals,
+  ) {
+    for (final branch in _awaitedTypes(left)) {
+      if (branch.resolve) {
+        if (_knownRepresentationDifference(branch.type, right)) {
+          result.always = true;
+        } else {
+          final value = _TypePair(
+            branch.type,
+            right,
+            locals: locals,
+            awaitLeft: true,
+          );
+          result.pairs[_pairKey(value)] = value;
+        }
+      } else {
+        _collectDifference(branch.type, right, result, locals: locals);
+      }
+    }
+  }
+
   bool _isMixedRecordObject(ExportType left, ExportType right) =>
       left.kind == ValueKind.object &&
           left.classExport!.isObject &&
@@ -655,6 +666,103 @@ final class _Writer {
     return same(left.left, right.left) && same(left.right, right.right);
   }
 
+  bool _enterSchemaPair(_TypePair pair) {
+    final key = _pairKey(pair);
+    if (_mixedPairs.any((old) => _pairKey(old) == key)) return false;
+    if (_mixedPairs.any(
+      (old) =>
+          _sameMixedSchema(old, pair) &&
+          _pairDepth(old) < _pairDepth(pair) &&
+          _embedsType(old.left, pair.left) &&
+          _embedsType(old.right, pair.right),
+    )) {
+      throw FormatException(
+        '@NAPI.object: recursive input/output projections expand at different rates.',
+      );
+    }
+    _mixedPairs.add(pair);
+    return true;
+  }
+
+  bool _isMapObject(ExportType left, ExportType right) =>
+      left.kind == ValueKind.map &&
+          right.kind == ValueKind.object &&
+          right.classExport!.isObject ||
+      right.kind == ValueKind.map &&
+          left.kind == ValueKind.object &&
+          left.classExport!.isObject;
+
+  void _collectMapObject(
+    ExportType left,
+    ExportType right,
+    _Difference result,
+    List<ExportTypeParameter> locals,
+  ) {
+    if (left.kind == ValueKind.object) {
+      _collectDifference(left, left, result, locals: locals);
+    }
+    if (!_enterSchemaPair(_TypePair(left, right, locals: locals))) return;
+    try {
+      if (left.kind == ValueKind.map) {
+        final cls = right.classExport!;
+        final constructor = cls.constructor;
+        if (constructor == null) {
+          result.always = true;
+          return;
+        }
+        final parameters = [
+          ...constructor.signature.positional,
+          ...constructor.signature.named,
+        ];
+        if (parameters.isEmpty) {
+          final element = left.element!;
+          _collectDifference(
+            element,
+            ExportType(element.dartType, ValueKind.dynamicValue),
+            result,
+            locals: locals,
+          );
+        }
+        final arguments = {
+          for (var i = 0; i < right.typeArguments.length; ++i)
+            cls.typeParameters[i]: right.typeArguments[i],
+        };
+        for (final parameter in parameters) {
+          _collectDifference(
+            left.element!,
+            _substituteType(parameter.type, arguments),
+            result,
+            locals: locals,
+          );
+        }
+      } else {
+        final cls = left.classExport!;
+        if (cls.properties.isEmpty) {
+          _collectDifference(
+            ExportType(left.dartType, ValueKind.dynamicValue),
+            right.element!,
+            result,
+            locals: locals,
+          );
+        }
+        final arguments = {
+          for (var i = 0; i < left.typeArguments.length; ++i)
+            cls.typeParameters[i]: left.typeArguments[i],
+        };
+        for (final property in cls.properties) {
+          _collectDifference(
+            _substituteType(property.readType!, arguments),
+            right.element!,
+            result,
+            locals: locals,
+          );
+        }
+      }
+    } finally {
+      _mixedPairs.removeLast();
+    }
+  }
+
   void _collectMixedRecordObject(
     ExportType left,
     ExportType right,
@@ -665,20 +773,7 @@ final class _Writer {
       _collectDifference(left, left, result, locals: locals);
     }
     final pair = _TypePair(left, right, locals: locals);
-    final key = _pairKey(pair);
-    if (_mixedPairs.any((old) => _pairKey(old) == key)) return;
-    if (_mixedPairs.any(
-      (old) =>
-          _sameMixedSchema(old, pair) &&
-          _pairDepth(old) < _pairDepth(pair) &&
-          _embedsType(old.left, left) &&
-          _embedsType(old.right, right),
-    )) {
-      throw FormatException(
-        '@NAPI.object: recursive input/output projections expand at different rates.',
-      );
-    }
-    _mixedPairs.add(pair);
+    if (!_enterSchemaPair(pair)) return;
     try {
       final output = left.kind == ValueKind.record
           ? _recordProperties(left)
@@ -782,12 +877,28 @@ final class _Writer {
     final leftArray = _isJsArray(left), rightArray = _isJsArray(right);
     final leftPrimitive = _isJsPrimitive(left),
         rightPrimitive = _isJsPrimitive(right);
+    final leftCallable = _isJsCallable(left),
+        rightCallable = _isJsCallable(right);
     return leftArray != null && rightArray != null && leftArray != rightArray ||
+        leftCallable != null &&
+            rightCallable != null &&
+            leftCallable != rightCallable ||
         leftPrimitive != null &&
             rightPrimitive != null &&
             leftPrimitive != rightPrimitive ||
         left.kind != right.kind && leftArray == true && rightArray == true ||
+        _mapObjectDifference(left, right) ||
         _rawObjectDifference(left, right);
+  }
+
+  bool _mapObjectDifference(ExportType left, ExportType right) {
+    if (right.kind == ValueKind.map) {
+      return _hasRequiredObjectFields(left, output: true);
+    }
+    if (left.kind == ValueKind.map) {
+      return _hasRequiredObjectFields(right, output: false);
+    }
+    return false;
   }
 
   bool _rawObjectDifference(ExportType left, ExportType right) {
@@ -805,6 +916,10 @@ final class _Writer {
             type.referenceKind == JsReferenceKind.function) {
       return true;
     }
+    return _hasRequiredObjectFields(type, output: rawRight);
+  }
+
+  bool _hasRequiredObjectFields(ExportType type, {required bool output}) {
     if (type.kind == ValueKind.record && type.recordFields!.named.isNotEmpty) {
       return _recordProperties(
         type,
@@ -814,7 +929,7 @@ final class _Writer {
       return false;
     }
     final cls = type.classExport!;
-    if (rawRight) {
+    if (output) {
       return cls.properties.any(
         (property) => _requiredObjectKey(property.name, property.readType!),
       );
@@ -834,6 +949,18 @@ final class _Writer {
   bool? _isJsArray(ExportType type) => switch (type.kind) {
     ValueKind.list => true,
     ValueKind.record => type.recordFields!.named.isEmpty,
+    ValueKind.typeParameter ||
+    ValueKind.dynamicValue ||
+    ValueKind.opaque => null,
+    ValueKind.jsReference when type.referenceKind == JsReferenceKind.object =>
+      null,
+    _ => false,
+  };
+
+  bool? _isJsCallable(ExportType type) => switch (type.kind) {
+    ValueKind.function => true,
+    ValueKind.jsReference when type.referenceKind == JsReferenceKind.function =>
+      true,
     ValueKind.typeParameter ||
     ValueKind.dynamicValue ||
     ValueKind.opaque => null,
@@ -917,7 +1044,7 @@ final class _Writer {
     final locals = {
       for (var i = 0; i < parameters.length; ++i) parameters[i]: i,
     };
-    return '${parameters.map((p) => _typeKey(p.bound, locals)).join(',')};'
+    return '${pair.awaitLeft}:${parameters.map((p) => _typeKey(p.bound, locals)).join(',')};'
         '${_typeKey(pair.left, locals)}|${_typeKey(pair.right, locals)}';
   }
 
@@ -1090,6 +1217,9 @@ final class _Writer {
     ExportType? then;
     if (base.kind == ValueKind.future) {
       then = base.element;
+    } else if (base.kind == ValueKind.map) {
+      values.add((type: base, resolve: false));
+      then = base.element;
     } else if (base.kind == ValueKind.object || base.kind == ValueKind.record) {
       then = _thenType(base);
     } else {
@@ -1098,12 +1228,26 @@ final class _Writer {
     }
     final nullableThen =
         base.kind != ValueKind.future && then?.nullable == true;
-    final stop = type.nullable || nullableThen;
+    final stop = type.nullable || nullableThen || base.kind == ValueKind.map;
     if (nullableThen) values.add((type: base, resolve: false));
     if (base.kind != ValueKind.future) {
       final signature = then?.signature;
-      final callback = signature?.positional.firstOrNull?.type.signature;
+      final callbackType = signature?.positional.firstOrNull?.type;
+      final callback = callbackType?.signature;
+      if (signature != null &&
+          callback == null &&
+          (callbackType == null || !_mayCall(callbackType)) &&
+          needsFunctionAdapter(signature)) {
+        if (values.isEmpty) {
+          values.add((
+            type: ExportType(type.dartType, ValueKind.never),
+            resolve: false,
+          ));
+        }
+        return _normalizeAwaited(values);
+      }
       then = callback?.positional.firstOrNull?.type;
+      if (callback?.positional.firstOrNull?.required == false) then = null;
       if (then == null ||
           _mentions(then, {
             ...?signature?.typeParameters,
@@ -1167,11 +1311,8 @@ final class _Writer {
   }
 
   String? _localFutureCondition(_TypePair pair) {
-    if (pair.left.kind != ValueKind.future ||
-        pair.right.kind != ValueKind.future) {
-      return null;
-    }
-    final left = pair.left.element!, right = pair.right.element!;
+    if (!pair.awaitLeft) return null;
+    final left = pair.left, right = pair.right;
     if (left.kind != ValueKind.typeParameter ||
         left.parameter != right.parameter ||
         left.nullable != right.nullable ||
@@ -1196,7 +1337,7 @@ final class _Writer {
         conditions.add(condition);
       } else {
         conditions.add(
-          '$_same<${_type(pair.left, metadata: false)}, ${_type(pair.right, output: false, metadata: false)}>',
+          '$_same<${pair.awaitLeft ? _awaitedBranchType((type: pair.left, resolve: true), metadata: false) : _type(pair.left, metadata: false)}, ${_type(pair.right, output: false, metadata: false)}>',
         );
       }
     }
@@ -1726,12 +1867,21 @@ final class _Writer {
       for (final original in originals) original: arguments[original]!,
     };
     final result = _Difference();
-    _collectDifference(
-      _substituteType(leftType, localArguments),
-      _substituteType(rightType, localArguments),
-      result,
-      locals: scope,
-    );
+    if (pair.awaitLeft) {
+      _collectAwaitedDifference(
+        _substituteType(leftType, localArguments),
+        _substituteType(rightType, localArguments),
+        result,
+        scope,
+      );
+    } else {
+      _collectDifference(
+        _substituteType(leftType, localArguments),
+        _substituteType(rightType, localArguments),
+        result,
+        locals: scope,
+      );
+    }
     return result;
   }
 
@@ -1795,10 +1945,16 @@ typedef _AwaitedBranch = ({ExportType type, bool resolve});
 typedef _ObjectPair = ({ExportClass left, ExportClass right});
 
 final class _TypePair {
-  const _TypePair(this.left, this.right, {this.locals = const []});
+  const _TypePair(
+    this.left,
+    this.right, {
+    this.locals = const [],
+    this.awaitLeft = false,
+  });
   final ExportType left;
   final ExportType right;
   final List<ExportTypeParameter> locals;
+  final bool awaitLeft;
 }
 
 final class _Difference {

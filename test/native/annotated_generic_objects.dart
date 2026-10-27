@@ -144,6 +144,45 @@ class RecordNext {
 }
 
 @NAPI.object()
+class MapNext {
+  @NAPI()
+  MapNext({required Map<String, int> next}) : _value = next['value'];
+
+  final int? _value;
+  @NAPI()
+  MapNext get next => this;
+}
+
+@NAPI.object()
+class FunctionNext {
+  @NAPI()
+  FunctionNext({required void Function() next}) {
+    next();
+  }
+
+  @NAPI()
+  FunctionNext get next => this;
+}
+
+@NAPI.object()
+class OptionalMapInput {
+  @NAPI()
+  OptionalMapInput({this.child});
+
+  @NAPI()
+  final OptionalMapChain? child;
+}
+
+@NAPI.object()
+class OptionalMapChain {
+  @NAPI()
+  OptionalMapChain({required OptionalMapInput next});
+
+  @NAPI()
+  Map<String, OptionalMapChain> get next => {};
+}
+
+@NAPI.object()
 class NestedOther {
   @NAPI()
   NestedOther(this.next);
@@ -296,6 +335,15 @@ class FutureCallbackChain {
 
   @NAPI()
   final Future<FutureCallbackChain Function()> next;
+}
+
+@NAPI.object()
+class FutureMapChain {
+  @NAPI()
+  FutureMapChain({required this.next});
+
+  @NAPI()
+  final Future<Map<String, FutureMapChain Function()>> next;
 }
 
 @NAPI.object()
@@ -665,6 +713,16 @@ bool recordNextMatches(RecordNext value, int expected) =>
     value._value == expected && identical(value.next, value);
 
 @NAPI()
+bool mapNextMatches(MapNext value, int expected) =>
+    value._value == expected && identical(value.next, value);
+
+@NAPI()
+bool functionNextUsesSelf(FunctionNext value) => identical(value.next, value);
+
+@NAPI()
+OptionalMapChain echoOptionalMapChain(OptionalMapChain value) => value;
+
+@NAPI()
 EmptyReferenceView echoEmptyReferenceView(EmptyReferenceView value) => value;
 
 @NAPI()
@@ -690,6 +748,19 @@ AsyncChain echoAsyncChain(AsyncChain value) => value;
 
 @NAPI()
 FutureCallbackChain echoFutureCallbackChain(FutureCallbackChain value) => value;
+
+@NAPI()
+FutureMapChain echoFutureMapChain(FutureMapChain value) => value;
+
+@NAPI()
+Future<Map<String, void Function(void Function(int))>> resolverMap(
+  bool thenKey,
+) async => {thenKey ? 'then' : 'one': (resolve) => resolve(thenKey ? 7 : 9)};
+
+@NAPI()
+Future<Map<String, int Function()>> scalarThenMap(
+  int Function() callback,
+) async => {'then': callback};
 
 @NAPI()
 ConcreteCycleA echoConcreteCycle(ConcreteCycleA value) => value;

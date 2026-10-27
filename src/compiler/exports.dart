@@ -130,6 +130,33 @@ final class ExportSignature {
   final ExportType result;
 }
 
+bool needsFunctionAdapter(ExportSignature signature) =>
+    signature.positional.any(
+      (parameter) => usesDirectionalConversion(parameter.type),
+    ) ||
+    signature.named.any(
+      (parameter) => usesDirectionalConversion(parameter.type),
+    ) ||
+    usesDirectionalConversion(signature.result);
+
+bool usesDirectionalConversion(ExportType type) => switch (type.kind) {
+  ValueKind.object => type.classExport!.isObject,
+  ValueKind.future ||
+  ValueKind.stream ||
+  ValueKind.dateTime ||
+  ValueKind.byteBuffer ||
+  ValueKind.byteData ||
+  ValueKind.simd ||
+  ValueKind.simdList ||
+  ValueKind.set => true,
+  ValueKind.list || ValueKind.map => usesDirectionalConversion(type.element!),
+  ValueKind.record =>
+    type.recordFields!.positional.any(usesDirectionalConversion) ||
+        type.recordFields!.named.values.any(usesDirectionalConversion),
+  ValueKind.function => needsFunctionAdapter(type.signature!),
+  _ => false,
+};
+
 final class ExportFunction {
   const ExportFunction({
     required this.target,

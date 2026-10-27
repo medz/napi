@@ -679,6 +679,10 @@ With a nullable `then`, the return type includes both the unchanged object and
 any declared fulfilled value. Thenables without a finite resolved type are
 rejected during compilation.
 
+The same rules apply to a callable `then` entry in a returned string-keyed map.
+When an unchanged JavaScript callback can consume resolver arguments outside its
+declared signature, the Promise result is `unknown`.
+
 ## Streams
 
 Use a Dart `Stream` to produce or consume an async iterable:

@@ -126,6 +126,13 @@ module.exports = async function verifyAnnotatedGenericObjects(path) {
   assert.equal(addon.distinctNextUsesSelf({ next: { next: { value: 7 } } }), true);
   assert.equal(addon.recordNextMatches({ next: { value: 7 } }, 7), true);
   assert.equal(addon.recordNextMatches({ next: { value: 7 } }, 8), false);
+  assert.equal(addon.mapNextMatches({ next: { value: 7 } }, 7), true);
+  assert.equal(addon.mapNextMatches({ next: { value: 7 } }, 8), false);
+  let functionNextCalls = 0;
+  assert.equal(addon.functionNextUsesSelf({ next: () => { functionNextCalls++; } }), true);
+  assert.equal(functionNextCalls, 1);
+  assert.deepEqual(addon.echoOptionalMapChain({ next: {} }), { next: {} });
+  assert.deepEqual(addon.echoOptionalMapChain({ next: { child: null } }), { next: {} });
   assert.deepEqual(addon.echoEmptyReferenceView({ value: { token: 7 } }), { value: {} });
   assert.deepEqual(addon.echoEmptyReferenceView({ value: null }), { value: null });
   assert.equal(addon.echoStringifierView({ value: {} }).value.toString(), 'ok');
@@ -155,6 +162,23 @@ module.exports = async function verifyAnnotatedGenericObjects(path) {
   const futureCallbackInput = { next: Promise.resolve(() => futureCallbackInput) };
   const futureCallbackChain = addon.echoFutureCallbackChain(futureCallbackInput);
   assert.equal(typeof (await (await futureCallbackChain.next)().next), 'function');
+  const futureMapInput = { next: Promise.resolve({ one: () => futureMapInput }) };
+  const futureMapChain = addon.echoFutureMapChain(futureMapInput);
+  const futureMap = await futureMapChain.next;
+  assert.deepEqual(Object.keys(futureMap), ['one']);
+  assert.equal(typeof futureMap.one, 'function');
+  assert.equal(typeof (await futureMap.one().next).one, 'function');
+  assert.equal(await addon.resolverMap(true), 7);
+  const ordinaryResolverMap = await addon.resolverMap(false);
+  let resolvedMapValue;
+  ordinaryResolverMap.one(value => { resolvedMapValue = value; });
+  assert.equal(resolvedMapValue, 9);
+  const scalarThenCallback = (resolve = undefined) => {
+    if (typeof resolve === 'function') resolve('scalar-extra');
+    return 3;
+  };
+  assert.equal(addon.echoIntProducer({ create: scalarThenCallback }).create, scalarThenCallback);
+  assert.equal(await addon.scalarThenMap(scalarThenCallback), 'scalar-extra');
   const concreteCycle = addon.echoConcreteCycle({
     value: '7', next: { value: Promise.resolve(9), next: null },
   });
