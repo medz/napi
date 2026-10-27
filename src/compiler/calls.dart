@@ -147,6 +147,7 @@ final class Calls {
     ValueKind.object ||
     ValueKind.list ||
     ValueKind.map ||
+    ValueKind.set ||
     ValueKind.typedData ||
     ValueKind.simd ||
     ValueKind.simdList ||
@@ -223,6 +224,12 @@ final class Calls {
           type.kind == ValueKind.list ? '_readList' : '_readMap',
         ),
         [source(), _elementReader(env, type)],
+        types: [type.element!.dartType],
+      ),
+      ValueKind.set => call(
+        VariableGet(env),
+        method(envClass, '_readSet'),
+        [source(), _valueReader(env, type.element!)],
         types: [type.element!.dartType],
       ),
       ValueKind.typedData => call(
@@ -365,6 +372,12 @@ final class Calls {
           envClass,
           type.kind == ValueKind.list ? '_writeList' : '_writeMap',
         ),
+        [source(), _elementWriter(env, type.element!)],
+        types: [type.element!.dartType],
+      ),
+      ValueKind.set => call(
+        VariableGet(env),
+        method(envClass, '_writeSet'),
         [source(), _elementWriter(env, type.element!)],
         types: [type.element!.dartType],
       ),
@@ -896,7 +909,8 @@ final class Calls {
     ValueKind.byteBuffer ||
     ValueKind.byteData ||
     ValueKind.simd ||
-    ValueKind.simdList => true,
+    ValueKind.simdList ||
+    ValueKind.set => true,
     ValueKind.list || ValueKind.map => _directional(type.element!),
     ValueKind.record =>
       type.recordFields!.positional.any(_directional) ||

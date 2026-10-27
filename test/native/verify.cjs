@@ -21,6 +21,7 @@ const verifyAnnotatedGenerics = require('./annotated_generics.cjs');
 const verifyAnnotatedDates = require('./annotated_dates.cjs');
 const verifyAnnotatedBinaryViews = require('./annotated_binary_views.cjs');
 const verifyAnnotatedSimd = require('./annotated_simd.cjs');
+const verifyAnnotatedSets = require('./annotated_sets.cjs');
 
 const [output, images] = process.argv.slice(2).map(path => resolve(path));
 const timeout = setTimeout(() => process.exit(1), 30000);
@@ -104,6 +105,7 @@ async function main() {
   verifyAnnotatedDates(join(output, 'dates', 'addon.node'));
   verifyAnnotatedBinaryViews(join(output, 'binary-views', 'addon.node'));
   verifyAnnotatedSimd(join(output, 'simd', 'addon.node'));
+  verifyAnnotatedSets(join(output, 'sets', 'addon.node'));
   const path = join(output, 'full', 'addon.node');
   const addon = require(path);
   assert.equal(addon.answer, 42);
