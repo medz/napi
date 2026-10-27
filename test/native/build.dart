@@ -29,6 +29,7 @@ Future<void> main(List<String> args) async {
       ('references', 'annotated_js_references.dart'),
       ('objects', 'annotated_objects.dart'),
       ('properties', 'annotated_properties.dart'),
+      ('generics', 'annotated_generics.dart'),
     ])
       NativeTarget(
         entry: File('${source.path}/$entry'),
@@ -50,6 +51,12 @@ Future<void> main(List<String> args) async {
       entry: File('${source.path}/annotated_properties.dart'),
       output: Directory('${output.path}/properties-package'),
       name: '@fixture/properties',
+      version: '0.0.0',
+    ),
+    PackageBuild(
+      entry: File('${source.path}/annotated_generics.dart'),
+      output: Directory('${output.path}/generics-package'),
+      name: '@fixture/generics',
       version: '0.0.0',
     ),
   ]).run([]);
@@ -176,7 +183,6 @@ Future<void> main(List<String> args) async {
       'annotated',
       'annotated_functions.dart',
       [
-        ('@NAPI() T identity<T>(T value) => value;', 'generic functions'),
         (
           'class Hidden {}\n@NAPI() int inspect(Hidden value) => 1;',
           'class type must be exported',
@@ -357,6 +363,26 @@ Future<void> main(List<String> args) async {
         (
           "@NAPI() int count = 1; @NAPI(name: 'count') int inspect() => 1;",
           'Duplicate JavaScript export',
+        ),
+      ],
+    ),
+    (
+      'generics',
+      'annotated_generics.dart',
+      [
+        (
+          '@NAPI() T invalid<T extends List<int>>(T value) => value;',
+          'generic bounds must preserve JavaScript values',
+        ),
+        (
+          '@NAPI() class Bound { @NAPI() Bound(); } '
+              '@NAPI() T invalid<T extends Bound>(T value) => value;',
+          'generic bounds must preserve JavaScript values',
+        ),
+        (
+          '@NAPI() class Box<T> { @NAPI() Box(this.value); @NAPI() T value; } '
+              '@NAPI() int consume(Box<int> value) => value.value;',
+          'non-default generic class arguments are not supported',
         ),
       ],
     ),

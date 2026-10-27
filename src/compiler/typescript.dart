@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:kernel/ast.dart' show TypeParameter;
+
 import 'exports.dart';
 
 String typeScriptDeclarations(ExportModule exports, {bool esm = false}) =>
@@ -13,19 +15,120 @@ final class _Writer {
         ...exports.enums.map((value) => value.name),
         ...exports.constants.map((value) => value.name),
         ...exports.properties.map((value) => value.name),
-      };
+      } {
+    for (final cls in exports.classes) {
+      _registerParameters(cls.typeParameters);
+      for (final function in [
+        if (cls.constructor != null) cls.constructor!,
+        ...cls.methods,
+        ...cls.staticMethods,
+      ]) {
+        _registerParameters(
+          function.signature.typeParameters,
+          enclosing: cls.typeParameters,
+        );
+      }
+    }
+    for (final function in exports.functions) {
+      _registerParameters(function.signature.typeParameters);
+    }
+  }
   final ExportModule exports;
   final bool esm;
   final Set<String> _names;
+  final _parameterNames = <TypeParameter, String>{};
   final _inputs = <ExportClass, String>{};
   final _inputQueue = <ExportClass>[];
 
   String _unique(String name) {
-    while (!_names.add(name)) {
+    while (_names.contains(name) || _parameterNames.containsValue(name)) {
       name += '_';
     }
+    _names.add(name);
     return name;
   }
+
+  void _registerParameters(
+    List<ExportTypeParameter> parameters, {
+    List<ExportTypeParameter> enclosing = const [],
+  }) {
+    final used = {
+      for (final parameter in enclosing) _parameterNames[parameter.target]!,
+    };
+    for (final parameter in parameters) {
+      final existing = _parameterNames[parameter.target];
+      if (existing != null) {
+        used.add(existing);
+        continue;
+      }
+      var name = RegExp(r'^[a-zA-Z_$][a-zA-Z0-9_$]*$').hasMatch(parameter.name)
+          ? parameter.name
+          : 'T';
+      while (_reservedParameterNames.contains(name) ||
+          _names.contains(name) ||
+          used.contains(name)) {
+        name += '_';
+      }
+      _parameterNames[parameter.target] = name;
+      used.add(name);
+    }
+  }
+
+  String _generics(
+    List<ExportTypeParameter> parameters, {
+    bool defaults = true,
+  }) {
+    if (parameters.isEmpty) return '';
+    final pending = {for (final parameter in parameters) parameter.target};
+    final declarations = <String>[];
+    for (final parameter in parameters) {
+      if (!defaults) {
+        declarations.add(_parameterDeclaration(parameter));
+        continue;
+      }
+      final bound = parameter.bound;
+      final defaultType =
+          bound.kind == ValueKind.typeParameter ||
+              parameter.defaultType.kind == ValueKind.dynamicValue &&
+                  !(bound.kind == ValueKind.opaque && bound.nullable) &&
+                  bound.kind != ValueKind.dynamicValue
+          ? bound
+          : parameter.defaultType;
+      if (defaultType.kind == ValueKind.typeParameter &&
+          pending.contains(defaultType.parameter!.target)) {
+        throw FormatException(
+          '@NAPI: TypeScript generic defaults cannot reference a later '
+          'type parameter: ${parameter.name}.',
+        );
+      }
+      declarations.add(_parameterDeclaration(parameter, defaultType));
+      pending.remove(parameter.target);
+    }
+    return '<${declarations.join(', ')}>';
+  }
+
+  String _parameterDeclaration(
+    ExportTypeParameter parameter, [
+    ExportType? defaultType,
+  ]) {
+    final name = _parameterNames[parameter.target]!;
+    final bound = parameter.bound;
+    final constraint =
+        bound.kind == ValueKind.dynamicValue ||
+            bound.kind == ValueKind.opaque && bound.nullable
+        ? ''
+        : ' extends ${_type(bound)}';
+    if (defaultType == null) return '$name$constraint';
+    final value = defaultType.kind == ValueKind.dynamicValue
+        ? 'unknown'
+        : _type(defaultType);
+    return '$name$constraint = $value';
+  }
+
+  String _parameterArguments(List<ExportTypeParameter> parameters) =>
+      parameters.isEmpty
+      ? ''
+      : '<${parameters.map((parameter) => _parameterNames[parameter.target]!).join(', ')}>';
 
   String _input(ExportClass cls) {
     if (cls.constructor == null) {
@@ -56,7 +159,9 @@ final class _Writer {
     }
     for (final cls in exports.classes) {
       if (cls.isObject) {
-        output.writeln('${prefix}interface ${cls.name} {');
+        output.writeln(
+          '${prefix}interface ${cls.name}${_generics(cls.typeParameters)} {',
+        );
         for (final property in cls.properties) {
           output.writeln(
             '  ${jsonEncode(property.name)}: ${_type(property.readType!)};',
@@ -65,7 +170,9 @@ final class _Writer {
         output.writeln('}');
         continue;
       }
-      output.writeln('${prefix}declare class ${cls.name} {');
+      output.writeln(
+        '${prefix}declare class ${cls.name}${_generics(cls.typeParameters)} {',
+      );
       var brand = '__napiBrand';
       final names = {
         ...cls.methods.map((m) => m.name),
@@ -83,12 +190,12 @@ final class _Writer {
       );
       for (final function in cls.methods) {
         output.writeln(
-          '  ${_member(function.name)}(${_parameters(function.signature)}): ${_type(function.signature.result)};',
+          '  ${_member(function.name)}${_generics(function.signature.typeParameters, defaults: false)}(${_parameters(function.signature)}): ${_type(function.signature.result)};',
         );
       }
       for (final function in cls.staticMethods) {
         output.writeln(
-          '  static ${_member(function.name)}(${_parameters(function.signature)}): ${_type(function.signature.result)};',
+          '  static ${_member(function.name)}${_generics(function.signature.typeParameters, defaults: false)}(${_parameters(function.signature)}): ${_type(function.signature.result)};',
         );
       }
       void property(ExportProperty property, {required bool static}) {
@@ -113,7 +220,7 @@ final class _Writer {
     }
     for (final function in exports.functions) {
       output.writeln(
-        '${prefix}declare function ${function.name}(${_parameters(function.signature)}): ${_type(function.signature.result)};',
+        '${prefix}declare function ${function.name}${_generics(function.signature.typeParameters, defaults: false)}(${_parameters(function.signature)}): ${_type(function.signature.result)};',
       );
     }
     for (final value in exports.constants) {
@@ -125,7 +232,9 @@ final class _Writer {
     for (var i = 0; i < _inputQueue.length; ++i) {
       final cls = _inputQueue[i];
       final signature = cls.constructor!.signature;
-      output.writeln('type ${_inputs[cls]} = object & {');
+      output.writeln(
+        'type ${_inputs[cls]}${_generics(cls.typeParameters)} = object & {',
+      );
       for (final parameter in [...signature.positional, ...signature.named]) {
         output.writeln(
           '  ${jsonEncode(parameter.name)}${parameter.required ? '' : '?'}: ${_type(parameter.type, output: false)};',
@@ -161,19 +270,29 @@ final class _Writer {
       }
     }
     output.writeln('};');
-    final aliases = <String, String>{};
-    for (final name in [
-      ...exports.classes.map((value) => value.name),
-      ...exports.enums.map((value) => value.name),
-    ]) {
+    final aliases =
+        <String, ({String alias, List<ExportTypeParameter> parameters})>{};
+    void alias(String name, List<ExportTypeParameter> parameters) {
       final alias = _unique('_NapiType${aliases.length}');
-      aliases[name] = alias;
-      output.writeln('type $alias = $name;');
+      aliases[name] = (alias: alias, parameters: parameters);
+      output.writeln(
+        'type $alias${_generics(parameters)} = $name${_parameterArguments(parameters)};',
+      );
+    }
+
+    for (final cls in exports.classes) {
+      alias(cls.name, cls.typeParameters);
+    }
+    for (final enumeration in exports.enums) {
+      alias(enumeration.name, const []);
     }
     if (aliases.isNotEmpty) {
       output.writeln('declare namespace $binding {');
       for (final entry in aliases.entries) {
-        output.writeln('  type ${entry.key} = ${entry.value};');
+        final parameters = entry.value.parameters;
+        output.writeln(
+          '  type ${entry.key}${_generics(parameters)} = ${entry.value.alias}${_parameterArguments(parameters)};',
+        );
       }
       output.writeln('}');
     }
@@ -214,10 +333,10 @@ final class _Writer {
       ValueKind.nullValue => 'null',
       ValueKind.voidValue => 'void',
       ValueKind.never => 'never',
+      ValueKind.typeParameter => _parameterNames[type.parameter!.target]!,
       ValueKind.object =>
-        type.classExport!.isObject && !output
-            ? _input(type.classExport!)
-            : type.classExport!.name,
+        '${type.classExport!.isObject && !output ? _input(type.classExport!) : type.classExport!.name}'
+            '${type.typeArguments.isEmpty ? '' : '<${type.typeArguments.map((argument) => _type(argument, output: output)).join(', ')}>'}',
       ValueKind.enumeration => type.enumExport!.name,
       ValueKind.undefined => 'undefined',
       ValueKind.dynamicValue => 'any',
@@ -228,7 +347,7 @@ final class _Writer {
         JsReferenceKind.symbol => 'symbol',
       },
       ValueKind.function =>
-        '((${_parameters(type.signature!, output: output)}) => ${_type(type.signature!.result, output: output)})',
+        '(${_generics(type.signature!.typeParameters, defaults: false)}(${_parameters(type.signature!, output: output)}) => ${_type(type.signature!.result, output: output)})',
       ValueKind.future =>
         output
             ? 'globalThis.Promise<globalThis.Awaited<${_type(type.element!, output: output)}>>'
@@ -281,3 +400,18 @@ String _label(String name, int index) =>
     RegExp(r'^[a-zA-Z_$][a-zA-Z0-9_$]*$').hasMatch(name) ? name : 'arg$index';
 
 String _member(String name) => name == 'constructor' ? '["constructor"]' : name;
+
+const _reservedParameterNames = {
+  'any',
+  'unknown',
+  'never',
+  'number',
+  'bigint',
+  'boolean',
+  'string',
+  'symbol',
+  'void',
+  'object',
+  'undefined',
+  'globalThis',
+};

@@ -325,6 +325,44 @@ functions when needed.
 Data-object conversion supports up to 128 nested data objects. Deeper or cyclic
 structures throw `RangeError`.
 
+## Generics
+
+Dart type parameters become TypeScript generics:
+
+```dart
+@NAPI()
+T identity<T>(T value) => value;
+
+@NAPI()
+class Box<T> {
+  @NAPI()
+  Box(this.value);
+
+  @NAPI()
+  T value;
+}
+```
+
+```ts
+import { Box, identity } from 'my-addon';
+
+const text = identity('hello'); // string
+const box = new Box<number>(42);
+box.value = 7;
+```
+
+TypeScript infers type arguments from values and checks explicit arguments.
+These arguments are erased at runtime; Dart calls use the declaration's default
+type arguments. Unconstrained parameters pass scalars directly and retain JS
+objects, functions and symbols as owned references, preserving their JS
+identity when returned. The same rules apply to elements of `List<T>`,
+`Map<String, T>` and ordinary callback signatures.
+
+Bounds currently support scalars, `Object` and explicit `JsReference` types.
+Bounds that copy values or unwrap a bound class, non-default specializations of
+generic classes at the binding boundary, and callbacks with their own type
+parameters produce a build error.
+
 ## Functions and callbacks
 
 Use ordinary Dart function types for callbacks and returned closures:

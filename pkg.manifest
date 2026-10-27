@@ -98,6 +98,9 @@ test/native/annotated_functions.dart
 test/native/annotated_futures.cjs
 test/native/annotated_futures.cts
 test/native/annotated_futures.dart
+test/native/annotated_generics.cjs
+test/native/annotated_generics.cts
+test/native/annotated_generics.dart
 test/native/annotated_js_references.cjs
 test/native/annotated_js_references.cts
 test/native/annotated_js_references.dart

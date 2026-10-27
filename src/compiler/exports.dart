@@ -27,6 +27,7 @@ enum ValueKind {
   undefined,
   opaque,
   dynamicValue,
+  typeParameter,
 }
 
 enum JsReferenceKind { object, function, symbol }
@@ -57,8 +58,14 @@ final class ExportType {
     this.recordFields,
     this.enumExport,
     this.referenceKind,
+    this.parameter,
+    this.representation,
+    this.typeArguments = const [],
   });
   final DartType dartType;
+  final ExportTypeParameter? parameter;
+  final ExportType? representation;
+  final List<ExportType> typeArguments;
   final ValueKind kind;
   final bool nullable;
   final ExportClass? classExport;
@@ -69,6 +76,15 @@ final class ExportType {
   final ExportSignature? signature;
   final ({List<ExportType> positional, Map<String, ExportType> named})?
   recordFields;
+}
+
+final class ExportTypeParameter {
+  ExportTypeParameter(this.target, this.actualType);
+  final TypeParameter target;
+  final DartType actualType;
+  String get name => target.name!;
+  late final ExportType bound;
+  late final ExportType defaultType;
 }
 
 final class ExportParameter {
@@ -90,8 +106,10 @@ final class ExportSignature {
     required this.positional,
     required this.named,
     required this.result,
+    this.typeParameters = const [],
   });
   final FunctionType type;
+  final List<ExportTypeParameter> typeParameters;
   final List<ExportParameter> positional;
   final List<ExportParameter> named;
   final ExportType result;
@@ -104,8 +122,12 @@ final class ExportFunction {
     required this.signature,
     this.owner,
     this.constructor = false,
+    this.typeArguments = const [],
+    this.tearOffType,
   });
   final Member target;
+  final List<DartType> typeArguments;
+  final FunctionType? tearOffType;
   final String name;
   final ExportSignature signature;
   final ExportClass? owner;
@@ -136,12 +158,15 @@ final class ExportClass {
   final Class target;
   final String name;
   final bool isObject;
+  final typeParameters = <ExportTypeParameter>[];
   ExportFunction? constructor;
   final methods = <ExportFunction>[];
   final properties = <ExportProperty>[];
   final staticMethods = <ExportFunction>[];
   final staticProperties = <ExportProperty>[];
-  InterfaceType get dartType => InterfaceType(target, Nullability.nonNullable);
+  InterfaceType get dartType => InterfaceType(target, Nullability.nonNullable, [
+    for (final parameter in typeParameters) parameter.actualType,
+  ]);
 }
 
 final class ExportModule {
@@ -192,6 +217,7 @@ final class _Reader {
   final module = ExportModule();
   final classes = <Class, ExportClass>{};
   final enums = <Class, ExportEnum>{};
+  final _parameters = <TypeParameter, ExportTypeParameter>{};
 
   InstanceConstant? _annotation(Annotatable node) {
     for (final expression in node.annotations) {
@@ -259,7 +285,7 @@ final class _Reader {
           '@NAPI.object can only annotate a non-generic class.',
         );
       }
-      if (declaration is Class && declaration.typeParameters.isEmpty) {
+      if (declaration is Class) {
         final name = _name(declaration, declaration.name);
         if (_reservedTypeNames.contains(name)) {
           throw FormatException(
@@ -308,11 +334,20 @@ final class _Reader {
         }
       } else {
         throw const FormatException(
-          'Unsupported annotated declaration: export a non-generic class, enum, top-level function or property.',
+          'Unsupported annotated declaration: export a class, enum, top-level function or property.',
         );
       }
     }
     for (final cls in module.classes) {
+      cls.typeParameters.addAll(
+        _typeParameters(cls.target.typeParameters, cls.name),
+      );
+      _parameters.clear();
+    }
+    for (final cls in module.classes) {
+      _parameters.addAll({
+        for (final parameter in cls.typeParameters) parameter.target: parameter,
+      });
       for (final other in module.classes) {
         if (cls != other &&
             hierarchy.getClassAsInstanceOf(cls.target, other.target) != null) {
@@ -326,6 +361,7 @@ final class _Reader {
       } else {
         _class(cls);
       }
+      _parameters.clear();
     }
     for (final declaration in selected) {
       final name = _name(declaration, declaration.name.text);
@@ -418,6 +454,51 @@ final class _Reader {
     return type == null ? Substitution.empty : Substitution.fromSupertype(type);
   }
 
+  DartType _actual(DartType type) => Substitution.fromMap({
+    for (final entry in _parameters.entries) entry.key: entry.value.actualType,
+  }).substituteType(type);
+
+  List<ExportTypeParameter> _typeParameters(
+    List<TypeParameter> parameters,
+    String context,
+  ) {
+    final models = [
+      for (final parameter in parameters)
+        ExportTypeParameter(parameter, _actual(parameter.defaultType)),
+    ];
+    _parameters.addAll({for (final model in models) model.target: model});
+    for (final model in models) {
+      model.bound = _type(model.target.bound, '$context: bound ${model.name}');
+      ExportType representation = model.bound;
+      while (representation.kind == ValueKind.typeParameter) {
+        representation = representation.representation!;
+      }
+      if (!const {
+        ValueKind.boolean,
+        ValueKind.integer,
+        ValueKind.doubleValue,
+        ValueKind.number,
+        ValueKind.string,
+        ValueKind.bigint,
+        ValueKind.nullValue,
+        ValueKind.never,
+        ValueKind.opaque,
+        ValueKind.dynamicValue,
+        ValueKind.jsReference,
+        ValueKind.undefined,
+      }.contains(representation.kind)) {
+        throw FormatException(
+          '@NAPI $context: generic bounds must preserve JavaScript values: ${model.name}.',
+        );
+      }
+      model.defaultType = _type(
+        model.target.defaultType,
+        '$context: default ${model.name}',
+      );
+    }
+    return models;
+  }
+
   ExportFunction _function(
     Member target,
     String name, {
@@ -427,61 +508,101 @@ final class _Reader {
     final function = target is Constructor
         ? target.function
         : (target as Procedure).function;
-    if (function.typeParameters.isNotEmpty)
-      throw FormatException(
-        '@NAPI $name: generic functions are not supported yet.',
-      );
     _checkAsync(function, name);
-    final substitution = _substitution(owner, target);
-    ExportParameter parameter(FunctionParameter parameter, bool required) {
-      final parameterName =
-          constructor && owner!.isObject && parameter.isWildcard
-          ? '_'
-          : parameter is NamedParameter
-          ? parameter.parameterName
-          : parameter.cosmeticName ?? 'argument';
-      return ExportParameter(
-        name: parameterName,
-        type: _type(
-          substitution.substituteType(parameter.type),
-          '$name: parameter $parameterName',
-        ),
-        required: required,
-        defaultValue: parameter.defaultValue,
-      );
-    }
-
-    return ExportFunction(
-      target: target,
-      name: name,
-      signature: ExportSignature(
-        positional: [
-          for (var i = 0; i < function.positionalParameters.length; ++i)
-            parameter(
-              function.positionalParameters[i],
-              i < function.requiredParameterCount,
-            ),
-        ],
-        named: [
-          for (final value in function.namedParameters)
-            parameter(value, value.isRequired),
-        ],
-        result: constructor
-            ? _type(owner!.dartType, name)
-            : _type(
-                substitution.substituteType(function.returnType),
-                '$name: return',
-                result: true,
-              ),
-        type:
-            substitution.substituteType(
-                  function.computeFunctionType(Nullability.nonNullable),
-                )
-                as FunctionType,
-      ),
-      owner: owner,
-      constructor: constructor,
+    final savedParameters = Map<TypeParameter, ExportTypeParameter>.of(
+      _parameters,
     );
+    try {
+      final List<ExportTypeParameter> typeParameters;
+      if (constructor) {
+        typeParameters = owner!.typeParameters;
+        // Factory procedures have copies of their class's type parameters.
+        for (var i = 0; i < function.typeParameters.length; ++i) {
+          _parameters[function.typeParameters[i]] = typeParameters[i];
+        }
+      } else {
+        typeParameters = _typeParameters(function.typeParameters, name);
+      }
+      final substitution = _substitution(owner, target);
+      ExportParameter parameter(FunctionParameter parameter, bool required) {
+        final parameterName =
+            constructor && owner!.isObject && parameter.isWildcard
+            ? '_'
+            : parameter is NamedParameter
+            ? parameter.parameterName
+            : parameter.cosmeticName ?? 'argument';
+        return ExportParameter(
+          name: parameterName,
+          type: _type(
+            substitution.substituteType(parameter.type),
+            '$name: parameter $parameterName',
+          ),
+          required: required,
+          defaultValue: parameter.defaultValue,
+        );
+      }
+
+      final rawType =
+          _actual(
+                substitution.substituteType(
+                  function.computeFunctionType(Nullability.nonNullable),
+                ),
+              )
+              as FunctionType;
+      final arguments = constructor
+          ? owner!.typeParameters
+                .map((parameter) => parameter.actualType)
+                .toList()
+          : rawType.typeParameters
+                .map((parameter) => parameter.defaultType)
+                .toList();
+      final invocationType = rawType.typeParameters.isEmpty
+          ? rawType
+          : FunctionTypeInstantiator.instantiate(rawType, arguments);
+      return ExportFunction(
+        target: target,
+        name: name,
+        signature: ExportSignature(
+          typeParameters: typeParameters,
+          positional: [
+            for (var i = 0; i < function.positionalParameters.length; ++i)
+              parameter(
+                function.positionalParameters[i],
+                i < function.requiredParameterCount,
+              ),
+          ],
+          named: [
+            for (final value in function.namedParameters)
+              parameter(value, value.isRequired),
+          ],
+          result: constructor
+              ? _type(
+                  InterfaceType(owner!.target, Nullability.nonNullable, [
+                    for (final parameter in owner.typeParameters)
+                      TypeParameterType(
+                        parameter.target,
+                        Nullability.nonNullable,
+                      ),
+                  ]),
+                  name,
+                )
+              : _type(
+                  substitution.substituteType(function.returnType),
+                  '$name: return',
+                  result: true,
+                ),
+          type: invocationType,
+        ),
+        owner: owner,
+        constructor: constructor,
+        typeArguments: arguments,
+        tearOffType: rawType,
+      );
+    } finally {
+      _parameters
+        ..clear()
+        ..addAll(savedParameters);
+    }
   }
 
   void _checkAsync(FunctionNode function, String name) {
@@ -743,10 +864,27 @@ final class _Reader {
   }
 
   ExportType _type(DartType type, String context, {bool result = false}) {
-    if (type is DynamicType) return ExportType(type, ValueKind.dynamicValue);
+    if (type is TypeParameterType) {
+      final parameter = _parameters[type.parameter];
+      if (parameter == null) {
+        throw FormatException(
+          '@NAPI $context: unsupported type parameter ${type.parameter.name}.',
+        );
+      }
+      final actual = _actual(type);
+      return ExportType(
+        actual,
+        ValueKind.typeParameter,
+        nullable: type.declaredNullability == Nullability.nullable,
+        parameter: parameter,
+        representation: _type(actual, context, result: result),
+      );
+    }
+    if (type is DynamicType)
+      return ExportType(_actual(type), ValueKind.dynamicValue);
     if (type is RecordType) {
       return ExportType(
-        type,
+        _actual(type),
         ValueKind.record,
         nullable: type.nullability == Nullability.nullable,
         recordFields: (
@@ -771,11 +909,13 @@ final class _Reader {
         );
       }
       return ExportType(
-        type,
+        _actual(type),
         ValueKind.function,
         nullable: type.nullability == Nullability.nullable,
         signature: ExportSignature(
-          type: type.withDeclaredNullability(Nullability.nonNullable),
+          type:
+              _actual(type.withDeclaredNullability(Nullability.nonNullable))
+                  as FunctionType,
           positional: [
             for (var i = 0; i < type.positionalParameters.length; ++i)
               ExportParameter(
@@ -804,23 +944,23 @@ final class _Reader {
         ),
       );
     }
-    if (type is NullType) return ExportType(type, ValueKind.nullValue);
+    if (type is NullType) return ExportType(_actual(type), ValueKind.nullValue);
     if (type is NeverType)
       return ExportType(
-        type,
+        _actual(type),
         type.nullability == Nullability.nullable
             ? ValueKind.nullValue
             : ValueKind.never,
       );
     if (result && type is VoidType)
-      return ExportType(type, ValueKind.voidValue);
+      return ExportType(_actual(type), ValueKind.voidValue);
     if (type is InterfaceType) {
       final typeLibrary = type.classNode.enclosingLibrary;
       if (typeLibrary.importUri.toString() == 'package:napi/src/env.dart' ||
           typeLibrary.fileUri == annotationFile?.resolve('src/env.dart')) {
         if (type.classNode.name == 'JsUndefined') {
           return ExportType(
-            type,
+            _actual(type),
             ValueKind.undefined,
             nullable: type.nullability == Nullability.nullable,
           );
@@ -844,7 +984,7 @@ final class _Reader {
             );
           }
           return ExportType(
-            type,
+            _actual(type),
             ValueKind.jsReference,
             nullable: type.nullability == Nullability.nullable,
             referenceKind: kind,
@@ -863,25 +1003,42 @@ final class _Reader {
       final enumeration = enums[type.classNode];
       if (enumeration != null)
         return ExportType(
-          type,
+          _actual(type),
           ValueKind.enumeration,
           nullable: type.nullability == Nullability.nullable,
           enumExport: enumeration,
         );
       final exported = classes[type.classNode];
-      if (exported != null)
+      if (exported != null) {
+        final actual = _actual(type) as InterfaceType;
+        if (actual.typeArguments.length !=
+                exported.dartType.typeArguments.length ||
+            !List.generate(
+              actual.typeArguments.length,
+              (i) =>
+                  actual.typeArguments[i] == exported.dartType.typeArguments[i],
+            ).every((same) => same)) {
+          throw FormatException(
+            '@NAPI $context: non-default generic class arguments are not supported: $type.',
+          );
+        }
         return ExportType(
-          type,
+          actual,
           ValueKind.object,
           nullable: type.nullability == Nullability.nullable,
           classExport: exported,
+          typeArguments: [
+            for (final argument in type.typeArguments)
+              _type(argument, '$context: class argument'),
+          ],
         );
+      }
       final library = type.classNode.enclosingLibrary.importUri.toString();
       if (library == 'dart:async' &&
           (type.classNode.name == 'Future' ||
               type.classNode.name == 'Stream')) {
         return ExportType(
-          type,
+          _actual(type),
           type.classNode.name == 'Future' ? ValueKind.future : ValueKind.stream,
           nullable: type.nullability == Nullability.nullable,
           element: _type(
@@ -893,7 +1050,7 @@ final class _Reader {
       } else if (library == 'dart:core') {
         if (type.classNode.name == 'List') {
           return ExportType(
-            type,
+            _actual(type),
             ValueKind.list,
             nullable: type.nullability == Nullability.nullable,
             element: _type(type.typeArguments.single, '$context: List element'),
@@ -909,7 +1066,7 @@ final class _Reader {
             );
           }
           return ExportType(
-            type,
+            _actual(type),
             ValueKind.map,
             nullable: type.nullability == Nullability.nullable,
             element: _type(type.typeArguments.last, '$context: Map value'),
@@ -927,7 +1084,7 @@ final class _Reader {
         };
         if (kind != null)
           return ExportType(
-            type,
+            _actual(type),
             kind,
             nullable: type.nullability == Nullability.nullable,
           );
@@ -948,7 +1105,7 @@ final class _Reader {
         };
         if (kind != null) {
           return ExportType(
-            type,
+            _actual(type),
             ValueKind.typedData,
             nullable: type.nullability == Nullability.nullable,
             typedDataKind: kind,
