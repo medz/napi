@@ -31,6 +31,55 @@ class Point {
 }
 
 @NAPI.object()
+class Amount {
+  @NAPI()
+  Amount({required String value}) : value = int.parse(value);
+
+  @NAPI()
+  final int value;
+}
+
+@NAPI.object()
+class Handler<T> {
+  @NAPI()
+  Handler({required this.run});
+
+  @NAPI()
+  final T Function(T) run;
+}
+
+@NAPI.object()
+class FnHolder {
+  @NAPI()
+  FnHolder({required this.run});
+
+  @NAPI()
+  final T Function<T>(T) run;
+}
+
+@NAPI.object()
+class StringInput {
+  @NAPI()
+  // ignore: prefer_initializing_formals
+  StringInput({required String value}) : value = value;
+
+  @NAPI()
+  final dynamic value;
+}
+
+@NAPI.object()
+class ThenableAmount {
+  @NAPI()
+  ThenableAmount({required String value}) : value = int.parse(value);
+
+  @NAPI()
+  final int value;
+  @NAPI()
+  void Function(void Function(int)) get then =>
+      (resolve) => resolve(value);
+}
+
+@NAPI.object()
 class Readout<T> {
   Readout(this.value);
 
@@ -100,3 +149,50 @@ Producer<Point> echoPointProducer(Producer<Point> value) => value;
 
 @NAPI()
 Recursive<int> echoRecursive(Recursive<int> value) => value;
+
+@NAPI()
+Handler<int> echoIntHandler(Handler<int> value) => value;
+
+@NAPI()
+Handler<Amount> echoAmountHandler(Handler<Amount> value) => value;
+
+@NAPI()
+Handler<T> echoHandler<T>(Handler<T> value) => value;
+
+@NAPI()
+Handler<Amount> nativeHandler() =>
+    Handler(run: (value) => Amount(value: '${value.value + 1}'));
+
+@NAPI()
+Handler<List<Amount>> nativeListHandler() => Handler(run: (value) => value);
+
+@NAPI()
+Handler<Map<String, Amount>> nativeMapHandler() =>
+    Handler(run: (value) => value);
+
+@NAPI()
+Handler<Amount Function(Amount)> nativeFunctionHandler() =>
+    Handler(run: (value) => value);
+
+@NAPI()
+Handler<Future<Amount>> nativeFutureHandler() => Handler(run: (value) => value);
+
+@NAPI()
+FnHolder echoFnHolder(FnHolder value) => value;
+
+@NAPI()
+int applyFnHolder(FnHolder value, int input) => value.run<int>(input);
+
+@NAPI()
+Handler<StringInput> nativeStringHandler() => Handler(run: (value) => value);
+
+@NAPI()
+Handler<Future<ThenableAmount>> nativeThenableHandler() =>
+    Handler(run: (value) => value);
+
+@NAPI()
+Amount applyAmount(Amount value, Handler<Amount> handler) => handler.run(value);
+
+@NAPI()
+Envelope<Handler<Amount>> nestedHandler(Envelope<Handler<Amount>> value) =>
+    value;

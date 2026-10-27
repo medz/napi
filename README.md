@@ -428,7 +428,7 @@ keep their constructor parameter names.
 
 Input and output shapes may differ: constructor parameters can have defaults or
 different types from the output getters. The generated TypeScript describes
-each direction separately. The class name is a TypeScript interface, available
+each direction separately. The class name is a TypeScript type, available
 with `import type`; it does not create a JS constructor or export instance
 methods.
 
@@ -466,8 +466,48 @@ addon.addOne({ value: 41 }); // { value: 42 }
 Type arguments also apply to nested data classes, collections and callbacks.
 Input and output shapes remain separate, including when an argument is another
 data class with different constructor and getter types.
-Callback fields that take the data class's type parameter, such as
-`T Function(T)`, currently produce a build error.
+
+Generic callbacks keep those input and output shapes too:
+
+```dart
+@NAPI.object()
+class Amount {
+  @NAPI()
+  Amount({required String value}) : value = int.parse(value);
+
+  @NAPI()
+  final int value;
+}
+
+@NAPI.object()
+class Handler<T> {
+  @NAPI()
+  Handler({required this.run});
+
+  @NAPI()
+  final T Function(T) run;
+}
+
+@NAPI()
+Handler<Amount> handler() => Handler(run: (amount) => amount);
+```
+
+```ts
+import addon, { type Amount, type Handler } from 'my-addon';
+
+const handler: Handler<Amount> = addon.handler();
+const amount: Amount = handler.run({ value: '42' });
+amount.value; // 42
+```
+
+Types whose input and output shapes differ carry a private TypeScript identity.
+Obtain an `Amount` from a returned value; `{ value: 42 }` alone cannot be assigned
+to `Amount`. Constructor inputs remain ordinary objects. Symmetric types such as
+`Handler<number>` still accept object literals. The identity adds no JavaScript
+properties or symbols.
+
+Recursive data classes whose constructor and getter types expand at different
+rates are not yet supported.
 
 ## Generics
 
@@ -501,6 +541,10 @@ type arguments. Unconstrained parameters pass scalars directly and retain JS
 objects, functions and symbols as owned references, preserving their JS
 identity when returned. The same rules apply to elements of `List<T>`,
 `Map<String, T>` and ordinary callback signatures.
+
+JavaScript type arguments do not select data-class converters. A generic
+identity preserves the supplied JS representation. Use a concrete Dart
+declaration such as `Envelope<Amount>` when constructor inputs need conversion.
 
 Bounds currently support scalars, `Object` and explicit `JsReference` types.
 Bounds that copy values or unwrap a bound class produce a build error.

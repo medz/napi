@@ -19,8 +19,8 @@
       "sha256": "d36e8857f853f1ed2ffe0df6b31231e5762b619f2cb615193b4ef6f6d3e99e25"
     },
     "frontend.aot": {
-      "size": 9372552,
-      "sha256": "b231ed8083a1f524a604b3f519f34dbd785995600c94466053106ef729d72070"
+      "size": 9405320,
+      "sha256": "1c872110a998013820196a28ff5e2decb0fa72088a94c4128999c448b4b0dd63"
     },
     "frontend.dll": {
       "size": 5099520,

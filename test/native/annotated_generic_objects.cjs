@@ -49,8 +49,54 @@ module.exports = async function verifyAnnotatedGenericObjects(path) {
   const pointProducer = addon.echoPointProducer({ create: pointFactory });
   assert.notEqual(pointProducer.create, pointFactory);
   assert.deepEqual(pointProducer.create(), { value: 9 });
+  const numberRun = value => value + 1;
+  const numberHandler = addon.echoIntHandler({ run: numberRun });
+  assert.equal(numberHandler.run, numberRun);
+  assert.equal(numberHandler.run(3), 4);
+  const amountRun = value => {
+    assert.equal(typeof value.value, 'number');
+    return { value: String(value.value + 2) };
+  };
+  const handler = addon.echoAmountHandler({ run: amountRun });
+  assert.notEqual(handler.run, amountRun);
+  const amount = handler.run({ value: '3' });
+  assert.deepEqual(amount, { value: 5 });
+  assert.deepEqual(Object.getOwnPropertySymbols(amount), []);
+  assert.deepEqual(Object.keys(handler), ['run']);
+  assert.deepEqual(addon.nativeHandler().run({ value: '3' }), { value: 4 });
+  assert.deepEqual(addon.nativeListHandler().run([{ value: '3' }]), [{ value: 3 }]);
+  assert.deepEqual(addon.nativeMapHandler().run({ one: { value: '4' } }), { one: { value: 4 } });
+  const functionHandler = addon.nativeFunctionHandler();
+  const functionResult = functionHandler.run(amount => {
+    assert.equal(typeof amount.value, 'number');
+    return { value: String(amount.value + 1) };
+  });
+  assert.deepEqual(functionResult({ value: '5' }), { value: 6 });
+  assert.deepEqual(await addon.nativeFutureHandler().run(Promise.resolve({ value: '7' })), { value: 7 });
+  const fnHolder = addon.echoFnHolder({ run: value => value });
+  assert.equal(fnHolder.run('hello'), 'hello');
+  assert.equal(addon.applyFnHolder(fnHolder, 7), 7);
+  assert.deepEqual(addon.nativeStringHandler().run({ value: '7' }), { value: '7' });
+  assert.throws(() => addon.nativeStringHandler().run({ value: 7 }), TypeError);
+  assert.equal(await addon.nativeThenableHandler().run(Promise.resolve({ value: '7' })), 7);
+  assert.deepEqual(addon.applyAmount({ value: '4' }, {
+    run: value => ({ value: String(value.value + 1) }),
+  }), { value: 5 });
+  const nestedHandler = addon.nestedHandler({ value: { run: amountRun } });
+  assert.deepEqual(nestedHandler.value.run({ value: '6' }), { value: 8 });
+  const erasedRun = value => value;
+  const erased = addon.echoHandler({ run: erasedRun });
+  const erasedValue = { value: '7' };
+  assert.equal(erased.run, erasedRun);
+  assert.equal(erased.run(erasedValue), erasedValue);
+  assert.equal(addon.echo({ value: erasedValue }).value.value, '7');
+  assert.throws(() => handler.run({ value: 3 }), TypeError);
+  assert.throws(() => functionResult({ value: 5 }), TypeError);
+  assert.throws(() => addon.echoAmountHandler({ run: value => value }).run({ value: '3' }), TypeError);
   assert.equal(addon.Envelope, undefined);
   assert.equal(addon.Readout, undefined);
+  assert.equal(addon.Handler, undefined);
+  assert.equal(addon.Amount, undefined);
 
   const recursive = { value: 1, next: { value: [2], next: { value: [[3]] } } };
   const copied = addon.echoRecursive(recursive);

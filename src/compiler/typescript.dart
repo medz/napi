@@ -47,55 +47,39 @@ final class _Writer {
       }
     }
     for (final cls in exports.classes.where((cls) => cls.isObject)) {
-      if (cls.typeParameters.isEmpty) continue;
-      bool opposite(ExportType type, {required bool reversed}) {
-        if (type.kind == ValueKind.typeParameter) {
-          return reversed && cls.typeParameters.contains(type.parameter);
-        }
-        final signature = type.signature;
-        if (signature != null) {
-          return [
-                ...signature.positional,
-                ...signature.named,
-              ].any((value) => opposite(value.type, reversed: !reversed)) ||
-              opposite(signature.result, reversed: reversed);
-        }
-        final fields = type.recordFields;
-        return (type.element != null &&
-                opposite(type.element!, reversed: reversed)) ||
-            type.typeArguments.any(
-              (value) => opposite(value, reversed: reversed),
-            ) ||
-            (fields != null &&
-                [
-                  ...fields.positional,
-                  ...fields.named.values,
-                ].any((value) => opposite(value, reversed: reversed)));
-      }
-
-      final constructor = cls.constructor?.signature;
-      if (cls.properties.any(
-            (value) => opposite(value.readType!, reversed: false),
-          ) ||
-          constructor != null &&
-              [
-                ...constructor.positional,
-                ...constructor.named,
-              ].any((value) => opposite(value.type, reversed: false))) {
-        throw FormatException(
-          '@NAPI.object ${cls.name}: generic data class parameters in callback '
-          'positions require separate input and output types; this mapping '
-          'is not supported yet.',
-        );
-      }
+      _objects[cls] = (
+        output: _unique('_NapiObjectOutput${_objects.length}'),
+        fields: _unique('_NapiObjectFields${_objects.length}'),
+        input: _unique('_NapiObjectInput${_objects.length}'),
+        inputs: [
+          for (final parameter in cls.typeParameters)
+            _unique('${_parameterNames[parameter]}Input'),
+        ],
+      );
     }
+    _inputKey = _unique('_napiInput');
+    _inputOf = _unique('_NapiInput');
+    _same = _unique('_NapiSame');
+    _projection = _unique('_NapiProjection');
+    _analyzeDifferences();
   }
   final ExportModule exports;
   final bool esm;
   final Set<String> _names;
   final _parameterNames = <ExportTypeParameter, String>{};
-  final _inputs = <ExportClass, String>{};
-  final _inputQueue = <ExportClass>[];
+  final _parameterIds = <ExportTypeParameter, int>{};
+  final _objects =
+      <
+        ExportClass,
+        ({String output, String fields, String input, List<String> inputs})
+      >{};
+  final _differences = <ExportClass, _Difference>{};
+  final _parameterTypes =
+      <ExportTypeParameter, ({String output, String input})>{};
+  late final String _inputKey;
+  late final String _inputOf;
+  late final String _same;
+  late final String _projection;
 
   String _unique(String name) {
     while (_names.contains(name) || _parameterNames.containsValue(name)) {
@@ -228,11 +212,322 @@ final class _Writer {
         '@NAPI.object ${cls.name}: has no annotated input constructor.',
       );
     }
-    return _inputs.putIfAbsent(cls, () {
-      final name = _unique('_NapiObjectInput${_inputs.length}');
-      _inputQueue.add(cls);
-      return name;
-    });
+    return _objects[cls]!.input;
+  }
+
+  String _objectParameters(ExportClass cls) => cls.typeParameters.isEmpty
+      ? ''
+      : '<${[
+          for (var i = 0; i < cls.typeParameters.length; ++i) ...[_parameterDeclaration(cls.typeParameters[i]), _objects[cls]!.inputs[i]],
+        ].join(', ')}>';
+
+  String _objectArguments(ExportClass cls) => cls.typeParameters.isEmpty
+      ? ''
+      : '<${[
+          for (final parameter in cls.typeParameters) ...[_parameterTypes[parameter]!.output, _parameterTypes[parameter]!.input],
+        ].join(', ')}>';
+
+  T _withObjectParameters<T>(ExportClass cls, T Function() body) {
+    final saved = Map<ExportTypeParameter, ({String output, String input})>.of(
+      _parameterTypes,
+    );
+    for (var i = 0; i < cls.typeParameters.length; ++i) {
+      final parameter = cls.typeParameters[i];
+      _parameterTypes[parameter] = (
+        output: _parameterNames[parameter]!,
+        input: _objects[cls]!.inputs[i],
+      );
+    }
+    try {
+      return body();
+    } finally {
+      _parameterTypes
+        ..clear()
+        ..addAll(saved);
+    }
+  }
+
+  void _analyzeDifferences() {
+    for (final cls in _objects.keys) {
+      final difference = _differences[cls] = _Difference();
+      final constructor = cls.constructor;
+      if (constructor == null) {
+        difference.always = true;
+        continue;
+      }
+      final inputs = {
+        for (final p in [
+          ...constructor.signature.positional,
+          ...constructor.signature.named,
+        ])
+          p.name: p,
+      };
+      if (inputs.length != cls.properties.length ||
+          cls.properties.any((p) => !inputs.containsKey(p.name)) ||
+          inputs.values.any((p) => !p.required)) {
+        difference.always = true;
+        continue;
+      }
+      for (final property in cls.properties) {
+        _collectDifference(
+          property.readType!,
+          inputs[property.name]!.type,
+          difference,
+        );
+      }
+    }
+    bool reaches(ExportClass from, ExportClass to, Set<ExportClass> seen) {
+      if (from == to) return true;
+      if (!seen.add(from)) return false;
+      return _differences[from]!.edges.values.any(
+        (edge) => reaches(edge.left.classExport!, to, seen),
+      );
+    }
+
+    var changed = true;
+    while (changed) {
+      changed = false;
+      for (final entry in _differences.entries) {
+        final difference = entry.value;
+        if (difference.always) continue;
+        for (final edge in difference.edges.values.toList()) {
+          final nested = edge.left.classExport!;
+          final source = _differences[nested]!;
+          if (source.always) {
+            difference.always = true;
+            changed = true;
+            break;
+          }
+          final left = {
+            for (var i = 0; i < nested.typeParameters.length; ++i)
+              nested.typeParameters[i]: edge.left.typeArguments[i],
+          };
+          final right = {
+            for (var i = 0; i < nested.typeParameters.length; ++i)
+              nested.typeParameters[i]: edge.right.typeArguments[i],
+          };
+          for (final pair in source.pairs.values.toList()) {
+            final next = _Difference();
+            _collectDifference(
+              _substituteType(pair.left, left),
+              _substituteType(pair.right, right),
+              next,
+            );
+            if (next.always) {
+              difference.always = true;
+              changed = true;
+              break;
+            }
+            for (final value in next.pairs.entries) {
+              if (difference.pairs.containsKey(value.key)) continue;
+              if (reaches(nested, entry.key, {}) &&
+                  difference.pairs.values.any(
+                    (old) =>
+                        _pairParameters(old) == _pairParameters(value.value) &&
+                        _pairDepth(old) < _pairDepth(value.value),
+                  )) {
+                throw FormatException(
+                  '@NAPI.object ${entry.key.name}: recursive input/output projections expand at different rates.',
+                );
+              }
+              difference.pairs[value.key] = value.value;
+              changed = true;
+            }
+            for (final value in next.edges.entries) {
+              if (!difference.edges.containsKey(value.key)) {
+                difference.edges[value.key] = value.value;
+                changed = true;
+              }
+            }
+          }
+          if (difference.always) break;
+        }
+      }
+    }
+  }
+
+  void _collectDifference(
+    ExportType left,
+    ExportType right,
+    _Difference result,
+  ) {
+    if (result.always) return;
+    void pair() {
+      final value = (left: left, right: right);
+      result.pairs['${_typeKey(left)}|${_typeKey(right)}'] = value;
+    }
+
+    if (left.nullable != right.nullable) {
+      pair();
+      return;
+    }
+    if (left.kind == ValueKind.typeParameter ||
+        right.kind == ValueKind.typeParameter) {
+      if (left.parameter == right.parameter &&
+          left.parameter != null &&
+          !_objects.keys.any(
+            (cls) => cls.typeParameters.contains(left.parameter),
+          )) {
+        return;
+      }
+      pair();
+      return;
+    }
+    final a = _scalarKey(left), b = _scalarKey(right);
+    if (a != null && b != null) {
+      if (a != b) pair();
+      return;
+    }
+    if (left.kind != right.kind) {
+      pair();
+      return;
+    }
+    if (left.kind == ValueKind.object) {
+      if (left.classExport == right.classExport && left.classExport!.isObject) {
+        result.edges['${_typeKey(left)}|${_typeKey(right)}'] = (
+          left: left,
+          right: right,
+        );
+      } else if (_typeKey(left) != _typeKey(right)) {
+        pair();
+      }
+      return;
+    }
+    if (left.kind == ValueKind.future) {
+      pair();
+      return;
+    }
+    if (left.kind == ValueKind.stream) {
+      result.always = true;
+      return;
+    }
+    if (left.element != null && right.element != null) {
+      _collectDifference(left.element!, right.element!, result);
+      return;
+    }
+    if (left.kind == ValueKind.function) {
+      final x = left.signature!, y = right.signature!;
+      if (x.positional.length != y.positional.length ||
+          x.named.length != y.named.length ||
+          x.typeParameters.length != y.typeParameters.length) {
+        result.always = true;
+        return;
+      }
+      final parameters = {
+        for (var i = 0; i < x.typeParameters.length; ++i)
+          y.typeParameters[i]: ExportType(
+            x.typeParameters[i].invocationType,
+            ValueKind.typeParameter,
+            parameter: x.typeParameters[i],
+            representation: x.typeParameters[i].defaultType,
+          ),
+      };
+      for (var i = 0; i < x.typeParameters.length; ++i) {
+        _collectDifference(
+          x.typeParameters[i].bound,
+          _substituteType(y.typeParameters[i].bound, parameters),
+          result,
+        );
+      }
+      final xs = [...x.positional, ...x.named],
+          ys = [...y.positional, ...y.named];
+      for (var i = 0; i < xs.length; ++i) {
+        if (xs[i].required != ys[i].required ||
+            i >= x.positional.length && xs[i].name != ys[i].name) {
+          result.always = true;
+          return;
+        }
+        _collectDifference(
+          _substituteType(ys[i].type, parameters),
+          xs[i].type,
+          result,
+        );
+      }
+      _collectDifference(
+        x.result,
+        _substituteType(y.result, parameters),
+        result,
+      );
+      return;
+    }
+    if (left.kind == ValueKind.record) {
+      final x = left.recordFields!, y = right.recordFields!;
+      if (x.positional.length != y.positional.length ||
+          x.named.keys.join(',') != y.named.keys.join(',')) {
+        result.always = true;
+        return;
+      }
+      for (var i = 0; i < x.positional.length; ++i) {
+        _collectDifference(x.positional[i], y.positional[i], result);
+      }
+      for (final name in x.named.keys) {
+        _collectDifference(x.named[name]!, y.named[name]!, result);
+      }
+      return;
+    }
+    if (_typeKey(left) != _typeKey(right)) pair();
+  }
+
+  String? _scalarKey(ExportType type) => switch (type.kind) {
+    ValueKind.integer || ValueKind.doubleValue || ValueKind.number => 'number',
+    ValueKind.boolean ||
+    ValueKind.string ||
+    ValueKind.bigint ||
+    ValueKind.nullValue ||
+    ValueKind.undefined ||
+    ValueKind.voidValue ||
+    ValueKind.never ||
+    ValueKind.opaque ||
+    ValueKind.dynamicValue => '${type.kind}:${type.nullable}',
+    _ => null,
+  };
+
+  int _parameterId(ExportTypeParameter parameter) =>
+      _parameterIds.putIfAbsent(parameter, () => _parameterIds.length);
+
+  String _typeKey(ExportType type) =>
+      '${type.kind}:${type.nullable}:${type.parameter == null ? '' : _parameterId(type.parameter!)}:${type.classExport?.name}:${type.typedDataKind}:${type.simdKind}:${type.referenceKind}:${type.enumExport?.name}'
+      '${type.element == null ? '' : '[${_typeKey(type.element!)}]'}'
+      '<${type.typeArguments.map(_typeKey).join(',')}>'
+      '${type.signature == null ? '' : '(${type.signature!.typeParameters.map(_parameterId).join(',')};${type.signature!.positional.map((p) => '${p.required}:${_typeKey(p.type)}').join(',')};${type.signature!.named.map((p) => '${p.name}:${p.required}:${_typeKey(p.type)}').join(',')};${_typeKey(type.signature!.result)})'}'
+      '${type.recordFields == null ? '' : '(${type.recordFields!.positional.map(_typeKey).join(',')};${type.recordFields!.named.entries.map((p) => '${p.key}:${_typeKey(p.value)}').join(',')})'}';
+
+  String _pairParameters(_TypePair pair) {
+    final values = <int>{};
+    void visit(ExportType type) {
+      if (type.parameter != null) values.add(_parameterId(type.parameter!));
+      if (type.element != null) visit(type.element!);
+      for (final a in type.typeArguments) {
+        visit(a);
+      }
+    }
+
+    visit(pair.left);
+    visit(pair.right);
+    return (values.toList()..sort()).join(',');
+  }
+
+  int _pairDepth(_TypePair pair) {
+    int depth(ExportType type) {
+      final children = [
+        if (type.element != null) type.element!,
+        ...type.typeArguments,
+      ];
+      return 1 +
+          (children.isEmpty
+              ? 0
+              : children.map(depth).reduce((a, b) => a > b ? a : b));
+    }
+
+    return depth(pair.left) + depth(pair.right);
+  }
+
+  String _condition(ExportClass cls) {
+    final difference = _differences[cls]!;
+    if (difference.always) return 'false';
+    final pairs = difference.pairs.values;
+    if (pairs.isEmpty) return 'true';
+    return '[${pairs.map((pair) => '$_same<${_type(pair.left, metadata: false)}, ${_type(pair.right, output: false, metadata: false)}>').join(', ')}] extends true[] ? true : false';
   }
 
   String write() {
@@ -261,15 +556,41 @@ final class _Writer {
     }
     for (final cls in exports.classes) {
       if (cls.isObject) {
-        output.writeln(
-          '${prefix}interface ${cls.name}${_generics(cls.typeParameters)} {',
-        );
-        for (final property in cls.properties) {
+        final names = _objects[cls]!;
+        _withObjectParameters(cls, () {
+          final parameters = _objectParameters(cls);
+          final arguments = _objectArguments(cls);
+          output.writeln('interface ${names.fields}$parameters {');
+          for (final property in cls.properties) {
+            output.writeln(
+              '  ${jsonEncode(property.name)}: ${_type(property.readType!)};',
+            );
+          }
+          output.writeln('}');
           output.writeln(
-            '  ${jsonEncode(property.name)}: ${_type(property.readType!)};',
+            'type ${names.output}$parameters = object & ${names.fields}$arguments & ((${_condition(cls)}) extends true ? {} : { readonly [$_inputKey]: ${cls.constructor == null ? 'never' : '${names.input}$arguments'} });',
           );
-        }
-        output.writeln('}');
+          if (cls.constructor case final constructor?) {
+            output.writeln('type ${names.input}$parameters = object & {');
+            for (final parameter in [
+              ...constructor.signature.positional,
+              ...constructor.signature.named,
+            ]) {
+              output.writeln(
+                '  ${jsonEncode(parameter.name)}${parameter.required ? '' : '?'}: ${_type(parameter.type, output: false)};',
+              );
+            }
+            output.writeln('};');
+          }
+        });
+        final arguments = cls.typeParameters.isEmpty
+            ? ''
+            : '<${[
+                for (final parameter in cls.typeParameters) ...[_parameterNames[parameter]!, '$_inputOf<${_parameterNames[parameter]!}>'],
+              ].join(', ')}>';
+        output.writeln(
+          '${prefix}type ${cls.name}${_generics(cls.typeParameters)} = ${names.output}$arguments;',
+        );
         continue;
       }
       output.writeln(
@@ -281,6 +602,7 @@ final class _Writer {
         brand += '_';
       }
       output.writeln('  private readonly $brand: never;');
+      if (_objects.isNotEmpty) output.writeln('  readonly [$_inputKey]: this;');
       final constructor = cls.constructor;
       output.writeln(
         constructor == null
@@ -328,18 +650,38 @@ final class _Writer {
       );
     }
     if (esm || commonJsObject) _binding(output);
-    for (var i = 0; i < _inputQueue.length; ++i) {
-      final cls = _inputQueue[i];
-      final signature = cls.constructor!.signature;
+    if (_objects.isNotEmpty) {
+      output.writeln('declare const $_inputKey: unique symbol;');
       output.writeln(
-        'type ${_inputs[cls]}${_generics(cls.typeParameters)} = object & {',
+        'type $_same<A, B> = 0 extends (1 & A) ? 0 extends (1 & B) ? true : false : 0 extends (1 & B) ? false : [A] extends [B] ? [B] extends [A] ? true : false : false;',
       );
-      for (final parameter in [...signature.positional, ...signature.named]) {
-        output.writeln(
-          '  ${jsonEncode(parameter.name)}${parameter.required ? '' : '?'}: ${_type(parameter.type, output: false)};',
-        );
-      }
-      output.writeln('}');
+      output.writeln(
+        'type $_projection<O, I> = O & ($_same<$_inputOf<O>, I> extends true ? {} : { readonly [$_inputKey]: I });',
+      );
+      output.writeln(
+        'type $_inputOf<T> = T extends { readonly [$_inputKey]: infer I } ? I',
+      );
+      output.writeln(
+        '  : T extends globalThis.ReadonlyArray<unknown> ? { [K in keyof T]: $_inputOf<T[K]> }',
+      );
+      output.writeln(
+        '  : T extends globalThis.Map<infer K, infer V> ? globalThis.Map<$_inputOf<K>, $_inputOf<V>>',
+      );
+      output.writeln(
+        '  : T extends globalThis.Set<infer V> ? globalThis.Set<$_inputOf<V>>',
+      );
+      output.writeln(
+        '  : T extends globalThis.Promise<infer V> ? globalThis.Promise<$_inputOf<V>>',
+      );
+      output.writeln(
+        '  : T extends globalThis.AsyncIterable<infer V> ? globalThis.AsyncIterable<$_inputOf<V>>',
+      );
+      output.writeln(
+        '  : T extends globalThis.Function | globalThis.Date | globalThis.ArrayBuffer | globalThis.ArrayBufferView ? T',
+      );
+      output.writeln(
+        '  : T extends object ? keyof T extends never ? T : object & { [K in keyof T]: $_inputOf<T[K]> } : T;',
+      );
     }
     if (!commonJsObject) output.writeln('export {};');
     return output.toString();
@@ -415,13 +757,14 @@ final class _Writer {
           !function.named.any((parameter) => parameter.required)) {
         tuples.add('[${parameters.join(', ')}]');
       }
-      if (options != null)
+      if (options != null) {
         tuples.add('[${[...parameters, 'options: $options'].join(', ')}]');
+      }
     }
     return '...args: ${tuples.join(' | ')}';
   }
 
-  String _type(ExportType type, {bool output = true}) {
+  String _type(ExportType type, {bool output = true, bool metadata = true}) {
     final value = switch (type.kind) {
       ValueKind.boolean => 'boolean',
       ValueKind.integer ||
@@ -443,10 +786,12 @@ final class _Writer {
       ValueKind.nullValue => 'null',
       ValueKind.voidValue => 'void',
       ValueKind.never => 'never',
-      ValueKind.typeParameter => _parameterNames[type.parameter!]!,
-      ValueKind.object =>
-        '${type.classExport!.isObject && !output ? _input(type.classExport!) : type.classExport!.name}'
-            '${type.typeArguments.isEmpty ? '' : '<${type.typeArguments.map((argument) => _type(argument, output: output)).join(', ')}>'}',
+      ValueKind.typeParameter =>
+        (output
+                ? _parameterTypes[type.parameter]?.output
+                : _parameterTypes[type.parameter]?.input) ??
+            _parameterNames[type.parameter!]!,
+      ValueKind.object => _objectType(type, output: output),
       ValueKind.enumeration => type.enumExport!.name,
       ValueKind.undefined => 'undefined',
       ValueKind.dynamicValue => 'any',
@@ -486,10 +831,53 @@ final class _Writer {
           TypedDataKind.float64 => 'Float64Array',
         }}',
     };
-    return type.nullable && type.kind != ValueKind.opaque
-        ? '$value | null'
+    final projected =
+        metadata &&
+            output &&
+            _objects.isNotEmpty &&
+            (type.kind == ValueKind.function || type.kind == ValueKind.future)
+        ? '$_projection<$value, ${_type(_copyType(type, nullable: false), output: false, metadata: false)}>'
         : value;
+    return type.nullable && type.kind != ValueKind.opaque
+        ? '$projected | null'
+        : projected;
   }
+
+  String _objectType(ExportType type, {required bool output}) {
+    final cls = type.classExport!;
+    if (!cls.isObject) {
+      return '${cls.name}${type.typeArguments.isEmpty ? '' : '<${type.typeArguments.map((argument) => _type(argument)).join(', ')}>'}';
+    }
+    if (!output && cls.constructor == null) return 'never';
+    final pairs = [
+      for (final argument in type.typeArguments)
+        (output: _type(argument), input: _type(argument, output: false)),
+    ];
+    final template = !output || type.typeArguments.any(_containsParameter);
+    if (!template) {
+      return '${cls.name}${pairs.isEmpty ? '' : '<${pairs.map((pair) => pair.output).join(', ')}>'}';
+    }
+    final name = output ? _objects[cls]!.output : _input(cls);
+    return '$name${pairs.isEmpty ? '' : '<${[
+            for (final pair in pairs) ...[pair.output, pair.input],
+          ].join(', ')}>'}';
+  }
+
+  bool _containsParameter(ExportType type) =>
+      type.kind == ValueKind.typeParameter ||
+      (type.element != null && _containsParameter(type.element!)) ||
+      type.typeArguments.any(_containsParameter) ||
+      (type.recordFields != null &&
+          [
+            ...type.recordFields!.positional,
+            ...type.recordFields!.named.values,
+          ].any(_containsParameter)) ||
+      (type.signature != null &&
+          [
+            ...type.signature!.positional.map((p) => p.type),
+            ...type.signature!.named.map((p) => p.type),
+            type.signature!.result,
+          ].any(_containsParameter));
 
   String _record(ExportType type, {required bool output}) {
     final fields = type.recordFields!;
@@ -505,6 +893,87 @@ final class _Writer {
     return '{ ${properties.join(' ')} }';
   }
 }
+
+typedef _TypePair = ({ExportType left, ExportType right});
+
+final class _Difference {
+  bool always = false;
+  final pairs = <String, _TypePair>{};
+  final edges = <String, _TypePair>{};
+}
+
+ExportType _substituteType(
+  ExportType type,
+  Map<ExportTypeParameter, ExportType> arguments,
+) {
+  final replacement = arguments[type.parameter];
+  if (replacement != null) {
+    if (!type.nullable || replacement.nullable) return replacement;
+    return _copyType(replacement, nullable: true);
+  }
+  ExportParameter parameter(ExportParameter value) => ExportParameter(
+    name: value.name,
+    type: _substituteType(value.type, arguments),
+    required: value.required,
+    defaultValue: value.defaultValue,
+  );
+  final signature = type.signature;
+  return _copyType(
+    type,
+    element: type.element == null
+        ? null
+        : _substituteType(type.element!, arguments),
+    typeArguments: [
+      for (final argument in type.typeArguments)
+        _substituteType(argument, arguments),
+    ],
+    signature: signature == null
+        ? null
+        : ExportSignature(
+            type: signature.type,
+            typeParameters: signature.typeParameters,
+            positional: signature.positional.map(parameter).toList(),
+            named: signature.named.map(parameter).toList(),
+            result: _substituteType(signature.result, arguments),
+          ),
+    recordFields: type.recordFields == null
+        ? null
+        : (
+            positional: [
+              for (final field in type.recordFields!.positional)
+                _substituteType(field, arguments),
+            ],
+            named: {
+              for (final entry in type.recordFields!.named.entries)
+                entry.key: _substituteType(entry.value, arguments),
+            },
+          ),
+  );
+}
+
+ExportType _copyType(
+  ExportType type, {
+  bool? nullable,
+  ExportType? element,
+  List<ExportType>? typeArguments,
+  ExportSignature? signature,
+  ({List<ExportType> positional, Map<String, ExportType> named})? recordFields,
+}) => ExportType(
+  type.dartType,
+  type.kind,
+  nullable: nullable ?? type.nullable,
+  classExport: type.classExport,
+  element: element ?? type.element,
+  typedDataKind: type.typedDataKind,
+  simdKind: type.simdKind,
+  signature: signature ?? type.signature,
+  recordFields: recordFields ?? type.recordFields,
+  enumExport: type.enumExport,
+  referenceKind: type.referenceKind,
+  parameter: type.parameter,
+  representation: type.representation,
+  typeArguments: typeArguments ?? type.typeArguments,
+);
 
 String _label(String name, int index) =>
     RegExp(r'^[a-zA-Z_$][a-zA-Z0-9_$]*$').hasMatch(name) ? name : 'arg$index';
