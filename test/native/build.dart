@@ -37,6 +37,7 @@ Future<void> main(List<String> args) async {
       ('env', 'annotated_env.dart'),
       ('inheritance', 'annotated_inheritance.dart'),
       ('generic-objects', 'annotated_generic_objects.dart'),
+      ('generic-callbacks', 'annotated_generic_callbacks.dart'),
     ])
       NativeTarget(
         entry: File('${source.path}/$entry'),
@@ -230,12 +231,12 @@ Future<void> main(List<String> args) async {
       ],
     ),
     (
-      'callbacks',
-      'annotated_callbacks.dart',
+      'generic-callbacks',
+      'annotated_generic_callbacks.dart',
       [
         (
-          '@NAPI() void inspect(T Function<T>(T) callback) {}',
-          'generic function types are not supported yet',
+          '@NAPI() void invalid(T Function<T extends List<int>>(T) callback) {}',
+          'generic bounds must preserve JavaScript values',
         ),
       ],
     ),

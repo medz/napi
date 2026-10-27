@@ -287,6 +287,16 @@ final class _PendingWrap {
   final Object value;
 }
 
+final class _GenericPayload {
+  const _GenericPayload(this.value);
+
+  final Object value;
+}
+
+final class _GenericValues {
+  Set<_BoundObject>? origins;
+}
+
 final class _ClassDefinition {
   _ClassDefinition(this.accepts);
 
@@ -399,6 +409,7 @@ final class Env {
       <int, node.NapiValue Function(JsArguments, node.NapiValue)>{};
   final _objects = <int, _BoundObject>{};
   final _identity = Expando<int>();
+  final _genericPayloads = Expando<_GenericPayload>();
   final _classes = <Type, _ClassDefinition?>{};
   int _objectDepth = 0;
   final _importedFunctions = Expando<JsReference<JsFunction>>();
@@ -1325,18 +1336,22 @@ final class Env {
       _boundObject<T>(handle).value as T;
 
   _BoundObject _boundObject<T extends Object>(node.NapiValue handle) {
-    final valid = _arena<Bool>();
-    final status = node.napiCheckObjectTypeTag(_handle, handle, _tag, valid);
-    if (status != node.NapiStatus.ok.index || !valid.value) {
-      throw ArgumentError('Invalid $T receiver');
-    }
-    final token = _arena<Pointer<Void>>();
-    _check(node.napiUnwrap(_handle, handle, token));
-    final object = _objects[token.value.address];
+    final object = _findBoundObject(handle);
     if (object == null || object.value is! T) {
       throw ArgumentError('Invalid $T receiver');
     }
     return object;
+  }
+
+  _BoundObject? _findBoundObject(node.NapiValue handle) {
+    final valid = _arena<Bool>();
+    final status = node.napiCheckObjectTypeTag(_handle, handle, _tag, valid);
+    if (status != node.NapiStatus.ok.index || !valid.value) {
+      return null;
+    }
+    final token = _arena<Pointer<Void>>();
+    _check(node.napiUnwrap(_handle, handle, token));
+    return _objects[token.value.address];
   }
 
   /// Returns the JavaScript wrapper for a Dart object of a registered class.
@@ -1969,6 +1984,98 @@ final class Env {
       _ => value,
     };
     return result as T;
+  }
+
+  // A whole, otherwise unknown generic type is transferred as an opaque value.
+  // ignore: unused_element
+  T _readGenericValue<T>(Object? value, [_GenericValues? values]) {
+    _arena;
+    if (value is JsReference) _encode(value);
+    if (value is! _JsValue) return _typedValue<T>(value);
+    final handle = _encode(value);
+    if (T == JsObject ||
+        T == _typeOf<JsObject?>() ||
+        T == JsFunction ||
+        T == _typeOf<JsFunction?>() ||
+        T == JsSymbol ||
+        T == _typeOf<JsSymbol?>()) {
+      return _typedValue<T>(value);
+    }
+    final JsReference<_JsValue> reference;
+    if ((T == _typeOf<JsReference<JsObject>>() ||
+            T == _typeOf<JsReference<JsObject>?>()) &&
+        value is JsObject) {
+      reference = _retain<JsObject>(value);
+    } else if ((T == _typeOf<JsReference<JsFunction>>() ||
+            T == _typeOf<JsReference<JsFunction>?>()) &&
+        value is JsFunction) {
+      reference = _retain<JsFunction>(value);
+    } else if ((T == _typeOf<JsReference<JsSymbol>>() ||
+            T == _typeOf<JsReference<JsSymbol>?>()) &&
+        value is JsSymbol) {
+      reference = _retain<JsSymbol>(value);
+    } else {
+      if (value is JsObject && values != null) {
+        final object = _findBoundObject(handle);
+        if (object != null &&
+            identical(object.definition, _classes[_GenericPayload]) &&
+            object.value is _GenericPayload &&
+            !(values.origins?.contains(object) ?? false)) {
+          return _typedValue<T>((object.value as _GenericPayload).value);
+        }
+      }
+      reference = switch (value) {
+        JsFunction value => value.retain(),
+        JsObject value => value.retain(),
+        JsSymbol value => value.retain(),
+        _ => throw ArgumentError('Unsupported JavaScript value'),
+      };
+    }
+    try {
+      return _typedValue<T>(reference);
+    } catch (_) {
+      reference.dispose();
+      rethrow;
+    }
+  }
+
+  // ignore: unused_element
+  Object? _writeGenericValue<T>(T value, [_GenericValues? values]) {
+    _arena;
+    if (value == null ||
+        value is bool ||
+        value is num ||
+        value is String ||
+        value is BigInt ||
+        identical(value, undefined)) {
+      return value;
+    }
+    if (value is _JsValue || value is JsReference) {
+      final handle = _encode(value);
+      if (values != null) {
+        final object = _findBoundObject(handle);
+        if (object != null &&
+            identical(object.definition, _classes[_GenericPayload]) &&
+            object.value is _GenericPayload) {
+          (values.origins ??= {}).add(object);
+        }
+      }
+      return value;
+    }
+    if (!_classes.containsKey(_GenericPayload)) {
+      defineClass<_GenericPayload>(
+        'DartValue',
+        constructor: (_) =>
+            throw StateError('Opaque Dart values cannot be constructed'),
+      );
+    }
+    final _GenericPayload payload;
+    if (_cacheableObject(value)) {
+      payload = _genericPayloads[value] ??= _GenericPayload(value);
+    } else {
+      payload = _GenericPayload(value);
+    }
+    return wrap(payload);
   }
 
   node.NapiValue _encode(Object? value) {

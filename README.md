@@ -504,8 +504,7 @@ identity when returned. The same rules apply to elements of `List<T>`,
 
 Bounds currently support scalars, `Object` and explicit `JsReference` types.
 Bounds that copy values or unwrap a bound class, non-default specializations of
-bound classes at the binding boundary, and callbacks with their own type
-parameters produce a build error.
+bound classes at the binding boundary produce a build error.
 
 ## Functions and callbacks
 
@@ -539,8 +538,28 @@ keep the actual Dart function's defaults and distinguish omission from `null`
 and `undefined`.
 
 Arguments and results use the same conversions as other annotated functions,
-including nested collections and exported classes. Generic function types are
-not supported yet.
+including nested collections and exported classes.
+
+Callbacks can have their own type parameters:
+
+```dart
+typedef Identity = T Function<T>(T value);
+
+@NAPI()
+int applyIdentity(Identity identity) => identity<int>(42);
+```
+
+```js
+applyIdentity(value => value); // 42
+```
+
+Dart calls use the actual type arguments and check the callback's result against
+them. Scalars and JS references keep their usual representations. Other Dart
+values passed as a whole `T` use opaque handles: JavaScript can keep and return
+them, but cannot access their contents. Returning a handle restores its Dart
+value. Explicit shapes such as `List<T>` still become JS arrays, with each `T`
+element following these rules. Calling a generic Dart function from JavaScript
+uses the declaration's default type arguments, as with other generic exports.
 
 ## JavaScript values
 

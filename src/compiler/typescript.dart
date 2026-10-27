@@ -21,14 +21,30 @@ final class _Writer {
         ...cls.methods,
         ...cls.staticMethods,
       ]) {
-        _registerParameters(
-          function.signature.typeParameters,
-          enclosing: cls.typeParameters,
-        );
+        _registerSignature(function.signature, enclosing: cls.typeParameters);
+      }
+      for (final property in [...cls.properties, ...cls.staticProperties]) {
+        if (property.readType != null) {
+          _registerType(property.readType!, cls.typeParameters);
+        }
+        if (property.writeType != null) {
+          _registerType(property.writeType!, cls.typeParameters);
+        }
       }
     }
     for (final function in exports.functions) {
-      _registerParameters(function.signature.typeParameters);
+      _registerSignature(function.signature);
+    }
+    for (final constant in exports.constants) {
+      _registerType(constant.type, const []);
+    }
+    for (final property in exports.properties) {
+      if (property.readType != null) {
+        _registerType(property.readType!, const []);
+      }
+      if (property.writeType != null) {
+        _registerType(property.writeType!, const []);
+      }
     }
     for (final cls in exports.classes.where((cls) => cls.isObject)) {
       if (cls.typeParameters.isEmpty) continue;
@@ -115,18 +131,48 @@ final class _Writer {
     }
   }
 
+  void _registerSignature(
+    ExportSignature signature, {
+    List<ExportTypeParameter> enclosing = const [],
+  }) {
+    _registerParameters(signature.typeParameters, enclosing: enclosing);
+    final parameters = [...enclosing, ...signature.typeParameters];
+    for (final parameter in [...signature.positional, ...signature.named]) {
+      _registerType(parameter.type, parameters);
+    }
+    _registerType(signature.result, parameters);
+  }
+
+  void _registerType(ExportType type, List<ExportTypeParameter> enclosing) {
+    final signature = type.signature;
+    if (signature != null) {
+      _registerSignature(signature, enclosing: enclosing);
+    }
+    if (type.element != null) _registerType(type.element!, enclosing);
+    for (final argument in type.typeArguments) {
+      _registerType(argument, enclosing);
+    }
+    final fields = type.recordFields;
+    if (fields != null) {
+      for (final field in [...fields.positional, ...fields.named.values]) {
+        _registerType(field, enclosing);
+      }
+    }
+  }
+
   String _generics(
     List<ExportTypeParameter> parameters, {
     bool defaults = true,
   }) {
     if (parameters.isEmpty) return '';
+    if (!defaults) {
+      return '<${parameters.map(_parameterDeclaration).join(', ')}>';
+    }
     final pending = {for (final parameter in parameters) parameter.target};
-    final declarations = <String>[];
-    for (final parameter in parameters) {
-      if (!defaults) {
-        declarations.add(_parameterDeclaration(parameter));
-        continue;
-      }
+    final defaultTypes = <ExportType>[];
+    var firstDefault = 0;
+    for (var i = 0; i < parameters.length; ++i) {
+      final parameter = parameters[i];
       final bound = parameter.bound;
       final defaultType =
           bound.kind == ValueKind.typeParameter ||
@@ -135,16 +181,21 @@ final class _Writer {
                   bound.kind != ValueKind.dynamicValue
           ? bound
           : parameter.defaultType;
+      defaultTypes.add(defaultType);
       if (defaultType.kind == ValueKind.typeParameter &&
           pending.contains(defaultType.parameter!.target)) {
-        throw FormatException(
-          '@NAPI: TypeScript generic defaults cannot reference a later '
-          'type parameter: ${parameter.name}.',
-        );
+        // Defaults must form a suffix and can only refer to earlier parameters.
+        firstDefault = i + 1;
       }
-      declarations.add(_parameterDeclaration(parameter, defaultType));
       pending.remove(parameter.target);
     }
+    final declarations = [
+      for (var i = 0; i < parameters.length; ++i)
+        _parameterDeclaration(
+          parameters[i],
+          i >= firstDefault ? defaultTypes[i] : null,
+        ),
+    ];
     return '<${declarations.join(', ')}>';
   }
 
