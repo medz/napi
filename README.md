@@ -90,6 +90,36 @@ not change the copy. A declaration of `List<int>` always produces a JS Array,
 including when its Dart implementation returns a `Uint8List`. `ByteData`,
 `ByteBuffer` and SIMD lists are not supported yet.
 
+## Records
+
+Use Dart records to exchange structured values:
+
+```dart
+@NAPI()
+({int x, int y}) offset(({int x, int y}) point, int dx, int dy) =>
+    (x: point.x + dx, y: point.y + dy);
+```
+
+```js
+offset({ x: 1, y: 2 }, 3, 4); // { x: 4, y: 6 }
+```
+
+| Dart type | JavaScript shape |
+| --- | --- |
+| `(int, String)` | `[1, 'text']` |
+| `({int x, int y})` | `{ x: 1, y: 2 }` |
+| `(int, {String label})` | `{ $1: 1, label: 'text' }` |
+| `()` | `[]` |
+
+Positional records require an array of the exact length. Named and mixed
+records require their own fields; inherited properties do not fill missing
+fields, and unrelated properties are ignored. Each field is read once and
+checked against its Dart type. Nullable fields accept `null`, not `undefined`.
+
+Records and their containers are copied; exported class instances inside them
+keep their identity. Record defaults use their actual Dart values, and fields
+can contain the other supported types, including callbacks, Futures and Streams.
+
 ## Classes
 
 Annotate a Dart class to expose its public constructors, methods and properties:

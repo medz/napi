@@ -98,6 +98,7 @@ String _type(ExportType type, {bool output = true}) {
       output
           ? 'globalThis.Promise<globalThis.Awaited<${_type(type.element!, output: output)}>>'
           : 'globalThis.Promise<${_type(type.element!, output: output)}>',
+    ValueKind.record => _record(type, output: output),
     ValueKind.stream =>
       'globalThis.${output ? 'AsyncIterableIterator' : 'AsyncIterable'}<${_type(type.element!, output: output)}>',
     ValueKind.list =>
@@ -122,6 +123,20 @@ String _type(ExportType type, {bool output = true}) {
       }}',
   };
   return type.nullable ? '$value | null' : value;
+}
+
+String _record(ExportType type, {required bool output}) {
+  final fields = type.recordFields!;
+  if (fields.named.isEmpty) {
+    return '[${fields.positional.map((field) => _type(field, output: output)).join(', ')}]';
+  }
+  final properties = [
+    for (var i = 0; i < fields.positional.length; ++i)
+      '${jsonEncode('\$${i + 1}')}: ${_type(fields.positional[i], output: output)};',
+    for (final entry in fields.named.entries)
+      '${jsonEncode(entry.key)}: ${_type(entry.value, output: output)};',
+  ];
+  return '{ ${properties.join(' ')} }';
 }
 
 String _label(String name, int index) =>

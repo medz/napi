@@ -138,7 +138,8 @@ final class Calls {
     ValueKind.typedData ||
     ValueKind.function ||
     ValueKind.future ||
-    ValueKind.stream => true,
+    ValueKind.stream ||
+    ValueKind.record => true,
     _ => false,
   };
 
@@ -191,6 +192,7 @@ final class Calls {
         types: [type.dartType.withDeclaredNullability(Nullability.nonNullable)],
       ),
       ValueKind.function => _readFunction(env, type.signature!, source()),
+      ValueKind.record => _readRecord(env, type, source),
       ValueKind.future || ValueKind.stream => call(
         VariableGet(env),
         method(
@@ -286,6 +288,7 @@ final class Calls {
         [source(), IntLiteral(_typedArrayKind(type.typedDataKind!))],
       ),
       ValueKind.function => _writeFunction(env, type.signature!, source),
+      ValueKind.record => _writeRecord(env, type, source),
       ValueKind.future || ValueKind.stream => call(
         VariableGet(env),
         method(
@@ -308,6 +311,126 @@ final class Calls {
             )
           : convert(),
     );
+  }
+
+  Expression _readRecord(
+    PositionalParameter env,
+    ExportType type,
+    Expression Function() source,
+  ) {
+    final fields = type.recordFields!;
+    final tuple = fields.named.isEmpty;
+    final statements = <Statement>[];
+    if (tuple) {
+      statements.add(
+        IfStatement(
+          Not(
+            call(
+              InstanceGet(
+                InstanceAccessKind.Instance,
+                source(),
+                method(objectClass, '_arrayLength').name,
+                interfaceTarget: method(objectClass, '_arrayLength'),
+                resultType: core.intNonNullableRawType,
+              ),
+              method(core.numClass, '=='),
+              [IntLiteral(fields.positional.length)],
+            ),
+          ),
+          ExpressionStatement(
+            failure('Expected a tuple of length ${fields.positional.length}'),
+          ),
+          null,
+        ),
+      );
+    }
+    Expression field(String key, ExportType field) => VariableGet(
+      local(
+        statements,
+        'field${_next++}',
+        field.dartType,
+        ConditionalExpression(
+          call(source(), method(objectClass, 'hasOwn'), [StringLiteral(key)]),
+          _decode(
+            env,
+            field,
+            (type) => call(
+              source(),
+              method(objectClass, 'get'),
+              [StringLiteral(key)],
+              types: [type],
+            ),
+          ),
+          failure('Missing record field: $key'),
+          field.dartType,
+        ),
+      ),
+    );
+    final positional = [
+      for (var i = 0; i < fields.positional.length; ++i)
+        field(tuple ? '$i' : '\$${i + 1}', fields.positional[i]),
+    ];
+    final named = [
+      for (final entry in fields.named.entries)
+        NamedExpression(entry.key, field(entry.key, entry.value)),
+    ];
+    return BlockExpression(
+      Block(statements),
+      RecordLiteral(
+        positional,
+        named,
+        (type.dartType as RecordType).withDeclaredNullability(
+          Nullability.nonNullable,
+        ),
+      ),
+    );
+  }
+
+  Expression _writeRecord(
+    PositionalParameter env,
+    ExportType type,
+    Expression Function() source,
+  ) {
+    final fields = type.recordFields!;
+    final tuple = fields.named.isEmpty;
+    final recordType = (type.dartType as RecordType).withDeclaredNullability(
+      Nullability.nonNullable,
+    );
+    final statements = <Statement>[];
+    final result = local(
+      statements,
+      'record${_next++}',
+      objectType,
+      call(VariableGet(env), method(envClass, tuple ? '_array' : 'object'), [
+        if (tuple) IntLiteral(fields.positional.length),
+      ]),
+    );
+    void field(String key, ExportType type, Expression value) {
+      statements.add(
+        ExpressionStatement(
+          call(VariableGet(result), method(objectClass, 'defineValue'), [
+            StringLiteral(key),
+            _encode(env, type, value),
+          ]),
+        ),
+      );
+    }
+
+    for (var i = 0; i < fields.positional.length; ++i) {
+      field(
+        tuple ? '$i' : '\$${i + 1}',
+        fields.positional[i],
+        RecordIndexGet(source(), recordType, i),
+      );
+    }
+    for (final entry in fields.named.entries) {
+      field(
+        entry.key,
+        entry.value,
+        RecordNameGet(source(), recordType, entry.key),
+      );
+    }
+    return BlockExpression(Block(statements), VariableGet(result));
   }
 
   Expression _constant(String name) => CloneVisitorNotMembers().clone(

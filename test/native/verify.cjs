@@ -11,6 +11,7 @@ const verifyAnnotatedCollections = require('./annotated_collections.cjs');
 const verifyAnnotatedCallbacks = require('./annotated_callbacks.cjs');
 const verifyAnnotatedFutures = require('./annotated_futures.cjs');
 const verifyAnnotatedStreams = require('./annotated_streams.cjs');
+const verifyAnnotatedRecords = require('./annotated_records.cjs');
 
 const [output, images] = process.argv.slice(2).map(path => resolve(path));
 const timeout = setTimeout(() => process.exit(1), 30000);
@@ -76,6 +77,7 @@ async function main() {
   await verifyAnnotatedCallbacks(join(output, 'callbacks', 'addon.node'));
   await verifyAnnotatedFutures(join(output, 'futures', 'addon.node'));
   await verifyAnnotatedStreams(join(output, 'streams', 'addon.node'));
+  await verifyAnnotatedRecords(join(output, 'records', 'addon.node'));
   const path = join(output, 'full', 'addon.node');
   const addon = require(path);
   assert.equal(addon.answer, 42);
