@@ -1,6 +1,5 @@
 .github/
 /experiments/
-/pkg.manifest
 AGENTS.md
 /src/
 /tool/
