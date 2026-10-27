@@ -416,6 +416,8 @@ _configureEntrypoint(
         for (final cls in annotated.classes) (name: cls.name, kind: 'class'),
         for (final function in annotated.functions)
           (name: function.name, kind: 'function'),
+        for (final value in annotated.constants)
+          (name: value.name, kind: 'value'),
       ],
     );
   }

@@ -66,6 +66,9 @@ String typeScriptDeclarations(ExportModule exports) {
       'export declare function ${function.name}(${_parameters(function.signature)}): ${_type(function.signature.result)};',
     );
   }
+  for (final value in exports.constants) {
+    output.writeln('export declare const ${value.name}: ${_type(value.type)};');
+  }
   return output.toString();
 }
 

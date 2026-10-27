@@ -13,6 +13,7 @@ const verifyAnnotatedFutures = require('./annotated_futures.cjs');
 const verifyAnnotatedStreams = require('./annotated_streams.cjs');
 const verifyAnnotatedRecords = require('./annotated_records.cjs');
 const verifyAnnotatedEnums = require('./annotated_enums.cjs');
+const verifyAnnotatedConstants = require('./annotated_constants.cjs');
 
 const [output, images] = process.argv.slice(2).map(path => resolve(path));
 const timeout = setTimeout(() => process.exit(1), 30000);
@@ -81,6 +82,9 @@ async function main() {
   await verifyAnnotatedRecords(join(output, 'records', 'addon.node'));
   await verifyAnnotatedEnums(join(output, 'enums', 'addon.node'), [
     join(output, 'enums-package'), join(output, 'enums-assembled'),
+  ]);
+  await verifyAnnotatedConstants(join(output, 'constants', 'addon.node'), [
+    join(output, 'constants-package'), join(output, 'constants-assembled'),
   ]);
   const path = join(output, 'full', 'addon.node');
   const addon = require(path);

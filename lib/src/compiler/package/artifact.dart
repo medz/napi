@@ -111,7 +111,10 @@ final class Artifact {
               _reservedTypeNames.contains(name))) {
         throw FormatException('Invalid native export name: $name.');
       }
-      if (kind != 'class' && kind != 'function' && kind != 'enum') {
+      if (kind != 'class' &&
+          kind != 'function' &&
+          kind != 'enum' &&
+          kind != 'value') {
         throw FormatException('Unsupported native export kind: $kind.');
       }
       if (!names.add(name)) {

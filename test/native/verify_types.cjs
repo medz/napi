@@ -24,10 +24,31 @@ for (const [target, fixture] of [
   ['streams', 'annotated_streams.cts'],
   ['records', 'annotated_records.cts'],
   ['enums', 'annotated_enums.cts'],
+  ['constants', 'annotated_constants.cts'],
 ]) {
   const consumer = resolve(process.argv[2], target, 'consumer.cts');
   copyFileSync(join(__dirname, fixture), consumer);
   verify([consumer], target === 'enums');
+}
+
+for (const directory of ['constants-package', 'constants-assembled']) {
+  const common = resolve(process.argv[2], 'constants', `${directory}.cts`);
+  const module = resolve(process.argv[2], 'constants', `${directory}.mts`);
+  writeFileSync(common, `import binding = require('../${directory}/index.cjs');
+const point: binding.Point = binding.point;
+const absent: null = binding.absent;
+const sum: number = binding.add(3);
+// @ts-expect-error Module bindings are const in package declarations.
+binding.point = new binding.Point(1);
+`);
+  writeFileSync(module, `import { Point, point, absent, add } from '../${directory}/index.mjs';
+const value: Point = point;
+const empty: null = absent;
+const sum: number = add(3);
+// @ts-expect-error ESM re-exports retain the function constant's signature.
+add('3');
+`);
+  verify([common, module], true);
 }
 
 for (const directory of ['enums-package', 'enums-assembled']) {

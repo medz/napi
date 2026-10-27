@@ -60,6 +60,29 @@ from the entry library and its re-exports. An explicitly annotated private
 function can be exported. Unsupported declarations and conflicting names produce
 a build error.
 
+## Constants
+
+Annotate a top-level `const` to export its value:
+
+```dart
+@NAPI()
+const defaultPort = 8080;
+
+@NAPI()
+const defaults = (host: 'localhost', port: defaultPort);
+```
+
+```js
+const { defaultPort, defaults } = require('./dist/addon.node');
+defaults.port === defaultPort; // true
+```
+
+The exported property is read-only. Its value uses the same conversions as
+function results: containers become mutable JS copies, and exported class
+instances retain their identity. Function and constructor tear-offs are callable
+and preserve their Dart defaults. Package builds also provide ESM named exports
+and TypeScript declarations for constants.
+
 ## Collections and binary data
 
 Dart lists map to JS arrays. String-keyed maps map to JS objects:

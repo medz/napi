@@ -121,6 +121,12 @@ final class Calls {
       ? NullLiteral()
       : CloneVisitorNotMembers().clone(parameter.defaultValue!);
 
+  Expression constant(ExportConstant value, PositionalParameter env) => _encode(
+    env,
+    value.type,
+    CloneVisitorNotMembers().clone(value.target.initializer!),
+  );
+
   Expression failure(String message) => Throw(
     ConstructorInvocation(
       core.index
