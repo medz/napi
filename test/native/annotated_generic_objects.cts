@@ -46,11 +46,53 @@ const echoedFnHolder: addon.FnHolder = addon.echoFnHolder(fnHolder);
 const genericNumber: number = echoedFnHolder.run(7);
 const genericString: string = echoedFnHolder.run('hello');
 const appliedGenericNumber: number = addon.applyFnHolder(fnHolder, 7);
+const echoedAsyncFnHolder: addon.AsyncFnHolder = addon.echoAsyncFnHolder({
+  run: async value => value,
+});
+const asyncGenericNumber: Promise<number> = echoedAsyncFnHolder.run(7);
+const asyncGenericString: Promise<string> = echoedAsyncFnHolder.run('hello');
+const appliedAsyncGenericNumber: Promise<number> = addon.applyAsyncFnHolder({
+  run: async value => value,
+}, 7);
+const asyncBoundHolder: addon.AsyncBoundFnHolder = { run: async value => value };
+const asyncScalarBound: Promise<boolean> = addon.asyncScalarBound(asyncBoundHolder);
+const chain: addon.Chain = { next: () => chain };
+const chained: addon.Chain = addon.echoChain(chain).next().next();
+const asyncChain: addon.AsyncChain = addon.echoAsyncChain({
+  next: Promise.resolve({ next: Promise.resolve(null) }),
+});
+const asyncNext: Promise<addon.AsyncChain | null> = asyncChain.next;
+const futureCallbackChain: addon.FutureCallbackChain = addon.echoFutureCallbackChain({
+  next: Promise.resolve(() => futureCallbackChain),
+});
+const futureCallback: Promise<() => addon.FutureCallbackChain> = futureCallbackChain.next;
+const concreteCycle: addon.ConcreteCycleA = addon.echoConcreteCycle({
+  value: '7', next: { value: Promise.resolve(9), next: null },
+});
+const concreteCycleValue: Promise<number> | undefined = concreteCycle.next?.value;
+const stabilizing: addon.Stabilizing<number, string> = addon.echoStabilizing({
+  a: 1, b: 'root', next: { a: 2, b: [3], next: { a: 4, b: [5], next: null } },
+});
+const stabilizedValue: number[] | undefined = stabilizing.next?.next?.b;
+const alternating: addon.Alternating<number, string> = addon.echoAlternating({
+  value: '7', output: 8, next: { value: 1, output: 2, next: null },
+});
+const alternatingValue: string[] | undefined = alternating.next?.value;
 const scalarBound: boolean = addon.scalarBound({ run: value => value });
 const stringHandler = addon.nativeStringHandler();
 const stringValue = stringHandler.run({ value: '7' });
 const thenableHandler = addon.nativeThenableHandler();
 const settledThenable: Promise<number> = thenableHandler.run(Promise.resolve({ value: '7' }));
+const thenableRecordHolder: addon.ThenableRecordHolder = {
+  future: Promise.resolve({ value: 7 }),
+};
+const thenableRecordOutput: addon.ThenableRecordHolder =
+  addon.echoThenableRecordHolder(thenableRecordHolder);
+const settledRecord: Promise<{ value: number }> = thenableRecordOutput.future;
+const thenableChain: addon.ThenableChain = addon.echoThenableChain({
+  then: resolve => resolve(7), next: Promise.resolve(null),
+});
+const thenableNext: Promise<number | null> = thenableChain.next;
 interface Wrapped<T> { handler: addon.Handler<T>; }
 const wrapped: Wrapped<addon.Amount> = { handler };
 // @ts-expect-error Erasing Amount identity would change the handler's constructor input.

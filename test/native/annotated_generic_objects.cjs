@@ -76,11 +76,50 @@ module.exports = async function verifyAnnotatedGenericObjects(path) {
   const fnHolder = addon.echoFnHolder({ run: value => value });
   assert.equal(fnHolder.run('hello'), 'hello');
   assert.equal(addon.applyFnHolder(fnHolder, 7), 7);
+  const asyncFnHolder = addon.echoAsyncFnHolder({ run: async value => value });
+  assert.equal(await asyncFnHolder.run('hello'), 'hello');
+  assert.equal(await asyncFnHolder.run(7), 7);
+  assert.equal(await addon.applyAsyncFnHolder(asyncFnHolder, 7), 7);
+  assert.equal(await addon.asyncScalarBound({ run: async value => value }), true);
+  await assert.rejects(addon.asyncScalarBound({ run: async () => 'wrong' }), TypeError);
+  const chain = { next: () => chain };
+  const copiedChain = addon.echoChain(chain);
+  assert.equal(typeof copiedChain.next().next().next, 'function');
+  const asyncChain = addon.echoAsyncChain({
+    next: Promise.resolve({ next: Promise.resolve(null) }),
+  });
+  assert.equal(await (await asyncChain.next).next, null);
+  const futureCallbackInput = { next: Promise.resolve(() => futureCallbackInput) };
+  const futureCallbackChain = addon.echoFutureCallbackChain(futureCallbackInput);
+  assert.equal(typeof (await (await futureCallbackChain.next)().next), 'function');
+  const concreteCycle = addon.echoConcreteCycle({
+    value: '7', next: { value: Promise.resolve(9), next: null },
+  });
+  assert.equal(concreteCycle.value, 7);
+  assert.equal(await concreteCycle.next.value, 9);
+  assert.equal(concreteCycle.next.next, null);
+  assert.deepEqual(addon.echoStabilizing({
+    a: 1, b: 'root', next: { a: 2, b: [3], next: { a: 4, b: [5], next: null } },
+  }), {
+    a: 1, b: 'root', next: { a: 2, b: [3], next: { a: 4, b: [5], next: null } },
+  });
+  assert.deepEqual(addon.echoAlternating({
+    value: '7', output: 8, next: { value: 1, output: 2, next: null },
+  }), { value: 8, output: 8, next: null });
   assert.equal(addon.scalarBound({ run: value => value }), true);
   assert.throws(() => addon.scalarBound({ run: () => 'wrong' }), TypeError);
   assert.deepEqual(addon.nativeStringHandler().run({ value: '7' }), { value: '7' });
   assert.throws(() => addon.nativeStringHandler().run({ value: 7 }), TypeError);
   assert.equal(await addon.nativeThenableHandler().run(Promise.resolve({ value: '7' })), 7);
+  const thenableRecordHolder = addon.echoThenableRecordHolder({
+    future: Promise.resolve({ value: 7 }),
+  });
+  assert.deepEqual(await thenableRecordHolder.future, { value: 7 });
+  const thenableChain = addon.echoThenableChain({
+    then: resolve => resolve(7), next: Promise.resolve(null),
+  });
+  assert.equal(await thenableChain.next, null);
+  assert.equal(await Promise.resolve(thenableChain), 7);
   assert.deepEqual(addon.applyAmount({ value: '4' }, {
     run: value => ({ value: String(value.value + 1) }),
   }), { value: 5 });

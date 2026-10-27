@@ -58,6 +58,106 @@ class FnHolder {
 }
 
 @NAPI.object()
+class AsyncFnHolder {
+  @NAPI()
+  AsyncFnHolder({required this.run});
+
+  @NAPI()
+  final Future<T> Function<T>(T) run;
+}
+
+@NAPI.object()
+class AsyncBoundFnHolder {
+  @NAPI()
+  AsyncBoundFnHolder({required this.run});
+
+  @NAPI()
+  final Future<T> Function<T extends num>(T) run;
+}
+
+@NAPI.object()
+class Chain {
+  @NAPI()
+  Chain({required this.next});
+
+  @NAPI()
+  final Chain Function() next;
+}
+
+@NAPI.object()
+class AsyncChain {
+  @NAPI()
+  AsyncChain({required this.next});
+
+  @NAPI()
+  final Future<AsyncChain?> next;
+}
+
+@NAPI.object()
+class FutureCallbackChain {
+  @NAPI()
+  FutureCallbackChain({required this.next});
+
+  @NAPI()
+  final Future<FutureCallbackChain Function()> next;
+}
+
+@NAPI.object()
+class ConcreteCycleA {
+  @NAPI()
+  ConcreteCycleA({required String value, required this.next})
+    : value = int.parse(value);
+
+  @NAPI()
+  final int value;
+  @NAPI()
+  final ConcreteCycleB? next;
+}
+
+@NAPI.object()
+class ConcreteCycleB {
+  @NAPI()
+  ConcreteCycleB({required this.value, required this.next});
+
+  @NAPI()
+  final Future<int> value;
+  @NAPI()
+  final ConcreteCycleA? next;
+}
+
+@NAPI.object()
+class Stabilizing<T, U> {
+  @NAPI()
+  Stabilizing({required T? a, required U? b, required this.next})
+    : a = a!,
+      b = b!;
+
+  @NAPI()
+  final T a;
+  @NAPI()
+  final U b;
+  @NAPI()
+  final Stabilizing<T, List<T>>? next;
+}
+
+@NAPI.object()
+class Alternating<A, B> {
+  @NAPI()
+  Alternating({
+    required B value,
+    required this.output,
+    required Alternating<A, A>? next,
+  });
+
+  @NAPI()
+  A get value => output;
+  @NAPI()
+  final A output;
+  @NAPI()
+  Alternating<List<B>, B>? get next => null;
+}
+
+@NAPI.object()
 class BoundHolder<U> {
   @NAPI()
   BoundHolder({required this.run});
@@ -86,6 +186,38 @@ class ThenableAmount {
   @NAPI()
   void Function(void Function(int)) get then =>
       (resolve) => resolve(value);
+}
+
+@NAPI.object()
+class ThenableRecord {
+  @NAPI()
+  // ignore: prefer_initializing_formals
+  ThenableRecord({required int value}) : _value = value;
+
+  final int _value;
+  @NAPI()
+  void Function(void Function(({int value}))) get then =>
+      (resolve) => resolve((value: _value));
+}
+
+@NAPI.object()
+class ThenableRecordHolder {
+  @NAPI()
+  ThenableRecordHolder({required this.future});
+
+  @NAPI()
+  final Future<ThenableRecord> future;
+}
+
+@NAPI.object()
+class ThenableChain {
+  @NAPI()
+  ThenableChain({required this.then, required this.next});
+
+  @NAPI()
+  final void Function(void Function(int)) then;
+  @NAPI()
+  final Future<ThenableChain?> next;
 }
 
 @NAPI.object()
@@ -190,6 +322,37 @@ Handler<Future<Amount>> nativeFutureHandler() => Handler(run: (value) => value);
 FnHolder echoFnHolder(FnHolder value) => value;
 
 @NAPI()
+AsyncFnHolder echoAsyncFnHolder(AsyncFnHolder value) => value;
+
+@NAPI()
+Future<int> applyAsyncFnHolder(AsyncFnHolder value, int input) =>
+    value.run<int>(input);
+
+@NAPI()
+Future<bool> asyncScalarBound(AsyncBoundFnHolder holder) async =>
+    (await holder.run<double>(3)).runtimeType == double;
+
+@NAPI()
+Chain echoChain(Chain value) => value;
+
+@NAPI()
+AsyncChain echoAsyncChain(AsyncChain value) => value;
+
+@NAPI()
+FutureCallbackChain echoFutureCallbackChain(FutureCallbackChain value) => value;
+
+@NAPI()
+ConcreteCycleA echoConcreteCycle(ConcreteCycleA value) => value;
+
+@NAPI()
+Stabilizing<int, String> echoStabilizing(Stabilizing<int, String> value) =>
+    value;
+
+@NAPI()
+Alternating<int, String> echoAlternating(Alternating<int, String> value) =>
+    value;
+
+@NAPI()
 int applyFnHolder(FnHolder value, int input) => value.run<int>(input);
 
 @NAPI()
@@ -202,6 +365,13 @@ Handler<StringInput> nativeStringHandler() => Handler(run: (value) => value);
 @NAPI()
 Handler<Future<ThenableAmount>> nativeThenableHandler() =>
     Handler(run: (value) => value);
+
+@NAPI()
+ThenableRecordHolder echoThenableRecordHolder(ThenableRecordHolder value) =>
+    value;
+
+@NAPI()
+ThenableChain echoThenableChain(ThenableChain value) => value;
 
 @NAPI()
 Amount applyAmount(Amount value, Handler<Amount> handler) => handler.run(value);
