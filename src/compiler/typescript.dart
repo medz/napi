@@ -61,6 +61,8 @@ final class _Writer {
     _inputOf = _unique('_NapiInput');
     _same = _unique('_NapiSame');
     _projection = _unique('_NapiProjection');
+    _scalar = _unique('_NapiScalar');
+    _awaited = _unique('_NapiAwaited');
     _analyzeDifferences();
   }
   final ExportModule exports;
@@ -80,6 +82,8 @@ final class _Writer {
   late final String _inputOf;
   late final String _same;
   late final String _projection;
+  late final String _scalar;
+  late final String _awaited;
 
   String _unique(String name) {
     while (_names.contains(name) || _parameterNames.containsValue(name)) {
@@ -308,12 +312,11 @@ final class _Writer {
               nested.typeParameters[i]: edge.right.typeArguments[i],
           };
           for (final pair in source.pairs.entries.toList()) {
-            final next = _Difference();
-            _collectDifference(
-              _substituteType(pair.value.left, left),
-              _substituteType(pair.value.right, right),
-              next,
-              locals: {...edge.locals, ...pair.value.locals}.toList(),
+            final next = _substituteDifference(
+              pair.value,
+              left,
+              right,
+              locals: edge.locals,
             );
             if (next.always) {
               difference.always = true;
@@ -365,11 +368,16 @@ final class _Writer {
     if (result.always) return;
     void pair() {
       final value = _TypePair(left, right, locals: locals);
-      result.pairs['${_typeKey(left)}|${_typeKey(right)}'] = value;
+      result.pairs[_pairKey(value)] = value;
     }
 
     if (left.nullable != right.nullable) {
-      pair();
+      final a = _includesNull(left), b = _includesNull(right);
+      if (a != null && b != null && a != b) {
+        result.always = true;
+      } else {
+        pair();
+      }
       return;
     }
     if (left.kind == ValueKind.typeParameter ||
@@ -395,11 +403,8 @@ final class _Writer {
     }
     if (left.kind == ValueKind.object) {
       if (left.classExport == right.classExport && left.classExport!.isObject) {
-        result.edges['${_typeKey(left)}|${_typeKey(right)}'] = _TypePair(
-          left,
-          right,
-          locals: locals,
-        );
+        final value = _TypePair(left, right, locals: locals);
+        result.edges[_pairKey(value)] = value;
       } else if (_typeKey(left) != _typeKey(right)) {
         pair();
       }
@@ -513,15 +518,39 @@ final class _Writer {
     _ => null,
   };
 
+  bool? _includesNull(ExportType type) => switch (type.kind) {
+    ValueKind.typeParameter ||
+    ValueKind.dynamicValue ||
+    ValueKind.opaque => null,
+    _ => type.nullable || type.kind == ValueKind.nullValue,
+  };
+
   int _parameterId(ExportTypeParameter parameter) =>
       _parameterIds.putIfAbsent(parameter, () => _parameterIds.length);
 
-  String _typeKey(ExportType type) =>
-      '${type.kind}:${type.nullable}:${type.parameter == null ? '' : _parameterId(type.parameter!)}:${type.classExport?.name}:${type.typedDataKind}:${type.simdKind}:${type.referenceKind}:${type.enumExport?.name}'
-      '${type.element == null ? '' : '[${_typeKey(type.element!)}]'}'
-      '<${type.typeArguments.map(_typeKey).join(',')}>'
-      '${type.signature == null ? '' : '(${type.signature!.typeParameters.map(_parameterId).join(',')};${type.signature!.positional.map((p) => '${p.required}:${_typeKey(p.type)}').join(',')};${type.signature!.named.map((p) => '${p.name}:${p.required}:${_typeKey(p.type)}').join(',')};${_typeKey(type.signature!.result)})'}'
-      '${type.recordFields == null ? '' : '(${type.recordFields!.positional.map(_typeKey).join(',')};${type.recordFields!.named.entries.map((p) => '${p.key}:${_typeKey(p.value)}').join(',')})'}';
+  String _typeKey(
+    ExportType type, [
+    Map<ExportTypeParameter, int> locals = const {},
+  ]) {
+    final signature = type.signature;
+    final scope = {
+      ...locals,
+      if (signature != null)
+        for (var i = 0; i < signature.typeParameters.length; ++i)
+          signature.typeParameters[i]: locals.length + i,
+    };
+    String key(ExportType child) => _typeKey(child, scope);
+    final parameter = type.parameter;
+    return '${type.kind}:${type.nullable}:${parameter == null
+            ? ''
+            : locals.containsKey(parameter)
+            ? 'local${locals[parameter]}'
+            : _parameterId(parameter)}:${type.classExport?.name}:${type.typedDataKind}:${type.simdKind}:${type.referenceKind}:${type.enumExport?.name}'
+        '${type.element == null ? '' : '[${key(type.element!)}]'}'
+        '<${type.typeArguments.map(key).join(',')}>'
+        '${signature == null ? '' : '(${signature.typeParameters.map((p) => key(p.bound)).join(',')};${signature.positional.map((p) => '${p.required}:${key(p.type)}').join(',')};${signature.named.map((p) => '${p.name}:${p.required}:${key(p.type)}').join(',')};${key(signature.result)})'}'
+        '${type.recordFields == null ? '' : '(${type.recordFields!.positional.map(key).join(',')};${type.recordFields!.named.entries.map((p) => '${p.key}:${key(p.value)}').join(',')})'}';
+  }
 
   String _pairParameters(_TypePair pair) {
     String parameters(ExportType value) {
@@ -542,6 +571,38 @@ final class _Writer {
 
     final left = parameters(pair.left), right = parameters(pair.right);
     return left.isEmpty && right.isEmpty ? '' : '$left|$right';
+  }
+
+  String _pairKey(_TypePair pair) {
+    final parameters = _usedLocals(pair.left, pair.right, pair.locals);
+    final locals = {
+      for (var i = 0; i < parameters.length; ++i) parameters[i]: i,
+    };
+    return '${parameters.map((p) => _typeKey(p.bound, locals)).join(',')};'
+        '${_typeKey(pair.left, locals)}|${_typeKey(pair.right, locals)}';
+  }
+
+  List<ExportTypeParameter> _usedLocals(
+    ExportType left,
+    ExportType right,
+    Iterable<ExportTypeParameter> parameters,
+  ) {
+    final candidates = parameters.toSet();
+    final used = <ExportTypeParameter>{};
+    void visit(ExportType type) {
+      final parameter = type.parameter;
+      if (candidates.contains(parameter) && used.add(parameter!)) {
+        visit(parameter.bound);
+        visit(parameter.defaultType);
+      }
+      for (final child in _typeChildren(type)) {
+        visit(child);
+      }
+    }
+
+    visit(left);
+    visit(right);
+    return used.toList();
   }
 
   int _pairDepth(_TypePair pair) {
@@ -680,18 +741,54 @@ final class _Writer {
       parameters.contains(type.parameter) ||
       _typeChildren(type).any((child) => _mentions(child, parameters));
 
+  ExportType? _awaitBound(ExportType type) {
+    final seen = <ExportTypeParameter>{};
+    while (type.kind == ValueKind.typeParameter) {
+      final parameter = type.parameter!;
+      if (!seen.add(parameter)) return null;
+      if (_objects.keys.any((cls) => cls.typeParameters.contains(parameter))) {
+        return seen.length > 1 ? type : null;
+      }
+      type = parameter.bound;
+    }
+    return null;
+  }
+
+  String? _localFutureCondition(_TypePair pair) {
+    if (pair.left.kind != ValueKind.future ||
+        pair.right.kind != ValueKind.future) {
+      return null;
+    }
+    final left = pair.left.element!, right = pair.right.element!;
+    if (left.kind != ValueKind.typeParameter ||
+        left.parameter != right.parameter ||
+        left.nullable != right.nullable ||
+        !pair.locals.contains(left.parameter)) {
+      return null;
+    }
+    final bound = _awaitBound(left);
+    return bound == null ? null : '$_scalar<${_type(bound, metadata: false)}>';
+  }
+
   String _differenceCondition(_Difference difference) {
     if (difference.always) return 'false';
     final pairs = difference.pairs.values;
     if (pairs.isEmpty) return 'true';
-    if (pairs.any((pair) {
+    final conditions = <String>[];
+    for (final pair in pairs) {
       final locals = pair.locals.toSet();
-      return _mentions(pair.left, locals) || _mentions(pair.right, locals);
-    })) {
-      // A local generic may assimilate thenables; its binder cannot escape here.
-      return 'false';
+      if (_mentions(pair.left, locals) || _mentions(pair.right, locals)) {
+        // A local binder stays scoped; an outer scalar bound can prove stability.
+        final condition = _localFutureCondition(pair);
+        if (condition == null) return 'false';
+        conditions.add(condition);
+      } else {
+        conditions.add(
+          '$_same<${_type(pair.left, metadata: false)}, ${_type(pair.right, output: false, metadata: false)}>',
+        );
+      }
     }
-    return '[${pairs.map((pair) => '$_same<${_type(pair.left, metadata: false)}, ${_type(pair.right, output: false, metadata: false)}>').join(', ')}] extends true[] ? true : false';
+    return '[${conditions.join(', ')}] extends true[] ? true : false';
   }
 
   String _condition(ExportClass cls) =>
@@ -705,7 +802,7 @@ final class _Writer {
     final seen = <String>{};
     while (pending.isNotEmpty && !difference.always) {
       final edge = pending.removeLast();
-      if (!seen.add('${_typeKey(edge.left)}|${_typeKey(edge.right)}')) continue;
+      if (!seen.add(_pairKey(edge))) continue;
       final cls = edge.left.classExport!;
       final source = _differences[cls]!;
       if (source.always) return 'false';
@@ -718,12 +815,11 @@ final class _Writer {
           cls.typeParameters[i]: edge.right.typeArguments[i],
       };
       for (final pair in source.pairs.values) {
-        final next = _Difference();
-        _collectDifference(
-          _substituteType(pair.left, left),
-          _substituteType(pair.right, right),
-          next,
-          locals: {...edge.locals, ...pair.locals}.toList(),
+        final next = _substituteDifference(
+          pair,
+          left,
+          right,
+          locals: edge.locals,
         );
         difference.always |= next.always;
         difference.pairs.addAll(next.pairs);
@@ -758,7 +854,12 @@ final class _Writer {
     final element = type.element!;
     if (_awaitPreserves(element)) return _recoveryCondition(element);
     final awaited = _awaitedType(element);
-    if (awaited == null) return null;
+    if (awaited == null) {
+      final bound = _awaitBound(element);
+      return bound == null
+          ? null
+          : '$_scalar<${_type(bound, metadata: false)}> extends true ? true : $_same<$_inputOf<${_type(type, metadata: false)}>, ${_type(type, output: false, metadata: false)}>';
+    }
     return '$_same<$_inputOf<${_type(awaited, metadata: false)}>, ${_type(element, output: false, metadata: false)}>';
   }
 
@@ -885,6 +986,12 @@ final class _Writer {
     if (_objects.isNotEmpty) {
       output.writeln('declare const $_inputKey: unique symbol;');
       output.writeln(
+        'type $_scalar<B> = 0 extends (1 & B) ? false : [B] extends [string | number | boolean | bigint | symbol | null | undefined] ? true : false;',
+      );
+      output.writeln(
+        'type $_awaited<T, B> = $_scalar<B> extends true ? T : globalThis.Awaited<T>;',
+      );
+      output.writeln(
         'type $_same<A, B> = 0 extends (1 & A) ? 0 extends (1 & B) ? true : false : 0 extends (1 & B) ? false : [A] extends [B] ? [B] extends [A] ? true : false : false;',
       );
       output.writeln(
@@ -1001,6 +1108,9 @@ final class _Writer {
   }
 
   String _type(ExportType type, {bool output = true, bool metadata = true}) {
+    final awaitBound = type.kind == ValueKind.future
+        ? _awaitBound(type.element!)
+        : null;
     final value = switch (type.kind) {
       ValueKind.boolean => 'boolean',
       ValueKind.integer ||
@@ -1041,7 +1151,7 @@ final class _Writer {
         '(${_generics(type.signature!.typeParameters, defaults: false, metadata: metadata)}(${_parameters(type.signature!, output: output, metadata: metadata)}) => ${_type(type.signature!.result, output: output, metadata: metadata)})',
       ValueKind.future =>
         output && !_awaitPreserves(type.element!)
-            ? 'globalThis.Promise<globalThis.Awaited<${_type(type.element!, output: output, metadata: metadata)}>>'
+            ? 'globalThis.Promise<${awaitBound != null ? '$_awaited<${_type(type.element!, output: output, metadata: metadata)}, ${_type(awaitBound, metadata: metadata)}>' : 'globalThis.Awaited<${_type(type.element!, output: output, metadata: metadata)}>'}>'
             : 'globalThis.Promise<${_type(type.element!, output: output, metadata: metadata)}>',
       ValueKind.record => _record(type, output: output, metadata: metadata),
       ValueKind.stream =>
@@ -1149,6 +1259,119 @@ final class _Writer {
     ];
     return '{ ${properties.join(' ')} }';
   }
+
+  List<ExportTypeParameter> _substituteParameters(
+    List<ExportTypeParameter> originals,
+    Map<ExportTypeParameter, ExportType> arguments,
+  ) {
+    final parameters = <ExportTypeParameter>[];
+    for (final original in originals) {
+      final parameter = ExportTypeParameter(
+        original.target,
+        original.actualType,
+        reified: original.reified,
+      );
+      parameters.add(parameter);
+      _parameterNames[parameter] = _parameterNames[original]!;
+      arguments[original] = ExportType(
+        parameter.invocationType,
+        ValueKind.typeParameter,
+        parameter: parameter,
+      );
+    }
+    for (var i = 0; i < parameters.length; ++i) {
+      parameters[i].bound = _substituteType(originals[i].bound, arguments);
+      parameters[i].defaultType = _substituteType(
+        originals[i].defaultType,
+        arguments,
+      );
+    }
+    return parameters;
+  }
+
+  _Difference _substituteDifference(
+    _TypePair pair,
+    Map<ExportTypeParameter, ExportType> left,
+    Map<ExportTypeParameter, ExportType> right, {
+    List<ExportTypeParameter> locals = const [],
+  }) {
+    final leftType = _substituteType(pair.left, left);
+    final rightType = _substituteType(pair.right, right);
+    final originals = _usedLocals(leftType, rightType, [
+      ...locals,
+      ...pair.locals,
+    ]);
+    final leftArguments = {...left};
+    final scope = _substituteParameters(originals, leftArguments);
+    // Callback constraints were compared separately; both sides share its binder.
+    final rightArguments = {
+      ...right,
+      for (final original in originals) original: leftArguments[original]!,
+    };
+    final result = _Difference();
+    _collectDifference(
+      _substituteType(leftType, leftArguments),
+      _substituteType(rightType, rightArguments),
+      result,
+      locals: scope,
+    );
+    return result;
+  }
+
+  ExportType _substituteType(
+    ExportType type,
+    Map<ExportTypeParameter, ExportType> arguments,
+  ) {
+    if (!_mentions(type, arguments.keys.toSet())) return type;
+    final replacement = arguments[type.parameter];
+    if (replacement != null) {
+      if (!type.nullable || replacement.nullable) return replacement;
+      return _copyType(replacement, nullable: true);
+    }
+    final signature = type.signature;
+    final substitutions = {...arguments};
+    final parameters = _substituteParameters(
+      signature?.typeParameters ?? const [],
+      substitutions,
+    );
+    ExportParameter parameter(ExportParameter value) => ExportParameter(
+      name: value.name,
+      type: _substituteType(value.type, substitutions),
+      required: value.required,
+      defaultValue: value.defaultValue,
+    );
+    return _copyType(
+      type,
+      element: type.element == null
+          ? null
+          : _substituteType(type.element!, arguments),
+      typeArguments: [
+        for (final argument in type.typeArguments)
+          _substituteType(argument, arguments),
+      ],
+      signature: signature == null
+          ? null
+          : ExportSignature(
+              type: signature.type,
+              typeParameters: parameters,
+              positional: signature.positional.map(parameter).toList(),
+              named: signature.named.map(parameter).toList(),
+              result: _substituteType(signature.result, substitutions),
+            ),
+      recordFields: type.recordFields == null
+          ? null
+          : (
+              positional: [
+                for (final field in type.recordFields!.positional)
+                  _substituteType(field, arguments),
+              ],
+              named: {
+                for (final entry in type.recordFields!.named.entries)
+                  entry.key: _substituteType(entry.value, arguments),
+              },
+            ),
+    );
+  }
 }
 
 final class _TypePair {
@@ -1163,55 +1386,6 @@ final class _Difference {
   final pairs = <String, _TypePair>{};
   final edges = <String, _TypePair>{};
   final paths = <String, List<({ExportClass cls, _TypePair pair})>>{};
-}
-
-ExportType _substituteType(
-  ExportType type,
-  Map<ExportTypeParameter, ExportType> arguments,
-) {
-  final replacement = arguments[type.parameter];
-  if (replacement != null) {
-    if (!type.nullable || replacement.nullable) return replacement;
-    return _copyType(replacement, nullable: true);
-  }
-  ExportParameter parameter(ExportParameter value) => ExportParameter(
-    name: value.name,
-    type: _substituteType(value.type, arguments),
-    required: value.required,
-    defaultValue: value.defaultValue,
-  );
-  final signature = type.signature;
-  return _copyType(
-    type,
-    element: type.element == null
-        ? null
-        : _substituteType(type.element!, arguments),
-    typeArguments: [
-      for (final argument in type.typeArguments)
-        _substituteType(argument, arguments),
-    ],
-    signature: signature == null
-        ? null
-        : ExportSignature(
-            type: signature.type,
-            typeParameters: signature.typeParameters,
-            positional: signature.positional.map(parameter).toList(),
-            named: signature.named.map(parameter).toList(),
-            result: _substituteType(signature.result, arguments),
-          ),
-    recordFields: type.recordFields == null
-        ? null
-        : (
-            positional: [
-              for (final field in type.recordFields!.positional)
-                _substituteType(field, arguments),
-            ],
-            named: {
-              for (final entry in type.recordFields!.named.entries)
-                entry.key: _substituteType(entry.value, arguments),
-            },
-          ),
-  );
 }
 
 ExportType _copyType(

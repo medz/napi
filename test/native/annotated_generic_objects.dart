@@ -85,6 +85,17 @@ class Chain {
 }
 
 @NAPI.object()
+class NullableNext {
+  @NAPI()
+  // ignore: prefer_initializing_formals
+  NullableNext({required NullableNext? next}) : _next = next;
+
+  final NullableNext? _next;
+  @NAPI()
+  NullableNext get next => _next ?? this;
+}
+
+@NAPI.object()
 class AsyncChain {
   @NAPI()
   AsyncChain({required this.next});
@@ -164,6 +175,55 @@ class BoundHolder<U> {
 
   @NAPI()
   final T Function<T extends U>(T) run;
+}
+
+@NAPI.object()
+class ScopedBoundBox<T> {
+  @NAPI()
+  // ignore: prefer_initializing_formals
+  ScopedBoundBox({required U Function<U extends T>(U) run}) : _run = run;
+
+  final U Function<U extends T>(U) _run;
+  @NAPI()
+  List<U Function<U extends T>(U)> get run => [_run];
+}
+
+@NAPI.object()
+class ScopedBoundHost {
+  @NAPI()
+  ScopedBoundHost({required this.box});
+
+  @NAPI()
+  final ScopedBoundBox<num> box;
+}
+
+@NAPI.object()
+class ScalarBox<T> {
+  @NAPI()
+  ScalarBox({required this.run});
+
+  @NAPI()
+  final Future<U> Function<U extends T>(U) run;
+}
+
+@NAPI.object()
+class ScalarHost {
+  @NAPI()
+  ScalarHost({required this.box});
+
+  @NAPI()
+  final ScalarBox<num> box;
+}
+
+@NAPI.object()
+class ScopeLoop {
+  @NAPI()
+  ScopeLoop({required this.run, required this.next});
+
+  @NAPI()
+  final Future<T> Function<T>(T) run;
+  @NAPI()
+  final ScopeLoop Function<U>() next;
 }
 
 @NAPI.object()
@@ -336,6 +396,9 @@ Future<bool> asyncScalarBound(AsyncBoundFnHolder holder) async =>
 Chain echoChain(Chain value) => value;
 
 @NAPI()
+bool nullableNextUsesSelf(NullableNext value) => identical(value.next, value);
+
+@NAPI()
 AsyncChain echoAsyncChain(AsyncChain value) => value;
 
 @NAPI()
@@ -358,6 +421,23 @@ int applyFnHolder(FnHolder value, int input) => value.run<int>(input);
 @NAPI()
 bool scalarBound(BoundHolder<num> holder) =>
     holder.run<double>(3).runtimeType == double;
+
+@NAPI()
+ScopedBoundHost echoScopedBoundHost(ScopedBoundHost value) => value;
+
+@NAPI()
+bool invokeScopedBoundHost(ScopedBoundHost value) =>
+    value.box.run.single<double>(3).runtimeType == double;
+
+@NAPI()
+ScalarHost echoScalarHost(ScalarHost value) => value;
+
+@NAPI()
+Future<bool> invokeScalarHost(ScalarHost value) async =>
+    (await value.box.run<double>(3)).runtimeType == double;
+
+@NAPI()
+ScopeLoop echoScopeLoop(ScopeLoop value) => value;
 
 @NAPI()
 Handler<StringInput> nativeStringHandler() => Handler(run: (value) => value);

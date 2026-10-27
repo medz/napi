@@ -85,6 +85,8 @@ module.exports = async function verifyAnnotatedGenericObjects(path) {
   const chain = { next: () => chain };
   const copiedChain = addon.echoChain(chain);
   assert.equal(typeof copiedChain.next().next().next, 'function');
+  assert.equal(addon.nullableNextUsesSelf({ next: null }), true);
+  assert.equal(addon.nullableNextUsesSelf({ next: { next: null } }), false);
   const asyncChain = addon.echoAsyncChain({
     next: Promise.resolve({ next: Promise.resolve(null) }),
   });
@@ -108,6 +110,18 @@ module.exports = async function verifyAnnotatedGenericObjects(path) {
   }), { value: 8, output: 8, next: null });
   assert.equal(addon.scalarBound({ run: value => value }), true);
   assert.throws(() => addon.scalarBound({ run: () => 'wrong' }), TypeError);
+  const scopedBoundRun = value => value;
+  const scopedBoundHost = addon.echoScopedBoundHost({ box: { run: scopedBoundRun } });
+  assert.equal(scopedBoundHost.box.run[0], scopedBoundRun);
+  assert.equal(scopedBoundHost.box.run[0](7), 7);
+  assert.equal(addon.invokeScopedBoundHost({ box: { run: value => value } }), true);
+  assert.throws(() => addon.invokeScopedBoundHost({ box: { run: () => 'wrong' } }), TypeError);
+  const scalarBoxHost = { box: { run: async value => value } };
+  assert.equal(await addon.echoScalarHost(scalarBoxHost).box.run(7), 7);
+  assert.equal(await addon.invokeScalarHost(scalarBoxHost), true);
+  await assert.rejects(addon.invokeScalarHost({ box: { run: async () => 'wrong' } }), TypeError);
+  const scopeLoopSource = { run: async value => value, next: () => scopeLoopSource };
+  assert.equal(await addon.echoScopeLoop(scopeLoopSource).next().run(7), 7);
   assert.deepEqual(addon.nativeStringHandler().run({ value: '7' }), { value: '7' });
   assert.throws(() => addon.nativeStringHandler().run({ value: 7 }), TypeError);
   assert.equal(await addon.nativeThenableHandler().run(Promise.resolve({ value: '7' })), 7);

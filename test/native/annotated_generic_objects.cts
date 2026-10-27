@@ -58,6 +58,9 @@ const asyncBoundHolder: addon.AsyncBoundFnHolder = { run: async value => value }
 const asyncScalarBound: Promise<boolean> = addon.asyncScalarBound(asyncBoundHolder);
 const chain: addon.Chain = { next: () => chain };
 const chained: addon.Chain = addon.echoChain(chain).next().next();
+declare const nullableNext: addon.NullableNext;
+const nonnullableNext: addon.NullableNext = nullableNext.next;
+const nextUsesSelf: boolean = addon.nullableNextUsesSelf({ next: null });
 const asyncChain: addon.AsyncChain = addon.echoAsyncChain({
   next: Promise.resolve({ next: Promise.resolve(null) }),
 });
@@ -79,6 +82,28 @@ const alternating: addon.Alternating<number, string> = addon.echoAlternating({
 });
 const alternatingValue: string[] | undefined = alternating.next?.value;
 const scalarBound: boolean = addon.scalarBound({ run: value => value });
+const scopedBoundHost: addon.ScopedBoundHost = addon.echoScopedBoundHost({
+  box: { run: value => value },
+});
+const scopedBoundNumber: number = scopedBoundHost.box.run[0](7);
+// @ts-expect-error The callback's closed numeric bound rejects strings.
+scopedBoundHost.box.run[0]('wrong');
+const scopedBoundNative: boolean = addon.invokeScopedBoundHost({
+  box: { run: value => value },
+});
+const scalarBoxHost: addon.ScalarHost = { box: { run: async value => value } };
+const echoedScalarBoxHost: addon.ScalarHost = addon.echoScalarHost(scalarBoxHost);
+const scalarAsyncNumber: Promise<number> = echoedScalarBoxHost.box.run(7);
+const scalarAsyncNative: Promise<boolean> = addon.invokeScalarHost(scalarBoxHost);
+interface ScopeLoopSource {
+  run<T>(value: T): Promise<T>;
+  next<U>(): ScopeLoopSource;
+}
+const scopeLoopSource: ScopeLoopSource = {
+  run: async value => value, next: () => scopeLoopSource,
+};
+const scopeLoop: addon.ScopeLoop = addon.echoScopeLoop(scopeLoopSource);
+const scopeLoopResult: Promise<number> = scopeLoop.next().run(7);
 const stringHandler = addon.nativeStringHandler();
 const stringValue = stringHandler.run({ value: '7' });
 const thenableHandler = addon.nativeThenableHandler();
