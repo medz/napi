@@ -33,6 +33,7 @@ for (const [target, fixture] of [
   ['binary-views', 'annotated_binary_views.cts'],
   ['simd', 'annotated_simd.cts'],
   ['sets', 'annotated_sets.cts'],
+  ['env', 'annotated_env.cts'],
 ]) {
   const consumer = resolve(process.argv[2], target, 'consumer.cts');
   copyFileSync(join(__dirname, fixture), consumer);

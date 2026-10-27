@@ -34,6 +34,7 @@ Future<void> main(List<String> args) async {
       ('binary-views', 'annotated_binary_views.dart'),
       ('simd', 'annotated_simd.dart'),
       ('sets', 'annotated_sets.dart'),
+      ('env', 'annotated_env.dart'),
     ])
       NativeTarget(
         entry: File('${source.path}/$entry'),
@@ -397,6 +398,32 @@ Future<void> main(List<String> args) async {
         (
           '@NAPI() T invalid<T extends DateTime>(T value) => value;',
           'generic bounds must preserve JavaScript values',
+        ),
+      ],
+    ),
+    (
+      'env',
+      'annotated_env.dart',
+      [
+        (
+          "import 'package:napi/env.dart'; "
+              '@NAPI() void invalid(Env? env) {}',
+          'injected Env must be required and non-nullable',
+        ),
+        (
+          "import 'package:napi/env.dart'; "
+              '@NAPI() void invalid([Env? env]) {}',
+          'injected Env must be required and non-nullable',
+        ),
+        (
+          "import 'package:napi/env.dart'; "
+              '@NAPI() Env invalid(Env env) => env;',
+          'Env is only supported as an injected required non-nullable parameter',
+        ),
+        (
+          "import 'package:napi/env.dart'; "
+              '@NAPI() void invalid(void Function(Env) callback) {}',
+          'Env is only supported as an injected required non-nullable parameter',
         ),
       ],
     ),

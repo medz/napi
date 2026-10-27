@@ -514,7 +514,7 @@ final class Calls {
           NamedExpression(item.name, parameter(item)),
       ];
       statements.add(
-        ReturnStatement(_invoke(constructor, null, positional, named)),
+        ReturnStatement(_invoke(constructor, env, null, positional, named)),
       );
     } else {
       final result = local(
@@ -1066,15 +1066,35 @@ final class Calls {
     }
   }
 
+  ({List<Expression> positional, List<NamedExpression> named}) _injectEnv(
+    ExportFunction? function,
+    PositionalParameter env,
+    List<Expression> positional,
+    List<NamedExpression> named,
+  ) {
+    final arguments = [...positional];
+    for (final index in function?.envPositional ?? const <int>[]) {
+      arguments.insert(index, VariableGet(env));
+    }
+    final namedArguments = [
+      ...named,
+      for (final name in function?.envNamed ?? const <String>[])
+        NamedExpression(name, VariableGet(env)),
+    ]..sort((a, b) => a.name.compareTo(b.name));
+    return (positional: arguments, named: namedArguments);
+  }
+
   Expression _invoke(
     ExportFunction function,
+    PositionalParameter env,
     PositionalParameter? receiver,
     List<Expression> positional,
     List<NamedExpression> named,
   ) {
+    final injected = _injectEnv(function, env, positional, named);
     final args = Arguments(
-      positional,
-      named: named,
+      injected.positional,
+      named: injected.named,
       types: function.typeArguments,
     );
     final target = function.target;
@@ -1112,10 +1132,11 @@ final class Calls {
         env,
         args,
         function.signature,
+        function: function,
         preserveDefaults: function.instance,
         rawResult: rawResult,
         invoke: (positional, named) =>
-            _invoke(function, receiver, positional, named),
+            _invoke(function, env, receiver, positional, named),
         tearOff: function.instance
             ? () {
                 final result = InstanceTearOff(
@@ -1141,6 +1162,7 @@ final class Calls {
     required bool preserveDefaults,
     required Expression Function(List<Expression>, List<NamedExpression>)
     invoke,
+    ExportFunction? function,
     Expression Function()? tearOff,
     bool rawResult = false,
   }) {
@@ -1213,7 +1235,10 @@ final class Calls {
       final sparse =
           preserveDefaults && signature.named.any((p) => !p.required);
       LocalVariable? sparseArguments;
-      if (sparse)
+      List<Expression>? sparsePositional;
+      if (sparse) {
+        final injected = _injectEnv(function, env, positional, []);
+        sparsePositional = injected.positional;
         sparseArguments = local(
           statements,
           'namedArguments',
@@ -1222,11 +1247,21 @@ final class Calls {
             core.objectNullableRawType,
           ]),
           MapLiteral(
-            [],
+            [
+              for (final argument in injected.named)
+                MapLiteralEntry(
+                  ConstantExpression(
+                    SymbolConstant(argument.name, null),
+                    core.symbolNonNullableRawType,
+                  ),
+                  argument.value,
+                ),
+            ],
             keyType: core.symbolNonNullableRawType,
             valueType: core.objectNullableRawType,
           ),
         );
+      }
       if (signature.named.isNotEmpty) {
         final requiredOptions = signature.named.any((p) => p.required);
         final position = signature.positional.length;
@@ -1333,7 +1368,10 @@ final class Calls {
           method(core.functionClass, 'apply'),
           Arguments([
             tearOff!(),
-            ListLiteral(positional, typeArgument: core.objectNullableRawType),
+            ListLiteral(
+              sparsePositional!,
+              typeArgument: core.objectNullableRawType,
+            ),
             VariableGet(sparseArguments!),
           ]),
         );

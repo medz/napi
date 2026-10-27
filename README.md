@@ -645,6 +645,35 @@ Choose an empty output directory or a previous `PackageBuild` output. Rebuilds
 reject unknown files instead of deleting them. Switching output directories can
 briefly make the package unavailable; a failed switch restores the old directory.
 
+## Accessing the environment
+
+Add a required `Env` parameter to use the current Node environment:
+
+```dart
+import 'package:napi/env.dart';
+import 'package:napi/napi.dart';
+
+@NAPI()
+JsReference<JsObject> labeled(Env env, String name) {
+  final result = env.object();
+  result.defineValue('name', name);
+  return result.retain();
+}
+```
+
+```js
+addon.labeled('Dart'); // { name: 'Dart' }
+```
+
+Env parameters are omitted from JavaScript and TypeScript signatures. They may
+appear anywhere among required positional parameters, or as required named
+parameters, including on annotated methods and constructors. They must be
+non-nullable. Each Worker receives its own environment.
+
+Borrowed JS values are valid during the call. After an `await`, use
+`env.withScope` for operations that create or access them; retain a value to keep
+it beyond that scope. See [values and references](#values-and-references).
+
 ## Manual registration
 
 For low-level bindings, use `void register(Env env, JsObject exports)` instead:
