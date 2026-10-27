@@ -172,6 +172,12 @@ final class ExportClass {
   final Class target;
   final String name;
   final bool isObject;
+  ExportType? superclass;
+  final specializations =
+      <
+        ExportClass,
+        ({List<ExportFunction> methods, List<ExportProperty> properties})
+      >{};
   final typeParameters = <ExportTypeParameter>[];
   ExportFunction? constructor;
   final methods = <ExportFunction>[];
@@ -369,22 +375,92 @@ final class _Reader {
       );
       _parameters.clear();
     }
+    final parents = <ExportClass, ExportClass>{};
+    for (final cls in module.classes) {
+      final ancestors = <Class>{};
+      for (
+        var ancestor = cls.target.superclass;
+        ancestor != null;
+        ancestor = ancestor.superclass
+      ) {
+        ancestors.add(ancestor);
+        final parent = classes[ancestor];
+        if (parent != null) parents.putIfAbsent(cls, () => parent);
+      }
+      for (final other in module.classes) {
+        if (cls == other ||
+            hierarchy.getClassAsInstanceOf(cls.target, other.target) == null) {
+          continue;
+        }
+        if (cls.isObject || other.isObject) {
+          throw FormatException(
+            '@NAPI ${cls.name}: object mappings cannot participate in exported class inheritance: ${other.name}.',
+          );
+        }
+        if (!ancestors.contains(other.target)) {
+          throw FormatException(
+            '@NAPI ${cls.name}: cannot implement an exported class without extending it: ${other.name}.',
+          );
+        }
+      }
+    }
+    final ordered = <ExportClass>[];
+    final visited = <ExportClass>{};
+    void visit(ExportClass cls) {
+      if (!visited.add(cls)) return;
+      final parent = parents[cls];
+      if (parent != null) visit(parent);
+      ordered.add(cls);
+    }
+
+    for (final cls in module.classes) {
+      visit(cls);
+    }
+    module.classes
+      ..clear()
+      ..addAll(ordered);
     for (final cls in module.classes) {
       _parameters.addAll({
         for (final parameter in cls.typeParameters) parameter.target: parameter,
       });
-      for (final other in module.classes) {
-        if (cls != other &&
-            hierarchy.getClassAsInstanceOf(cls.target, other.target) != null) {
-          throw FormatException(
-            'Exported classes cannot inherit from or implement another exported class: ${cls.name}, ${other.name}.',
-          );
-        }
+      final parent = parents[cls];
+      if (parent != null) {
+        final type = hierarchy.getClassAsInstanceOf(cls.target, parent.target)!;
+        cls.superclass = ExportType(
+          _actual(type.asInterfaceType),
+          ValueKind.object,
+          classExport: parent,
+          typeArguments: [
+            for (final argument in type.typeArguments)
+              _type(argument, '${cls.name}: superclass argument'),
+          ],
+        );
       }
       if (cls.isObject) {
         _objectClass(cls);
       } else {
         _class(cls);
+        for (
+          var ancestor = parent;
+          ancestor != null;
+          ancestor = ancestor.superclass?.classExport
+        ) {
+          final type = hierarchy.getClassAsInstanceOf(
+            cls.target,
+            ancestor.target,
+          )!;
+          if (_actual(type.asInterfaceType) == ancestor.dartType) continue;
+          cls.specializations[ancestor] = (
+            methods: [
+              for (final method in ancestor.methods)
+                _function(method.target, method.name, owner: cls),
+            ],
+            properties: [
+              for (final property in ancestor.properties)
+                _property(cls, property.name, property.getter, property.setter),
+            ],
+          );
+        }
       }
       _parameters.clear();
     }
@@ -419,6 +495,29 @@ final class _Reader {
         ],
       ],
     };
+    // VM lowering copies mixin members into application classes and records
+    // their source mixin as the last implemented type.
+    for (final member in exportedMembers.toList()) {
+      var origin = member;
+      while (origin.enclosingClass?.isEliminatedMixin == true) {
+        final mixin = origin.enclosingClass!.implementedTypes.last.classNode;
+        final Member? source = origin is Field
+            ? mixin.fields
+                  .where((field) => field.name == origin.name)
+                  .firstOrNull
+            : origin is Procedure
+            ? mixin.procedures
+                  .where(
+                    (procedure) =>
+                        procedure.name == origin.name &&
+                        procedure.kind == (origin as Procedure).kind,
+                  )
+                  .firstOrNull
+            : null;
+        if (source == null || !exportedMembers.add(source)) break;
+        origin = source;
+      }
+    }
     for (final declaration in declarations.whereType<Class>()) {
       if (classes.containsKey(declaration) || enums.containsKey(declaration))
         continue;
@@ -790,20 +889,29 @@ final class _Reader {
         );
       }
     }
-    final readable = hierarchy
-        .getInterfaceMembers(cls.target)
-        .where(
-          (member) =>
-              member.enclosingClass != hierarchy.coreTypes.objectClass &&
-              _isExported(member),
-        );
-    final writable = hierarchy
-        .getInterfaceMembers(cls.target, setters: true)
-        .where(
-          (member) =>
-              _isExported(member) && !(member is Field && member.isFinal),
-        );
-    _members(cls, readable, writable, <String>{}, static: false);
+    final parent = cls.superclass?.classExport;
+    if (parent == null) {
+      _members(
+        cls,
+        hierarchy
+            .getInterfaceMembers(cls.target)
+            .where(
+              (member) =>
+                  member.enclosingClass != hierarchy.coreTypes.objectClass &&
+                  _isExported(member),
+            ),
+        hierarchy
+            .getInterfaceMembers(cls.target, setters: true)
+            .where(
+              (member) =>
+                  _isExported(member) && !(member is Field && member.isFinal),
+            ),
+        <String>{},
+        static: false,
+      );
+    } else {
+      _inheritedMembers(cls, parent);
+    }
     _members(
       cls,
       [
@@ -823,6 +931,176 @@ final class _Reader {
       staticNames,
       static: true,
     );
+    for (
+      var ancestor = parent;
+      ancestor != null;
+      ancestor = ancestor.superclass?.classExport
+    ) {
+      final inherited = {
+        ...ancestor.staticMethods.map((member) => member.name),
+        ...ancestor.staticProperties.map((member) => member.name),
+      };
+      for (final name in staticNames.intersection(inherited)) {
+        final method = cls.staticMethods
+            .where((member) => member.name == name)
+            .firstOrNull;
+        final parentMethod = ancestor.staticMethods
+            .where((member) => member.name == name)
+            .firstOrNull;
+        if (method != null &&
+            parentMethod != null &&
+            _sameStaticSignature(method, parentMethod)) {
+          continue;
+        }
+        final property = cls.staticProperties
+            .where((member) => member.name == name)
+            .firstOrNull;
+        final parentProperty = ancestor.staticProperties
+            .where((member) => member.name == name)
+            .firstOrNull;
+        if (property != null &&
+            parentProperty != null &&
+            property.readType?.dartType == parentProperty.readType?.dartType &&
+            property.writeType?.dartType ==
+                parentProperty.writeType?.dartType) {
+          continue;
+        }
+        throw FormatException(
+          '@NAPI ${cls.name}: static export conflicts with inherited member: $name.',
+        );
+      }
+    }
+  }
+
+  bool _sameStaticSignature(ExportFunction method, ExportFunction parent) {
+    final signature = method.signature;
+    final inherited = parent.signature;
+    if (!_sameList(method.envPositional, parent.envPositional) ||
+        !_sameList(method.envNamed, parent.envNamed) ||
+        signature.positional.length != inherited.positional.length ||
+        signature.named.length != inherited.named.length ||
+        signature.typeParameters.length != inherited.typeParameters.length ||
+        signature.typeParameters.isNotEmpty &&
+            method.tearOffType != parent.tearOffType) {
+      return false;
+    }
+    bool sameParameter(ExportParameter left, ExportParameter right) =>
+        left.required == right.required &&
+        left.type.dartType == right.type.dartType;
+    for (var i = 0; i < signature.positional.length; ++i) {
+      if (!sameParameter(signature.positional[i], inherited.positional[i]))
+        return false;
+    }
+    for (var i = 0; i < signature.named.length; ++i) {
+      if (signature.named[i].name != inherited.named[i].name ||
+          !sameParameter(signature.named[i], inherited.named[i]))
+        return false;
+    }
+    for (var i = 0; i < signature.typeParameters.length; ++i) {
+      if (signature.typeParameters[i].bound.dartType !=
+          inherited.typeParameters[i].bound.dartType) {
+        return false;
+      }
+    }
+    final result = signature.result.dartType;
+    final parentResult = inherited.result.dartType;
+    if (result == parentResult) return true;
+    if (signature.result.kind != ValueKind.object ||
+        inherited.result.kind != ValueKind.object ||
+        result is! InterfaceType ||
+        parentResult is! InterfaceType ||
+        result.nullability != parentResult.nullability) {
+      return false;
+    }
+    final ancestor = hierarchy.getClassAsInstanceOf(
+      result.classNode,
+      parentResult.classNode,
+    );
+    return ancestor != null &&
+        Substitution.fromInterfaceType(
+              result,
+            ).substituteType(ancestor.asInterfaceType) ==
+            parentResult;
+  }
+
+  bool _sameList<T>(List<T> left, List<T> right) {
+    if (left.length != right.length) return false;
+    for (var index = 0; index < left.length; ++index) {
+      if (left[index] != right[index]) return false;
+    }
+    return true;
+  }
+
+  void _inheritedMembers(ExportClass cls, ExportClass parent) {
+    final methods = {
+      for (final member in parent.methods)
+        member.name: _function(member.target, member.name, owner: cls),
+    };
+    final properties = {
+      for (final member in parent.properties)
+        member.name: _property(cls, member.name, member.getter, member.setter),
+    };
+    final layers = <Class>[];
+    for (
+      var target = cls.target;
+      target != parent.target;
+      target = target.superclass!
+    ) {
+      layers.add(target);
+    }
+    for (final layer in layers.reversed) {
+      _members(
+        cls,
+        [
+          ...layer.fields.where((member) => member.isInstanceMember),
+          ...layer.procedures.where(
+            (member) => member.isInstanceMember && !member.isSetter,
+          ),
+        ].where(_isExported),
+        [
+          ...layer.fields.where(
+            (member) =>
+                member.isInstanceMember && member.hasSetter && !member.isFinal,
+          ),
+          ...layer.procedures.where(
+            (member) => member.isInstanceMember && member.isSetter,
+          ),
+        ].where(_isExported),
+        <String>{},
+        static: false,
+      );
+      for (final method in cls.methods) {
+        final previous = methods[method.name];
+        if (properties.containsKey(method.name) ||
+            previous != null && previous.target.name != method.target.name) {
+          throw FormatException(
+            '@NAPI ${cls.name}: inherited JavaScript member conflicts with ${method.name}.',
+          );
+        }
+        methods[method.name] = method;
+      }
+      for (final property in cls.properties) {
+        final previous = properties[property.name];
+        final target = (property.getter ?? property.setter)!;
+        if (methods.containsKey(property.name) ||
+            previous != null &&
+                (previous.getter ?? previous.setter)!.name != target.name) {
+          throw FormatException(
+            '@NAPI ${cls.name}: inherited JavaScript member conflicts with ${property.name}.',
+          );
+        }
+        properties[property.name] = _property(
+          cls,
+          property.name,
+          property.getter ?? previous?.getter,
+          property.setter ?? previous?.setter,
+        );
+      }
+      cls.methods.clear();
+      cls.properties.clear();
+    }
+    cls.methods.addAll(methods.values);
+    cls.properties.addAll(properties.values);
   }
 
   void _memberName(
@@ -893,7 +1171,28 @@ final class _Reader {
         );
       final name = _checkName(readName ?? writeName ?? sourceName);
       _memberName(cls, name, names, static: static);
-      final readType = getter == null
+      (cls == null
+              ? module.properties
+              : static
+              ? cls.staticProperties
+              : cls.properties)
+          .add(_property(cls, name, getter, setter));
+    }
+  }
+
+  ExportProperty _property(
+    ExportClass? cls,
+    String name,
+    Member? getter,
+    Member? setter,
+  ) {
+    final context = cls == null ? name : '${cls.name}.$name';
+    return ExportProperty(
+      name: name,
+      owner: cls,
+      getter: getter,
+      setter: setter,
+      readType: getter == null
           ? null
           : _type(
               _substitution(cls, getter).substituteType(
@@ -901,10 +1200,10 @@ final class _Reader {
                     ? getter.type
                     : (getter as Procedure).function.returnType,
               ),
-              '${context(name)}: return',
+              '$context: return',
               result: true,
-            );
-      final writeType = setter == null
+            ),
+      writeType: setter == null
           ? null
           : _type(
               _substitution(cls, setter).substituteType(
@@ -916,24 +1215,9 @@ final class _Reader {
                           .single
                           .type,
               ),
-              '${context(name)}: parameter',
-            );
-      (cls == null
-              ? module.properties
-              : static
-              ? cls.staticProperties
-              : cls.properties)
-          .add(
-            ExportProperty(
-              name: name,
-              owner: cls,
-              getter: getter,
-              setter: setter,
-              readType: readType,
-              writeType: writeType,
+              '$context: parameter',
             ),
-          );
-    }
+    );
   }
 
   ExportType _type(DartType type, String context, {bool result = false}) {

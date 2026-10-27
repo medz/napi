@@ -23,6 +23,7 @@ const verifyAnnotatedBinaryViews = require('./annotated_binary_views.cjs');
 const verifyAnnotatedSimd = require('./annotated_simd.cjs');
 const verifyAnnotatedSets = require('./annotated_sets.cjs');
 const verifyAnnotatedEnv = require('./annotated_env.cjs');
+const verifyAnnotatedInheritance = require('./annotated_inheritance.cjs');
 
 const [output, images] = process.argv.slice(2).map(path => resolve(path));
 const timeout = setTimeout(() => process.exit(1), 30000);
@@ -108,6 +109,8 @@ async function main() {
   verifyAnnotatedSimd(join(output, 'simd', 'addon.node'));
   verifyAnnotatedSets(join(output, 'sets', 'addon.node'));
   await verifyAnnotatedEnv(join(output, 'env', 'addon.node'));
+  await verifyAnnotatedInheritance(
+    join(output, 'inheritance', 'addon.node'), join(output, 'inheritance-package'));
   const path = join(output, 'full', 'addon.node');
   const addon = require(path);
   assert.equal(addon.answer, 42);

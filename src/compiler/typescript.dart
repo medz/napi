@@ -145,6 +145,16 @@ final class _Writer {
     final output = StringBuffer();
     final commonJsObject = !esm && exports.properties.isNotEmpty;
     final prefix = commonJsObject ? '' : 'export ';
+    final brands = <String>{
+      for (final cls in exports.classes) ...[
+        ...cls.methods.map((member) => member.name),
+        ...cls.properties.map((member) => member.name),
+      ],
+    };
+    final parents = {
+      for (final cls in exports.classes)
+        if (cls.superclass != null) cls.superclass!.classExport!,
+    };
     for (final enumeration in exports.enums) {
       output.writeln('${prefix}declare const ${enumeration.name}: {');
       for (final value in enumeration.cases) {
@@ -169,21 +179,18 @@ final class _Writer {
         continue;
       }
       output.writeln(
-        '${prefix}declare class ${cls.name}${_generics(cls.typeParameters)} {',
+        '${prefix}declare class ${cls.name}${_generics(cls.typeParameters)}'
+        '${cls.superclass == null ? '' : ' extends ${_type(cls.superclass!)}'} {',
       );
       var brand = '__napiBrand';
-      final names = {
-        ...cls.methods.map((m) => m.name),
-        ...cls.properties.map((p) => p.name),
-      };
-      while (names.contains(brand)) {
+      while (!brands.add(brand)) {
         brand += '_';
       }
       output.writeln('  private readonly $brand: never;');
       final constructor = cls.constructor;
       output.writeln(
         constructor == null
-            ? '  private constructor();'
+            ? '  ${parents.contains(cls) ? 'protected' : 'private'} constructor();'
             : '  constructor(${_parameters(constructor.signature)});',
       );
       for (final function in cls.methods) {

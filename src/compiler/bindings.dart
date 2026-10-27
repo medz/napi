@@ -32,6 +32,27 @@ Procedure generateRegister(
         ),
       );
 
+  Expression callbacks(
+    FunctionType signature,
+    String parameter,
+    List<MapEntry<String, Procedure>> entries,
+  ) {
+    final mapType =
+        signature.namedParameters.singleWhere((p) => p.name == parameter).type
+            as InterfaceType;
+    return MapLiteral(
+      [
+        for (final entry in entries)
+          MapLiteralEntry(
+            StringLiteral(entry.key),
+            calls.bind(entry.value, env),
+          ),
+      ],
+      keyType: mapType.typeArguments[0],
+      valueType: mapType.typeArguments[1],
+    );
+  }
+
   for (final enumeration in exports.enums) {
     final object = calls.local(
       statements,
@@ -64,26 +85,6 @@ Procedure generateRegister(
           .computeFunctionType(Nullability.nonNullable),
       [cls.dartType],
     );
-    Expression callbacks(
-      String parameter,
-      List<MapEntry<String, Procedure>> entries,
-    ) {
-      final mapType =
-          signature.namedParameters.singleWhere((p) => p.name == parameter).type
-              as InterfaceType;
-      return MapLiteral(
-        [
-          for (final entry in entries)
-            MapLiteralEntry(
-              StringLiteral(entry.key),
-              calls.bind(entry.value, env),
-            ),
-        ],
-        keyType: mapType.typeArguments[0],
-        valueType: mapType.typeArguments[1],
-      );
-    }
-
     final Expression constructor;
     if (cls.constructor case final function?) {
       constructor = calls.bind(calls.function(function, rawResult: true), env);
@@ -114,14 +115,14 @@ Procedure generateRegister(
           NamedExpression('constructor', constructor),
           NamedExpression(
             'methods',
-            callbacks('methods', [
+            callbacks(signature, 'methods', [
               for (final function in cls.methods)
                 MapEntry(function.name, calls.function(function)),
             ]),
           ),
           NamedExpression(
             'getters',
-            callbacks('getters', [
+            callbacks(signature, 'getters', [
               for (final property in cls.properties)
                 if (property.getter != null)
                   MapEntry(
@@ -132,7 +133,7 @@ Procedure generateRegister(
           ),
           NamedExpression(
             'setters',
-            callbacks('setters', [
+            callbacks(signature, 'setters', [
               for (final property in cls.properties)
                 if (property.setter != null)
                   MapEntry(
@@ -143,14 +144,14 @@ Procedure generateRegister(
           ),
           NamedExpression(
             'staticMethods',
-            callbacks('staticMethods', [
+            callbacks(signature, 'staticMethods', [
               for (final function in cls.staticMethods)
                 MapEntry(function.name, calls.function(function)),
             ]),
           ),
           NamedExpression(
             'staticGetters',
-            callbacks('staticGetters', [
+            callbacks(signature, 'staticGetters', [
               for (final property in cls.staticProperties)
                 if (property.getter != null)
                   MapEntry(
@@ -161,7 +162,7 @@ Procedure generateRegister(
           ),
           NamedExpression(
             'staticSetters',
-            callbacks('staticSetters', [
+            callbacks(signature, 'staticSetters', [
               for (final property in cls.staticProperties)
                 if (property.setter != null)
                   MapEntry(
@@ -173,6 +174,72 @@ Procedure generateRegister(
         ],
       ),
     );
+  }
+  for (final cls in exports.classes) {
+    final parent = cls.superclass?.classExport;
+    if (parent == null) continue;
+    statements.add(
+      ExpressionStatement(
+        calls.call(
+          VariableGet(env),
+          calls.method(calls.envClass, '_inheritClass'),
+          [],
+          types: [cls.dartType, parent.dartType],
+        ),
+      ),
+    );
+  }
+  for (final cls in exports.classes) {
+    for (final entry in cls.specializations.entries) {
+      final signature = FunctionTypeInstantiator.instantiate(
+        calls
+            .method(calls.envClass, '_specializeClass')
+            .function
+            .computeFunctionType(Nullability.nonNullable),
+        [cls.dartType, entry.key.dartType],
+      );
+      statements.add(
+        ExpressionStatement(
+          calls.call(
+            VariableGet(env),
+            calls.method(calls.envClass, '_specializeClass'),
+            [],
+            types: [cls.dartType, entry.key.dartType],
+            named: [
+              NamedExpression(
+                'methods',
+                callbacks(signature, 'methods', [
+                  for (final function in entry.value.methods)
+                    MapEntry(function.name, calls.function(function)),
+                ]),
+              ),
+              NamedExpression(
+                'getters',
+                callbacks(signature, 'getters', [
+                  for (final property in entry.value.properties)
+                    if (property.getter != null)
+                      MapEntry(
+                        property.name,
+                        calls.property(property, setter: false),
+                      ),
+                ]),
+              ),
+              NamedExpression(
+                'setters',
+                callbacks(signature, 'setters', [
+                  for (final property in entry.value.properties)
+                    if (property.setter != null)
+                      MapEntry(
+                        property.name,
+                        calls.property(property, setter: true),
+                      ),
+                ]),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
   }
   for (final function in exports.functions) {
     define(

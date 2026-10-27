@@ -35,6 +35,7 @@ Future<void> main(List<String> args) async {
       ('simd', 'annotated_simd.dart'),
       ('sets', 'annotated_sets.dart'),
       ('env', 'annotated_env.dart'),
+      ('inheritance', 'annotated_inheritance.dart'),
     ])
       NativeTarget(
         entry: File('${source.path}/$entry'),
@@ -62,6 +63,12 @@ Future<void> main(List<String> args) async {
       entry: File('${source.path}/annotated_generics.dart'),
       output: Directory('${output.path}/generics-package'),
       name: '@fixture/generics',
+      version: '0.0.0',
+    ),
+    PackageBuild(
+      entry: File('${source.path}/annotated_inheritance.dart'),
+      output: Directory('${output.path}/inheritance-package'),
+      name: '@fixture/inheritance',
       version: '0.0.0',
     ),
   ]).run([]);
@@ -216,10 +223,6 @@ Future<void> main(List<String> args) async {
           'reserved TypeScript class name',
         ),
         (
-          '@NAPI() class Base {}\n@NAPI() class Child extends Base {}',
-          'Exported classes cannot inherit from or implement another exported class',
-        ),
-        (
           'class Hidden {}\n@NAPI() Hidden echo(Hidden value) => value;',
           'class type must be exported',
         ),
@@ -232,6 +235,28 @@ Future<void> main(List<String> args) async {
         (
           '@NAPI() void inspect(T Function<T>(T) callback) {}',
           'generic function types are not supported yet',
+        ),
+      ],
+    ),
+    (
+      'inheritance',
+      'annotated_inheritance.dart',
+      [
+        (
+          '@NAPI() class Base {} '
+              '@NAPI() class Child implements Base {}',
+          'cannot implement an exported class',
+        ),
+        (
+          '@NAPI.object() class Base {} '
+              '@NAPI() class Child extends Base {}',
+          'object mappings cannot participate in exported class inheritance',
+        ),
+        (
+          '@NAPI() class Base { @NAPI() static int parse(int value) => value; } '
+              '@NAPI() class Child extends Base { '
+              '@NAPI() static String parse(String value) => value; }',
+          'static export conflicts with inherited member',
         ),
       ],
     ),
