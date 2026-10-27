@@ -48,6 +48,7 @@ if (existsSync(local)) {
 String esmLoader(List<({String name, String kind})> exports) {
   final output = StringBuffer("import binding from './index.cjs';\n\n");
   for (var i = 0; i < exports.length; ++i) {
+    if (exports[i].kind == 'type') continue;
     final name = exports[i].name;
     output.writeln('const _napi$i = binding[${jsonEncode(name)}];');
     output.writeln('export { _napi$i as $name };');
@@ -56,8 +57,20 @@ String esmLoader(List<({String name, String kind})> exports) {
   return output.toString();
 }
 
-String esmDeclarations(List<({String name, String kind})> exports) =>
-    '''import binding = require('./index.cjs');
-export { ${exports.map((entry) => entry.name).join(', ')} } from './index.cjs';
-export default binding;
-''';
+String esmDeclarations(List<({String name, String kind})> exports) {
+  final output = StringBuffer("import binding = require('./index.cjs');\n");
+  final values = exports.where((entry) => entry.kind != 'type');
+  final types = exports.where((entry) => entry.kind == 'type');
+  if (values.isNotEmpty) {
+    output.writeln(
+      "export { ${values.map((entry) => entry.name).join(', ')} } from './index.cjs';",
+    );
+  }
+  if (types.isNotEmpty) {
+    output.writeln(
+      "export type { ${types.map((entry) => entry.name).join(', ')} } from './index.cjs';",
+    );
+  }
+  output.writeln('export default binding;');
+  return output.toString();
+}

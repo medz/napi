@@ -20,7 +20,16 @@ export 'js_types.dart';
   TargetKind.topLevelVariable,
 })
 final class NAPI {
-  const NAPI({this.name});
+  const NAPI({this.name}) : _object = false;
+
+  /// Maps a Dart data class to plain JavaScript objects.
+  ///
+  /// Annotate one constructor for input and fields or getters for output.
+  const NAPI.object({this.name}) : _object = true;
 
   final String? name;
+
+  // Read by the compiler when interpreting annotation constants.
+  // ignore: unused_field
+  final bool _object;
 }

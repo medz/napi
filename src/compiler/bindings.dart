@@ -56,7 +56,7 @@ Procedure generateRegister(
     }
     define(enumeration.name, VariableGet(object));
   }
-  for (final cls in exports.classes) {
+  for (final cls in exports.classes.where((cls) => !cls.isObject)) {
     final signature = FunctionTypeInstantiator.instantiate(
       calls
           .method(calls.envClass, 'defineClass')

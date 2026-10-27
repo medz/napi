@@ -368,6 +368,7 @@ final class Env {
   final _objects = <int, _BoundObject>{};
   final _identity = Expando<int>();
   final _classes = <Type, _ClassDefinition?>{};
+  int _objectDepth = 0;
   final _importedFunctions = Expando<JsReference<JsFunction>>();
   final _functionIdentity = Expando<Map<Type, int>>();
   final _functions = <int, _BoundFunction>{};
@@ -1543,6 +1544,20 @@ final class Env {
       throw ArgumentError('Expected $T, received ${value.runtimeType}');
     }
     return value;
+  }
+
+  // Called by compiler-generated bindings.
+  // ignore: unused_element
+  T _convertObject<T>(T Function() convert) {
+    if (_objectDepth >= 128) {
+      throw RangeError('Object conversion exceeds 128 nested data objects');
+    }
+    _objectDepth++;
+    try {
+      return convert();
+    } finally {
+      _objectDepth--;
+    }
   }
 
   // Called by compiler-generated bindings.

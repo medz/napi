@@ -18,6 +18,8 @@ final class Calls {
   final CoreTypes core;
   final ClassHierarchy hierarchy;
   int _next = 0;
+  final _objectReaders = <ExportClass, Procedure>{};
+  final _objectWriters = <ExportClass, Procedure>{};
 
   late final envClass = envLibrary.classes.singleWhere((c) => c.name == 'Env');
   late final objectClass = envLibrary.classes.singleWhere(
@@ -78,6 +80,11 @@ final class Calls {
       fileUri: library.fileUri,
     );
     library.addProcedure(procedure);
+    _lower(procedure);
+    return procedure;
+  }
+
+  void _lower(Procedure procedure) {
     lowering.transformProcedure(
       procedure,
       core,
@@ -85,7 +92,6 @@ final class Calls {
       productMode: true,
       isClosureContextLoweringEnabled: false,
     );
-    return procedure;
   }
 
   LocalVariable local(
@@ -190,12 +196,18 @@ final class Calls {
     Expression source() =>
         type.nullable ? NullCheck(VariableGet(raw)) : VariableGet(raw);
     Expression convert() => switch (type.kind) {
-      ValueKind.object => call(
-        VariableGet(env),
-        method(envClass, 'unwrap'),
-        [source()],
-        types: [type.classExport!.dartType],
-      ),
+      ValueKind.object =>
+        type.classExport!.isObject
+            ? StaticInvocation(
+                _objectCodec(type.classExport!, read: true),
+                Arguments([VariableGet(env), source()]),
+              )
+            : call(
+                VariableGet(env),
+                method(envClass, 'unwrap'),
+                [source()],
+                types: [type.classExport!.dartType],
+              ),
       ValueKind.list || ValueKind.map => call(
         VariableGet(env),
         method(
@@ -284,6 +296,12 @@ final class Calls {
     ExportType type,
     Expression value,
   ) {
+    if (type.kind == ValueKind.voidValue) {
+      return BlockExpression(
+        Block([ExpressionStatement(value)]),
+        _constant('undefined'),
+      );
+    }
     if (!_isComposite(type) || type.kind == ValueKind.jsReference) return value;
     final result = SyntheticVariable(
       cosmeticName: 'result${_next++}',
@@ -294,12 +312,18 @@ final class Calls {
     Expression source() =>
         type.nullable ? NullCheck(VariableGet(result)) : VariableGet(result);
     Expression convert() => switch (type.kind) {
-      ValueKind.object => call(
-        VariableGet(env),
-        method(envClass, 'wrap'),
-        [source()],
-        types: [type.classExport!.dartType],
-      ),
+      ValueKind.object =>
+        type.classExport!.isObject
+            ? StaticInvocation(
+                _objectCodec(type.classExport!, read: false),
+                Arguments([VariableGet(env), source()]),
+              )
+            : call(
+                VariableGet(env),
+                method(envClass, 'wrap'),
+                [source()],
+                types: [type.classExport!.dartType],
+              ),
       ValueKind.list || ValueKind.map => call(
         VariableGet(env),
         method(
@@ -351,6 +375,123 @@ final class Calls {
             )
           : convert(),
     );
+  }
+
+  Procedure _objectCodec(ExportClass cls, {required bool read}) {
+    final cache = read ? _objectReaders : _objectWriters;
+    final existing = cache[cls];
+    if (existing != null) return existing;
+    if (read && cls.constructor == null) {
+      throw FormatException(
+        '@NAPI.object ${cls.name}: has no annotated input constructor.',
+      );
+    }
+    final env = PositionalParameter(cosmeticName: 'env', type: envType);
+    final value = PositionalParameter(
+      cosmeticName: 'value',
+      type: read ? objectType : cls.dartType,
+    );
+    final helper = Procedure(
+      Name('_napi${read ? 'Read' : 'Write'}Object${_next++}', library),
+      ProcedureKind.Method,
+      FunctionNode(
+        null,
+        positionalParameters: [env, value],
+        returnType: read ? cls.dartType : objectType,
+      ),
+      isStatic: true,
+      fileUri: library.fileUri,
+    );
+    // Register the reference before visiting properties so recursive types use
+    // the same helper instead of recursively expanding generated code.
+    cache[cls] = helper;
+    library.addProcedure(helper);
+    final statements = <Statement>[];
+    if (read) {
+      final constructor = cls.constructor!;
+      Expression parameter(ExportParameter parameter) => VariableGet(
+        local(
+          statements,
+          parameter.name,
+          parameter.type.dartType,
+          ConditionalExpression(
+            call(VariableGet(value), method(objectClass, 'hasOwn'), [
+              StringLiteral(parameter.name),
+            ]),
+            _decode(
+              env,
+              parameter.type,
+              (type) => call(
+                VariableGet(value),
+                method(objectClass, 'get'),
+                [StringLiteral(parameter.name)],
+                types: [type],
+              ),
+            ),
+            parameter.required
+                ? failure('Missing object property: ${parameter.name}')
+                : _default(parameter),
+            parameter.type.dartType,
+          ),
+        ),
+      );
+      final positional = [
+        for (final item in constructor.signature.positional) parameter(item),
+      ];
+      final named = [
+        for (final item in constructor.signature.named)
+          NamedExpression(item.name, parameter(item)),
+      ];
+      statements.add(
+        ReturnStatement(_invoke(constructor, null, positional, named)),
+      );
+    } else {
+      final result = local(
+        statements,
+        'object',
+        objectType,
+        call(VariableGet(env), method(envClass, 'object'), []),
+      );
+      for (final property in cls.properties) {
+        final getter = property.getter!;
+        statements.add(
+          ExpressionStatement(
+            call(VariableGet(result), method(objectClass, 'defineValue'), [
+              StringLiteral(property.name),
+              _encode(
+                env,
+                property.readType!,
+                InstanceGet(
+                  InstanceAccessKind.Instance,
+                  VariableGet(value),
+                  getter.name,
+                  interfaceTarget: getter,
+                  resultType: property.readType!.dartType,
+                ),
+              ),
+            ]),
+          ),
+        );
+      }
+      statements.add(ReturnStatement(VariableGet(result)));
+    }
+    helper.function.body = ReturnStatement(
+      call(
+        VariableGet(env),
+        method(envClass, '_convertObject'),
+        [
+          FunctionExpression(
+            FunctionNode(
+              Block(statements),
+              returnType: read ? cls.dartType : objectType,
+            ),
+          ),
+        ],
+        types: [read ? cls.dartType : objectType],
+      ),
+    )..parent = helper.function;
+    _lower(helper);
+    return helper;
   }
 
   Expression _readEnum(ExportEnum enumeration, Expression Function() source) =>

@@ -413,7 +413,8 @@ _configureEntrypoint(
       names: [
         for (final enumeration in annotated.enums)
           (name: enumeration.name, kind: 'enum'),
-        for (final cls in annotated.classes) (name: cls.name, kind: 'class'),
+        for (final cls in annotated.classes)
+          (name: cls.name, kind: cls.isObject ? 'type' : 'class'),
         for (final function in annotated.functions)
           (name: function.name, kind: 'function'),
         for (final value in annotated.constants)

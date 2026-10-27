@@ -132,9 +132,10 @@ final class ExportProperty {
 }
 
 final class ExportClass {
-  ExportClass(this.target, this.name);
+  ExportClass(this.target, this.name, {this.isObject = false});
   final Class target;
   final String name;
+  final bool isObject;
   ExportFunction? constructor;
   final methods = <ExportFunction>[];
   final properties = <ExportProperty>[];
@@ -206,6 +207,15 @@ final class _Reader {
     return null;
   }
 
+  bool _objectAnnotation(Annotatable node) =>
+      _annotation(node)?.fieldValues.entries.any(
+        (entry) =>
+            entry.key.asField.name.text == '_object' &&
+            entry.value is BoolConstant &&
+            (entry.value as BoolConstant).value,
+      ) ??
+      false;
+
   String? _rename(Annotatable node) {
     final marker = _annotation(node);
     if (marker == null) return null;
@@ -237,6 +247,14 @@ final class _Reader {
       if (declaration is! Annotatable ||
           _annotation(declaration as Annotatable) == null)
         continue;
+      if (_objectAnnotation(declaration as Annotatable) &&
+          (declaration is! Class ||
+              declaration.isEnum ||
+              declaration.typeParameters.isNotEmpty)) {
+        throw const FormatException(
+          '@NAPI.object can only annotate a non-generic class.',
+        );
+      }
       if (declaration is Class && declaration.typeParameters.isEmpty) {
         final name = _name(declaration, declaration.name);
         if (_reservedTypeNames.contains(name)) {
@@ -252,7 +270,11 @@ final class _Reader {
           module.enums.add(exported);
           enums[declaration] = exported;
         } else {
-          final exported = ExportClass(declaration, name);
+          final exported = ExportClass(
+            declaration,
+            name,
+            isObject: _objectAnnotation(declaration),
+          );
           module.classes.add(exported);
           classes[declaration] = exported;
         }
@@ -281,7 +303,11 @@ final class _Reader {
           );
         }
       }
-      _class(cls);
+      if (cls.isObject) {
+        _objectClass(cls);
+      } else {
+        _class(cls);
+      }
     }
     for (final declaration in selected) {
       final name = _name(declaration, declaration.name.text);
@@ -324,6 +350,7 @@ final class _Reader {
       ...target.constructors,
       ...target.procedures,
     ]) {
+      _isExported(member);
       if (member is Field && member.isEnumElement) {
         if (member.name.isPrivate && _annotation(member) == null) {
           throw FormatException(
@@ -388,7 +415,10 @@ final class _Reader {
     _checkAsync(function, name);
     final substitution = _substitution(owner, target);
     ExportParameter parameter(FunctionParameter parameter, bool required) {
-      final parameterName = parameter is NamedParameter
+      final parameterName =
+          constructor && owner!.isObject && parameter.isWildcard
+          ? '_'
+          : parameter is NamedParameter
           ? parameter.parameterName
           : parameter.cosmeticName ?? 'argument';
       return ExportParameter(
@@ -450,7 +480,76 @@ final class _Reader {
       );
   }
 
-  bool _isExported(Member member) => _annotation(member) != null;
+  bool _isExported(Member member) {
+    if (_objectAnnotation(member)) {
+      throw const FormatException(
+        '@NAPI.object can only annotate a non-generic class.',
+      );
+    }
+    return _annotation(member) != null;
+  }
+
+  void _objectClass(ExportClass cls) {
+    final constructors = <Member>[
+      ...cls.target.constructors,
+      ...cls.target.procedures.where((member) => member.isFactory),
+    ].where(_isExported).toList();
+    if (constructors.length > 1) {
+      throw FormatException(
+        '@NAPI.object ${cls.name}: multiple annotated input constructors.',
+      );
+    }
+    if (constructors.isNotEmpty) {
+      final target = constructors.single;
+      if (cls.target.isAbstract && target is Constructor) {
+        throw FormatException(
+          '@NAPI.object ${cls.name}: an abstract class requires a factory input constructor.',
+        );
+      }
+      if (_rename(target) != null) {
+        throw FormatException(
+          '@NAPI.object ${cls.name}: input constructors have no JavaScript name to rename.',
+        );
+      }
+      cls.constructor = _function(
+        target,
+        cls.name,
+        owner: cls,
+        constructor: true,
+      );
+      final names = <String>{};
+      final signature = cls.constructor!.signature;
+      for (final parameter in [...signature.positional, ...signature.named]) {
+        if (!names.add(parameter.name)) {
+          throw FormatException(
+            '@NAPI.object ${cls.name}: duplicate object input property: ${parameter.name}.',
+          );
+        }
+      }
+    }
+    for (final member in [...cls.target.fields, ...cls.target.procedures]) {
+      if (!_isExported(member) || member is Procedure && member.isFactory)
+        continue;
+      if (!member.isInstanceMember || member is Procedure && !member.isGetter) {
+        throw FormatException(
+          '@NAPI.object ${cls.name}: only instance fields and getters can be exported as object properties: ${member.name.text}.',
+        );
+      }
+    }
+    _members(
+      cls,
+      hierarchy
+          .getInterfaceMembers(cls.target)
+          .where(
+            (member) =>
+                member.enclosingClass != hierarchy.coreTypes.objectClass &&
+                _isExported(member),
+          ),
+      const [],
+      <String>{},
+      static: false,
+    );
+  }
 
   void _class(ExportClass cls) {
     final constructors = <Member>[
@@ -540,6 +639,11 @@ final class _Reader {
       for (final member in writable) member.name: member,
     };
     for (final member in readable) {
+      if (cls.isObject && member is Procedure && !member.isGetter) {
+        throw FormatException(
+          '@NAPI.object ${cls.name}: only instance fields and getters can be exported as object properties: ${member.name.text}.',
+        );
+      }
       if (member is Procedure && member.kind == ProcedureKind.Method) {
         final name = _name(member, member.name.text);
         _memberName(cls, name, names, static: static);
