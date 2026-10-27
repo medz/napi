@@ -27,6 +27,7 @@ Future<void> main(List<String> args) async {
       ('enums', 'annotated_enums.dart'),
       ('constants', 'annotated_constants.dart'),
       ('references', 'annotated_js_references.dart'),
+      ('objects', 'annotated_objects.dart'),
     ])
       NativeTarget(
         entry: File('${source.path}/$entry'),
@@ -59,6 +60,24 @@ Future<void> main(List<String> args) async {
       entry: File('${source.path}/annotated_constants.dart'),
       output: constantPackage,
       name: '@fixture/constants',
+      version: '0.0.0',
+    ),
+  ]).run([]);
+
+  final objectPackage = Directory('${output.path}/objects-package');
+  await Compiler([
+    PackageBuild(
+      entry: File('${source.path}/annotated_objects.dart'),
+      output: objectPackage,
+      name: '@fixture/objects',
+      version: '0.0.0',
+    ),
+  ]).run([]);
+  await Compiler([
+    PackageBuild.fromArtifacts(
+      artifacts: [NativeArtifact(File('${objectPackage.path}/.napi.json'))],
+      output: Directory('${output.path}/objects-assembled'),
+      name: '@fixture/objects-assembled',
       version: '0.0.0',
     ),
   ]).run([]);
@@ -252,6 +271,43 @@ Future<void> main(List<String> args) async {
         (
           '@NAPI() JsReference<Object> invalid(JsReference<Object> value) => value;',
           'JsReference requires non-nullable JsObject, JsFunction or JsSymbol',
+        ),
+      ],
+    ),
+    (
+      'objects',
+      'annotated_objects.dart',
+      [
+        (
+          '@NAPI.object() class Invalid { @NAPI() final int value = 1; } '
+              '@NAPI() int inspect(Invalid value) => value.value;',
+          'has no annotated input constructor',
+        ),
+        (
+          '@NAPI.object() class Invalid { @NAPI() final int value = 1; } '
+              '@NAPI() int inspect(Invalid Function() create) => create().value;',
+          'has no annotated input constructor',
+        ),
+        (
+          '@NAPI.object() class Invalid { @NAPI() Invalid(); @NAPI() Invalid.named(); }',
+          'multiple annotated input constructors',
+        ),
+        (
+          '@NAPI.object() class Invalid { @NAPI() Invalid(int _, int _); } '
+              '@NAPI() Invalid inspect(Invalid value) => value;',
+          'duplicate object input property',
+        ),
+        (
+          '@NAPI.object() class Invalid { @NAPI() int method() => 1; }',
+          'only instance fields and getters',
+        ),
+        (
+          '@NAPI.object() class Invalid { @NAPI() static int value = 1; }',
+          'only instance fields and getters',
+        ),
+        (
+          '@NAPI.object() class Invalid { @NAPI() set value(int next) {} }',
+          'only instance fields and getters',
         ),
       ],
     ),

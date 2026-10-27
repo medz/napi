@@ -225,6 +225,59 @@ binding's Dart reference. Inheritance between exported classes is not supported
 yet; the compiler rejects those declarations. Returning the same object through
 two different exported class types is rejected while its first wrapper is alive.
 
+## Data classes as plain objects
+
+Use `@NAPI.object()` to exchange a Dart data class as a plain JS object:
+
+```dart
+@NAPI.object()
+class Point {
+  @NAPI()
+  const Point({required this.x, this.y = 0});
+
+  @NAPI()
+  final int x;
+
+  @NAPI()
+  final int y;
+}
+
+@NAPI()
+Point move(Point point) => Point(x: point.x + 1, y: point.y);
+```
+
+```js
+move({ x: 1 }); // { x: 2, y: 0 }
+```
+
+The annotated constructor defines the input properties, types and defaults.
+Required properties must be present on the input object itself. Omitted optional
+properties use the Dart defaults; explicit `undefined` still undergoes type
+validation. Each input property is read once, and unrelated properties are
+ignored.
+
+Annotated fields and getters define the output properties. They are read once
+to create a new JS object with writable properties. Dart `final` constrains the
+Dart instance; it does not freeze the JS copy. Nested values use their usual
+conversions, including identity preservation for bound class instances and JS
+references. Field and getter renames apply to output properties; input keys
+keep their constructor parameter names.
+
+Input and output shapes may differ: constructor parameters can have defaults or
+different types from the output getters. The generated TypeScript describes
+each direction separately. The class name is a TypeScript interface, available
+with `import type`; it does not create a JS constructor or export instance
+methods.
+
+Annotate one constructor, unnamed or named, to enable input conversion. A data
+class without an annotated constructor can still be returned from Dart. Multiple
+annotated constructors are ambiguous and produce a build error. Keep methods
+and static members unannotated, and expose their behavior through annotated
+functions when needed.
+
+Data-object conversion supports up to 128 nested data objects. Deeper or cyclic
+structures throw `RangeError`.
+
 ## Functions and callbacks
 
 Use ordinary Dart function types for callbacks and returned closures:
@@ -243,11 +296,17 @@ multiplier(3)(14); // 42
 ```
 
 Callbacks can be stored and called later on the same Dart isolate. Returning a
-JS callback preserves its identity; returning the same Dart closure through the
-same function type reuses its live JS function. Different function types receive
-separate adapters. Collecting the JS function releases its Dart closure and
-captured values. Optional arguments keep the actual Dart function's defaults
-and distinguish omission from `null` and `undefined`.
+JS callback preserves its identity for signatures with symmetric conversions,
+such as scalar arguments and results. Data classes, Futures and Streams require
+an adapter, including when nested in a signature, so a returned function may
+differ from the original JS callback. Use `JsReference<JsFunction>` when passing
+the original function without conversion.
+
+Returning the same Dart closure through the same function type reuses its live
+JS function. Different function types receive separate adapters. Collecting the
+JS function releases its Dart closure and captured values. Optional arguments
+keep the actual Dart function's defaults and distinguish omission from `null`
+and `undefined`.
 
 Arguments and results use the same conversions as other annotated functions,
 including nested collections and exported classes. Generic function types are

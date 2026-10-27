@@ -26,10 +26,31 @@ for (const [target, fixture] of [
   ['enums', 'annotated_enums.cts'],
   ['constants', 'annotated_constants.cts'],
   ['references', 'annotated_js_references.cts'],
+  ['objects', 'annotated_objects.cts'],
 ]) {
   const consumer = resolve(process.argv[2], target, 'consumer.cts');
   copyFileSync(join(__dirname, fixture), consumer);
   verify([consumer], target === 'enums');
+}
+
+for (const directory of ['objects-package', 'objects-assembled']) {
+  const common = resolve(process.argv[2], 'objects', `${directory}.cts`);
+  const module = resolve(process.argv[2], 'objects', `${directory}.mts`);
+  writeFileSync(common, `import binding = require('../${directory}/index.cjs');
+const child = new binding.PointInput(5);
+const point: binding.Point = binding.echoPoint({ value: '7', child });
+const readout: binding.Readout = binding.readout();
+// @ts-expect-error Structural types have no constructor value.
+new binding.Point();
+`);
+  writeFileSync(module, `import type { Point, Readout } from '../${directory}/index.mjs';
+import { echoPoint, PointInput, readout } from '../${directory}/index.mjs';
+const point: Point = echoPoint({ value: '7', child: new PointInput(5) });
+const result: Readout = readout();
+// @ts-expect-error Asymmetric output fields do not widen constructor input types.
+echoPoint({ value: 7 });
+`);
+  verify([common, module], true);
 }
 
 for (const directory of ['constants-package', 'constants-assembled']) {
