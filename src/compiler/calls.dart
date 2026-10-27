@@ -825,6 +825,22 @@ final class Calls {
     );
   }
 
+  bool _needsFunctionAdapter(ExportSignature signature) =>
+      signature.positional.any((parameter) => _directional(parameter.type)) ||
+      signature.named.any((parameter) => _directional(parameter.type)) ||
+      _directional(signature.result);
+
+  bool _directional(ExportType type) => switch (type.kind) {
+    ValueKind.object => type.classExport!.isObject,
+    ValueKind.future || ValueKind.stream => true,
+    ValueKind.list || ValueKind.map => _directional(type.element!),
+    ValueKind.record =>
+      type.recordFields!.positional.any(_directional) ||
+          type.recordFields!.named.values.any(_directional),
+    ValueKind.function => _needsFunctionAdapter(type.signature!),
+    _ => false,
+  };
+
   Expression _writeFunction(
     PositionalParameter env,
     ExportSignature signature,
@@ -860,6 +876,10 @@ final class Calls {
         ),
       ],
       types: [signature.type],
+      named: [
+        if (_needsFunctionAdapter(signature))
+          NamedExpression('preserveIdentity', BoolLiteral(false)),
+      ],
     );
   }
 

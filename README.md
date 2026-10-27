@@ -296,11 +296,17 @@ multiplier(3)(14); // 42
 ```
 
 Callbacks can be stored and called later on the same Dart isolate. Returning a
-JS callback preserves its identity; returning the same Dart closure through the
-same function type reuses its live JS function. Different function types receive
-separate adapters. Collecting the JS function releases its Dart closure and
-captured values. Optional arguments keep the actual Dart function's defaults
-and distinguish omission from `null` and `undefined`.
+JS callback preserves its identity for signatures with symmetric conversions,
+such as scalar arguments and results. Data classes, Futures and Streams require
+an adapter, including when nested in a signature, so a returned function may
+differ from the original JS callback. Use `JsReference<JsFunction>` when passing
+the original function without conversion.
+
+Returning the same Dart closure through the same function type reuses its live
+JS function. Different function types receive separate adapters. Collecting the
+JS function releases its Dart closure and captured values. Optional arguments
+keep the actual Dart function's defaults and distinguish omission from `null`
+and `undefined`.
 
 Arguments and results use the same conversions as other annotated functions,
 including nested collections and exported classes. Generic function types are

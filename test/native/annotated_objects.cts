@@ -13,6 +13,13 @@ const offset: addon.Offset = addon.echoOffset({ y: 9 });
 const readout: addon.Readout = addon.readout();
 const once: number[] | null = readout.values;
 const transformed: addon.Point = addon.transformPoint({ value: '3' }, value => ({ value: String(value.value) }));
+const bounced = addon.bouncePoint(value => ({ value: String(value.value + 1) }));
+const bouncedPoint: addon.Point = bounced({ value: '7' });
+const bouncedPoints = addon.bouncePoints([value => ({ value: String(value.value) })]);
+const nestedPoint: addon.Point = bouncedPoints[0]({ value: '9' });
+const streamFactory: () => AsyncIterableIterator<number> = addon.bounceStream(() => ({
+  async *[Symbol.asyncIterator]() { yield 7; },
+}));
 const entries: Promise<{ key: string; point: addon.Point }[]> =
   addon.pointEntries(Promise.resolve({ one: { value: '1' } }));
 const stream: AsyncIterableIterator<addon.Point> = addon.pointStream({ value: '2' });
@@ -37,5 +44,11 @@ addon.echoPoint({ value: '7', next: { value: 8 } });
 addon.echoPoint({ value: '7', child: { value: 5 } });
 // @ts-expect-error Callback results flow into the input constructor shape.
 addon.transformPoint({ value: '3' }, value => value);
+// @ts-expect-error Returned adapters accept constructor input, not output records.
+bounced({ value: 7 });
+// @ts-expect-error Callback results use the constructor's String input type.
+addon.bouncePoint(value => ({ value: value.value }));
+// @ts-expect-error Nested function adapters retain their input signature.
+bouncedPoints[0]({ value: 9 });
 // @ts-expect-error Output fields retain their getter types.
 point.value = '9';

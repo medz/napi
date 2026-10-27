@@ -529,11 +529,12 @@ final class Env {
   // ignore: unused_element
   JsFunction _writeFunction<F extends Function>(
     F value,
-    Object? Function(JsArguments) invoke,
-  ) {
+    Object? Function(JsArguments) invoke, {
+    bool preserveIdentity = true,
+  }) {
     _arena;
     final original = _importedFunctions[value];
-    if (original != null) return original.value;
+    if (preserveIdentity && original != null) return original.value;
     final cached = _functions[_functionIdentity[value]?[F]];
     if (cached != null) {
       final handle = _result(

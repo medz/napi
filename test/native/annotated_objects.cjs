@@ -85,6 +85,21 @@ module.exports = async function verifyAnnotatedObjects(path, packages = []) {
   });
   assert.equal(transformed.value, 4);
   assert.equal(transformed.child, child);
+  const callback = value => {
+    assert.equal(typeof value.value, 'number');
+    return { value: String(value.value + 1), child: value.child };
+  };
+  const bounced = addon.bouncePoint(callback)({ value: '7', child });
+  assert.equal(bounced.value, 8);
+  assert.equal(bounced.child, child);
+  assert.equal(addon.bouncePoints([callback])[0]({ value: '9' }).value, 10);
+  const streamFactory = addon.bounceStream(() => ({
+    async *[Symbol.asyncIterator]() { yield 7; },
+  }));
+  const adaptedStream = streamFactory();
+  assert.equal(typeof adaptedStream.next, 'function');
+  assert.deepEqual(await adaptedStream.next(), { value: 7, done: false });
+  assert.deepEqual(await adaptedStream.next(), { value: undefined, done: true });
   const sharedInput = { value: '5', child };
   const entries = await addon.pointEntries(Promise.resolve({ one: sharedInput, two: sharedInput }));
   assert.equal(entries.length, 2);

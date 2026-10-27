@@ -100,6 +100,18 @@ Point transformPoint(Point value, Point Function(Point) transform) =>
     transform(value);
 
 @NAPI()
+Point Function(Point) bouncePoint(Point Function(Point) callback) => callback;
+
+@NAPI()
+List<Point Function(Point)> bouncePoints(
+  List<Point Function(Point)> callbacks,
+) => callbacks;
+
+@NAPI()
+Stream<int> Function() bounceStream(Stream<int> Function() callback) =>
+    callback;
+
+@NAPI()
 Future<List<({String key, Point point})>> pointEntries(
   Future<Map<String, Point>> values,
 ) async => [
