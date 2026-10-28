@@ -202,6 +202,17 @@ class NativeNext {
 }
 
 @NAPI.object()
+class GenericNext<T> {
+  @NAPI()
+  // ignore: prefer_initializing_formals
+  GenericNext({required T next}) : _value = next;
+
+  final T _value;
+  @NAPI()
+  GenericNext<T> get next => this;
+}
+
+@NAPI.object()
 class FunctionNext {
   @NAPI()
   FunctionNext({required void Function() next}) {
@@ -778,6 +789,13 @@ RawStreamNext echoRawStreamNext(RawStreamNext value) => value;
 @NAPI()
 bool nativeNextMatches(NativeNext value, NativeValue expected) =>
     identical(value._value, expected) && identical(value.next, value);
+
+@NAPI()
+bool genericNextUsesSelf<T>(GenericNext<T> value) =>
+    identical(value.next, value);
+
+@NAPI()
+T genericNextInput<T>(GenericNext<T> value) => value._value;
 
 @NAPI()
 bool functionNextUsesSelf(FunctionNext value) => identical(value.next, value);

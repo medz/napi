@@ -132,6 +132,18 @@ const nativeNextMatches: boolean = addon.nativeNextMatches({ next: nativeValue }
 const forgedNativeNext: addon.NativeNext = { next: nativeNext };
 // @ts-expect-error A plain object cannot replace an exported native instance.
 addon.nativeNextMatches({ next: {} }, nativeValue);
+declare const genericNext: addon.GenericNext<number>;
+const genericNextChild: addon.GenericNext<number> = genericNext.next;
+const genericNextUsesSelf: boolean = addon.genericNextUsesSelf({ next: 7 });
+const genericNextInput: number = addon.genericNextInput({ next: 7 });
+const genericObject = { token: 7 };
+const genericNextObject: typeof genericObject = addon.genericNextInput({ next: genericObject });
+// @ts-expect-error The recursive output differs from this scalar constructor input.
+const forgedGenericNext: addon.GenericNext<number> = { next: genericNext };
+// @ts-expect-error The constructor input retains the selected generic type.
+addon.genericNextInput<number>({ next: 'wrong' });
+class GenericLoop { next: GenericLoop = this; }
+const genericLoop: addon.GenericNext<GenericLoop> = new GenericLoop();
 declare const functionNext: addon.FunctionNext;
 const functionNextChild: addon.FunctionNext = functionNext.next;
 const functionNextUsesSelf: boolean = addon.functionNextUsesSelf({ next: () => {} });

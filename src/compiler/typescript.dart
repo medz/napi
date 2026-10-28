@@ -82,6 +82,8 @@ final class _Writer {
         ExportClass,
         ({String output, String fields, String input, List<String> inputs})
       >{};
+  final _rawObjects = <ExportClass, ({String output, String input})>{};
+  final _rawViews = <({ExportClass cls, bool output})>{};
   final _differences = <_ObjectPair, _Difference>{};
   final _pendingDifferences = <_ObjectPair>[];
   final _inputParameters = <ExportClass, List<ExportTypeParameter>>{};
@@ -233,10 +235,11 @@ final class _Writer {
     return _objects[cls]!.input;
   }
 
-  String _objectParameters(ExportClass cls) => cls.typeParameters.isEmpty
+  String _objectParameters(ExportClass cls, {bool metadata = true}) =>
+      cls.typeParameters.isEmpty
       ? ''
       : '<${[
-          for (var i = 0; i < cls.typeParameters.length; ++i) ...[_parameterDeclaration(cls.typeParameters[i]), _objects[cls]!.inputs[i]],
+          for (var i = 0; i < cls.typeParameters.length; ++i) ...[_parameterDeclaration(cls.typeParameters[i], null, metadata), _objects[cls]!.inputs[i]],
         ].join(', ')}>';
 
   String _objectArguments(ExportClass cls) => cls.typeParameters.isEmpty
@@ -266,8 +269,12 @@ final class _Writer {
     }
   }
 
-  _Difference _requireDifference(ExportClass left, ExportClass right) {
-    final key = (left: left, right: right);
+  _Difference _requireDifference(
+    ExportClass left,
+    ExportClass right, {
+    bool inputOnly = false,
+  }) {
+    final key = (left: left, right: right, inputOnly: inputOnly);
     return _differences.putIfAbsent(key, () {
       _pendingDifferences.add(key);
       return _Difference();
@@ -303,6 +310,20 @@ final class _Writer {
       final difference = _differences[key]!;
       final output = key.left, input = key.right;
       final constructor = input.constructor;
+      if (key.inputOnly) {
+        if (constructor != null) {
+          for (final parameter in [
+            ...constructor.signature.positional,
+            ...constructor.signature.named,
+          ]) {
+            _collectShapeIdentity(parameter.type, false, difference);
+          }
+        }
+        for (final pair in difference.pairs.entries) {
+          difference.paths[pair.key] = [(node: key, pair: pair.value)];
+        }
+        continue;
+      }
       if (constructor == null) {
         difference.always = true;
         continue;
@@ -385,6 +406,7 @@ final class _Writer {
               _differences[(
                 left: edge.left.classExport!,
                 right: edge.right.classExport!,
+                inputOnly: edge.inputOnly,
               )]!;
           if (source.always) {
             difference.always = true;
@@ -447,6 +469,8 @@ final class _Writer {
   }) {
     if (result.always) return;
     void pair() {
+      _collectShapeIdentity(left, true, result, locals: locals);
+      _collectShapeIdentity(right, false, result, locals: locals);
       final value = _TypePair(left, right, locals: locals);
       result.pairs[_pairKey(value)] = value;
     }
@@ -594,6 +618,53 @@ final class _Writer {
     if (_typeKey(left) != _typeKey(right)) pair();
   }
 
+  void _collectShapeIdentity(
+    ExportType type,
+    bool output,
+    _Difference result, {
+    List<ExportTypeParameter> locals = const [],
+  }) {
+    if (output &&
+        type.kind == ValueKind.typeParameter &&
+        _classParameters.contains(type.parameter)) {
+      final pair = _TypePair(type, type, locals: locals);
+      result.pairs[_pairKey(pair)] = pair;
+      return;
+    }
+    if (type.kind == ValueKind.object) {
+      final cls = type.classExport!;
+      if (cls.isObject) {
+        _requireDifference(cls, cls, inputOnly: !output);
+        final edge = _TypePair(type, type, locals: locals, inputOnly: !output);
+        result.edges[_pairKey(edge)] = edge;
+      } else {
+        for (final argument in type.typeArguments) {
+          _collectShapeIdentity(argument, true, result, locals: locals);
+        }
+      }
+      return;
+    }
+    if (output &&
+        (type.kind == ValueKind.function || type.kind == ValueKind.future)) {
+      _collectDifference(type, type, result, locals: locals);
+      return;
+    }
+    if (type.signature case final signature?) {
+      final scope = [...locals, ...signature.typeParameters];
+      for (final parameter in signature.typeParameters) {
+        _collectShapeIdentity(parameter.bound, true, result, locals: scope);
+      }
+      for (final parameter in [...signature.positional, ...signature.named]) {
+        _collectShapeIdentity(parameter.type, !output, result, locals: scope);
+      }
+      _collectShapeIdentity(signature.result, output, result, locals: scope);
+      return;
+    }
+    for (final child in _typeChildren(type)) {
+      _collectShapeIdentity(child, output, result, locals: locals);
+    }
+  }
+
   String? _scalarKey(ExportType type) => switch (type.kind) {
     ValueKind.integer || ValueKind.doubleValue || ValueKind.number => 'number',
     ValueKind.boolean ||
@@ -629,6 +700,8 @@ final class _Writer {
         if (_knownRepresentationDifference(branch.type, right)) {
           result.always = true;
         } else {
+          _collectShapeIdentity(branch.type, true, result, locals: locals);
+          _collectShapeIdentity(right, false, result, locals: locals);
           final value = _TypePair(
             branch.type,
             right,
@@ -1080,7 +1153,7 @@ final class _Writer {
     final locals = {
       for (var i = 0; i < parameters.length; ++i) parameters[i]: i,
     };
-    return '${pair.awaitLeft}:${parameters.map((p) => _typeKey(p.bound, locals)).join(',')};'
+    return '${pair.awaitLeft}:${pair.inputOnly}:${parameters.map((p) => _typeKey(p.bound, locals)).join(',')};'
         '${_typeKey(pair.left, locals)}|${_typeKey(pair.right, locals)}';
   }
 
@@ -1380,8 +1453,9 @@ final class _Writer {
     return '[${conditions.join(', ')}] extends true[] ? true : false';
   }
 
-  String _condition(ExportClass cls) =>
-      _differenceCondition(_differences[(left: cls, right: cls)]!);
+  String _condition(ExportClass cls) => _differenceCondition(
+    _differences[(left: cls, right: cls, inputOnly: false)]!,
+  );
 
   String _functionCondition(ExportType type) {
     // Schema leaves avoid asking TypeScript to compare a recursive signature.
@@ -1398,6 +1472,7 @@ final class _Writer {
           _differences[(
             left: edge.left.classExport!,
             right: edge.right.classExport!,
+            inputOnly: edge.inputOnly,
           )]!;
       if (source.always) return 'false';
       final arguments = _edgeArguments(edge);
@@ -1620,6 +1695,38 @@ final class _Writer {
         '  : T extends object ? keyof T extends never ? T : object & { [K in keyof T]: $_inputOf<T[K]> } : T;',
       );
     }
+    final emitted = <({ExportClass cls, bool output})>{};
+    while (emitted.length < _rawViews.length) {
+      for (final view in _rawViews.toList()) {
+        if (!emitted.add(view)) continue;
+        final cls = view.cls;
+        _withObjectParameters(cls, () {
+          final names = _rawObjects[cls]!;
+          final name = view.output ? names.output : names.input;
+          output.writeln(
+            'type $name${_objectParameters(cls, metadata: false)} = object & {',
+          );
+          if (view.output) {
+            for (final property in cls.properties) {
+              output.writeln(
+                '  ${jsonEncode(property.name)}: ${_type(property.readType!, metadata: false)};',
+              );
+            }
+          } else {
+            final signature = cls.constructor!.signature;
+            for (final parameter in [
+              ...signature.positional,
+              ...signature.named,
+            ]) {
+              output.writeln(
+                '  ${jsonEncode(parameter.name)}${parameter.required ? '' : '?'}: ${_type(parameter.type, output: false, metadata: false)};',
+              );
+            }
+          }
+          output.writeln('};');
+        });
+      }
+    }
     if (!commonJsObject) output.writeln('export {};');
     return output.toString();
   }
@@ -1811,6 +1918,20 @@ final class _Writer {
           input: _type(argument, output: false, metadata: metadata),
         ),
     ];
+    if (!metadata) {
+      final names = _rawObjects.putIfAbsent(
+        cls,
+        () => (
+          output: _unique('_NapiObjectShape${_rawObjects.length}'),
+          input: _unique('_NapiObjectInputShape${_rawObjects.length}'),
+        ),
+      );
+      _rawViews.add((cls: cls, output: output));
+      final name = output ? names.output : names.input;
+      return '$name${pairs.isEmpty ? '' : '<${[
+              for (final pair in pairs) ...[pair.output, pair.input],
+            ].join(', ')}>'}';
+    }
     final template = !output || type.typeArguments.any(_containsParameter);
     if (!template) {
       return '${cls.name}${pairs.isEmpty ? '' : '<${pairs.map((pair) => pair.output).join(', ')}>'}';
@@ -1978,7 +2099,7 @@ final class _Writer {
 }
 
 typedef _AwaitedBranch = ({ExportType type, bool resolve});
-typedef _ObjectPair = ({ExportClass left, ExportClass right});
+typedef _ObjectPair = ({ExportClass left, ExportClass right, bool inputOnly});
 
 final class _TypePair {
   const _TypePair(
@@ -1986,11 +2107,13 @@ final class _TypePair {
     this.right, {
     this.locals = const [],
     this.awaitLeft = false,
+    this.inputOnly = false,
   });
   final ExportType left;
   final ExportType right;
   final List<ExportTypeParameter> locals;
   final bool awaitLeft;
+  final bool inputOnly;
 }
 
 final class _Difference {

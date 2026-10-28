@@ -141,6 +141,13 @@ module.exports = async function verifyAnnotatedGenericObjects(path) {
   assert.equal(addon.nativeNextMatches({ next: nativeValue }, nativeValue), true);
   assert.equal(addon.nativeNextMatches({ next: nativeValue }, new addon.NativeValue()), false);
   assert.throws(() => addon.nativeNextMatches({ next: {} }, nativeValue), TypeError);
+  assert.equal(addon.genericNextUsesSelf({ next: 7 }), true);
+  assert.equal(addon.genericNextInput({ next: 7 }), 7);
+  assert.equal(addon.genericNextUsesSelf({ next: object }), true);
+  assert.equal(addon.genericNextInput({ next: object }), object);
+  const genericLoop = {};
+  genericLoop.next = genericLoop;
+  assert.equal(addon.genericNextInput({ next: genericLoop }), genericLoop);
   let functionNextCalls = 0;
   assert.equal(addon.functionNextUsesSelf({ next: () => { functionNextCalls++; } }), true);
   assert.equal(functionNextCalls, 1);
