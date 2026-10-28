@@ -465,6 +465,8 @@ Future<void> main(List<String> args) async {
           'Stream<int>',
           'List<Stream<int>>',
           'Future<Future<int>>',
+          'T Function<T>(T)',
+          'Stream<int> Function()',
         ])
           (
             '@NAPI() class Box<T> { @NAPI() Box(this.value); @NAPI() T value; } '

@@ -558,7 +558,7 @@ result against the actual type argument, including a narrower subclass.
 Bounds that copy values, such as `List<int>` or data classes, produce a build error.
 
 Dart can return concrete bound classes with scalar values, JS references,
-enums, dates, binary types, collections, records and Futures. Their
+enums, dates, binary types, collections, records, Futures and callbacks. Their
 members use those types for conversion and validation:
 
 ```dart
@@ -598,10 +598,27 @@ box.value = values;     // stores a Dart list containing [1, 2, 3]
 Generic helpers still use default Dart type arguments. To convert a collection
 extracted from a box, declare the concrete type, for example
 `List<int> readNumbers(Box<List<int>> box) => box.value`.
-Data-class, function and Stream arguments such as `Box<Amount>`,
-`Box<int Function(int)>` and `Box<Stream<int>>` are not yet supported. Directly
-nested Futures such as `Box<Future<Future<int>>>`, and nested arguments depending
-on erased parameters such as `Box<List<T>>`, are also unsupported.
+
+Typed callbacks can also be stored and replaced:
+
+```dart
+@NAPI()
+Box<int Function(int)> transform() => Box((value) => value + 1);
+```
+
+```js
+const box = transform();
+box.value(2);                // 3
+box.value = value => value * 2;
+```
+
+Callback arguments and results use the same conversions as ordinary callback
+fields, including optional and named parameters and Future results. Callbacks
+that declare their own type parameters are not yet supported as class arguments.
+Data-class and Stream arguments such as `Box<Amount>` and `Box<Stream<int>>`
+remain unsupported, including inside callback signatures. Directly nested
+Futures such as `Box<Future<Future<int>>>`, and nested arguments depending on
+erased parameters such as `Box<List<T>>`, are also unsupported.
 
 ## Functions and callbacks
 
@@ -633,6 +650,10 @@ JS function. Different function types receive separate adapters. Collecting the
 JS function releases its Dart closure and captured values. Optional arguments
 keep the actual Dart function's defaults and distinguish omission from `null`
 and `undefined`.
+
+In TypeScript, use a rest parameter such as `(...args) => args[0]` when a
+callback ignores optional positional arguments. The current declarations reject
+a shorter fixed-arity callback in that position.
 
 Arguments and results use the same conversions as other annotated functions,
 including nested collections and exported classes.

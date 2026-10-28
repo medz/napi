@@ -54,6 +54,30 @@ const doneValue: Promise<void> = addon.doneBox().value;
 addon.futureBox().value = Promise.resolve([3]);
 const previousFuture: Promise<number[]> = addon.futureBox().replace(Promise.resolve([4]));
 addon.doneBox().value = Promise.resolve();
+const callbacks: addon.Box<(value: number) => number> = addon.callbackBox();
+const callbackResult: number = callbacks.value(1);
+const constructedCallbacks = new addon.NamedCallbackBox(({value}) => value.toFixed());
+const constructedCallbackResult: string = constructedCallbacks.call(1);
+callbacks.value = value => value + 1;
+const previousCallback: (value: number) => number = callbacks.replace(value => value + 2);
+const namedCallbackResult: number = addon.namedCallbackBox().value({value: 1});
+addon.namedCallbackBox().value = ({value}) => value + 1;
+const optionalCallback = addon.optionalCallbackBox().value;
+optionalCallback(1);
+optionalCallback(1, null);
+optionalCallback(1, 2);
+const asyncCallbackResult: Promise<number[]> = addon.asyncCallbackBox().value([1, 2]);
+addon.asyncCallbackBox().value = async values => [...values, 3];
+const nullableCallbackResult: number | undefined = addon.nullableCallbackBox().value?.(1);
+addon.nullableCallbackBox().value = null;
+const callbackListResult: number = addon.callbackListBox().value[0](1);
+const eventResult: void = addon.eventBox().value();
+// @ts-expect-error Callback results retain their scalar type.
+callbacks.value = () => 'wrong';
+// @ts-expect-error The callback requires its named argument.
+addon.namedCallbackBox().value({});
+// @ts-expect-error Omission is distinct from explicit undefined.
+optionalCallback(1, undefined);
 // @ts-expect-error Promise elements retain the concrete nested scalar type.
 addon.futureBox().value = Promise.resolve(['wrong']);
 // @ts-expect-error A timestamp's numeric representation is not a Date input.

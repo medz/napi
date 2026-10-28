@@ -210,6 +210,61 @@ Box<Future<List<int>>> futureBox() =>
 @NAPI()
 Box<Future<void>> doneBox() => Box(Future<void>.value());
 
+@NAPI()
+class CallbackBox<T> extends Box<T Function(num, [int?])> {
+  @NAPI()
+  CallbackBox(super.value);
+
+  @NAPI()
+  T call(int argument) => value(argument);
+}
+
+@NAPI()
+Box<int Function(int)> callbackBox() =>
+    CallbackBox<int>((value, [step = 1]) => value.toInt() + (step ?? 0));
+
+@NAPI()
+class NamedCallbackBox<T>
+    extends Box<T Function({required num value, int? step})> {
+  @NAPI()
+  NamedCallbackBox(super.value);
+
+  @NAPI()
+  T call(int argument) => value(value: argument);
+}
+
+@NAPI()
+Box<int Function({required int value})> namedCallbackBox() =>
+    NamedCallbackBox<int>(
+      ({required value, step = 1}) => value.toInt() + (step ?? 0),
+    );
+
+@NAPI()
+Box<int Function(int, [int?])> optionalCallbackBox() =>
+    Box((value, [step = 5]) => value + (step ?? 0));
+
+@NAPI()
+Box<Future<List<int>> Function(List<int>)> asyncCallbackBox() =>
+    Box((values) async => [...values, 3]);
+
+@NAPI()
+Future<List<int>> callAsyncCallback(
+  Box<Future<List<int>> Function(List<int>)> box,
+  List<int> values,
+) => box.value(values);
+
+@NAPI()
+Box<int Function(int)?> nullableCallbackBox() => Box(null);
+
+@NAPI()
+Box<List<int Function(int)>> callbackListBox() => Box([(value) => value + 1]);
+
+@NAPI()
+Box<void Function()> eventBox() => Box(() {});
+
+@NAPI()
+void callEvent(Box<void Function()> box) => box.value();
+
 typedef IntBoxIdentity = T Function<T extends Box<int>>(T value);
 
 @NAPI()
