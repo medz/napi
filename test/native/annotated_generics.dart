@@ -1,3 +1,4 @@
+import 'package:napi/env.dart';
 import 'package:napi/napi.dart';
 
 @NAPI()
@@ -77,3 +78,90 @@ class GenericNumericChild<U extends num> extends Base<U> {
   @NAPI()
   GenericNumericChild();
 }
+
+@NAPI()
+class Counter {
+  @NAPI()
+  Counter(this.value);
+
+  @NAPI()
+  int value;
+}
+
+@NAPI()
+class SpecialCounter extends Counter {
+  @NAPI()
+  SpecialCounter(super.value);
+
+  @NAPI()
+  String get label => 'special';
+}
+
+@NAPI()
+T boundIdentity<T extends Counter>(T value) => value;
+
+@NAPI()
+T nullableBound<T extends Counter?>(T value) => value;
+
+@NAPI()
+class CounterBox<T extends Counter> {
+  @NAPI()
+  CounterBox(this.value);
+
+  @NAPI()
+  T value;
+
+  @NAPI()
+  U echo<U extends T>(U value) => value;
+}
+
+typedef CounterIdentity = T Function<T extends Counter>(T value);
+typedef NullableCounterIdentity = T Function<T extends Counter?>(T value);
+
+@NAPI()
+bool boundCallback(SpecialCounter value, CounterIdentity callback) =>
+    identical(callback<SpecialCounter>(value), value);
+
+@NAPI()
+CounterIdentity boundFunction() => boundIdentity;
+
+@NAPI()
+CounterIdentity returnBoundCallback(CounterIdentity callback) => callback;
+
+@NAPI()
+bool nullableBoundCallback(NullableCounterIdentity callback) =>
+    callback<Counter?>(null) == null;
+
+@NAPI.object()
+class BoundHandler<T> {
+  @NAPI()
+  BoundHandler({required this.run});
+
+  @NAPI()
+  final U Function<U extends T>(U) run;
+}
+
+@NAPI()
+bool handleCounter(BoundHandler<Counter> handler, SpecialCounter value) =>
+    identical(handler.run<SpecialCounter>(value), value);
+
+@NAPI()
+bool handleNullableCounter(BoundHandler<Counter?> handler, Counter? value) =>
+    identical(handler.run<Counter?>(value), value);
+
+@NAPI()
+BoundHandler<Counter> counterHandler() => BoundHandler(run: boundIdentity);
+
+@NAPI()
+Future<SpecialCounter> asyncBoundCallback(
+  SpecialCounter value,
+  Future<T> Function<T extends Counter>(T) callback,
+) => callback<SpecialCounter>(value);
+
+@NAPI()
+void registerObject(Env env) {
+  env.defineClass<Object>('ObjectWrapper', constructor: (_) => Object());
+}
+
+@NAPI()
+BoundHandler<Object> objectHandler() => BoundHandler(run: nonNull);
