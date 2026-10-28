@@ -674,10 +674,11 @@ it as `Box<Amount>`. Symmetric types such as `Box<number>` work the same way for
 both origins. A `Box<Stream<T>>` accepts an async iterable and returns an async
 iterator with the existing Stream cancellation behavior.
 
-Generic helpers still use their default Dart type arguments. When a helper can
-return either an input box or a newly constructed box, its inferred result
-allows only writes supported by both. Use a concrete return type such as
-`Box<Amount>` when the helper requires Amount conversion.
+When no bound-instance argument selects a type parameter, generic helpers use
+their default Dart type arguments. If such a helper can return either an input
+box or a newly constructed box, its inferred result allows only writes supported
+by both. Pass a bound instance such as a `Box<Amount>`, or use a concrete return
+type, when the helper requires Amount conversion.
 
 Directly nested Futures such as `Box<Future<Future<int>>>`, and nested arguments
 depending on erased parameters such as `Box<List<T>>`, remain unsupported.
