@@ -887,7 +887,7 @@ final class _Writer {
             rightPrimitive != null &&
             leftPrimitive != rightPrimitive ||
         left.kind != right.kind && leftArray == true && rightArray == true ||
-        _plainObjectInstanceDifference(left, right) ||
+        _plainObjectBuiltinDifference(left, right) ||
         left.kind == ValueKind.function &&
             right.kind == ValueKind.jsReference &&
             right.referenceKind == JsReferenceKind.function ||
@@ -898,26 +898,30 @@ final class _Writer {
         _rawObjectDifference(left, right);
   }
 
-  bool _plainObjectInstanceDifference(ExportType left, ExportType right) {
+  bool _plainObjectBuiltinDifference(ExportType left, ExportType right) {
     bool plain(ExportType type) => switch (type.kind) {
       ValueKind.object => type.classExport!.isObject,
       ValueKind.map => true,
       ValueKind.record => type.recordFields!.named.isNotEmpty,
       _ => false,
     };
-    bool instance(ExportType type) => switch (type.kind) {
-      ValueKind.dateTime ||
-      ValueKind.set ||
-      ValueKind.byteBuffer ||
-      ValueKind.byteData ||
-      ValueKind.typedData ||
-      ValueKind.simd ||
-      ValueKind.simdList ||
-      ValueKind.future => true,
-      _ => false,
-    };
-    return plain(left) && instance(right) || instance(left) && plain(right);
+    return plain(left) && _isBuiltinObject(right) ||
+        _isBuiltinObject(left) && plain(right);
   }
+
+  // These interfaces require built-in brands or symbol-keyed members.
+  bool _isBuiltinObject(ExportType type) => switch (type.kind) {
+    ValueKind.dateTime ||
+    ValueKind.set ||
+    ValueKind.byteBuffer ||
+    ValueKind.byteData ||
+    ValueKind.typedData ||
+    ValueKind.simd ||
+    ValueKind.simdList ||
+    ValueKind.future ||
+    ValueKind.stream => true,
+    _ => false,
+  };
 
   bool _mapObjectDifference(ExportType left, ExportType right) {
     if (right.kind == ValueKind.map) {
@@ -939,6 +943,7 @@ final class _Writer {
     if (!rawLeft && !rawRight) return false;
     final type = rawLeft ? right : left;
     if (_isJsArray(type) == true ||
+        _isBuiltinObject(type) ||
         type.kind == ValueKind.function ||
         type.kind == ValueKind.jsReference &&
             type.referenceKind == JsReferenceKind.function) {

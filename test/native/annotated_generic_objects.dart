@@ -165,6 +165,26 @@ class DateNext {
 }
 
 @NAPI.object()
+class StreamNext {
+  @NAPI()
+  // ignore: prefer_initializing_formals
+  StreamNext({required Stream<int> next}) : _next = next;
+
+  final Stream<int> _next;
+  @NAPI()
+  StreamNext get next => this;
+}
+
+@NAPI.object()
+class RawStreamNext {
+  @NAPI()
+  RawStreamNext({required JsReference<JsObject> next});
+
+  @NAPI()
+  Stream<RawStreamNext> get next => const Stream.empty();
+}
+
+@NAPI.object()
 class FunctionNext {
   @NAPI()
   FunctionNext({required void Function() next}) {
@@ -730,6 +750,13 @@ bool mapNextMatches(MapNext value, int expected) =>
 @NAPI()
 bool dateNextMatches(DateNext value, int expected) =>
     value._milliseconds == expected && identical(value.next, value);
+
+@NAPI()
+Future<bool> streamNextMatches(StreamNext value, int expected) async =>
+    await value._next.first == expected && identical(value.next, value);
+
+@NAPI()
+RawStreamNext echoRawStreamNext(RawStreamNext value) => value;
 
 @NAPI()
 bool functionNextUsesSelf(FunctionNext value) => identical(value.next, value);

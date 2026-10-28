@@ -20,7 +20,7 @@
     },
     "frontend.aot": {
       "size": 9454472,
-      "sha256": "a787e9afc2b8c9679f8e7cce6e67073a92f0954ec44e01b38922ea72cf39db0f"
+      "sha256": "21a7e54c5cb9d5f5cb69d916d42fe5ba9d1aa1c4206f100b8ebebcfef892f5d0"
     },
     "frontend.dylib": {
       "size": 4607312,

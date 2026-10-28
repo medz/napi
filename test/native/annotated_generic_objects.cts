@@ -113,6 +113,17 @@ const dateNextChild: addon.DateNext = dateNext.next;
 const dateNextMatches: boolean = addon.dateNextMatches({ next: new Date(7) }, 7);
 // @ts-expect-error The Date input differs from the recursive data output.
 const forgedDateNext: addon.DateNext = { next: dateNext };
+declare const streamNext: addon.StreamNext;
+const streamNextChild: addon.StreamNext = streamNext.next;
+const streamNextMatches: Promise<boolean> = addon.streamNextMatches({
+  next: (async function* () { yield 7; })(),
+}, 7);
+// @ts-expect-error AsyncIterable input differs from the recursive data output.
+const forgedStreamNext: addon.StreamNext = { next: streamNext };
+const rawStreamNext: addon.RawStreamNext = addon.echoRawStreamNext({ next: {} });
+const rawStreamValues: AsyncIterable<addon.RawStreamNext> = rawStreamNext.next;
+// @ts-expect-error Raw object input does not describe the output's AsyncIterable.
+const forgedRawStreamNext: addon.RawStreamNext = { next: (async function* () {})() };
 declare const functionNext: addon.FunctionNext;
 const functionNextChild: addon.FunctionNext = functionNext.next;
 const functionNextUsesSelf: boolean = addon.functionNextUsesSelf({ next: () => {} });

@@ -130,6 +130,13 @@ module.exports = async function verifyAnnotatedGenericObjects(path) {
   assert.equal(addon.mapNextMatches({ next: { value: 7 } }, 8), false);
   assert.equal(addon.dateNextMatches({ next: new Date(7) }, 7), true);
   assert.equal(addon.dateNextMatches({ next: new Date(7) }, 8), false);
+  async function* streamNextValues() { yield 7; }
+  assert.equal(await addon.streamNextMatches({ next: streamNextValues() }, 7), true);
+  assert.equal(await addon.streamNextMatches({ next: streamNextValues() }, 8), false);
+  const rawStreamNext = addon.echoRawStreamNext({ next: {} });
+  const rawStreamValues = [];
+  for await (const value of rawStreamNext.next) rawStreamValues.push(value);
+  assert.deepEqual(rawStreamValues, []);
   let functionNextCalls = 0;
   assert.equal(addon.functionNextUsesSelf({ next: () => { functionNextCalls++; } }), true);
   assert.equal(functionNextCalls, 1);
