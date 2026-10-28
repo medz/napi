@@ -314,7 +314,13 @@ module.exports = async function verifyAnnotatedGenerics(path, packageDirectory) 
   boundCallbacks.value = () => ({value: 1});
   assert.throws(() => addon.callBoundCallback(boundCallbacks, nextCounter), TypeError);
   assert.equal(await addon.boundFutureBox().value, originalCounter);
+  assert.equal(originalCounter.then, 42);
+  const hiddenThen = await addon.hiddenThenFutureBox().value;
+  assert.ok(hiddenThen instanceof addon.HiddenThenCounter);
+  assert.equal(hiddenThen.value, 11);
+  assert.equal(hiddenThen.then, undefined);
   const tag = await addon.taggedFutureBox().value;
+  assert.ok(tag instanceof addon.NumericTag);
   assert(tag instanceof addon.Tag);
   assert.equal(tag.then, 42);
   const copied = addon.copyList(array);

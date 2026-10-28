@@ -625,7 +625,8 @@ remain unsupported, including inside callback signatures. Directly nested
 Futures such as `Box<Future<Future<int>>>`, and nested arguments depending on
 erased parameters such as `Box<List<T>>`, are also unsupported. Future arguments
 whose values have a callable `then` are rejected because Promise resolution
-changes their output shape.
+changes their output shape. This check includes exported subclasses, even when
+the declared base class has no `then` member.
 
 ## Functions and callbacks
 
