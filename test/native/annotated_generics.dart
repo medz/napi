@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:napi/env.dart';
 import 'package:napi/napi.dart';
 
@@ -171,6 +173,50 @@ Box<List<int>?> nullableListBox() => Box(null);
 Box<List<JsReference<JsObject>>> referenceListBox(
   List<JsReference<JsObject>> values,
 ) => Box(values);
+
+@NAPI()
+Box<DateTime> dateBox() => Box(DateTime.fromMillisecondsSinceEpoch(1000));
+
+@NAPI()
+Box<Uint8List> bytesBox() => Box(Uint8List.fromList([1, 2]));
+
+@NAPI()
+Box<ByteData> dataBox() => Box(ByteData(4)..setInt32(0, 42, Endian.little));
+
+@NAPI()
+Box<Float32x4> vectorBox() => Box(Float32x4(1, 2, 3, 4));
+
+@NAPI()
+enum Stage {
+  @NAPI()
+  pending,
+  @NAPI()
+  done,
+}
+
+@NAPI()
+Box<Stage> stageBox() => Box(Stage.pending);
+
+@NAPI()
+class FutureBox<T> extends Box<Future<T>> {
+  @NAPI()
+  FutureBox(super.value);
+}
+
+@NAPI()
+Box<Future<List<int>>> futureBox() =>
+    FutureBox<List<int>>(Future.value([1, 2]));
+
+@NAPI()
+Box<Future<void>> doneBox() => Box(Future<void>.value());
+
+@NAPI()
+Box<Stream<List<int>>> streamBox() => Box(
+  Stream.fromIterable([
+    [1],
+    [2],
+  ]),
+);
 
 typedef IntBoxIdentity = T Function<T extends Box<int>>(T value);
 

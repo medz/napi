@@ -557,9 +557,9 @@ callbacks with a class bound receive the ordinary JS instance; Dart checks their
 result against the actual type argument, including a narrower subclass.
 Bounds that copy values, such as `List<int>` or data classes, produce a build error.
 
-Dart can return concrete bound classes with scalars, `JsReference` types, and
-Lists, Maps, Sets or records containing them. Their members use those types for
-conversion and validation:
+Dart can return concrete bound classes with scalar values, JS references,
+enums, dates, binary types, collections, records, Futures and Streams. Their
+members use those types for conversion and validation:
 
 ```dart
 @NAPI()
@@ -598,8 +598,9 @@ box.value = values;     // stores a Dart list containing [1, 2, 3]
 Generic helpers still use default Dart type arguments. To convert a collection
 extracted from a box, declare the concrete type, for example
 `List<int> readNumbers(Box<List<int>> box) => box.value`.
-Data-class arguments such as `Box<Amount>`, and nested arguments depending on
-erased parameters such as `Box<List<T>>`, are not yet supported.
+Data-class and function arguments such as `Box<Amount>` or
+`Box<int Function(int)>`, and nested arguments depending on erased parameters
+such as `Box<List<T>>`, are not yet supported.
 
 ## Functions and callbacks
 

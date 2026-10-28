@@ -459,7 +459,7 @@ Future<void> main(List<String> args) async {
           '@NAPI() class Box<T> { @NAPI() Box(this.value); @NAPI() T value; } '
               '@NAPI.object() class Point { @NAPI() Point({required this.x}); @NAPI() final int x; } '
               '@NAPI() List<Point> consume(Box<List<Point>> value) => value.value;',
-          'concrete bound-class arguments currently support scalars, JsReference types, and collections or records of those types',
+          'unsupported concrete bound-class argument',
         ),
         (
           '@NAPI() class Box<T> { @NAPI() Box(this.value); T value; '

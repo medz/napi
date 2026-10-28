@@ -313,6 +313,16 @@ final class _Reader {
 
   static bool _classArgument(ExportType type) => switch (type.kind) {
     ValueKind.typeParameter => _classArgument(type.representation!),
+    ValueKind.enumeration ||
+    ValueKind.dateTime ||
+    ValueKind.typedData ||
+    ValueKind.byteBuffer ||
+    ValueKind.byteData ||
+    ValueKind.simd ||
+    ValueKind.simdList => true,
+    ValueKind.future || ValueKind.stream =>
+      type.element!.kind == ValueKind.voidValue ||
+          _classArgument(type.element!),
     ValueKind.list ||
     ValueKind.map ||
     ValueKind.set => _classArgument(type.element!),
@@ -1753,7 +1763,7 @@ final class _Reader {
             for (final argument in arguments) {
               if (!_classArgument(argument)) {
                 throw FormatException(
-                  '@NAPI $context: concrete bound-class arguments currently support scalars, JsReference types, and collections or records of those types: ${argument.dartType}.',
+                  '@NAPI $context: unsupported concrete bound-class argument: ${argument.dartType}.',
                 );
               }
             }
