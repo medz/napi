@@ -66,6 +66,16 @@ module.exports = async function verifyAnnotatedGenerics(path, packageDirectory) 
   assert.equal(addon.readBox(textBox), textBox.value);
   textBox.value = null;
   assert.throws(() => { textBox.value = undefined; }, TypeError);
+  // Object? and dynamic are equivalent runtime views, not an ambiguity.
+  const anyBox = addon.anyBox();
+  assert.equal(anyBox.value, null);
+  assert.equal(anyBox.replace(object), null);
+  assert.equal(anyBox.value, object);
+  assert.equal(addon.readBox(anyBox), object);
+  anyBox.value = undefined;
+  assert.equal(anyBox.value, undefined);
+  assert.equal(anyBox.replace(42), undefined);
+  assert.deepEqual(anyBox.items, [42]);
   const bigBox = addon.bigIntBox();
   assert.equal(bigBox.value, 1n << 100n);
   assert.equal(bigBox.replace(-(1n << 100n)), 1n << 100n);

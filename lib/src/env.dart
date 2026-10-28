@@ -296,12 +296,19 @@ final class _BoundObject {
         ))
           view,
     ];
-    if (closest.length > 1) {
+    final selected = closest.firstOrNull;
+    if (selected != null &&
+        closest
+            .skip(1)
+            .any(
+              (view) =>
+                  !view.isSubtypeOf(selected) || !selected.isSubtypeOf(view),
+            )) {
       throw StateError(
         'Dart object matches incompatible class specializations: ${closest.map((view) => view.type).join(', ')}',
       );
     }
-    return closest.firstOrNull?.members;
+    return selected?.members;
   }
 
   _ClassSpecialization? specialization(_ClassDefinition contract) {

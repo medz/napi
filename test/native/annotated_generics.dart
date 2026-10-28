@@ -68,6 +68,9 @@ T readBox<T>(Box<T> value) => value.value;
 Box<String?> textBox() => Box<String?>(null);
 
 @NAPI()
+Box<Object?> anyBox() => Box<Object?>(null);
+
+@NAPI()
 Box<BigInt> bigIntBox() => Box(BigInt.one << 100);
 
 @NAPI()
