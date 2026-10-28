@@ -112,7 +112,8 @@ factoryRawAmount.value = amount;
 wrappedRawAmount.value = amount;
 const echoedAmount = addon.echoBox(rawAmount);
 echoedAmount.value = amount;
-const reboxedAmount = addon.rebox(amounts, amount);
+const reboxedAmount: addon.Box<addon.Amount> = addon.rebox(amounts, {value: '42'});
+reboxedAmount.value = {value: '43'};
 const reboxedAmountValue: addon.Amount = reboxedAmount.value;
 const reboxedRaw = addon.rebox(rawAmount, rawAmount.value);
 reboxedRaw.value = amount;
@@ -186,11 +187,7 @@ addon.amountCallbackBox().value = value => value;
 const wrongAmountPair: addon.Box<[addon.Amount, addon.Amount]> = rawAmountPair;
 // @ts-expect-error Widening one tuple position cannot erase another position's conversion.
 const wrongWideAmountPair: addon.Box<[addon.Amount, unknown]> = rawAmountPair;
-// @ts-expect-error A class parameter does not prove how a generic function creates its result.
-const wrongReboxed: addon.Box<addon.Amount> = reboxedAmount;
-// @ts-expect-error The generic result may store its values opaquely.
-reboxedAmount.value = {value: '42'};
-// @ts-expect-error The generic result may instead preserve the native box's conversion.
+// @ts-expect-error Reified Amount inputs use the Dart constructor's shape.
 reboxedAmount.value = amount;
 // @ts-expect-error Nested class inputs can preserve native conversion.
 pickedAmount.value = amount;

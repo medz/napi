@@ -120,6 +120,7 @@ final class _Writer {
   final _parameterModes = <ExportTypeParameter, String>{};
   final _opaqueParameters = <ExportTypeParameter>{};
   final _mixedParameters = <ExportTypeParameter>{};
+  final _instanceParameters = <ExportTypeParameter>{};
   late final String _inputKey;
   late final String _inputOf;
   late final String _same;
@@ -426,10 +427,16 @@ final class _Writer {
     }
     final saved = {..._opaqueParameters};
     final savedMixed = {..._mixedParameters};
-    _mixedParameters.addAll(signature.typeParameters.where(sources.contains));
+    _mixedParameters.addAll(
+      signature.typeParameters.where(
+        (parameter) => !parameter.fromClass && sources.contains(parameter),
+      ),
+    );
     _opaqueParameters.addAll(
       signature.typeParameters.where(
-        (parameter) => !sources.contains(parameter),
+        (parameter) =>
+            !_instanceParameters.contains(parameter) &&
+            (parameter.fromClass || !sources.contains(parameter)),
       ),
     );
     try {
@@ -442,6 +449,172 @@ final class _Writer {
         ..clear()
         ..addAll(savedMixed);
     }
+  }
+
+  Iterable<String> _functionSignatures(ExportFunction function) sync* {
+    final signature = function.signature;
+    final generics = _generics(signature.typeParameters, defaults: false);
+    final anchors = function.classParameters;
+    if (anchors.isEmpty) {
+      yield '$generics(${_parameters(signature)}): ${_functionResult(function)}';
+      return;
+    }
+    Set<ExportTypeParameter> arguments(ExportParameter parameter) => {
+      for (final argument in parameter.type.typeArguments)
+        if (argument.parameter?.fromClass == true && !argument.nullable)
+          argument.parameter!,
+    };
+
+    final inference = <ExportParameter, Set<ExportTypeParameter>>{};
+    final active = <ExportTypeParameter>{};
+    for (final anchor in anchors) {
+      if (!anchor.required || anchor.type.nullable) continue;
+      inference[anchor] = arguments(anchor).difference(active);
+      active.addAll(arguments(anchor));
+    }
+    final optional = anchors
+        .where((anchor) => !anchor.required || anchor.type.nullable)
+        .toList();
+    final presence = <ExportParameter, bool>{};
+    String render([Set<ExportTypeParameter> uncertain = const {}]) {
+      final savedTypes = {..._parameterTypes};
+      final savedInstances = {..._instanceParameters};
+      final savedModes = {..._parameterModes};
+      _instanceParameters.addAll(active);
+      for (final parameter in active) {
+        final name = _parameterNames[parameter]!;
+        _parameterTypes[parameter] = (
+          output: 'globalThis.NoInfer<$name>',
+          input: 'globalThis.NoInfer<$_inputOf<$name>>',
+        );
+      }
+      void defaults(ExportTypeParameter parameter) {
+        if (!parameter.fromClass || _parameterTypes.containsKey(parameter)) {
+          return;
+        }
+        final parent = parameter.bound.parameter;
+        if (parent == null) return;
+        defaults(parent);
+        if (!_parameterTypes.containsKey(parent)) return;
+        _parameterTypes[parameter] = (
+          output: _type(parameter.bound),
+          input: _type(parameter.bound, output: false),
+        );
+        _instanceParameters.add(parameter);
+      }
+
+      final pending = {...uncertain};
+      void conditional(ExportTypeParameter parameter) {
+        if (!pending.remove(parameter)) return;
+        final parent = parameter.bound.parameter;
+        if (parent != null) {
+          conditional(parent);
+          defaults(parent);
+        }
+        final name = _parameterNames[parameter]!;
+        final value = 'globalThis.NoInfer<$name>';
+        final dependent = parent != null && _parameterTypes.containsKey(parent);
+        final fallbackOutput = dependent ? _type(parameter.bound) : value;
+        final fallbackInput = dependent
+            ? _type(parameter.bound, output: false)
+            : value;
+        final fallbackMode = dependent
+            ? _typeMode(parameter.bound)
+            : '$_mode<$_opaque<$name>>';
+        _parameterTypes[parameter] = (
+          output: fallbackOutput == value
+              ? value
+              : '($value | $fallbackOutput)',
+          input: 'globalThis.NoInfer<$_inputOf<$name> & ($fallbackInput)>',
+        );
+        _parameterModes[parameter] = '$_mode<$name> | $fallbackMode';
+      }
+
+      uncertain.forEach(conditional);
+      signature.typeParameters.forEach(defaults);
+      String parameterType(ExportParameter parameter) {
+        final supplied = presence[parameter];
+        if (supplied == false) {
+          return parameter.type.nullable ? 'null' : 'never';
+        }
+        final saved = {..._parameterTypes};
+        final savedModes = {..._parameterModes};
+        for (final argument
+            in anchors.contains(parameter)
+                ? arguments(parameter).intersection(active)
+                : const <ExportTypeParameter>{}) {
+          final name = _parameterNames[argument]!;
+          _parameterTypes[argument] = (
+            output: inference[parameter]?.contains(argument) == true
+                ? name
+                : 'globalThis.NoInfer<$name>',
+            input: 'globalThis.NoInfer<$_inputOf<$name>>',
+          );
+          _parameterModes[argument] = 'globalThis.NoInfer<$_mode<$name>>';
+        }
+        try {
+          return _type(
+            supplied == true
+                ? _copyType(parameter.type, nullable: false)
+                : parameter.type,
+            output: false,
+          );
+        } finally {
+          _parameterTypes
+            ..clear()
+            ..addAll(saved);
+          _parameterModes
+            ..clear()
+            ..addAll(savedModes);
+        }
+      }
+
+      try {
+        return '$generics(${_parameters(signature, presence: presence, parameterType: parameterType)}): ${_functionResult(function)}';
+      } finally {
+        _parameterTypes
+          ..clear()
+          ..addAll(savedTypes);
+        _instanceParameters
+          ..clear()
+          ..addAll(savedInstances);
+        _parameterModes
+          ..clear()
+          ..addAll(savedModes);
+      }
+    }
+
+    Iterable<String> variants(int index) sync* {
+      if (index < optional.length) {
+        final anchor = optional[index];
+        final added = arguments(anchor).difference(active);
+        if (added.isEmpty) {
+          yield* variants(index + 1);
+          return;
+        }
+        active.addAll(added);
+        inference[anchor] = added;
+        presence[anchor] = true;
+        yield* variants(index + 1);
+        active.removeAll(added);
+        inference.remove(anchor);
+        presence[anchor] = false;
+        yield* variants(index + 1);
+        presence.remove(anchor);
+        return;
+      }
+      yield render();
+    }
+
+    yield* variants(0);
+    final uncertain = <ExportTypeParameter>{};
+    for (final anchor in optional) {
+      final added = arguments(anchor).difference(active);
+      inference[anchor] = added;
+      active.addAll(added);
+      uncertain.addAll(added);
+    }
+    if (uncertain.isNotEmpty) yield render(uncertain);
   }
 
   String _typeMode(ExportType type) {
@@ -1777,14 +1950,14 @@ final class _Writer {
             : '  constructor(${_parameters(constructor.signature)});',
       );
       for (final function in cls.methods) {
-        output.writeln(
-          '  ${_member(function.name)}${_generics(function.signature.typeParameters, defaults: false)}(${_parameters(function.signature)}): ${_functionResult(function)};',
-        );
+        for (final signature in _functionSignatures(function)) {
+          output.writeln('  ${_member(function.name)}$signature;');
+        }
       }
       for (final function in cls.staticMethods) {
-        output.writeln(
-          '  static ${_member(function.name)}${_generics(function.signature.typeParameters, defaults: false)}(${_parameters(function.signature)}): ${_functionResult(function)};',
-        );
+        for (final signature in _functionSignatures(function)) {
+          output.writeln('  static ${_member(function.name)}$signature;');
+        }
       }
       for (final property in cls.properties) {
         _writeProperty(output, property);
@@ -1806,9 +1979,9 @@ final class _Writer {
       );
       output.writeln('  readonly [$_inputKey]: this;');
       for (final function in cls.methods) {
-        output.writeln(
-          '  ${_member(function.name)}${_generics(function.signature.typeParameters, defaults: false)}(${_parameters(function.signature)}): ${_functionResult(function)};',
-        );
+        for (final signature in _functionSignatures(function)) {
+          output.writeln('  ${_member(function.name)}$signature;');
+        }
       }
       for (final property in cls.properties) {
         _writeProperty(output, property);
@@ -1852,9 +2025,9 @@ final class _Writer {
       }
     }
     for (final function in methods.values) {
-      output.writeln(
-        '  ${_member(function.name)}${_generics(function.signature.typeParameters, defaults: false)}(${_parameters(function.signature)}): ${_functionResult(function)};',
-      );
+      for (final signature in _functionSignatures(function)) {
+        output.writeln('  ${_member(function.name)}$signature;');
+      }
     }
     for (final property in properties.values) {
       _writeProperty(output, property);
@@ -1928,9 +2101,9 @@ final class _Writer {
       _writeClass(output, cls, prefix, brands);
     }
     for (final function in exports.functions) {
-      output.writeln(
-        '${prefix}declare function ${function.name}${_generics(function.signature.typeParameters, defaults: false)}(${_parameters(function.signature)}): ${_functionResult(function)};',
-      );
+      for (final signature in _functionSignatures(function)) {
+        output.writeln('${prefix}declare function ${function.name}$signature;');
+      }
     }
     for (final value in exports.constants) {
       output.writeln(
@@ -2101,21 +2274,25 @@ final class _Writer {
     ExportSignature function, {
     bool output = true,
     bool metadata = true,
+    Map<ExportParameter, bool> presence = const {},
+    String Function(ExportParameter)? parameterType,
   }) {
-    final required = function.positional
-        .where((parameter) => parameter.required)
-        .length;
+    bool required(ExportParameter parameter) =>
+        parameter.required || presence[parameter] == true;
+    String type(ExportParameter parameter) =>
+        parameterType?.call(parameter) ??
+        _type(parameter.type, output: !output, metadata: metadata);
+    final minimum = function.positional.lastIndexWhere(required) + 1;
     final tuples = <String>[];
     final options = function.named.isEmpty
         ? null
-        : '{ ${function.named.map((parameter) => '${jsonEncode(parameter.name)}${parameter.required ? '' : '?'}: ${_type(parameter.type, output: !output, metadata: metadata)};').join(' ')} }';
-    for (var count = required; count <= function.positional.length; ++count) {
+        : '{ ${function.named.map((parameter) => '${jsonEncode(parameter.name)}${required(parameter) ? '' : '?'}: ${type(parameter)};').join(' ')} }';
+    for (var count = minimum; count <= function.positional.length; ++count) {
       final parameters = [
         for (var i = 0; i < count; ++i)
-          '${_label(function.positional[i].name, i)}: ${_type(function.positional[i].type, output: !output, metadata: metadata)}',
+          '${_label(function.positional[i].name, i)}: ${type(function.positional[i])}',
       ];
-      if (options == null ||
-          !function.named.any((parameter) => parameter.required)) {
+      if (options == null || !function.named.any(required)) {
         tuples.add('[${parameters.join(', ')}]');
       }
       if (options != null) {
@@ -2348,6 +2525,7 @@ final class _Writer {
         original.target,
         original.actualType,
         reified: original.reified,
+        fromClass: original.fromClass,
       );
       parameters.add(parameter);
       _parameterNames[parameter] = _parameterNames[original]!;

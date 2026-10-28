@@ -91,10 +91,16 @@ final class ExportType {
 }
 
 final class ExportTypeParameter {
-  ExportTypeParameter(this.target, this.actualType, {this.reified = false});
+  ExportTypeParameter(
+    this.target,
+    this.actualType, {
+    this.reified = false,
+    this.fromClass = false,
+  });
   final TypeParameter target;
   final DartType actualType;
   final bool reified;
+  final bool fromClass;
   DartType get invocationType => reified
       ? TypeParameterType(target, target.computeNullabilityFromBound())
       : actualType;
@@ -180,6 +186,16 @@ final class ExportFunction {
   final ExportClass? owner;
   final bool constructor;
   bool get instance => !constructor && target.isInstanceMember;
+  List<ExportParameter> get classParameters => [
+    for (final parameter in [...signature.positional, ...signature.named])
+      if (parameter.type.kind == ValueKind.object &&
+          !parameter.type.classExport!.isObject &&
+          parameter.type.typeArguments.any(
+            (argument) =>
+                argument.parameter?.fromClass == true && !argument.nullable,
+          ))
+        parameter,
+  ];
 }
 
 final class ExportProperty {
@@ -216,9 +232,14 @@ final class ExportClass {
   final specializations =
       <
         ExportClass,
-        ({List<ExportFunction> methods, List<ExportProperty> properties})
+        ({
+          List<ExportFunction> methods,
+          List<ExportProperty> properties,
+          List<ExportType> arguments,
+        })
       >{};
   final typeParameters = <ExportTypeParameter>[];
+  final arguments = <ExportType>[];
   ExportFunction? constructor;
   final methods = <ExportFunction>[];
   final properties = <ExportProperty>[];
@@ -516,6 +537,7 @@ final class _Reader {
       _parameters.addAll({
         for (final parameter in cls.typeParameters) parameter.target: parameter,
       });
+      cls.arguments.addAll(_classArguments(cls, cls));
       final parent = parents[cls];
       if (parent != null) {
         final type = hierarchy.getClassAsInstanceOf(cls.target, parent.target)!;
@@ -544,6 +566,7 @@ final class _Reader {
           )!;
           if (_actual(type.asInterfaceType) == ancestor.dartType) continue;
           cls.specializations[ancestor] = (
+            arguments: _classArguments(cls, ancestor),
             methods: [
               for (final method in ancestor.methods)
                 _function(method.target, method.name, owner: cls),
@@ -628,6 +651,24 @@ final class _Reader {
     _classInstances();
     _checkGenericBounds();
     return module;
+  }
+
+  List<ExportType> _classArguments(ExportClass instance, ExportClass contract) {
+    final type = hierarchy.getClassAsInstanceOf(
+      instance.target,
+      contract.target,
+    )!;
+    final substitution = instance.instanceType == null
+        ? Substitution.empty
+        : Substitution.fromInterfaceType(instance.instanceType!);
+    return [
+      for (final argument in type.typeArguments)
+        _type(
+          substitution.substituteType(argument),
+          '${instance.name}: ${contract.name} argument',
+          result: true,
+        ),
+    ];
   }
 
   void _classInstances() {
@@ -771,6 +812,7 @@ final class _Reader {
           original.name,
           instanceType: type,
         );
+        instance.arguments.addAll(_classArguments(instance, original));
         original.instances.add(instance);
         instance.methods.addAll([
           for (final method in original.methods)
@@ -791,6 +833,7 @@ final class _Reader {
           parent = parent.superclass?.classExport
         ) {
           instance.specializations[parent] = (
+            arguments: _classArguments(instance, parent),
             methods: [
               for (final method in parent.methods)
                 _function(method.target, method.name, owner: instance),
@@ -1002,13 +1045,15 @@ final class _Reader {
     String context, {
     Substitution substitution = Substitution.empty,
     bool reified = false,
+    Set<TypeParameter> fromClasses = const {},
   }) {
     final models = [
       for (final parameter in parameters)
         ExportTypeParameter(
           parameter,
           _actual(substitution.substituteType(parameter.defaultType)),
-          reified: reified,
+          reified: reified || fromClasses.contains(parameter),
+          fromClass: fromClasses.contains(parameter),
         ),
     ];
     _parameters.addAll({for (final model in models) model.target: model});
@@ -1057,10 +1102,38 @@ final class _Reader {
           _parameters[function.typeParameters[i]] = typeParameters[i];
         }
       } else {
+        final fromClasses = <TypeParameter>{
+          for (final parameter in [
+            ...function.positionalParameters,
+            ...function.namedParameters,
+          ])
+            if (substitution.substituteType(parameter.type)
+                case final InterfaceType type)
+              if (classes[type.classNode] case final ExportClass cls)
+                if (!cls.isObject)
+                  for (final argument in type.typeArguments)
+                    if (argument is TypeParameterType &&
+                        argument.declaredNullability != Nullability.nullable &&
+                        function.typeParameters.contains(argument.parameter))
+                      argument.parameter,
+        };
+        // A dependent default follows the selected bound, not its erased default.
+        var changed = true;
+        while (changed) {
+          changed = false;
+          for (final parameter in function.typeParameters) {
+            if (parameter.bound case final TypeParameterType bound) {
+              if (fromClasses.contains(bound.parameter)) {
+                changed = fromClasses.add(parameter) || changed;
+              }
+            }
+          }
+        }
         typeParameters = _typeParameters(
           function.typeParameters,
           name,
           substitution: substitution,
+          fromClasses: fromClasses,
         );
       }
       ExportParameter? parameter(FunctionParameter parameter, bool required) {
@@ -1122,9 +1195,12 @@ final class _Reader {
           ? owner!.typeParameters
                 .map((parameter) => parameter.invocationType)
                 .toList()
-          : rawType.typeParameters
-                .map((parameter) => parameter.defaultType)
-                .toList();
+          : [
+              for (var i = 0; i < typeParameters.length; ++i)
+                typeParameters[i].fromClass
+                    ? typeParameters[i].invocationType
+                    : rawType.typeParameters[i].defaultType,
+            ];
       final invocationType = rawType.typeParameters.isEmpty
           ? rawType
           : FunctionTypeInstantiator.instantiate(rawType, arguments);
@@ -1802,7 +1878,15 @@ final class _Reader {
           for (final argument in type.typeArguments)
             _type(argument, '$context: class argument'),
         ];
-        if (!exported.isObject && containsFreeTypeParameters(actual)) {
+        final classCall = type.typeArguments.every(
+          (argument) =>
+              !containsFreeTypeParameters(argument) ||
+              argument is TypeParameterType &&
+                  _parameters[argument.parameter]?.fromClass == true,
+        );
+        if (!exported.isObject &&
+            containsFreeTypeParameters(actual) &&
+            !classCall) {
           throw FormatException(
             '@NAPI $context: bound-class arguments cannot depend on reified callback or data-class parameters yet: $type.',
           );
@@ -1820,7 +1904,8 @@ final class _Reader {
           final instance = actual.withDeclaredNullability(
             Nullability.nonNullable,
           );
-          if (instance != exported.dartType) {
+          if (instance != exported.dartType &&
+              !containsFreeTypeParameters(instance)) {
             for (final argument in arguments) {
               if (!_classArgument(argument)) {
                 throw FormatException(

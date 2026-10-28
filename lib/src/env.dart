@@ -380,11 +380,28 @@ final class _ClassSpecialization {
     required this.methods,
     required this.getters,
     required this.setters,
+    this.arguments = const [],
   });
 
   final Map<String, Object? Function(Object, JsArguments)> methods;
   final Map<String, Object? Function(Object)> getters;
   final Map<String, void Function(Object, JsArguments)> setters;
+  final List<_ClassArgument> arguments;
+}
+
+final class _ClassArgument {
+  // ignore: unused_element
+  const _ClassArgument(this.read, this.write, this.directional);
+  final Object? Function(Object?) read;
+  final Object? Function(Object?) write;
+  final bool directional;
+}
+
+final class _GenericArgument<T> {
+  const _GenericArgument(this.conversion);
+  final _ClassArgument conversion;
+  Type get type => T;
+  Object? invoke(Function action) => (action as dynamic)<T>(conversion);
 }
 
 final class _BoundFunction {
@@ -1491,6 +1508,7 @@ final class Env {
     Map<String, Object? Function(T, JsArguments)> methods = const {},
     Map<String, Object? Function(T)> getters = const {},
     Map<String, void Function(T, JsArguments)> setters = const {},
+    List<_ClassArgument> arguments = const [],
   }) {
     _arena;
     final child = _classes[T];
@@ -1499,6 +1517,7 @@ final class Env {
       throw StateError('Specialization requires uniquely registered classes');
     }
     final members = _ClassSpecialization(
+      arguments: arguments,
       methods: methods.map(
         (name, body) =>
             MapEntry(name, (value, arguments) => body(value as T, arguments)),
@@ -1526,6 +1545,7 @@ final class Env {
     Map<String, Object? Function(T, JsArguments)> methods = const {},
     Map<String, Object? Function(T)> getters = const {},
     Map<String, void Function(T, JsArguments)> setters = const {},
+    List<_ClassArgument> arguments = const [],
   }) {
     _arena;
     final definition = _classes[S];
@@ -1542,6 +1562,7 @@ final class Env {
     (definition.views ??= []).add(
       _ClassView<T>(
         _ClassSpecialization(
+          arguments: arguments,
           methods: methods.map(
             (name, body) =>
                 MapEntry(name, (value, args) => body(value as T, args)),
@@ -1558,6 +1579,70 @@ final class Env {
     );
     if (registerType) _classes[T] = definition;
   }
+
+  // ignore: unused_element
+  _BoundObject _classCall<C extends Object>(JsObject value) {
+    final definition = _classes[C];
+    final object = _findBoundObject(_encode(value));
+    if (definition == null ||
+        object == null ||
+        !definition.accepts(object.value)) {
+      throw ArgumentError('Expected a bound $C instance');
+    }
+    return object;
+  }
+
+  // ignore: unused_element
+  _ClassArgument _classArgument<C extends Object>(
+    _BoundObject object,
+    int index,
+  ) {
+    final arguments = object.specialization(_classes[C]!)?.arguments;
+    if (arguments == null || index >= arguments.length) {
+      throw StateError('Missing type argument conversion for $C');
+    }
+    return arguments[index];
+  }
+
+  // ignore: unused_element
+  T _readClassArgument<T>(
+    _ClassArgument argument,
+    Object? value, {
+    bool nullable = false,
+  }) => value == null && nullable
+      ? null as T
+      : _typedValue<T>(argument.read(value));
+
+  // ignore: unused_element
+  Object? _writeClassArgument<T>(
+    _ClassArgument argument,
+    T value, {
+    bool nullable = false,
+  }) => value == null && nullable ? null : argument.write(value);
+
+  // ignore: unused_element
+  void _recordGenericArgument<T>(
+    List<_GenericArgument?> arguments,
+    int index,
+    _ClassArgument conversion,
+    String name,
+  ) {
+    final previous = arguments[index];
+    if (previous != null && previous.type != T) {
+      throw ArgumentError(
+        'Conflicting Dart types for $name: ${previous.type} and $T',
+      );
+    }
+    arguments[index] ??= _GenericArgument<T>(conversion);
+  }
+
+  // ignore: unused_element
+  Object? _invokeGenericArgument<T>(
+    List<_GenericArgument?> arguments,
+    int index,
+    _ClassArgument Function() fallback,
+    Function action,
+  ) => (arguments[index] ?? _GenericArgument<T>(fallback())).invoke(action);
 
   node.NapiValue? _cachedObject(Object value, {_ClassDefinition? definition}) {
     // Check the scope even when this object has never been wrapped.
