@@ -1,3 +1,180 @@
+## 0.24.0
+
+This release rebuilds native compilation around a bundled Dart SDK. Compile
+annotated Dart code into a standalone `.node` file, or generate an npm package
+with CommonJS, ESM and TypeScript entries.
+
+> **Upgrading:** 0.24.0 replaces the previous build and runtime APIs. It supports
+> native addons on macOS arm64, Linux arm64 (glibc) and Windows x64. Wasm builds,
+> watch mode and the other previously supported native platforms are not included.
+
+### 🛠️ Compile a standalone native addon
+
+Declare an export in `lib/addon.dart`:
+
+```dart
+import 'package:napi/napi.dart';
+
+@NAPI()
+int add(int a, int b) => a + b;
+```
+
+Build it from your own Dart script:
+
+```dart
+import 'dart:io';
+import 'package:napi/compiler.dart';
+
+final compiler = Compiler([
+  NativeTarget(
+    entry: File('lib/addon.dart'),
+    output: File('dist/addon.node'),
+    declarations: File('dist/addon.d.cts'),
+  ),
+]);
+
+Future<void> main(List<String> args) => compiler.run(args);
+```
+
+Load the output directly in Node.js:
+
+```js
+const { add } = require('./dist/addon.node');
+add(20, 22); // 42
+```
+
+The compiler and Dart runtime are included in the package. Building an addon
+does not require SDK sources or a C/C++ toolchain; loading the addon does not
+require a separate Dart installation or JavaScript binding bootstrap. Business
+code uses the bundled Dart 3.13.5 SDK, independently of the SDK running the build
+script. Include the corresponding SDK `NOTICES` when distributing the binary.
+
+Set `node` on a target to check a Node.js version constraint, or omit it to infer
+the requirements from referenced APIs. Builds target the current platform;
+cross-compiling user addons is not supported.
+
+[Native compilation](https://github.com/medz/napi/blob/v0.24.0/README.md#native-compilation)
+
+### 🧩 Declare classes and plain-object data
+
+Classes retain JavaScript constructors, inheritance and instance identity.
+Each constructor, field, accessor or method must now be explicitly annotated.
+Unannotated members remain in Dart; an override still implements an inherited
+exported member.
+
+Use `@NAPI.object()` for copied data instead of a JavaScript class:
+
+```dart
+@NAPI.object()
+class Point {
+  @NAPI()
+  const Point({required this.x, this.y = 0});
+
+  @NAPI()
+  final int x;
+
+  @NAPI()
+  final int y;
+}
+
+@NAPI()
+Point move(Point point) => Point(x: point.x + 1, y: point.y);
+```
+
+```js
+move({ x: 1 }); // { x: 2, y: 0 }
+```
+
+The constructor controls input properties and Dart defaults. Annotated fields
+and getters control output properties. Generated TypeScript describes the two
+directions separately, including for generic data classes and callback fields.
+Asymmetric output types carry a private TypeScript identity and must come from
+Dart results; this adds no JavaScript properties.
+
+Annotated top-level variables and accessors expose live properties. With an ESM
+package, access these through the default import; functions, classes and
+constants also have named exports.
+
+[Classes](https://github.com/medz/napi/blob/v0.24.0/README.md#classes) ·
+[Data classes](https://github.com/medz/napi/blob/v0.24.0/README.md#data-classes-as-plain-objects) ·
+[Top-level properties](https://github.com/medz/napi/blob/v0.24.0/README.md#top-level-properties)
+
+### 📦 Build npm packages from the same entry
+
+Replace `NativeTarget` with `PackageBuild` to produce the addon, notices,
+CJS/ESM entries and declarations together:
+
+```dart
+PackageBuild(
+  entry: File('lib/addon.dart'),
+  output: Directory('dist/npm'),
+  name: '@acme/addon',
+  version: '1.0.0',
+)
+```
+
+`PackageBuild.fromArtifacts` combines builds from different hosts into one npm
+package set. Publish the generated platform packages before the root package;
+npm selects the matching native dependency. Consumers need Node.js, with no
+installation-time compilation.
+
+[npm packages](https://github.com/medz/napi/blob/v0.24.0/README.md#npm-packages)
+
+### Other binding capabilities
+
+- Native bindings cover callbacks, Futures and Streams, records, enums,
+  collections, Set, DateTime, binary views and SIMD values. Futures use standard
+  Promise resolution. Breaking out of an async loop cancels a returned Dart
+  stream; cancelling an input stream calls the JavaScript iterator's `return()`.
+- Generic functions, classes, methods and callbacks have TypeScript declarations.
+  JavaScript type arguments are erased; concrete generic data-class declarations
+  select their Dart conversions. Non-default specializations of bound classes
+  and bounds requiring copied-value conversion or bound-instance unwrapping
+  remain unsupported. `Iterable` and `sync*` are not yet supported.
+- Add a required `Env` parameter to an annotated declaration for direct Node
+  access without exposing that parameter in JavaScript. Manual registration is
+  available through `package:napi/env.dart`; raw FFI bindings use
+  `package:napi/sys/node.dart`. Retained JS references require explicit disposal
+  to break cross-heap cycles.
+
+The [README](https://github.com/medz/napi/blob/v0.24.0/README.md) describes conversion,
+precision and ownership rules for each type.
+
+### Upgrading to 0.24.0
+
+Move build scripts from `package:napi/build.dart` to
+`package:napi/compiler.dart`. Declare `NativeTarget` or `PackageBuild` inside
+`Compiler([...])`, pass the source as `entry: File(...)`, and call
+`compiler.run(args)`. Command-line options are not implemented yet; invoke the
+script without `--target` or `--watch`.
+
+Add `@NAPI()` to each exported class member, including its constructor:
+
+```diff
+ @NAPI()
+ class Counter {
++  @NAPI()
+   Counter([this.value = 0]);
+
++  @NAPI()
+   int value;
+ }
+```
+
+Replace `ClassPolicy.value` with `@NAPI.object()`, explicitly select its input
+constructor and annotate its output fields or getters. The old `ClassPolicy`,
+`cleanup`, `valueFields`, `exclude` and `bigint` annotation options are removed.
+Use Dart `BigInt` for JavaScript bigint values. Use ordinary exported classes for Dart instance identity and `JsReference` for
+retained JavaScript values. The old runtime, resource-policy, shared-container,
+external-selection and release-helper APIs are removed; code using them needs
+to be ported to the new APIs.
+
+Regenerate native binaries, declarations and npm packages. Projects requiring
+Wasm, Linux x64 or macOS x64 should remain on 0.23.0 until those targets are
+available in the new compiler.
+
+[Release on GitHub](https://github.com/medz/napi/releases/tag/v0.24.0)
+
 ## 0.23.0
 
 This release adds typed build scripts with watch mode, browser ESM imports,

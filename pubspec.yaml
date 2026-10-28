@@ -1,6 +1,6 @@
 name: napi
 description: Dart bindings to Node-API for implementing native Node.js addons.
-version: 0.23.0
+version: 0.24.0
 repository: https://github.com/medz/napi
 issue_tracker: https://github.com/medz/napi/issues
 topics: [node, interop, ffi]
