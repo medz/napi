@@ -887,8 +887,36 @@ final class _Writer {
             rightPrimitive != null &&
             leftPrimitive != rightPrimitive ||
         left.kind != right.kind && leftArray == true && rightArray == true ||
+        _plainObjectInstanceDifference(left, right) ||
+        left.kind == ValueKind.function &&
+            right.kind == ValueKind.jsReference &&
+            right.referenceKind == JsReferenceKind.function ||
+        right.kind == ValueKind.function &&
+            left.kind == ValueKind.jsReference &&
+            left.referenceKind == JsReferenceKind.function ||
         _mapObjectDifference(left, right) ||
         _rawObjectDifference(left, right);
+  }
+
+  bool _plainObjectInstanceDifference(ExportType left, ExportType right) {
+    bool plain(ExportType type) => switch (type.kind) {
+      ValueKind.object => type.classExport!.isObject,
+      ValueKind.map => true,
+      ValueKind.record => type.recordFields!.named.isNotEmpty,
+      _ => false,
+    };
+    bool instance(ExportType type) => switch (type.kind) {
+      ValueKind.dateTime ||
+      ValueKind.set ||
+      ValueKind.byteBuffer ||
+      ValueKind.byteData ||
+      ValueKind.typedData ||
+      ValueKind.simd ||
+      ValueKind.simdList ||
+      ValueKind.future => true,
+      _ => false,
+    };
+    return plain(left) && instance(right) || instance(left) && plain(right);
   }
 
   bool _mapObjectDifference(ExportType left, ExportType right) {

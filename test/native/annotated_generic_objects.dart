@@ -154,6 +154,17 @@ class MapNext {
 }
 
 @NAPI.object()
+class DateNext {
+  @NAPI()
+  DateNext({required DateTime next})
+    : _milliseconds = next.millisecondsSinceEpoch;
+
+  final int _milliseconds;
+  @NAPI()
+  DateNext get next => this;
+}
+
+@NAPI.object()
 class FunctionNext {
   @NAPI()
   FunctionNext({required void Function() next}) {
@@ -715,6 +726,10 @@ bool recordNextMatches(RecordNext value, int expected) =>
 @NAPI()
 bool mapNextMatches(MapNext value, int expected) =>
     value._value == expected && identical(value.next, value);
+
+@NAPI()
+bool dateNextMatches(DateNext value, int expected) =>
+    value._milliseconds == expected && identical(value.next, value);
 
 @NAPI()
 bool functionNextUsesSelf(FunctionNext value) => identical(value.next, value);

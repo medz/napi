@@ -128,6 +128,8 @@ module.exports = async function verifyAnnotatedGenericObjects(path) {
   assert.equal(addon.recordNextMatches({ next: { value: 7 } }, 8), false);
   assert.equal(addon.mapNextMatches({ next: { value: 7 } }, 7), true);
   assert.equal(addon.mapNextMatches({ next: { value: 7 } }, 8), false);
+  assert.equal(addon.dateNextMatches({ next: new Date(7) }, 7), true);
+  assert.equal(addon.dateNextMatches({ next: new Date(7) }, 8), false);
   let functionNextCalls = 0;
   assert.equal(addon.functionNextUsesSelf({ next: () => { functionNextCalls++; } }), true);
   assert.equal(functionNextCalls, 1);

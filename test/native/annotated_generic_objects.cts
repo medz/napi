@@ -108,6 +108,11 @@ const mapNextChild: addon.MapNext = mapNext.next;
 const mapNextMatches: boolean = addon.mapNextMatches({ next: { value: 7 } }, 7);
 // @ts-expect-error The input map and recursive output have different shapes.
 const forgedMapNext: addon.MapNext = { next: mapNext };
+declare const dateNext: addon.DateNext;
+const dateNextChild: addon.DateNext = dateNext.next;
+const dateNextMatches: boolean = addon.dateNextMatches({ next: new Date(7) }, 7);
+// @ts-expect-error The Date input differs from the recursive data output.
+const forgedDateNext: addon.DateNext = { next: dateNext };
 declare const functionNext: addon.FunctionNext;
 const functionNextChild: addon.FunctionNext = functionNext.next;
 const functionNextUsesSelf: boolean = addon.functionNextUsesSelf({ next: () => {} });
