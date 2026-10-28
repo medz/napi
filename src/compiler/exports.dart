@@ -107,6 +107,7 @@ final class ExportTypeParameter {
   String get name => target.name!;
   late final ExportType bound;
   late final ExportType defaultType;
+  final boundAlternatives = <ExportType>[];
 }
 
 final class ExportParameter {
@@ -313,6 +314,7 @@ final class _Reader {
   final enums = <Class, ExportEnum>{};
   final _parameters = <TypeParameter, ExportTypeParameter>{};
   final _classTypes = <InterfaceType>{};
+  final _copiedBounds = <ExportTypeParameter>{};
   static const _valuePreservingKinds = {
     ValueKind.boolean,
     ValueKind.integer,
@@ -649,6 +651,25 @@ final class _Reader {
     }
     _classInstances();
     _checkGenericBounds();
+    // Dart subtypes can have different JS shapes, such as Uint8List/Uint8Array.
+    final types = TypeEnvironment(hierarchy.coreTypes, hierarchy);
+    final arguments = {
+      for (final cls in module.classes)
+        for (final instance in [cls, ...cls.instances]) ...[
+          ...instance.arguments,
+          for (final view in instance.specializations.values) ...view.arguments,
+        ],
+    };
+    for (final parameter in _copiedBounds) {
+      if (containsFreeTypeParameters(parameter.bound.dartType)) continue;
+      for (final argument in arguments) {
+        if (!containsFreeTypeParameters(argument.dartType) &&
+            argument.dartType != parameter.bound.dartType &&
+            types.isSubtypeOf(argument.dartType, parameter.bound.dartType)) {
+          parameter.boundAlternatives.add(argument);
+        }
+      }
+    }
     return module;
   }
 
@@ -1045,6 +1066,7 @@ final class _Reader {
     Substitution substitution = Substitution.empty,
     bool reified = false,
     Set<TypeParameter> fromClasses = const {},
+    Set<TypeParameter> copiedBounds = const {},
   }) {
     final models = [
       for (final parameter in parameters)
@@ -1057,18 +1079,22 @@ final class _Reader {
     ];
     _parameters.addAll({for (final model in models) model.target: model});
     for (final model in models) {
-      model.bound = _type(
-        substitution.substituteType(model.target.bound),
-        '$context: bound ${model.name}',
-      );
+      final bound = substitution.substituteType(model.target.bound);
+      model.bound = _type(bound, '$context: bound ${model.name}');
       ExportType representation = model.bound;
       while (representation.kind == ValueKind.typeParameter) {
         representation = representation.representation!;
       }
-      if (!_preservesValue(representation)) {
+      if (!_preservesValue(representation) &&
+          (!copiedBounds.contains(model.target) ||
+              !_classArgument(representation))) {
         throw FormatException(
           '@NAPI $context: generic bounds must preserve JavaScript values: ${model.name}.',
         );
+      }
+      if (!_preservesValue(representation) &&
+          !containsFreeTypeParameters(bound)) {
+        _copiedBounds.add(model);
       }
       model.defaultType = _type(
         substitution.substituteType(model.target.defaultType),
@@ -1101,21 +1127,37 @@ final class _Reader {
           _parameters[function.typeParameters[i]] = typeParameters[i];
         }
       } else {
-        final fromClasses = <TypeParameter>{
-          for (final parameter in [
-            ...function.positionalParameters,
-            ...function.namedParameters,
-          ])
-            if (substitution.substituteType(parameter.type)
-                case final InterfaceType type)
-              if (classes[type.classNode] case final ExportClass cls)
-                if (!cls.isObject)
-                  for (final argument in type.typeArguments)
-                    if (argument is TypeParameterType &&
-                        argument.declaredNullability != Nullability.nullable &&
-                        function.typeParameters.contains(argument.parameter))
-                      argument.parameter,
+        final required = <FunctionParameter>{
+          ...function.positionalParameters.take(
+            function.requiredParameterCount,
+          ),
+          ...function.namedParameters.where(
+            (parameter) => parameter.isRequired,
+          ),
         };
+        final fromClasses = <TypeParameter>{};
+        final copiedBounds = <TypeParameter>{};
+        for (final parameter in [
+          ...function.positionalParameters,
+          ...function.namedParameters,
+        ]) {
+          final type = substitution.substituteType(parameter.type);
+          if (type is! InterfaceType) continue;
+          final cls = classes[type.classNode];
+          if (cls == null || cls.isObject) continue;
+          for (final argument in type.typeArguments) {
+            if (argument is! TypeParameterType ||
+                argument.declaredNullability == Nullability.nullable ||
+                !function.typeParameters.contains(argument.parameter)) {
+              continue;
+            }
+            fromClasses.add(argument.parameter);
+            if (required.contains(parameter) &&
+                type.nullability == Nullability.nonNullable) {
+              copiedBounds.add(argument.parameter);
+            }
+          }
+        }
         // A dependent default follows the selected bound, not its erased default.
         var changed = true;
         while (changed) {
@@ -1125,6 +1167,9 @@ final class _Reader {
               if (fromClasses.contains(bound.parameter)) {
                 changed = fromClasses.add(parameter) || changed;
               }
+              if (copiedBounds.contains(bound.parameter)) {
+                changed = copiedBounds.add(parameter) || changed;
+              }
             }
           }
         }
@@ -1133,6 +1178,7 @@ final class _Reader {
           name,
           substitution: substitution,
           fromClasses: fromClasses,
+          copiedBounds: copiedBounds,
         );
       }
       ExportParameter? parameter(FunctionParameter parameter, bool required) {

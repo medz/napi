@@ -40,6 +40,46 @@ module.exports = async function verifyGenericCalls(path) {
   assert.throws(() => addon.writeBox(list, [3.5]), RangeError);
   assert.deepEqual(list.value, [3, 4]);
 
+  assert.equal(addon.listType(list), 'List<int>');
+  const input = Object.assign([6, 7], { label: 'input only' });
+  const copied = addon.writeList(list, input);
+  assert.deepEqual(copied, [6, 7]);
+  assert.notEqual(copied, input);
+  input.push(8);
+  copied.push(9);
+  assert.deepEqual(list.value, [6, 7]);
+  assert.throws(() => addon.writeList(list, [1.5]), RangeError);
+  assert.throws(() => addon.writeList(list, [Number.MAX_SAFE_INTEGER + 1]), RangeError);
+  assert.throws(() => addon.writeList(list, ['8']), TypeError);
+  assert.throws(() => addon.writeList(list, null), TypeError);
+  assert.throws(() => addon.writeList(list, undefined), TypeError);
+  assert.throws(() => addon.writeList(double, 8), TypeError);
+  assert.throws(() => addon.writeList(new addon.Box([1]), [2]), TypeError);
+  assert.deepEqual(addon.namedList({ box: list, value: [8] }), [8]);
+  assert.deepEqual(addon.listDefault(list, [9]), [9]);
+  assert.deepEqual(addon.service().copy(list, [10]), [10]);
+  assert.deepEqual(addon.append(list, 11), [10, 11]);
+  assert.throws(() => addon.append(list, 'wrong'), TypeError);
+
+  const bytes = addon.bytesBox();
+  assert.equal(addon.listType(bytes), 'Uint8List');
+  const byteInput = new Uint8Array([11, 12]);
+  assert.deepEqual(addon.writeList(bytes, byteInput), byteInput);
+  assert.deepEqual(addon.listDefault(bytes, byteInput), byteInput);
+  assert.throws(() => addon.writeList(bytes, [11, 12]), TypeError);
+  assert.throws(() => addon.listDefault(bytes, [11, 12]), TypeError);
+  const wide = new BigInt64Array([(1n << 62n) + 1n]);
+  assert.deepEqual(addon.writeList(addon.int64Box(), wide), wide);
+
+  assert.deepEqual(addon.writeAmount(amount, {value: '19'}), {value: 19});
+  assert.throws(() => addon.writeAmount(amount, {value: 19}), TypeError);
+  assert.deepEqual(addon.transformAmount(amount, value => ({value: String(value.value + 1)})), {value: 20});
+  assert.throws(() => addon.transformAmount(amount, value => value), TypeError);
+  const nullableList = addon.nullableListBox();
+  assert.equal(addon.writeNullableList(nullableList, null), null);
+  assert.deepEqual(addon.writeNullableList(nullableList, [20]), [20]);
+  assert.throws(() => addon.writeNullableList(list, null), TypeError);
+
   let reads = 0;
   assert.deepEqual(addon.namedBox({
     get box() { reads++; return amount; },

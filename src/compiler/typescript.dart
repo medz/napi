@@ -244,11 +244,17 @@ final class _Writer {
   ]) {
     final name = _parameterNames[parameter]!;
     final bound = parameter.bound;
+    final bounds = [bound, ...parameter.boundAlternatives];
+    final choices = {
+      for (final type in bounds)
+        _type(_copyType(type, nullable: false), metadata: metadata),
+      if (bounds.any((type) => type.nullable)) 'null',
+    };
     final constraint =
         bound.kind == ValueKind.dynamicValue ||
             bound.kind == ValueKind.opaque && bound.nullable
         ? ''
-        : ' extends ${_type(bound, metadata: metadata)}';
+        : ' extends ${choices.join(' | ')}';
     if (defaultType == null) return '$name$constraint';
     final value = defaultType.kind == ValueKind.dynamicValue
         ? 'unknown'
@@ -2570,6 +2576,11 @@ final class _Writer {
       parameters[i].defaultType = _substituteType(
         originals[i].defaultType,
         arguments,
+      );
+      parameters[i].boundAlternatives.addAll(
+        originals[i].boundAlternatives.map(
+          (type) => _substituteType(type, arguments),
+        ),
       );
     }
     return parameters;

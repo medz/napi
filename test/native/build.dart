@@ -242,6 +242,23 @@ Future<void> main(List<String> args) async {
       ],
     ),
     (
+      'generic-calls',
+      'annotated_generic_calls.dart',
+      [
+        for (final parameters in [
+          'T value, [Box<T>? box]',
+          'Box<T>? box, T value',
+          'T value, {Box<T>? box}',
+          'List<Box<T>> boxes, T value',
+        ])
+          (
+            '@NAPI() class Box<T> { @NAPI() Box(this.value); T value; } '
+                '@NAPI() T invalid<T extends List<int>>($parameters) => value;',
+            'generic bounds must preserve JavaScript values',
+          ),
+      ],
+    ),
+    (
       'inheritance',
       'annotated_inheritance.dart',
       [
