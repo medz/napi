@@ -9,24 +9,27 @@ import 'exports.dart';
 
 /// Builds typed callbacks after CFE has resolved declarations and defaults.
 final class Calls {
-  Calls(Component component, this.library, this.envLibrary)
+  Calls(this.component, this.library, this.envLibrary)
     : core = CoreTypes(component),
       hierarchy = ClassHierarchy(component, CoreTypes(component));
 
   final Library library;
+  final Component component;
   final Library envLibrary;
   final CoreTypes core;
   final ClassHierarchy hierarchy;
   int _next = 0;
   bool usesClassBounds = false;
-  final _objectReaders = <ExportClass, Procedure>{};
-  final _objectWriters = <ExportClass, Procedure>{};
+  final _objectReaders = <(ExportClass, bool), Procedure>{};
+  final _objectWriters = <(ExportClass, bool), Procedure>{};
+  bool _classArgumentConversion = false;
   final _objectNeeds = <(ExportClass, bool), Map<ExportTypeParameter, int>>{};
   Substitution _codecTypes = Substitution.empty;
   Map<ExportTypeParameter, PositionalParameter> _readCodecs = const {};
   Map<ExportTypeParameter, PositionalParameter> _writeCodecs = const {};
   Map<ExportTypeParameter, PositionalParameter> _codecDirections = const {};
   Map<ExportTypeParameter, LocalVariable?> _genericValues = const {};
+  Map<ExportTypeParameter, Variable> _classCodecs = const {};
 
   DartType _dartType(ExportType type) =>
       _codecTypes.substituteType(type.dartType);
@@ -304,6 +307,17 @@ final class Calls {
     Expression Function(DartType) read,
   ) {
     if (type.kind == ValueKind.typeParameter) {
+      if (_classCodecs[type.parameter] case final codec?) {
+        return call(
+          VariableGet(env),
+          method(envClass, '_readClassArgument'),
+          [VariableGet(codec), read(core.objectNullableRawType)],
+          types: [_dartType(type)],
+          named: [
+            if (type.nullable) NamedExpression('nullable', BoolLiteral(true)),
+          ],
+        );
+      }
       if (_genericValues.containsKey(type.parameter)) {
         final bound = _classBound(type);
         return call(
@@ -522,6 +536,17 @@ final class Calls {
     Expression value,
   ) {
     if (type.kind == ValueKind.typeParameter) {
+      if (_classCodecs[type.parameter] case final codec?) {
+        return call(
+          VariableGet(env),
+          method(envClass, '_writeClassArgument'),
+          [VariableGet(codec), value],
+          types: [_dartType(type)],
+          named: [
+            if (type.nullable) NamedExpression('nullable', BoolLiteral(true)),
+          ],
+        );
+      }
       if (_genericValues.containsKey(type.parameter)) {
         final bound = _classBound(type);
         return call(
@@ -687,6 +712,9 @@ final class Calls {
     required bool read,
   }) {
     final cls = type.classExport!;
+    if (read && cls.constructor == null && _classArgumentConversion) {
+      return failure('${cls.name} has no annotated input constructor.');
+    }
     final helper = _objectCodec(cls, read: read);
     final needs = _codecNeeds(cls, read);
     return StaticInvocation(
@@ -733,7 +761,8 @@ final class Calls {
 
   Procedure _objectCodec(ExportClass cls, {required bool read}) {
     final cache = read ? _objectReaders : _objectWriters;
-    final existing = cache[cls];
+    final key = (cls, _classArgumentConversion);
+    final existing = cache[key];
     if (existing != null) return existing;
     if (read && cls.constructor == null) {
       throw FormatException(
@@ -801,7 +830,7 @@ final class Calls {
       fileUri: library.fileUri,
     );
     // Cache the template before visiting fields, including expanding recursion.
-    cache[cls] = helper;
+    cache[key] = helper;
     library.addProcedure(helper);
     final savedTypes = _codecTypes;
     final savedReaders = _readCodecs;
@@ -1343,6 +1372,20 @@ final class Calls {
   Expression _directionalValue(ExportType type) {
     if (usesDirectionalConversion(type)) return BoolLiteral(true);
     if (type.kind == ValueKind.typeParameter && type.parameter!.reified) {
+      if (_classCodecs[type.parameter] case final codec?) {
+        final cls = envLibrary.classes.singleWhere(
+          (c) => c.name == '_ClassArgument',
+        );
+        return InstanceGet(
+          InstanceAccessKind.Instance,
+          VariableGet(codec),
+          Name('directional'),
+          interfaceTarget: cls.fields.singleWhere(
+            (field) => field.name.text == 'directional',
+          ),
+          resultType: core.boolNonNullableRawType,
+        );
+      }
       if (_genericValues.containsKey(type.parameter)) {
         return BoolLiteral(false);
       }
@@ -1425,6 +1468,80 @@ final class Calls {
           NamedExpression('preserveIdentity', Not(adapter)),
       ],
     );
+  }
+
+  Expression classArgument(PositionalParameter env, ExportType type) {
+    final saved = _classArgumentConversion;
+    _classArgumentConversion = true;
+    try {
+      return _classArgument(env, type);
+    } finally {
+      _classArgumentConversion = saved;
+    }
+  }
+
+  Expression _classArgument(PositionalParameter env, ExportType type) {
+    final cls = envLibrary.classes.singleWhere(
+      (c) => c.name == '_ClassArgument',
+    );
+    final input = PositionalParameter(
+      cosmeticName: 'input',
+      type: core.objectNullableRawType,
+    );
+    final output = PositionalParameter(
+      cosmeticName: 'output',
+      type: core.objectNullableRawType,
+    );
+    return ConstructorInvocation(
+      cls.constructors.single,
+      Arguments([
+        FunctionExpression(
+          FunctionNode(
+            ReturnStatement(
+              _decode(
+                env,
+                type,
+                (target) => call(
+                  VariableGet(env),
+                  method(envClass, '_typedValue'),
+                  [VariableGet(input)],
+                  types: [target],
+                ),
+              ),
+            ),
+            positionalParameters: [input],
+            returnType: core.objectNullableRawType,
+          ),
+        ),
+        FunctionExpression(
+          FunctionNode(
+            ReturnStatement(
+              _encode(
+                env,
+                type,
+                AsExpression(VariableGet(output), _dartType(type))
+                  ..isTypeError = true,
+              ),
+            ),
+            positionalParameters: [output],
+            returnType: core.objectNullableRawType,
+          ),
+        ),
+        _directionalValue(type),
+      ]),
+    );
+  }
+
+  Expression classArguments(
+    PositionalParameter env,
+    List<ExportType> arguments,
+  ) {
+    final cls = envLibrary.classes.singleWhere(
+      (c) => c.name == '_ClassArgument',
+    );
+    return ListLiteral([
+      for (final type in arguments) classArgument(env, type),
+    ], typeArgument: InterfaceType(cls, Nullability.nonNullable));
   }
 
   Expression _valueReader(PositionalParameter env, ExportType element) {
@@ -1565,6 +1682,30 @@ final class Calls {
     );
     final target = function.target;
     if (target is Constructor) return ConstructorInvocation(target, args);
+    if (function.classParameters.isNotEmpty) {
+      final callable = function.instance
+          ? InstanceTearOff(
+              InstanceAccessKind.Instance,
+              VariableGet(receiver!),
+              target.name,
+              interfaceTarget: target as Procedure,
+              resultType: function.tearOffType!,
+            )
+          : ConstantExpression(
+              StaticTearOffConstant(target as Procedure),
+              target.function.computeFunctionType(Nullability.nonNullable),
+            );
+      final result = DynamicInvocation(
+        DynamicAccessKind.Dynamic,
+        callable,
+        Name('call'),
+        args,
+      );
+      return function.signature.result.kind == ValueKind.voidValue
+          ? result
+          : (AsExpression(result, _dartType(function.signature.result))
+              ..isTypeError = true);
+    }
     if (!function.instance) return StaticInvocation(target as Procedure, args);
     return InstanceInvocation(
       InstanceAccessKind.Instance,
@@ -1588,37 +1729,304 @@ final class Calls {
       cosmeticName: 'arguments',
       type: argumentsType,
     );
+    Block body(
+      Map<ExportParameter, ({Variable value, Variable present})> supplied,
+    ) => _callBody(
+      env,
+      args,
+      function.signature,
+      function: function,
+      preserveDefaults: function.instance,
+      rawResult: rawResult,
+      supplied: supplied,
+      invoke: (positional, named) =>
+          _invoke(function, env, receiver, positional, named),
+      tearOff: function.instance
+          ? () {
+              final result = InstanceTearOff(
+                InstanceAccessKind.Instance,
+                VariableGet(receiver!),
+                function.target.name,
+                interfaceTarget: function.target as Procedure,
+                resultType: function.tearOffType!,
+              );
+              return function.typeArguments.isEmpty
+                  ? result
+                  : Instantiation(
+                      result,
+                      function.typeArguments
+                          .map(_codecTypes.substituteType)
+                          .toList(),
+                    );
+            }
+          : null,
+    );
     return procedure(
       '_napiCall${_next++}',
       [env, if (receiver != null) receiver, args],
       rawResult
           ? _dartType(function.signature.result)
           : core.objectNullableRawType,
-      _callBody(
-        env,
-        args,
-        function.signature,
-        function: function,
-        preserveDefaults: function.instance,
-        rawResult: rawResult,
-        invoke: (positional, named) =>
-            _invoke(function, env, receiver, positional, named),
-        tearOff: function.instance
-            ? () {
-                final result = InstanceTearOff(
-                  InstanceAccessKind.Instance,
-                  VariableGet(receiver!),
-                  function.target.name,
-                  interfaceTarget: function.target as Procedure,
-                  resultType: function.tearOffType!,
-                );
-                return function.typeArguments.isEmpty
-                    ? result
-                    : Instantiation(result, function.typeArguments);
-              }
-            : null,
-      ),
+      function.classParameters.isEmpty
+          ? body(const {})
+          : _classCallBody(function, env, args, body),
     );
+  }
+
+  Block _classCallBody(
+    ExportFunction function,
+    PositionalParameter env,
+    PositionalParameter args,
+    Block Function(Map<ExportParameter, ({Variable value, Variable present})>)
+    body,
+  ) {
+    final parameters = <ExportTypeParameter>[];
+    void add(ExportTypeParameter parameter) {
+      if (!parameter.fromClass || parameters.contains(parameter)) return;
+      if (parameter.bound.parameter case final parent?) add(parent);
+      parameters.add(parameter);
+    }
+
+    function.signature.typeParameters.forEach(add);
+    final genericClass = envLibrary.classes.singleWhere(
+      (c) => c.name == '_GenericArgument',
+    );
+    final codecClass = envLibrary.classes.singleWhere(
+      (c) => c.name == '_ClassArgument',
+    );
+    final codecType = InterfaceType(codecClass, Nullability.nonNullable);
+    final boundClass = envLibrary.classes.singleWhere(
+      (c) => c.name == '_BoundObject',
+    );
+    final boundType = InterfaceType(boundClass, Nullability.nonNullable);
+    final slotType = InterfaceType(genericClass, Nullability.nullable, [
+      const DynamicType(),
+    ]);
+    final statements = <Statement>[];
+    final slots = local(
+      statements,
+      'types',
+      InterfaceType(core.listClass, Nullability.nonNullable, [slotType]),
+      ListLiteral([
+        for (final _ in parameters) NullLiteral(),
+      ], typeArgument: slotType),
+    );
+    final supplied = <ExportParameter, ({Variable value, Variable present})>{};
+    final extract = component.libraries
+        .singleWhere((lib) => lib.importUri.toString() == 'dart:_internal')
+        .procedures
+        .singleWhere((p) => p.name.text == 'extractTypeArguments');
+    for (final parameter in function.classParameters) {
+      final position = function.signature.positional.indexOf(parameter);
+      final cls = parameter.type.classExport!;
+      final Expression present;
+      final Expression source;
+      if (position >= 0) {
+        present = _present(args, position);
+        source = call(
+          VariableGet(args),
+          method(argumentsClass, 'get'),
+          [IntLiteral(position)],
+          types: [core.objectNullableRawType],
+        );
+      } else {
+        final index = function.signature.positional.length;
+        final options = local(
+          statements,
+          'options',
+          objectType.withDeclaredNullability(Nullability.nullable),
+          ConditionalExpression(
+            _present(args, index),
+            call(
+              VariableGet(args),
+              method(argumentsClass, 'get'),
+              [IntLiteral(index)],
+              types: [objectType],
+            ),
+            NullLiteral(),
+            objectType.withDeclaredNullability(Nullability.nullable),
+          ),
+        );
+        present = LogicalExpression(
+          Not(EqualsNull(VariableGet(options))),
+          LogicalExpressionOperator.AND,
+          call(NullCheck(VariableGet(options)), method(objectClass, 'hasOwn'), [
+            StringLiteral(parameter.name),
+          ]),
+        );
+        source = call(
+          NullCheck(VariableGet(options)),
+          method(objectClass, 'get'),
+          [StringLiteral(parameter.name)],
+          types: [core.objectNullableRawType],
+        );
+      }
+      final hasValue = local(
+        statements,
+        'present',
+        core.boolNonNullableRawType,
+        present,
+      );
+      final raw = local(
+        statements,
+        'value',
+        core.objectNullableRawType,
+        ConditionalExpression(
+          VariableGet(hasValue),
+          source,
+          parameter.required
+              ? failure('Missing argument: ${parameter.name}')
+              : NullLiteral(),
+          core.objectNullableRawType,
+        ),
+      );
+      supplied[parameter] = (value: raw, present: hasValue);
+      final active = parameter.type.nullable
+          ? LogicalExpression(
+              VariableGet(hasValue),
+              LogicalExpressionOperator.AND,
+              Not(EqualsNull(VariableGet(raw))),
+            )
+          : VariableGet(hasValue);
+      final branch = <Statement>[];
+      final bound = local(
+        branch,
+        'bound',
+        boundType,
+        call(
+          VariableGet(env),
+          method(envClass, '_classCall'),
+          [AsExpression(VariableGet(raw), objectType)..isTypeError = true],
+          types: [cls.dartType],
+        ),
+      );
+      final fresh = getFreshTypeParameters(cls.target.typeParameters);
+      final record = <Statement>[];
+      for (var i = 0; i < parameter.type.typeArguments.length; ++i) {
+        final argument = parameter.type.typeArguments[i];
+        final index = argument.parameter == null
+            ? -1
+            : parameters.indexOf(argument.parameter!);
+        if (index < 0 || argument.nullable) continue;
+        record.add(
+          ExpressionStatement(
+            call(
+              VariableGet(env),
+              method(envClass, '_recordGenericArgument'),
+              [
+                VariableGet(slots),
+                IntLiteral(index),
+                call(
+                  VariableGet(env),
+                  method(envClass, '_classArgument'),
+                  [VariableGet(bound), IntLiteral(i)],
+                  types: [cls.dartType],
+                ),
+                StringLiteral(parameters[index].name),
+              ],
+              types: [fresh.freshTypeArguments[i]],
+            ),
+          ),
+        );
+      }
+      record.add(ReturnStatement(NullLiteral()));
+      branch.add(
+        ExpressionStatement(
+          StaticInvocation(
+            extract,
+            Arguments(
+              [
+                AsExpression(
+                  InstanceGet(
+                    InstanceAccessKind.Instance,
+                    VariableGet(bound),
+                    Name('value'),
+                    interfaceTarget: boundClass.fields.singleWhere(
+                      (f) => f.name.text == 'value',
+                    ),
+                    resultType: core.objectNonNullableRawType,
+                  ),
+                  cls.dartType,
+                )..isTypeError = true,
+                FunctionExpression(
+                  FunctionNode(
+                    Block(record),
+                    typeParameters: fresh.freshTypeParameters,
+                    returnType: core.objectNullableRawType,
+                  ),
+                ),
+              ],
+              types: [cls.dartType],
+            ),
+          ),
+        ),
+      );
+      statements.add(IfStatement(active, Block(branch), null));
+    }
+    Block invoke(int index) {
+      if (index == parameters.length) return body(supplied);
+      final parameter = parameters[index];
+      final type = TypeParameter(
+        parameter.name,
+        core.objectNullableRawType,
+        const DynamicType(),
+      );
+      final codec = PositionalParameter(
+        cosmeticName: 'conversion',
+        type: codecType,
+      );
+      final fallbackType = parameter.bound.parameter?.fromClass == true
+          ? parameter.bound
+          : parameter.defaultType;
+      final fallback = FunctionExpression(
+        FunctionNode(
+          ReturnStatement(classArgument(env, fallbackType)),
+          returnType: codecType,
+        ),
+      );
+      final savedTypes = _codecTypes;
+      final savedCodecs = _classCodecs;
+      _codecTypes = Substitution.combine(
+        Substitution.fromPairs(
+          [parameter.target],
+          [TypeParameterType(type, Nullability.nonNullable)],
+        ),
+        savedTypes,
+      );
+      _classCodecs = {..._classCodecs, parameter: codec};
+      late final Block next;
+      try {
+        next = invoke(index + 1);
+      } finally {
+        _codecTypes = savedTypes;
+        _classCodecs = savedCodecs;
+      }
+      return Block([
+        ReturnStatement(
+          call(
+            VariableGet(env),
+            method(envClass, '_invokeGenericArgument'),
+            [
+              VariableGet(slots),
+              IntLiteral(index),
+              fallback,
+              FunctionExpression(
+                FunctionNode(
+                  next,
+                  typeParameters: [type],
+                  positionalParameters: [codec],
+                  returnType: core.objectNullableRawType,
+                ),
+              ),
+            ],
+            types: [savedTypes.substituteType(fallbackType.dartType)],
+          ),
+        ),
+      ]);
+    }
+
+    statements.addAll(invoke(0).statements);
+    return Block(statements);
   }
 
   Block _callBody(
@@ -1631,6 +2039,8 @@ final class Calls {
     ExportFunction? function,
     Expression Function()? tearOff,
     bool rawResult = false,
+    Map<ExportParameter, ({Variable value, Variable present})> supplied =
+        const {},
   }) {
     final statements = <Statement>[];
     final required = signature.positional.where((p) => p.required).length;
@@ -1646,7 +2056,18 @@ final class Calls {
             statements,
             'argument$index',
             _dartType(parameter.type),
-            _argument(env, args, index, parameter.type),
+            supplied.containsKey(parameter)
+                ? _decode(
+                    env,
+                    parameter.type,
+                    (type) => call(
+                      VariableGet(env),
+                      method(envClass, '_typedValue'),
+                      [VariableGet(supplied[parameter]!.value)],
+                      types: [type],
+                    ),
+                  )
+                : _argument(env, args, index, parameter.type),
           ),
         );
       }
@@ -1682,7 +2103,18 @@ final class Calls {
       for (var i = 0; i < signature.positional.length; ++i) {
         final parameter = signature.positional[i];
         // Keep conversion inside the presence branch, including class unwrap.
-        final decoded = _argument(env, args, i, parameter.type);
+        final decoded = supplied.containsKey(parameter)
+            ? _decode(
+                env,
+                parameter.type,
+                (type) => call(
+                  VariableGet(env),
+                  method(envClass, '_typedValue'),
+                  [VariableGet(supplied[parameter]!.value)],
+                  types: [type],
+                ),
+              )
+            : _argument(env, args, i, parameter.type);
         Expression value = decoded;
         if (!parameter.required)
           value = ConditionalExpression(
@@ -1767,15 +2199,24 @@ final class Calls {
               LogicalExpressionOperator.AND,
               present,
             );
+          if (supplied[parameter] case final value?)
+            present = VariableGet(value.present);
           final decoded = _decode(
             env,
             parameter.type,
-            (type) => call(
-              optionsValue(),
-              method(objectClass, 'get'),
-              [StringLiteral(parameter.name)],
-              types: [type],
-            ),
+            (type) => supplied.containsKey(parameter)
+                ? call(
+                    VariableGet(env),
+                    method(envClass, '_typedValue'),
+                    [VariableGet(supplied[parameter]!.value)],
+                    types: [type],
+                  )
+                : call(
+                    optionsValue(),
+                    method(objectClass, 'get'),
+                    [StringLiteral(parameter.name)],
+                    types: [type],
+                  ),
           );
           final value = decoded;
           if (sparse) {

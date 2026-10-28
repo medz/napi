@@ -38,6 +38,7 @@ Future<void> main(List<String> args) async {
       ('inheritance', 'annotated_inheritance.dart'),
       ('generic-objects', 'annotated_generic_objects.dart'),
       ('generic-callbacks', 'annotated_generic_callbacks.dart'),
+      ('generic-calls', 'annotated_generic_calls.dart'),
     ])
       NativeTarget(
         entry: File('${source.path}/$entry'),

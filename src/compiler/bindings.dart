@@ -11,6 +11,18 @@ Procedure generateRegister(
   ExportModule exports,
 ) {
   final calls = Calls(component, library, envLibrary);
+  final classCalls = {
+    for (final function in [
+      ...exports.functions,
+      for (final cls in exports.classes) ...[
+        ...cls.methods,
+        ...cls.staticMethods,
+        for (final instance in cls.instances) ...instance.methods,
+      ],
+    ])
+      for (final parameter in function.classParameters)
+        parameter.type.classExport!,
+  };
   final env = PositionalParameter(cosmeticName: 'env', type: calls.envType);
   final target = PositionalParameter(
     cosmeticName: 'exports',
@@ -176,13 +188,20 @@ Procedure generateRegister(
     );
   }
   final classRegistrationEnd = statements.length;
-  for (final cls in exports.classes) {
+  for (final cls in exports.classes.where((cls) => !cls.isObject)) {
     for (final instance in [
-      if (cls.instances.isNotEmpty) cls,
+      if (classCalls.contains(cls) || cls.instances.isNotEmpty) cls,
       ...cls.instances,
     ]) {
       for (final (contract, members) in [
-        (cls, (methods: instance.methods, properties: instance.properties)),
+        (
+          cls,
+          (
+            methods: instance.methods,
+            properties: instance.properties,
+            arguments: instance.arguments,
+          ),
+        ),
         for (final entry in instance.specializations.entries)
           (entry.key, entry.value),
       ]) {
@@ -202,6 +221,11 @@ Procedure generateRegister(
               types: [instance.dartType, contract.dartType],
               named: [
                 NamedExpression('registerType', BoolLiteral(contract == cls)),
+                if (classCalls.contains(contract))
+                  NamedExpression(
+                    'arguments',
+                    calls.classArguments(env, members.arguments),
+                  ),
                 NamedExpression(
                   'methods',
                   callbacks(signature, 'methods', [
@@ -269,6 +293,11 @@ Procedure generateRegister(
             [],
             types: [cls.dartType, entry.key.dartType],
             named: [
+              if (classCalls.contains(entry.key))
+                NamedExpression(
+                  'arguments',
+                  calls.classArguments(env, entry.value.arguments),
+                ),
               NamedExpression(
                 'methods',
                 callbacks(signature, 'methods', [

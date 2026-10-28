@@ -373,10 +373,11 @@ module.exports = async function verifyAnnotatedGenerics(path, packageDirectory) 
   assert.equal(rawAmountPair.value[1], amount);
   rawAmountPair.value = [{value: '42'}, null];
   assert.deepEqual(rawAmountPair.value, [{value: '42'}, null]);
-  const reboxed = addon.rebox(amounts, amount);
-  assert.equal(reboxed.value, amount);
+  const reboxed = addon.rebox(amounts, {value: '41'});
+  assert.deepEqual(reboxed.value, {value: 41});
+  assert.throws(() => addon.rebox(amounts, amount), TypeError);
   reboxed.value = {value: '42'};
-  assert.deepEqual(reboxed.value, {value: '42'});
+  assert.deepEqual(reboxed.value, {value: 42});
   assert.equal(addon.pickBox([amounts]), amounts);
   assert.equal(addon.pickCallbackBox(() => amounts), amounts);
   const futureAmount = addon.futureAmountBox();

@@ -600,9 +600,30 @@ and other generic classes. For example, a `Box<Counter>` can hold a `Counter`
 or a subclass; reading its `value` returns the same JS instance. A plain object
 with matching properties is not a `Counter`.
 
-Generic helpers still use default Dart type arguments. To convert a collection
-extracted from a box, declare the concrete type, for example
-`List<int> readNumbers(Box<List<int>> box) => box.value`.
+Generic functions and methods can use a bound instance to select their Dart
+type arguments. Their generated declarations require TypeScript 5.4 or newer:
+
+```dart
+@NAPI()
+T writeBox<T>(Box<T> box, T value) => box.value = value;
+```
+
+```js
+writeBox(numbers(), [3, 4]); // T is List<int>; the array is copied into Dart.
+writeBox(makeIntBox(), 7);   // T is int; fractional values are rejected.
+```
+
+The same conversion applies to arguments, callbacks and return values. A
+`Box<Amount>` selects Amount's constructor input and output fields. A
+JS-created box selects `dynamic` and preserves opaque values. If several
+instances select the same parameter, their actual Dart types must agree;
+`Box<int>` and `Box<double>` conflict even though both use TypeScript `number`.
+A nullable or optional instance selects a type only when present and non-null.
+Otherwise, the declaration's defaults apply, following any selected bound.
+For a variable that may be `null`, inputs must work in both cases; narrow it
+first when the native and opaque input shapes differ.
+Instance arguments must directly contain the parameter, as in `Box<T>`;
+instances inside lists or callbacks do not select type arguments.
 
 Typed callbacks can also be stored and replaced:
 
@@ -721,7 +742,8 @@ values passed as a whole `T` use opaque handles: JavaScript can keep and return
 them, but cannot access their contents. Returning a handle restores its Dart
 value. Explicit shapes such as `List<T>` still become JS arrays, with each `T`
 element following these rules. Calling a generic Dart function from JavaScript
-uses the declaration's default type arguments, as with other generic exports.
+uses the declaration's default type arguments unless a bound-instance parameter
+selects them.
 
 ## JavaScript values
 
