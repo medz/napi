@@ -1908,6 +1908,9 @@ final class _Writer {
   }) {
     final cls = type.classExport!;
     if (!cls.isObject) {
+      for (final argument in type.typeArguments) {
+        if (!_containsParameter(argument)) _checkClassArgument(argument, cls);
+      }
       return '${cls.name}${type.typeArguments.isEmpty ? '' : '<${type.typeArguments.map((argument) => _type(argument, metadata: metadata)).join(', ')}>'}';
     }
     if (!output && cls.constructor == null) return 'never';
@@ -1940,6 +1943,23 @@ final class _Writer {
     return '$name${pairs.isEmpty ? '' : '<${[
             for (final pair in pairs) ...[pair.output, pair.input],
           ].join(', ')}>'}';
+  }
+
+  void _checkClassArgument(ExportType type, ExportClass owner) {
+    if (type.kind == ValueKind.future &&
+        const {
+          ValueKind.object,
+          ValueKind.record,
+          ValueKind.map,
+        }.contains(type.element!.kind) &&
+        !_awaitPreserves(type.element!)) {
+      throw FormatException(
+        '@NAPI ${owner.name}: thenable Future class arguments need different input and output types and are not supported yet: ${type.dartType}.',
+      );
+    }
+    for (final child in _typeChildren(type)) {
+      _checkClassArgument(child, owner);
+    }
   }
 
   bool _containsParameter(ExportType type) =>

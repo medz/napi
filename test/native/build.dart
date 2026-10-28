@@ -462,6 +462,17 @@ Future<void> main(List<String> args) async {
           'unsupported concrete bound-class argument',
         ),
         for (final type in [
+          'Thenable',
+          '({void Function(void Function(int)) then})',
+          'Map<String, void Function(void Function(int))>',
+        ])
+          (
+            '@NAPI() class Box<T> { @NAPI() Box(this.value); @NAPI() T value; } '
+                '@NAPI() class Holder { @NAPI() Box<Future<$type>> get value => throw UnimplementedError(); } '
+                '@NAPI() class Thenable { @NAPI() void then(void Function(int) resolve) => resolve(1); }',
+            'thenable Future class arguments need different input and output types',
+          ),
+        for (final type in [
           'Stream<int>',
           'List<Stream<int>>',
           'Future<Future<int>>',

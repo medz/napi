@@ -330,6 +330,53 @@ class SpecialCounter extends Counter {
   String get label => 'special';
 }
 
+final _boundCounter = SpecialCounter(7);
+final _boundBox = Box<Counter>(_boundCounter);
+
+@NAPI()
+Box<Counter> boundBox() => _boundBox;
+
+@NAPI()
+Box<dynamic> wideBoundBox() => _boundBox;
+
+@NAPI()
+Box<SpecialCounter> specialBoundBox() => Box(_boundCounter);
+
+@NAPI()
+Box<List<Counter?>> boundListBox(List<Counter?> values) => Box(values);
+
+@NAPI()
+Box<Box<int>> nestedBoundBox() => Box(_integerBox);
+
+@NAPI()
+Box<Box<dynamic>> recursiveBox() {
+  final result = Box<Box<dynamic>>(Box<dynamic>(null));
+  result.value = result;
+  return result;
+}
+
+@NAPI()
+Box<Counter Function(Counter)> boundCallbackBox() => Box((value) => value);
+
+@NAPI()
+Counter callBoundCallback(Box<Counter Function(Counter)> box, Counter value) =>
+    box.value(value);
+
+@NAPI()
+Box<Future<Counter>> boundFutureBox() => Box(Future.value(_boundCounter));
+
+@NAPI()
+class Tag<T> {
+  @NAPI()
+  Tag(this.then);
+
+  @NAPI()
+  final T then;
+}
+
+@NAPI()
+Box<Future<Tag<int>>> taggedFutureBox() => Box(Future.value(Tag(42)));
+
 @NAPI()
 T boundIdentity<T extends Counter>(T value) => value;
 
