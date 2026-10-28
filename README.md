@@ -555,7 +555,19 @@ bound classes. For example, `T identity<T extends Counter>(T value) => value`
 preserves the original instance and its subclass type in TypeScript. Generic
 callbacks with a class bound receive the ordinary JS instance; Dart checks their
 result against the actual type argument, including a narrower subclass.
-Bounds that copy values, such as `List<int>` or data classes, produce a build error.
+Bounds that copy values, such as `List<int>` or data classes, require a required,
+non-null bound-instance parameter that supplies the actual Dart type:
+
+```dart
+@NAPI()
+T replaceNumbers<T extends List<int>>(Box<T> box, T value) => box.value = value;
+```
+
+Passing a Dart-created `Box<List<int>>` converts arrays; a `Box<Uint8List>` uses
+`Uint8Array` instead. The instance also determines the result type. Data-class
+bounds keep their constructor input and output field shapes. A nullable or
+optional instance alone cannot supply this guarantee, and generic callbacks
+with copying bounds remain unsupported.
 
 Dart can return concrete bound classes with scalar values, JS references,
 bound instances, enums, dates, binary types, collections, records, Futures and

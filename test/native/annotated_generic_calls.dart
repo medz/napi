@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:napi/napi.dart';
 
 @NAPI()
@@ -26,6 +28,12 @@ Box<int> intBox() => Box(1);
 
 @NAPI()
 Box<List<int>> listBox() => Box([1]);
+
+@NAPI()
+Box<Uint8List> bytesBox() => Box(Uint8List.fromList([1, 2]));
+
+@NAPI()
+Box<Int64List> int64Box() => Box(Int64List.fromList([1, 2]));
 
 @NAPI()
 Box<Amount> amountBox() => Box(Amount(value: '1'));
@@ -57,6 +65,39 @@ void exchange<T>(Box<T> first, Box<T> second) {
 
 @NAPI()
 T numeric<T extends num>(Box<T> box, T value) => box.value = value;
+
+@NAPI()
+T writeList<T extends List<int>>(Box<T> box, T value) => box.value = value;
+
+@NAPI()
+T writeAmount<T extends Amount>(Box<T> box, T value) => box.value = value;
+
+@NAPI()
+String listType<T extends List<int>>(Box<T> box) => '$T';
+
+@NAPI()
+T namedList<T extends List<int>>({required Box<T> box, required T value}) =>
+    box.value = value;
+
+@NAPI()
+T listDefault<T extends U, U extends List<int>>(Box<U> box, T value) => value;
+
+@NAPI()
+R append<R extends List<E>, E>(Box<R> box, E value) {
+  box.value.add(value);
+  return box.value;
+}
+
+@NAPI()
+T transformAmount<T extends Amount>(Box<T> box, T Function(T) callback) =>
+    callback(box.value);
+
+@NAPI()
+Box<List<int>?> nullableListBox() => Box(null);
+
+@NAPI()
+T writeNullableList<T extends List<int>?>(Box<T> box, T value) =>
+    box.value = value;
 
 @NAPI()
 T optionalBox<T>(T value, [Box<T>? box]) {
@@ -150,6 +191,9 @@ V writePair<K, V>(Pair<K, V> pair, K key, V value) {
 class Service {
   @NAPI()
   int mode = 0;
+
+  @NAPI()
+  T copy<T extends List<int>>(Box<T> box, T value) => box.value = value;
 
   @NAPI()
   T update<T>(Box<T> box, T value, {int mode = 1}) {

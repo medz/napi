@@ -31,6 +31,36 @@ addon.asynchronous(addon.futureBox(), Promise.resolve('wrong'));
 // @ts-expect-error Future-valued Amount inputs use the constructor shape.
 addon.asynchronous(addon.futureAmountBox(), Promise.resolve({value: 14}));
 const collection: addon.Amount[] = addon.collection(amountBox, [{value: '53'}]);
+const copiedList: number[] = addon.writeList(addon.listBox(), [1, 2]);
+const copiedAmount: addon.Amount = addon.writeAmount(amountBox, {value: '19'});
+const copiedCallback: addon.Amount = addon.transformAmount(amountBox, value => ({value: String(value.value)}));
+const namedList: number[] = addon.namedList({box: addon.listBox(), value: [3]});
+const listDefault: number[] = addon.listDefault(addon.listBox(), [4]);
+const copiedMethod: number[] = addon.service().copy(addon.listBox(), [5]);
+const appended: number[] = addon.append(addon.listBox(), 2);
+// @ts-expect-error The list bound relates its element type to the value.
+addon.append(addon.listBox(), 'wrong');
+const copiedBytes: Uint8Array = addon.writeList(addon.bytesBox(), new Uint8Array([6]));
+const defaultBytes: Uint8Array = addon.listDefault(addon.bytesBox(), new Uint8Array([7]));
+const copiedWide: BigInt64Array = addon.writeList(addon.int64Box(), new BigInt64Array([8n]));
+const nullableList: number[] | null = addon.writeNullableList(addon.nullableListBox(), null);
+const nonNullList: number[] = addon.writeNullableList(addon.listBox(), [9]);
+// @ts-expect-error A copied list does not retain extra input properties.
+addon.writeList(addon.listBox(), Object.assign([1], {label: 'input'})).label;
+// @ts-expect-error The bound excludes scalar instances.
+addon.writeList(double, 1);
+// @ts-expect-error The instance determines the element type.
+addon.writeList(addon.listBox(), ['1']);
+// @ts-expect-error Uint8List keeps its typed-array input conversion.
+addon.writeList(addon.bytesBox(), [1]);
+// @ts-expect-error A dependent default follows the actual Uint8List type.
+addon.listDefault(addon.bytesBox(), [1]);
+// @ts-expect-error Data-class bounds retain their constructor input shape.
+addon.writeAmount(amountBox, {value: 19});
+// @ts-expect-error Callback results use the selected data-class input shape.
+addon.transformAmount(amountBox, value => value);
+// @ts-expect-error A nullable bound does not make a non-null instance nullable.
+addon.writeNullableList(addon.listBox(), null);
 const opaque = new addon.Box(amount);
 const opaqueValue: addon.Amount = addon.writeBox(opaque, amount);
 const opaqueResult = addon.rebox(opaque, amount);
