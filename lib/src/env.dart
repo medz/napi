@@ -280,6 +280,56 @@ final class _BoundObject {
   final _ClassDefinition definition;
   final node.NapiRef? reference;
   final void Function()? finalize;
+  Map<_ClassDefinition, _ClassSpecialization?>? _views;
+
+  _ClassSpecialization? view(_ClassDefinition contract) {
+    final candidates = contract.views;
+    if (candidates == null) return null;
+    final matches = [
+      for (final view in candidates)
+        if (view.accepts(value)) view,
+    ];
+    final closest = [
+      for (final view in matches)
+        if (!matches.any(
+          (other) => other.isSubtypeOf(view) && !view.isSubtypeOf(other),
+        ))
+          view,
+    ];
+    final selected = closest.firstOrNull;
+    if (selected != null &&
+        closest
+            .skip(1)
+            .any(
+              (view) =>
+                  !view.isSubtypeOf(selected) || !selected.isSubtypeOf(view),
+            )) {
+      throw StateError(
+        'Dart object matches incompatible class specializations: ${closest.map((view) => view.type).join(', ')}',
+      );
+    }
+    return selected?.members;
+  }
+
+  _ClassSpecialization? specialization(_ClassDefinition contract) {
+    if (!contract.hasViews) return definition.specializations?[contract];
+    final cache = _views ??= (definition.viewsCache ??= {}).putIfAbsent(
+      value.runtimeType,
+      () => {},
+    );
+    if (cache.containsKey(contract)) return cache[contract];
+    return cache[contract] =
+        view(contract) ?? definition.specializations?[contract];
+  }
+}
+
+final class _ClassView<T extends Object> {
+  const _ClassView(this.members);
+  final _ClassSpecialization members;
+  Type get type => T;
+  bool accepts(Object value) => value is T;
+  bool acceptsType<S>() => <S>[] is List<T>;
+  bool isSubtypeOf(_ClassView other) => other.acceptsType<T>();
 }
 
 final class _PendingWrap {
@@ -306,6 +356,9 @@ final class _ClassDefinition {
   _ClassDefinition? parent;
   final children = <_ClassDefinition>[];
   Map<_ClassDefinition, _ClassSpecialization>? specializations;
+  List<_ClassView>? views;
+  bool hasViews = false;
+  Map<Type, Map<_ClassDefinition, _ClassSpecialization?>>? viewsCache;
 
   _ClassDefinition select(Object value) {
     _ClassDefinition? selected;
@@ -1445,7 +1498,7 @@ final class Env {
     if (child == null || parent == null) {
       throw StateError('Specialization requires uniquely registered classes');
     }
-    (child.specializations ??= {})[parent] = _ClassSpecialization(
+    final members = _ClassSpecialization(
       methods: methods.map(
         (name, body) =>
             MapEntry(name, (value, arguments) => body(value as T, arguments)),
@@ -1458,6 +1511,52 @@ final class Env {
             MapEntry(name, (value, arguments) => body(value as T, arguments)),
       ),
     );
+    (child.specializations ??= {})[parent] = members;
+    // A fixed descendant can be more specific than a generic ancestor view.
+    final views = parent.views;
+    if (views != null && !views.any((view) => view.type == T)) {
+      views.add(_ClassView<T>(members));
+    }
+  }
+
+  // Concrete type arguments share the class's JS constructor and prototype.
+  // ignore: unused_element
+  void _specializeClassInstance<T extends Object, S extends Object>({
+    bool registerType = true,
+    Map<String, Object? Function(T, JsArguments)> methods = const {},
+    Map<String, Object? Function(T)> getters = const {},
+    Map<String, void Function(T, JsArguments)> setters = const {},
+  }) {
+    _arena;
+    final definition = _classes[S];
+    if (definition == null) {
+      throw StateError('No unique JavaScript class for $S');
+    }
+    if (registerType &&
+        _classes.containsKey(T) &&
+        !identical(_classes[T], definition)) {
+      throw StateError('Another JavaScript class is registered for $T');
+    }
+    if (definition.views?.any((view) => view.type == T) ?? false) return;
+    definition.hasViews = true;
+    (definition.views ??= []).add(
+      _ClassView<T>(
+        _ClassSpecialization(
+          methods: methods.map(
+            (name, body) =>
+                MapEntry(name, (value, args) => body(value as T, args)),
+          ),
+          getters: getters.map(
+            (name, body) => MapEntry(name, (value) => body(value as T)),
+          ),
+          setters: setters.map(
+            (name, body) =>
+                MapEntry(name, (value, args) => body(value as T, args)),
+          ),
+        ),
+      ),
+    );
+    if (registerType) _classes[T] = definition;
   }
 
   node.NapiValue? _cachedObject(Object value, {_ClassDefinition? definition}) {
@@ -1599,8 +1698,9 @@ final class Env {
             final token = register((args, self) {
               if (isStatic) return _encode(staticMethods[key]!(args));
               final object = _boundObject<T>(self);
-              final specialized =
-                  object.definition.specializations?[definition]?.methods[key];
+              final specialized = object
+                  .specialization(definition)
+                  ?.methods[key];
               return _encode(
                 specialized == null
                     ? methods[key]!(object.value as T, args)
@@ -1640,8 +1740,9 @@ final class Env {
             _getters[token] = (args, self) {
               if (isStatic) return _encode(staticGetters[key]!());
               final object = _boundObject<T>(self);
-              final specialized =
-                  object.definition.specializations?[definition]?.getters[key];
+              final specialized = object
+                  .specialization(definition)
+                  ?.getters[key];
               return _encode(
                 specialized == null
                     ? getters[key]!(object.value as T)
@@ -1659,8 +1760,7 @@ final class Env {
               } else {
                 final object = _boundObject<T>(self);
                 final specialized = object
-                    .definition
-                    .specializations?[definition]
+                    .specialization(definition)
                     ?.setters[key];
                 if (specialized == null) {
                   setters[key]!(object.value as T, args);

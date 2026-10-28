@@ -16,6 +16,28 @@ const previous: number = box.replace(7);
 const method: string = box.echo<string>('hello');
 box.value = 9;
 const same: addon.Box<number> = addon.echoBox(box);
+const concrete: addon.Box<number> = addon.intBox();
+const concreteValue: number = addon.readBox(concrete);
+const concreteParent: addon.Box<number> = addon.parentBox();
+const concreteChild: addon.LabeledBox<number> = addon.labeledBox();
+const concreteEcho: addon.LabeledBox<number> = addon.intBoxIdentity()(concreteChild);
+const nullableConcrete: addon.Box<number> | null = addon.nullableIntBox(null);
+const nullableText: string | null = addon.textBox().value;
+const anyValue: unknown = addon.anyBox().value;
+addon.anyBox().value = { value: 'opaque' };
+const concreteBigInt: bigint = addon.bigIntBox().value;
+const concreteObject: object = addon.objectBox({}).value;
+addon.callIntBox(value => value);
+const adjusted = addon.adjustedBox();
+const adjustedPrevious: number = adjusted.replace(5, 3);
+const adjustedDefault: number = adjusted.replace(5);
+const scaled: addon.Box<number> = addon.scaledBox();
+// @ts-expect-error Concrete arguments must retain the class's member type.
+concrete.value = 'wrong';
+// @ts-expect-error A different generic instance is not a Box<number>.
+addon.consumeIntBox(new addon.Box('wrong'));
+// @ts-expect-error Nullable elements do not make the Box itself nullable.
+const missingBox: null = addon.textBox();
 const items: number[] = box.items;
 const named: { [key: string]: number } = box.named;
 const list: number[] = addon.copyList([1, 2]);

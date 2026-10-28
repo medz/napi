@@ -177,6 +177,68 @@ Procedure generateRegister(
   }
   final classRegistrationEnd = statements.length;
   for (final cls in exports.classes) {
+    for (final instance in [
+      if (cls.instances.isNotEmpty) cls,
+      ...cls.instances,
+    ]) {
+      for (final (contract, members) in [
+        (cls, (methods: instance.methods, properties: instance.properties)),
+        for (final entry in instance.specializations.entries)
+          (entry.key, entry.value),
+      ]) {
+        final signature = FunctionTypeInstantiator.instantiate(
+          calls
+              .method(calls.envClass, '_specializeClassInstance')
+              .function
+              .computeFunctionType(Nullability.nonNullable),
+          [instance.dartType, contract.dartType],
+        );
+        statements.add(
+          ExpressionStatement(
+            calls.call(
+              VariableGet(env),
+              calls.method(calls.envClass, '_specializeClassInstance'),
+              [],
+              types: [instance.dartType, contract.dartType],
+              named: [
+                NamedExpression('registerType', BoolLiteral(contract == cls)),
+                NamedExpression(
+                  'methods',
+                  callbacks(signature, 'methods', [
+                    for (final method in members.methods)
+                      MapEntry(method.name, calls.function(method)),
+                  ]),
+                ),
+                NamedExpression(
+                  'getters',
+                  callbacks(signature, 'getters', [
+                    for (final property in members.properties)
+                      if (property.getter != null)
+                        MapEntry(
+                          property.name,
+                          calls.property(property, setter: false),
+                        ),
+                  ]),
+                ),
+                NamedExpression(
+                  'setters',
+                  callbacks(signature, 'setters', [
+                    for (final property in members.properties)
+                      if (property.setter != null)
+                        MapEntry(
+                          property.name,
+                          calls.property(property, setter: true),
+                        ),
+                  ]),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+    }
+  }
+  for (final cls in exports.classes) {
     final parent = cls.superclass?.classExport;
     if (parent == null) continue;
     statements.add(
@@ -280,14 +342,15 @@ Procedure generateRegister(
   if (calls.usesClassBounds) {
     statements.insertAll(classRegistrationEnd, [
       for (final cls in exports.classes.where((cls) => !cls.isObject))
-        ExpressionStatement(
-          calls.call(
-            VariableGet(env),
-            calls.method(calls.envClass, '_registerClassBound'),
-            [],
-            types: [cls.dartType],
+        for (final instance in [cls, ...cls.instances])
+          ExpressionStatement(
+            calls.call(
+              VariableGet(env),
+              calls.method(calls.envClass, '_registerClassBound'),
+              [],
+              types: [instance.dartType],
+            ),
           ),
-        ),
     ]);
   }
   return calls.procedure(

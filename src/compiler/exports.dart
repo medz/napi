@@ -3,6 +3,7 @@ import 'package:kernel/class_hierarchy.dart';
 import 'package:kernel/core_types.dart';
 import 'package:kernel/src/bounds_checks.dart' show calculateBounds;
 import 'package:kernel/type_algebra.dart';
+import 'package:kernel/type_environment.dart';
 import 'package:package_config/package_config.dart';
 
 enum ValueKind {
@@ -200,10 +201,17 @@ final class ExportProperty {
 }
 
 final class ExportClass {
-  ExportClass(this.target, this.name, {this.isObject = false});
+  ExportClass(
+    this.target,
+    this.name, {
+    this.isObject = false,
+    this.instanceType,
+  });
   final Class target;
   final String name;
   final bool isObject;
+  final InterfaceType? instanceType;
+  final instances = <ExportClass>[];
   ExportType? superclass;
   final specializations =
       <
@@ -216,9 +224,11 @@ final class ExportClass {
   final properties = <ExportProperty>[];
   final staticMethods = <ExportFunction>[];
   final staticProperties = <ExportProperty>[];
-  InterfaceType get dartType => InterfaceType(target, Nullability.nonNullable, [
-    for (final parameter in typeParameters) parameter.invocationType,
-  ]);
+  InterfaceType get dartType =>
+      instanceType ??
+      InterfaceType(target, Nullability.nonNullable, [
+        for (final parameter in typeParameters) parameter.invocationType,
+      ]);
 }
 
 final class ExportModule {
@@ -281,6 +291,7 @@ final class _Reader {
   final classes = <Class, ExportClass>{};
   final enums = <Class, ExportEnum>{};
   final _parameters = <TypeParameter, ExportTypeParameter>{};
+  final _classTypes = <InterfaceType>{};
   static const _valuePreservingKinds = {
     ValueKind.boolean,
     ValueKind.integer,
@@ -582,8 +593,121 @@ final class _Reader {
           );
       }
     }
+    _classInstances();
     _checkGenericBounds();
     return module;
+  }
+
+  void _classInstances() {
+    final visited = <InterfaceType>{};
+    final types = TypeEnvironment(hierarchy.coreTypes, hierarchy);
+    void descendants(InterfaceType parent) {
+      for (final cls in module.classes) {
+        if (cls.isObject ||
+            cls.target == parent.classNode ||
+            cls.typeParameters.isEmpty) {
+          continue;
+        }
+        final base = hierarchy.getClassAsInstanceOf(
+          cls.target,
+          parent.classNode,
+        );
+        if (base == null) continue;
+        final inferred = <TypeParameter, DartType>{};
+        bool match(DartType pattern, DartType actual) {
+          if (pattern is TypeParameterType &&
+              cls.target.typeParameters.contains(pattern.parameter)) {
+            final previous = inferred[pattern.parameter];
+            if (previous == null || types.isSubtypeOf(actual, previous)) {
+              inferred[pattern.parameter] = actual;
+              return true;
+            }
+            return types.isSubtypeOf(previous, actual);
+          }
+          if (pattern is InterfaceType &&
+              actual is InterfaceType &&
+              pattern.classNode == actual.classNode) {
+            for (var i = 0; i < pattern.typeArguments.length; ++i) {
+              if (!match(pattern.typeArguments[i], actual.typeArguments[i])) {
+                return false;
+              }
+            }
+            return true;
+          }
+          return types.isSubtypeOf(pattern, actual);
+        }
+
+        if (!match(base.asInterfaceType, parent)) continue;
+        final child = InterfaceType(cls.target, Nullability.nonNullable, [
+          for (final parameter in cls.typeParameters)
+            inferred[parameter.target] ?? parameter.actualType,
+        ]);
+        final substitution = Substitution.fromInterfaceType(child);
+        if (!cls.typeParameters.indexed.every(
+              (entry) => types.isSubtypeOf(
+                child.typeArguments[entry.$1],
+                substitution.substituteType(entry.$2.target.bound),
+              ),
+            ) ||
+            !types.isSubtypeOf(child, parent)) {
+          continue;
+        }
+        if (child != cls.dartType) _classTypes.add(child);
+      }
+    }
+
+    while (true) {
+      final pending = _classTypes
+          .where((type) => !visited.contains(type))
+          .toList();
+      if (pending.isEmpty) break;
+      for (final type in pending) {
+        visited.add(type);
+        descendants(type);
+        final original = classes[type.classNode]!;
+        if (type == original.dartType) continue;
+        final instance = ExportClass(
+          original.target,
+          original.name,
+          instanceType: type,
+        );
+        original.instances.add(instance);
+        instance.methods.addAll([
+          for (final method in original.methods)
+            _function(method.target, method.name, owner: instance),
+        ]);
+        instance.properties.addAll([
+          for (final property in original.properties)
+            _property(
+              instance,
+              property.name,
+              property.getter,
+              property.setter,
+            ),
+        ]);
+        for (
+          var parent = original.superclass?.classExport;
+          parent != null;
+          parent = parent.superclass?.classExport
+        ) {
+          instance.specializations[parent] = (
+            methods: [
+              for (final method in parent.methods)
+                _function(method.target, method.name, owner: instance),
+            ],
+            properties: [
+              for (final property in parent.properties)
+                _property(
+                  instance,
+                  property.name,
+                  property.getter,
+                  property.setter,
+                ),
+            ],
+          );
+        }
+      }
+    }
   }
 
   void _checkGenericBounds() {
@@ -670,6 +794,9 @@ final class _Reader {
           ...cls.methods,
           ...cls.staticMethods,
           for (final view in cls.specializations.values) ...view.methods,
+          for (final instance in cls.instances) ...instance.methods,
+          for (final instance in cls.instances)
+            for (final view in instance.specializations.values) ...view.methods,
         ]) {
           function(member, cls);
         }
@@ -677,6 +804,10 @@ final class _Reader {
           ...cls.properties,
           ...cls.staticProperties,
           for (final view in cls.specializations.values) ...view.properties,
+          for (final instance in cls.instances) ...instance.properties,
+          for (final instance in cls.instances)
+            for (final view in instance.specializations.values)
+              ...view.properties,
         ]) {
           property(member, cls);
         }
@@ -747,7 +878,15 @@ final class _Reader {
     final declaration = member.enclosingClass;
     if (owner == null || declaration == null) return Substitution.empty;
     final type = hierarchy.getClassAsInstanceOf(owner.target, declaration);
-    return type == null ? Substitution.empty : Substitution.fromSupertype(type);
+    if (type == null) return Substitution.empty;
+    if (owner.instanceType case final instance?) {
+      final actual = Substitution.fromInterfaceType(instance);
+      return Substitution.fromPairs(
+        declaration.typeParameters,
+        type.typeArguments.map(actual.substituteType).toList(),
+      );
+    }
+    return Substitution.fromSupertype(type);
   }
 
   DartType _actual(DartType type, {bool reified = true}) =>
@@ -1559,28 +1698,39 @@ final class _Reader {
       final exported = classes[type.classNode];
       if (exported != null) {
         final actual = _actual(type) as InterfaceType;
-        if (!exported.isObject &&
-            (actual.typeArguments.length !=
-                    exported.dartType.typeArguments.length ||
-                !List.generate(
-                  actual.typeArguments.length,
-                  (i) =>
-                      actual.typeArguments[i] ==
-                      exported.dartType.typeArguments[i],
-                ).every((same) => same))) {
+        final arguments = [
+          for (final argument in type.typeArguments)
+            _type(argument, '$context: class argument'),
+        ];
+        if (!exported.isObject && containsFreeTypeParameters(actual)) {
           throw FormatException(
-            '@NAPI $context: non-default generic class arguments are not supported: $type.',
+            '@NAPI $context: bound-class arguments cannot depend on reified callback or data-class parameters yet: $type.',
           );
+        }
+        if (!exported.isObject && actual.typeArguments.isNotEmpty) {
+          final instance = actual.withDeclaredNullability(
+            Nullability.nonNullable,
+          );
+          if (instance != exported.dartType) {
+            for (var argument in arguments) {
+              while (argument.kind == ValueKind.typeParameter) {
+                argument = argument.representation!;
+              }
+              if (!_valuePreservingKinds.contains(argument.kind)) {
+                throw FormatException(
+                  '@NAPI $context: concrete bound-class arguments currently support scalars and JsReference types: ${argument.dartType}.',
+                );
+              }
+            }
+            _classTypes.add(instance);
+          }
         }
         return ExportType(
           actual,
           ValueKind.object,
           nullable: type.nullability == Nullability.nullable,
           classExport: exported,
-          typeArguments: [
-            for (final argument in type.typeArguments)
-              _type(argument, '$context: class argument'),
-          ],
+          typeArguments: arguments,
         );
       }
       final library = type.classNode.enclosingLibrary.importUri.toString();
