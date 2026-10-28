@@ -469,35 +469,13 @@ Future<void> main(List<String> args) async {
           '@NAPI() T invalid<T extends List<int>>(T value) => value;',
           'generic bounds must preserve JavaScript values',
         ),
-        for (final type in [
-          'Thenable',
-          'Future<Thenable>',
-          '({void Function(void Function(int)) then})',
-          'Map<String, void Function(void Function(int))>',
-        ])
-          (
-            '@NAPI() class Box<T> { @NAPI() Box(this.value); @NAPI() T value; } '
-                '@NAPI() class Holder { @NAPI() Box<Future<$type>> get value => throw UnimplementedError(); } '
-                '@NAPI() class Thenable { @NAPI() void then(void Function(int) resolve) => resolve(1); }',
-            'thenable Future class arguments need different input and output types',
-          ),
-        for (final subclass in [
-          '@NAPI() class Child extends Counter { '
-              '@NAPI() void then(void Function(int) resolve) => resolve(7); }',
-          '@NAPI() class Child extends Counter { '
-              '@NAPI() void Function(void Function(int))? get then => null; }',
-          '@NAPI() class Middle extends Counter {} '
-              '@NAPI() class Child extends Middle { '
-              '@NAPI(name: "then") void resolve(void Function(int) callback) => callback(7); }',
-          '@NAPI() class Child<T> extends Counter { '
-              '@NAPI() T get then => throw UnimplementedError(); }',
-        ])
-          (
-            '@NAPI() class Box<T> { @NAPI() Box(this.value); @NAPI() T value; } '
-                '@NAPI() class Holder { @NAPI() Box<List<Future<Counter>>> get value => throw UnimplementedError(); } '
-                '@NAPI() class Counter {} $subclass',
-            'thenable Future class arguments need different input and output types',
-          ),
+        (
+          '@NAPI() class Loop {} '
+              '@NAPI() class Again extends Loop { '
+              '@NAPI() void then(void Function(Again) resolve) {} } '
+              '@NAPI() Future<Loop> invalid() => throw UnimplementedError();',
+          'thenable resolution does not have a finite type',
+        ),
         (
           '@NAPI() class Box<T> { @NAPI() Box(this.value); @NAPI() T value; } '
               '@NAPI() void consume(Box<T Function<T>(T)> value) {}',

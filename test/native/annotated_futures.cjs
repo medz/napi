@@ -105,6 +105,9 @@ module.exports = async function verifyAnnotatedFutures(path) {
 
   assert.equal(await addon.thenable(13), 13);
   assert.equal(await addon.thenable(13).then(number => number + 1), 14);
+  const thenableReason = {};
+  await rejectsWith(addon.readThenable(Promise.reject(thenableReason)), thenableReason);
+  await assert.rejects(addon.readThenable(addon.thenable(13)), TypeError);
   assert.equal(await addon.nestedFuture(), 7);
   assert.equal(await addon.readNested(Promise.resolve(8)), 8);
   assert.equal(await addon.readDeepNested(Promise.resolve(9)), 9);

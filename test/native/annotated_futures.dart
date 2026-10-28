@@ -83,6 +83,9 @@ class Thenable {
 Future<Thenable> thenable(int value) async => Thenable(value);
 
 @NAPI()
+Future<int> readThenable(Future<Thenable> value) async => (await value).value;
+
+@NAPI()
 Future<Future<int>> nestedFuture() =>
     Future<Future<int>>.syncValue(Future<int>.value(7));
 

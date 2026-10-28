@@ -695,9 +695,38 @@ type, when the helper requires Amount conversion.
 Nested Future arguments such as `Box<Future<Future<int>>>` use a single
 `Promise<number>` for both reads and writes. Nested arguments depending on
 erased parameters such as `Box<List<T>>` remain unsupported.
-Future arguments whose values have a callable `then` are rejected because
-Promise resolution changes their output shape. This check includes exported
-subclasses, even when the declared base class has no `then` member.
+
+Future arguments follow the [Future](#futures) adoption rules in each
+direction. When the value has a callable `then`, reads return the adopted
+value and writes exclude values that Promise resolution would replace:
+
+```dart
+@NAPI()
+class Thenable {
+  @NAPI()
+  Thenable(this.value);
+
+  @NAPI()
+  final int value;
+
+  @NAPI()
+  void then(void Function(int) resolve) => resolve(value);
+}
+
+@NAPI()
+Box<Future<Thenable>> thenableBox() => Box(Future.value(Thenable(7)));
+```
+
+```ts
+const box = thenableBox();
+await box.value;                         // 7, the adopted value
+box.value = Promise.reject(new Error()); // a fulfilled Promise cannot hold a Thenable
+```
+
+These rules apply when the class argument names the Future element, as in
+`Box<Future<Thenable>>`. A member typed with the class's own parameter, such as
+`Future<T>` in `FutureBox<T>`, uses TypeScript's `Awaited` for both directions.
+Declare the concrete argument when writes must exclude adopted values.
 
 ## Functions and callbacks
 
@@ -833,6 +862,23 @@ rejected during compilation.
 The same rules apply to a callable `then` entry in a returned string-keyed map.
 When an unchanged JavaScript callback can consume resolver arguments outside its
 declared signature, the Promise result is `unknown`.
+
+Result types also include values adopted through an exported subclass's `then`.
+If an exported `SettledTicket` extends `Ticket` and its `then` resolves a
+`String`, `Future<Ticket>` becomes `Promise<Ticket | string>`. When a `then`
+member may or may not be callable, such as an `Object?` field, the result type
+is `unknown`.
+
+Promise inputs exclude values that resolution would adopt, including values
+whose `then` may be callable. A `Future<Ticket>` parameter does not accept
+`Promise<SettledTicket>`, and a `Future<Thenable>` parameter only accepts a
+rejected Promise. These checks use the static TypeScript type: a `SettledTicket`
+typed as `Ticket`, or an object typed only by an index signature, is still
+adopted, and the conversion rejects with a `TypeError`.
+
+A Future whose element is a type parameter, such as `Future<T>` in a generic
+function or in `FutureBox<T>`, uses TypeScript's `Awaited` instead. Its type
+arguments do not account for exported subclasses or exclude adopted inputs.
 
 ## Streams
 

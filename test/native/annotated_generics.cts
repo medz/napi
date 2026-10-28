@@ -103,6 +103,50 @@ const nestedBoundValue: addon.Box<number> = addon.nestedBoundBox().value;
 const boundCallbackValue: addon.Counter = addon.boundCallbackBox().value(boxedCounter);
 const boundFutureValue: Promise<addon.Counter> = addon.boundFutureBox().value;
 const hiddenThenFuture: Promise<addon.Counter> = addon.hiddenThenFutureBox().value;
+const thenables = addon.thenableBox();
+const thenableValue: Promise<number> = thenables.value;
+thenables.value = Promise.reject(new Error('rejected'));
+// @ts-expect-error Promise resolution adopts the Thenable.
+thenables.value = Promise.resolve(new addon.Thenable(1));
+// @ts-expect-error A fulfilled number cannot become a Thenable.
+thenables.value = Promise.resolve(1);
+// @ts-expect-error The adopted read value cannot be written back.
+thenables.value = thenables.value;
+const tickets = addon.ticketBox();
+const ticketValues: Promise<addon.Ticket | string>[] = tickets.value;
+tickets.value = [Promise.resolve(new addon.Ticket(1)), Promise.resolve(new addon.NamedTicket(2))];
+// @ts-expect-error A thenable subclass can replace the Ticket.
+const plainTickets: Promise<addon.Ticket>[] = tickets.value;
+// @ts-expect-error Promise resolution adopts the SettledTicket.
+tickets.value = [Promise.resolve(new addon.SettledTicket(3))];
+// @ts-expect-error An explicitly typed Promise still excludes SettledTicket.
+tickets.value = [new Promise<addon.SettledTicket>(resolve => resolve(new addon.SettledTicket(3)))];
+// @ts-expect-error Adopted values cannot be written back.
+tickets.value = tickets.value;
+const ticketResult: Promise<addon.Ticket | string> = addon.ticket(true);
+// @ts-expect-error A Ticket result can be adopted by SettledTicket.
+const plainTicket: Promise<addon.Ticket> = addon.ticket(false);
+const resolvers = addon.resolverBox(false);
+const resolverValue: Promise<{ [key: string]: (resolve: (value: number) => void) => void } | number> = resolvers.value;
+resolvers.value = Promise.resolve({ other() {} });
+// @ts-expect-error A callable then entry is adopted.
+resolvers.value = Promise.resolve({ then(resolve: (value: number) => void) { resolve(1); } });
+addon.passId(Promise.resolve(new addon.Pass(1)));
+// @ts-expect-error A sibling with an unknown then makes the result unknown.
+const knownPass: Promise<addon.Pass> = addon.pass(0);
+// @ts-expect-error A callable then is still excluded beside an unknown sibling.
+addon.passId(Promise.resolve(new addon.SettledPass(2)));
+// @ts-expect-error A then that may be callable is excluded from inputs.
+addon.passId(Promise.resolve(new addon.OpaquePass(3, (resolve: (value: number) => void) => resolve(4))));
+const json = addon.jsonBox();
+json.value = Promise.resolve({ then: null, other: 1 });
+// @ts-expect-error An unknown then entry may be adopted.
+json.value = Promise.resolve({ then(resolve: (value: number) => void) { resolve(1); } });
+// Subclasses of other instantiations do not change Label<boolean>.
+const flag: Promise<boolean> = addon.readFlagLabel(addon.flagLabel());
+const labelText: Promise<addon.Label<string> | addon.Label<string[]>> = addon.textLabel(true);
+// @ts-expect-error NestedLabel can adopt a Label<string[]>.
+const plainText: Promise<addon.Label<string>> = addon.textLabel(false);
 const taggedFutureValue: Promise<addon.Tag<number>> = addon.taggedFutureBox().value;
 const numericTagName: string = addon.NumericTag.name;
 declare const unknownTag: unknown;

@@ -62,3 +62,6 @@ addon.nestedMissing(Promise.resolve(undefined));
 addon.nestedCallback(() => 13);
 // @ts-expect-error Then callbacks also receive the assimilated number.
 addon.thenable(7).then((value: addon.Thenable) => value.value);
+const rejectedThenable: Promise<number> = addon.readThenable(Promise.reject(new Error('rejected')));
+// @ts-expect-error A fulfilled Promise cannot deliver a Thenable unchanged.
+addon.readThenable(addon.thenable(7));

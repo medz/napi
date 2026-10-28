@@ -438,6 +438,164 @@ class HiddenThenCounter extends Counter {
 Box<Future<Counter>> hiddenThenFutureBox() =>
     Box(Future.value(HiddenThenCounter(11)));
 
+@NAPI()
+class Thenable {
+  @NAPI()
+  Thenable(this.value);
+
+  @NAPI()
+  final int value;
+
+  @NAPI()
+  void then(void Function(int) resolve) => resolve(value);
+}
+
+@NAPI()
+Box<Future<Thenable>> thenableBox() => Box(Future.value(Thenable(7)));
+
+@NAPI()
+Future<int> readThenableBox(Box<Future<Thenable>> box) async =>
+    (await box.value).value;
+
+@NAPI()
+class Ticket {
+  @NAPI()
+  Ticket(this.id);
+
+  @NAPI()
+  final int id;
+}
+
+@NAPI()
+class SettledTicket extends Ticket {
+  @NAPI()
+  SettledTicket(super.id);
+
+  @NAPI(name: 'then')
+  void settle(void Function(String) resolve) => resolve('settled:$id');
+}
+
+@NAPI()
+class NamedTicket extends Ticket {
+  @NAPI()
+  NamedTicket(super.id);
+
+  @NAPI()
+  int get then => id;
+}
+
+@NAPI()
+Box<List<Future<Ticket>>> ticketBox() => Box([
+  Future.value(Ticket(1)),
+  Future.value(SettledTicket(2)),
+  Future.value(NamedTicket(3)),
+]);
+
+@NAPI()
+Future<List<int>> ticketIds(Box<List<Future<Ticket>>> box) async => [
+  for (final ticket in box.value) (await ticket).id,
+];
+
+@NAPI()
+Future<Ticket> ticket(bool settled) async =>
+    settled ? SettledTicket(4) : Ticket(5);
+
+@NAPI()
+Box<Future<Map<String, void Function(void Function(int))>>> resolverBox(
+  bool thenKey,
+) => Box(
+  Future.value({if (thenKey) 'then': (resolve) => resolve(9), 'other': (_) {}}),
+);
+
+@NAPI()
+Future<List<String>> resolverKeys(
+  Box<Future<Map<String, void Function(void Function(int))>>> box,
+) async => (await box.value).keys.toList();
+
+@NAPI()
+class Pass {
+  @NAPI()
+  Pass(this.id);
+
+  @NAPI()
+  final int id;
+}
+
+@NAPI()
+class SettledPass extends Pass {
+  @NAPI()
+  SettledPass(super.id);
+
+  @NAPI()
+  void then(void Function(int) resolve) => resolve(id);
+}
+
+@NAPI()
+class OpaquePass<T> extends Pass {
+  @NAPI()
+  OpaquePass(super.id, this.then);
+
+  @NAPI()
+  final T then;
+}
+
+@NAPI()
+Future<Pass> pass(int kind) async => switch (kind) {
+  0 => Pass(1),
+  1 => SettledPass(2),
+  _ => OpaquePass<String>(3, 'plain'),
+};
+
+@NAPI()
+Future<int> passId(Future<Pass> value) async => (await value).id;
+
+@NAPI()
+Box<Future<Map<String, Object?>>> jsonBox() =>
+    Box(Future.value({'then': 'plain'}));
+
+@NAPI()
+Future<List<String>> jsonKeys(Box<Future<Map<String, Object?>>> box) async =>
+    (await box.value).keys.toList();
+
+@NAPI()
+class Label<T> {
+  @NAPI()
+  Label(this.value);
+
+  @NAPI()
+  final T value;
+}
+
+@NAPI()
+class NumberLabel extends Label<int> {
+  @NAPI()
+  NumberLabel(super.value);
+
+  @NAPI()
+  void then(void Function(String) resolve) => resolve('number:$value');
+}
+
+@NAPI()
+class NestedLabel extends Label<String> {
+  @NAPI()
+  NestedLabel(super.value);
+
+  @NAPI()
+  void then(void Function(Label<List<String>>) resolve) =>
+      resolve(Label([value]));
+}
+
+@NAPI()
+Future<Label<bool>> flagLabel() async => Label(true);
+
+@NAPI()
+Future<bool> readFlagLabel(Future<Label<bool>> label) async =>
+    (await label).value;
+
+@NAPI()
+Future<Label<String>> textLabel(bool nested) async =>
+    nested ? NestedLabel('text') : Label('plain');
+
 @NAPI.object()
 class Amount {
   @NAPI()
