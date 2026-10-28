@@ -26,6 +26,10 @@ const nullableText: string | null = addon.textBox().value;
 const concreteBigInt: bigint = addon.bigIntBox().value;
 const concreteObject: object = addon.objectBox({}).value;
 addon.callIntBox(value => value);
+const adjusted = addon.adjustedBox();
+const adjustedPrevious: number = adjusted.replace(5, 3);
+const adjustedDefault: number = adjusted.replace(5);
+const scaled: addon.Box<number> = addon.scaledBox();
 // @ts-expect-error Concrete arguments must retain the class's member type.
 concrete.value = 'wrong';
 // @ts-expect-error A different generic instance is not a Box<number>.

@@ -311,18 +311,8 @@ final class _BoundObject {
       () => {},
     );
     if (cache.containsKey(contract)) return cache[contract];
-    final own = view(contract);
-    final inherited = definition.specializations?[contract];
-    final parent = contract.parent == null
-        ? null
-        : specialization(contract.parent!);
-    final selected = [?parent, ?inherited, ?own];
-    if (selected.length < 2) return cache[contract] = selected.firstOrNull;
-    return cache[contract] = _ClassSpecialization(
-      methods: {for (final members in selected) ...members.methods},
-      getters: {for (final members in selected) ...members.getters},
-      setters: {for (final members in selected) ...members.setters},
-    );
+    return cache[contract] =
+        view(contract) ?? definition.specializations?[contract];
   }
 }
 
@@ -1484,7 +1474,6 @@ final class Env {
     ], receiver: object);
     setPrototype.call([childConstructor, parentConstructor], receiver: object);
     child.parent = parent;
-    child.hasViews |= parent.hasViews;
     parent.children.add(child);
   }
 
@@ -1502,7 +1491,7 @@ final class Env {
     if (child == null || parent == null) {
       throw StateError('Specialization requires uniquely registered classes');
     }
-    (child.specializations ??= {})[parent] = _ClassSpecialization(
+    final members = _ClassSpecialization(
       methods: methods.map(
         (name, body) =>
             MapEntry(name, (value, arguments) => body(value as T, arguments)),
@@ -1515,11 +1504,18 @@ final class Env {
             MapEntry(name, (value, arguments) => body(value as T, arguments)),
       ),
     );
+    (child.specializations ??= {})[parent] = members;
+    // A fixed descendant can be more specific than a generic ancestor view.
+    final views = parent.views;
+    if (views != null && !views.any((view) => view.type == T)) {
+      views.add(_ClassView<T>(members));
+    }
   }
 
   // Concrete type arguments share the class's JS constructor and prototype.
   // ignore: unused_element
   void _specializeClassInstance<T extends Object, S extends Object>({
+    bool registerType = true,
     Map<String, Object? Function(T, JsArguments)> methods = const {},
     Map<String, Object? Function(T)> getters = const {},
     Map<String, void Function(T, JsArguments)> setters = const {},
@@ -1529,7 +1525,9 @@ final class Env {
     if (definition == null) {
       throw StateError('No unique JavaScript class for $S');
     }
-    if (_classes.containsKey(T) && !identical(_classes[T], definition)) {
+    if (registerType &&
+        _classes.containsKey(T) &&
+        !identical(_classes[T], definition)) {
       throw StateError('Another JavaScript class is registered for $T');
     }
     if (definition.views?.any((view) => view.type == T) ?? false) return;
@@ -1551,7 +1549,7 @@ final class Env {
         ),
       ),
     );
-    _classes[T] = definition;
+    if (registerType) _classes[T] = definition;
   }
 
   node.NapiValue? _cachedObject(Object value, {_ClassDefinition? definition}) {

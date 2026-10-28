@@ -3,6 +3,7 @@ import 'package:kernel/class_hierarchy.dart';
 import 'package:kernel/core_types.dart';
 import 'package:kernel/src/bounds_checks.dart' show calculateBounds;
 import 'package:kernel/type_algebra.dart';
+import 'package:kernel/type_environment.dart';
 import 'package:package_config/package_config.dart';
 
 enum ValueKind {
@@ -599,6 +600,62 @@ final class _Reader {
 
   void _classInstances() {
     final visited = <InterfaceType>{};
+    final types = TypeEnvironment(hierarchy.coreTypes, hierarchy);
+    void descendants(InterfaceType parent) {
+      for (final cls in module.classes) {
+        if (cls.isObject ||
+            cls.target == parent.classNode ||
+            cls.typeParameters.isEmpty) {
+          continue;
+        }
+        final base = hierarchy.getClassAsInstanceOf(
+          cls.target,
+          parent.classNode,
+        );
+        if (base == null) continue;
+        final inferred = <TypeParameter, DartType>{};
+        bool match(DartType pattern, DartType actual) {
+          if (pattern is TypeParameterType &&
+              cls.target.typeParameters.contains(pattern.parameter)) {
+            final previous = inferred[pattern.parameter];
+            if (previous == null || types.isSubtypeOf(actual, previous)) {
+              inferred[pattern.parameter] = actual;
+              return true;
+            }
+            return types.isSubtypeOf(previous, actual);
+          }
+          if (pattern is InterfaceType &&
+              actual is InterfaceType &&
+              pattern.classNode == actual.classNode) {
+            for (var i = 0; i < pattern.typeArguments.length; ++i) {
+              if (!match(pattern.typeArguments[i], actual.typeArguments[i])) {
+                return false;
+              }
+            }
+            return true;
+          }
+          return types.isSubtypeOf(pattern, actual);
+        }
+
+        if (!match(base.asInterfaceType, parent)) continue;
+        final child = InterfaceType(cls.target, Nullability.nonNullable, [
+          for (final parameter in cls.typeParameters)
+            inferred[parameter.target] ?? parameter.actualType,
+        ]);
+        final substitution = Substitution.fromInterfaceType(child);
+        if (!cls.typeParameters.indexed.every(
+              (entry) => types.isSubtypeOf(
+                child.typeArguments[entry.$1],
+                substitution.substituteType(entry.$2.target.bound),
+              ),
+            ) ||
+            !types.isSubtypeOf(child, parent)) {
+          continue;
+        }
+        if (child != cls.dartType) _classTypes.add(child);
+      }
+    }
+
     while (true) {
       final pending = _classTypes
           .where((type) => !visited.contains(type))
@@ -606,6 +663,7 @@ final class _Reader {
       if (pending.isEmpty) break;
       for (final type in pending) {
         visited.add(type);
+        descendants(type);
         final original = classes[type.classNode]!;
         if (type == original.dartType) continue;
         final instance = ExportClass(
@@ -627,6 +685,27 @@ final class _Reader {
               property.setter,
             ),
         ]);
+        for (
+          var parent = original.superclass?.classExport;
+          parent != null;
+          parent = parent.superclass?.classExport
+        ) {
+          instance.specializations[parent] = (
+            methods: [
+              for (final method in parent.methods)
+                _function(method.target, method.name, owner: instance),
+            ],
+            properties: [
+              for (final property in parent.properties)
+                _property(
+                  instance,
+                  property.name,
+                  property.getter,
+                  property.setter,
+                ),
+            ],
+          );
+        }
       }
     }
   }
@@ -716,6 +795,8 @@ final class _Reader {
           ...cls.staticMethods,
           for (final view in cls.specializations.values) ...view.methods,
           for (final instance in cls.instances) ...instance.methods,
+          for (final instance in cls.instances)
+            for (final view in instance.specializations.values) ...view.methods,
         ]) {
           function(member, cls);
         }
@@ -724,6 +805,9 @@ final class _Reader {
           ...cls.staticProperties,
           for (final view in cls.specializations.values) ...view.properties,
           for (final instance in cls.instances) ...instance.properties,
+          for (final instance in cls.instances)
+            for (final view in instance.specializations.values)
+              ...view.properties,
         ]) {
           property(member, cls);
         }

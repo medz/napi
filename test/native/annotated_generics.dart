@@ -90,6 +90,34 @@ Box<num> parentBox() => _labeledBox;
 @NAPI()
 LabeledBox<int> labeledBox() => _labeledBox;
 
+@NAPI()
+class AdjustedBox extends Box<int> {
+  @NAPI()
+  AdjustedBox(super.value);
+
+  @override
+  @NAPI()
+  int replace(int next, [int adjustment = 0]) =>
+      super.replace(next + adjustment);
+}
+
+@NAPI()
+AdjustedBox adjustedBox() => AdjustedBox(3);
+
+@NAPI()
+class ScaledBox<T extends num> extends Box<T> {
+  @NAPI()
+  ScaledBox(super.value);
+
+  @override
+  @NAPI()
+  T replace(T next, [bool twice = false]) =>
+      super.replace(twice ? (next * 2) as T : next);
+}
+
+@NAPI()
+Box<double> scaledBox() => ScaledBox<double>(1);
+
 typedef IntBoxIdentity = T Function<T extends Box<int>>(T value);
 
 @NAPI()
