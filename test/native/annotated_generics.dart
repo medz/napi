@@ -33,6 +33,9 @@ class Box<T> {
 
   @NAPI()
   Map<String, T> get named => {'value': value};
+
+  @NAPI()
+  bool get holdsInt => T == int;
 }
 
 @NAPI()
@@ -40,6 +43,61 @@ Box box = Box<dynamic>(0);
 
 @NAPI()
 Box<T> echoBox<T>(Box<T> value) => value;
+
+final _integerBox = Box<int>(7);
+
+@NAPI()
+Box<dynamic> wideBox() => _integerBox;
+
+@NAPI()
+Box<num> numericBox() => _integerBox;
+
+@NAPI()
+Box<int> intBox() => _integerBox;
+
+@NAPI()
+Box<int> consumeIntBox(Box<int> value) => value;
+
+@NAPI()
+Box<int>? nullableIntBox(Box<int>? value) => value;
+
+@NAPI()
+T readBox<T>(Box<T> value) => value.value;
+
+@NAPI()
+Box<String?> textBox() => Box<String?>(null);
+
+@NAPI()
+Box<BigInt> bigIntBox() => Box(BigInt.one << 100);
+
+@NAPI()
+Box<JsReference<JsObject>> objectBox(JsReference<JsObject> value) => Box(value);
+
+@NAPI()
+class LabeledBox<T> extends Box<T> {
+  @NAPI()
+  LabeledBox(super.value);
+
+  @NAPI()
+  String get label => 'labeled';
+}
+
+final _labeledBox = LabeledBox<int>(9);
+
+@NAPI()
+Box<num> parentBox() => _labeledBox;
+
+@NAPI()
+LabeledBox<int> labeledBox() => _labeledBox;
+
+typedef IntBoxIdentity = T Function<T extends Box<int>>(T value);
+
+@NAPI()
+Box<int> callIntBox(IntBoxIdentity callback) => callback(_integerBox);
+
+@NAPI()
+IntBoxIdentity intBoxIdentity() =>
+    <T extends Box<int>>(T value) => value;
 
 @NAPI()
 List<T> copyList<T>(List<T> values) => values;

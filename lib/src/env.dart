@@ -280,6 +280,56 @@ final class _BoundObject {
   final _ClassDefinition definition;
   final node.NapiRef? reference;
   final void Function()? finalize;
+  Map<_ClassDefinition, _ClassSpecialization?>? _views;
+
+  _ClassSpecialization? view(_ClassDefinition contract) {
+    final candidates = contract.views;
+    if (candidates == null) return null;
+    final matches = [
+      for (final view in candidates)
+        if (view.accepts(value)) view,
+    ];
+    final closest = [
+      for (final view in matches)
+        if (!matches.any(
+          (other) => other.isSubtypeOf(view) && !view.isSubtypeOf(other),
+        ))
+          view,
+    ];
+    if (closest.length > 1) {
+      throw StateError(
+        'Dart object matches incompatible class specializations: ${closest.map((view) => view.type).join(', ')}',
+      );
+    }
+    return closest.firstOrNull?.members;
+  }
+
+  _ClassSpecialization? specialization(_ClassDefinition contract) {
+    if (!contract.hasViews) return definition.specializations?[contract];
+    final cache = _views ??= {};
+    if (cache.containsKey(contract)) return cache[contract];
+    final own = view(contract);
+    final inherited = definition.specializations?[contract];
+    final parent = contract.parent == null
+        ? null
+        : specialization(contract.parent!);
+    final selected = [?parent, ?inherited, ?own];
+    if (selected.length < 2) return cache[contract] = selected.firstOrNull;
+    return cache[contract] = _ClassSpecialization(
+      methods: {for (final members in selected) ...members.methods},
+      getters: {for (final members in selected) ...members.getters},
+      setters: {for (final members in selected) ...members.setters},
+    );
+  }
+}
+
+final class _ClassView<T extends Object> {
+  const _ClassView(this.members);
+  final _ClassSpecialization members;
+  Type get type => T;
+  bool accepts(Object value) => value is T;
+  bool acceptsType<S>() => <S>[] is List<T>;
+  bool isSubtypeOf(_ClassView other) => other.acceptsType<T>();
 }
 
 final class _PendingWrap {
@@ -306,6 +356,8 @@ final class _ClassDefinition {
   _ClassDefinition? parent;
   final children = <_ClassDefinition>[];
   Map<_ClassDefinition, _ClassSpecialization>? specializations;
+  List<_ClassView>? views;
+  bool hasViews = false;
 
   _ClassDefinition select(Object value) {
     _ClassDefinition? selected;
@@ -1428,6 +1480,7 @@ final class Env {
     ], receiver: object);
     setPrototype.call([childConstructor, parentConstructor], receiver: object);
     child.parent = parent;
+    child.hasViews |= parent.hasViews;
     parent.children.add(child);
   }
 
@@ -1458,6 +1511,43 @@ final class Env {
             MapEntry(name, (value, arguments) => body(value as T, arguments)),
       ),
     );
+  }
+
+  // Concrete type arguments share the class's JS constructor and prototype.
+  // ignore: unused_element
+  void _specializeClassInstance<T extends Object, S extends Object>({
+    Map<String, Object? Function(T, JsArguments)> methods = const {},
+    Map<String, Object? Function(T)> getters = const {},
+    Map<String, void Function(T, JsArguments)> setters = const {},
+  }) {
+    _arena;
+    final definition = _classes[S];
+    if (definition == null) {
+      throw StateError('No unique JavaScript class for $S');
+    }
+    if (_classes.containsKey(T) && !identical(_classes[T], definition)) {
+      throw StateError('Another JavaScript class is registered for $T');
+    }
+    if (definition.views?.any((view) => view.type == T) ?? false) return;
+    definition.hasViews = true;
+    (definition.views ??= []).add(
+      _ClassView<T>(
+        _ClassSpecialization(
+          methods: methods.map(
+            (name, body) =>
+                MapEntry(name, (value, args) => body(value as T, args)),
+          ),
+          getters: getters.map(
+            (name, body) => MapEntry(name, (value) => body(value as T)),
+          ),
+          setters: setters.map(
+            (name, body) =>
+                MapEntry(name, (value, args) => body(value as T, args)),
+          ),
+        ),
+      ),
+    );
+    _classes[T] = definition;
   }
 
   node.NapiValue? _cachedObject(Object value, {_ClassDefinition? definition}) {
@@ -1599,8 +1689,9 @@ final class Env {
             final token = register((args, self) {
               if (isStatic) return _encode(staticMethods[key]!(args));
               final object = _boundObject<T>(self);
-              final specialized =
-                  object.definition.specializations?[definition]?.methods[key];
+              final specialized = object
+                  .specialization(definition)
+                  ?.methods[key];
               return _encode(
                 specialized == null
                     ? methods[key]!(object.value as T, args)
@@ -1640,8 +1731,9 @@ final class Env {
             _getters[token] = (args, self) {
               if (isStatic) return _encode(staticGetters[key]!());
               final object = _boundObject<T>(self);
-              final specialized =
-                  object.definition.specializations?[definition]?.getters[key];
+              final specialized = object
+                  .specialization(definition)
+                  ?.getters[key];
               return _encode(
                 specialized == null
                     ? getters[key]!(object.value as T)
@@ -1659,8 +1751,7 @@ final class Env {
               } else {
                 final object = _boundObject<T>(self);
                 final specialized = object
-                    .definition
-                    .specializations?[definition]
+                    .specialization(definition)
                     ?.setters[key];
                 if (specialized == null) {
                   setters[key]!(object.value as T, args);

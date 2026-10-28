@@ -20,7 +20,7 @@
     },
     "frontend.aot": {
       "size": 9569160,
-      "sha256": "36858080f7c878d0dd2ed89ada85c08fec926f34563517d2746a547f5b5c6bb0"
+      "sha256": "b1baa34c79ea62683aaa65f79c14aa48507c69a1ec3ea3132e5cc280a45006eb"
     },
     "frontend.so": {
       "size": 5280696,

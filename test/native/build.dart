@@ -457,8 +457,13 @@ Future<void> main(List<String> args) async {
         ),
         (
           '@NAPI() class Box<T> { @NAPI() Box(this.value); @NAPI() T value; } '
-              '@NAPI() int consume(Box<int> value) => value.value;',
-          'non-default generic class arguments are not supported',
+              '@NAPI() List<int> consume(Box<List<int>> value) => value.value;',
+          'concrete bound-class arguments currently support scalars and JsReference types',
+        ),
+        (
+          '@NAPI() class Box<T> { @NAPI() Box(this.value); @NAPI() T value; } '
+              '@NAPI() void invalid(Box<T> Function<T>(Box<T>) callback) {}',
+          'bound-class arguments cannot depend on reified callback or data-class parameters yet',
         ),
       ],
     ),

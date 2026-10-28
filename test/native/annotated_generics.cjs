@@ -33,6 +33,60 @@ module.exports = async function verifyAnnotatedGenerics(path, packageDirectory) 
   assert.equal(box.value, next);
   box.value = object;
   assert.equal(box.value, object);
+  // Resolving a wide view first must not choose a different wrapper or codec.
+  const integerBox = addon.wideBox();
+  assert.equal(integerBox, addon.numericBox());
+  assert.equal(integerBox, addon.intBox());
+  assert(integerBox instanceof addon.Box);
+  assert.equal(integerBox.holdsInt, true);
+  assert.equal(integerBox.value, 7);
+  assert.equal(integerBox.replace(8), 7);
+  assert.deepEqual(integerBox.items, [8]);
+  assert.deepEqual(integerBox.named, { value: 8 });
+  assert.equal(addon.readBox(integerBox), 8);
+  assert.equal(addon.echoBox(integerBox), integerBox);
+  assert.equal(addon.consumeIntBox(integerBox), integerBox);
+  assert.equal(addon.nullableIntBox(integerBox), integerBox);
+  assert.equal(addon.nullableIntBox(null), null);
+  for (const invalid of [1.5, 2 ** 53, '8', null, undefined]) {
+    assert.throws(() => { integerBox.value = invalid; }, invalid === 1.5 || invalid === 2 ** 53 ? RangeError : TypeError);
+    assert.equal(integerBox.value, 8);
+  }
+  assert.throws(() => addon.consumeIntBox(new addon.Box(8)), TypeError);
+  assert.throws(() => addon.consumeIntBox(Object.create(addon.Box.prototype)), TypeError);
+  assert.throws(() => addon.nullableIntBox(undefined), TypeError);
+  assert.equal(addon.callIntBox(value => { assert.equal(value, integerBox); return value; }), integerBox);
+  assert.equal(addon.intBoxIdentity()(integerBox), integerBox);
+  assert.throws(() => addon.callIntBox(() => new addon.Box(8)), TypeError);
+  assert.throws(() => addon.intBoxIdentity()(new addon.Box(8)), TypeError);
+  const textBox = addon.textBox();
+  assert.equal(textBox.value, null);
+  assert.equal(textBox.replace('hello\u0000\ud800'), null);
+  assert.equal(textBox.value, 'hello\u0000\ud800');
+  assert.equal(addon.readBox(textBox), textBox.value);
+  textBox.value = null;
+  assert.throws(() => { textBox.value = undefined; }, TypeError);
+  const bigBox = addon.bigIntBox();
+  assert.equal(bigBox.value, 1n << 100n);
+  assert.equal(bigBox.replace(-(1n << 100n)), 1n << 100n);
+  assert.throws(() => { bigBox.value = 1; }, TypeError);
+  const referenceBox = addon.objectBox(object);
+  assert.equal(referenceBox.value, object);
+  assert.equal(addon.readBox(referenceBox), object);
+  assert.equal(referenceBox.replace(callback), object);
+  assert.equal(referenceBox.value, callback);
+  assert.throws(() => { referenceBox.value = symbol; }, TypeError);
+  const labeled = addon.parentBox();
+  assert.equal(labeled, addon.labeledBox());
+  assert(labeled instanceof addon.LabeledBox);
+  assert(labeled instanceof addon.Box);
+  assert.equal(labeled.label, 'labeled');
+  assert.equal(labeled.holdsInt, true);
+  assert.equal(labeled.replace(10), 9);
+  assert.equal(addon.consumeIntBox(labeled), labeled);
+  assert.throws(() => { labeled.value = 1.5; }, RangeError);
+  assert.equal(addon.Box.prototype.replace.call(labeled, 11), 10);
+  assert.equal(labeled.value, 11);
   const copied = addon.copyList(array);
   assert.notEqual(copied, array);
   assert.equal(copied[0], object);
@@ -121,6 +175,11 @@ module.exports = async function verifyAnnotatedGenerics(path, packageDirectory) 
       const assert = require('node:assert/strict');
       const { parentPort, workerData } = require('node:worker_threads');
       const addon = require(workerData);
+      const box = addon.wideBox();
+      assert.equal(box, addon.intBox());
+      assert.equal(box.replace(12), 7);
+      assert.throws(() => { box.value = 0.5; }, RangeError);
+      assert.equal(addon.callIntBox(value => value), box);
       const value = new addon.SpecialCounter(7);
       assert.equal(addon.boundCallback(value, item => item), true);
       addon.asyncBoundCallback(value, async item => {
@@ -153,5 +212,9 @@ module.exports = async function verifyAnnotatedGenerics(path, packageDirectory) 
     module.default.box = value;
     assert.equal(common.box, value);
     assert.equal(module.echoBox(value), value);
+    const concrete = module.intBox();
+    assert.equal(concrete, common.wideBox());
+    assert.equal(module.consumeIntBox(concrete), concrete);
+    assert.throws(() => module.consumeIntBox(value), TypeError);
   }
 };

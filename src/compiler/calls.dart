@@ -393,7 +393,11 @@ final class Calls {
                 VariableGet(env),
                 method(envClass, 'unwrap'),
                 [source()],
-                types: [type.classExport!.dartType],
+                types: [
+                  _dartType(
+                    type,
+                  ).withDeclaredNullability(Nullability.nonNullable),
+                ],
               ),
       ValueKind.list || ValueKind.map => call(
         VariableGet(env),

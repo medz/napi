@@ -556,8 +556,31 @@ preserves the original instance and its subclass type in TypeScript. Generic
 callbacks with a class bound receive the ordinary JS instance; Dart checks their
 result against the actual type argument, including a narrower subclass.
 Bounds that copy values, such as `List<int>` or data classes, produce a build error.
-Non-default specializations of bound classes at the binding boundary also
-produce a build error.
+
+Dart can return concrete bound classes with scalar or `JsReference` type
+arguments. Their members use those types for conversion and validation:
+
+```dart
+@NAPI()
+Box<int> makeIntBox() => Box<int>(42);
+
+@NAPI()
+int readIntBox(Box<int> box) => box.value;
+```
+
+```ts
+const box = makeIntBox(); // Box<number>, backed by Dart Box<int>
+box.value = 7;
+readIntBox(box); // 7
+```
+
+`new Box<number>(42)` still constructs `Box<dynamic>` in Dart. It cannot be
+passed to `readIntBox`: TypeScript's `number` is erased and does not establish
+the required Dart type. Returning the same Dart object through a wider class
+type preserves its JS identity. Its members use the most specific exported
+specialization that matches the object; incompatible matches produce an error.
+Concrete arguments requiring object conversion, such as `Box<List<int>>` and
+`Box<Amount>`, are not yet supported.
 
 ## Functions and callbacks
 
