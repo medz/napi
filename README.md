@@ -558,8 +558,8 @@ result against the actual type argument, including a narrower subclass.
 Bounds that copy values, such as `List<int>` or data classes, produce a build error.
 
 Dart can return concrete bound classes with scalar values, JS references,
-enums, dates, binary types, collections, records, Futures and callbacks. Their
-members use those types for conversion and validation:
+bound instances, enums, dates, binary types, collections, records, Futures and
+callbacks. Their members use those types for conversion and validation:
 
 ```dart
 @NAPI()
@@ -595,6 +595,11 @@ values.push(3);         // box.value is still [1, 2]
 box.value = values;     // stores a Dart list containing [1, 2, 3]
 ```
 
+Bound instances keep their JavaScript identity, including inside collections
+and other generic classes. For example, a `Box<Counter>` can hold a `Counter`
+or a subclass; reading its `value` returns the same JS instance. A plain object
+with matching properties is not a `Counter`.
+
 Generic helpers still use default Dart type arguments. To convert a collection
 extracted from a box, declare the concrete type, for example
 `List<int> readNumbers(Box<List<int>> box) => box.value`.
@@ -618,7 +623,9 @@ that declare their own type parameters are not yet supported as class arguments.
 Data-class and Stream arguments such as `Box<Amount>` and `Box<Stream<int>>`
 remain unsupported, including inside callback signatures. Directly nested
 Futures such as `Box<Future<Future<int>>>`, and nested arguments depending on
-erased parameters such as `Box<List<T>>`, are also unsupported.
+erased parameters such as `Box<List<T>>`, are also unsupported. Future arguments
+whose values have a callable `then` are rejected because Promise resolution
+changes their output shape.
 
 ## Functions and callbacks
 

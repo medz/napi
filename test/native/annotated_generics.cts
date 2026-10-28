@@ -72,6 +72,19 @@ const nullableCallbackResult: number | undefined = addon.nullableCallbackBox().v
 addon.nullableCallbackBox().value = null;
 const callbackListResult: number = addon.callbackListBox().value[0](1);
 const eventResult: void = addon.eventBox().value();
+const bound: addon.Box<addon.Counter> = addon.boundBox();
+const boxedCounter: addon.Counter = bound.value;
+bound.value = new addon.SpecialCounter(1);
+const specialValue: addon.SpecialCounter = addon.specialBoundBox().value;
+const boundListValue: (addon.Counter | null)[] = addon.boundListBox([boxedCounter, null]).value;
+const nestedBoundValue: addon.Box<number> = addon.nestedBoundBox().value;
+const boundCallbackValue: addon.Counter = addon.boundCallbackBox().value(boxedCounter);
+const boundFutureValue: Promise<addon.Counter> = addon.boundFutureBox().value;
+const taggedFutureValue: Promise<addon.Tag<number>> = addon.taggedFutureBox().value;
+// @ts-expect-error A plain object is not a bound Counter instance.
+bound.value = {value: 1};
+// @ts-expect-error A base instance is not a SpecialCounter.
+addon.specialBoundBox().value = boxedCounter;
 // @ts-expect-error Callback results retain their scalar type.
 callbacks.value = () => 'wrong';
 // @ts-expect-error The callback requires its named argument.

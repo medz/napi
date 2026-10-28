@@ -338,7 +338,7 @@ final class _Reader {
     ValueKind.record =>
       type.recordFields!.positional.every(_classArgument) &&
           type.recordFields!.named.values.every(_classArgument),
-    _ => _valuePreservingKinds.contains(type.kind),
+    _ => _preservesValue(type),
   };
 
   InstanceConstant? _annotation(Annotatable node) {
