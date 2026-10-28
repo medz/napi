@@ -31,6 +31,15 @@ Box<List<int>> listBox() => Box([1]);
 Box<Amount> amountBox() => Box(Amount(value: '1'));
 
 @NAPI()
+Box<Future<int>> futureBox() => Box(Future.value(1));
+
+@NAPI()
+Box<Future<Amount>> futureAmountBox() => Box(Future.value(Amount(value: '1')));
+
+@NAPI()
+Box<Future<int>?> nullableFutureBox() => Box(null);
+
+@NAPI()
 T writeBox<T>(Box<T> box, T value) => box.value = value;
 
 @NAPI()

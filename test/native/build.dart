@@ -268,10 +268,6 @@ Future<void> main(List<String> args) async {
       'annotated_futures.dart',
       [
         (
-          '@NAPI() int nested(Future<Future<int>> value) => 1;',
-          'nested Future inputs are not supported',
-        ),
-        (
           '@NAPI() void invalid() async {}',
           'async void exports are not supported; return Future<void> instead',
         ),
@@ -458,6 +454,7 @@ Future<void> main(List<String> args) async {
         ),
         for (final type in [
           'Thenable',
+          'Future<Thenable>',
           '({void Function(void Function(int)) then})',
           'Map<String, void Function(void Function(int))>',
         ])
@@ -484,12 +481,11 @@ Future<void> main(List<String> args) async {
                 '@NAPI() class Counter {} $subclass',
             'thenable Future class arguments need different input and output types',
           ),
-        for (final type in ['Future<Future<int>>', 'T Function<T>(T)'])
-          (
-            '@NAPI() class Box<T> { @NAPI() Box(this.value); @NAPI() T value; } '
-                '@NAPI() void consume(Box<$type> value) {}',
-            'unsupported concrete bound-class argument',
-          ),
+        (
+          '@NAPI() class Box<T> { @NAPI() Box(this.value); @NAPI() T value; } '
+              '@NAPI() void consume(Box<T Function<T>(T)> value) {}',
+          'unsupported concrete bound-class argument',
+        ),
         (
           '@NAPI() class Box<T> { @NAPI() Box(this.value); T value; '
               '@NAPI() Box<List<T>> nested() => Box([value]); }',

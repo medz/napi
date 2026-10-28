@@ -304,8 +304,9 @@ final class Calls {
   Expression _decode(
     PositionalParameter env,
     ExportType type,
-    Expression Function(DartType) read,
-  ) {
+    Expression Function(DartType) read, {
+    bool futureValue = false,
+  }) {
     if (type.kind == ValueKind.typeParameter) {
       if (_classCodecs[type.parameter] case final codec?) {
         return call(
@@ -315,6 +316,7 @@ final class Calls {
           types: [_dartType(type)],
           named: [
             if (type.nullable) NamedExpression('nullable', BoolLiteral(true)),
+            if (futureValue) NamedExpression('futureValue', BoolLiteral(true)),
           ],
         );
       }
@@ -371,12 +373,6 @@ final class Calls {
         method(envClass, '_readValue'),
         [read(core.objectNullableRawType)],
         types: [_dartType(type)],
-      );
-    }
-    if (type.kind == ValueKind.future &&
-        type.element!.kind == ValueKind.future) {
-      throw const FormatException(
-        '@NAPI: nested Future inputs are not supported because JavaScript Promises flatten their value.',
       );
     }
     if (!_isComposite(type)) return read(_dartType(type));
@@ -477,7 +473,14 @@ final class Calls {
           envClass,
           type.kind == ValueKind.future ? '_readFuture' : '_readStream',
         ),
-        [source(), _valueReader(env, type.element!)],
+        [
+          source(),
+          _valueReader(
+            env,
+            type.element!,
+            future: type.kind == ValueKind.future,
+          ),
+        ],
         types: [_dartType(type.element!)],
       ),
       _ => throw StateError('Not a composite type: ${type.kind}'),
@@ -1484,51 +1487,58 @@ final class Calls {
     final cls = envLibrary.classes.singleWhere(
       (c) => c.name == '_ClassArgument',
     );
-    final input = PositionalParameter(
-      cosmeticName: 'input',
-      type: core.objectNullableRawType,
-    );
+    Expression reader({bool future = false}) {
+      final input = PositionalParameter(
+        cosmeticName: 'input',
+        type: core.objectNullableRawType,
+      );
+      Expression read(DartType target) => call(
+        VariableGet(env),
+        method(envClass, '_typedValue'),
+        [VariableGet(input)],
+        types: [target],
+      );
+      return FunctionExpression(
+        FunctionNode(
+          ReturnStatement(
+            future ? _futureValue(env, type, read) : _decode(env, type, read),
+          ),
+          positionalParameters: [input],
+          returnType: core.objectNullableRawType,
+        ),
+      );
+    }
+
     final output = PositionalParameter(
       cosmeticName: 'output',
       type: core.objectNullableRawType,
     );
     return ConstructorInvocation(
       cls.constructors.single,
-      Arguments([
-        FunctionExpression(
-          FunctionNode(
-            ReturnStatement(
-              _decode(
-                env,
-                type,
-                (target) => call(
-                  VariableGet(env),
-                  method(envClass, '_typedValue'),
-                  [VariableGet(input)],
-                  types: [target],
+      Arguments(
+        [
+          reader(),
+          FunctionExpression(
+            FunctionNode(
+              ReturnStatement(
+                _encode(
+                  env,
+                  type,
+                  AsExpression(VariableGet(output), _dartType(type))
+                    ..isTypeError = true,
                 ),
               ),
+              positionalParameters: [output],
+              returnType: core.objectNullableRawType,
             ),
-            positionalParameters: [input],
-            returnType: core.objectNullableRawType,
           ),
-        ),
-        FunctionExpression(
-          FunctionNode(
-            ReturnStatement(
-              _encode(
-                env,
-                type,
-                AsExpression(VariableGet(output), _dartType(type))
-                  ..isTypeError = true,
-              ),
-            ),
-            positionalParameters: [output],
-            returnType: core.objectNullableRawType,
-          ),
-        ),
-        _directionalValue(type),
-      ]),
+          _directionalValue(type),
+        ],
+        named: [
+          if (type.kind == ValueKind.future)
+            NamedExpression('readFuture', reader(future: true)),
+        ],
+      ),
     );
   }
 
@@ -1544,7 +1554,11 @@ final class Calls {
     ], typeArgument: InterfaceType(cls, Nullability.nonNullable));
   }
 
-  Expression _valueReader(PositionalParameter env, ExportType element) {
+  Expression _valueReader(
+    PositionalParameter env,
+    ExportType element, {
+    bool future = false,
+  }) {
     final args = PositionalParameter(
       cosmeticName: 'arguments',
       type: argumentsType,
@@ -1554,11 +1568,49 @@ final class Calls {
         ReturnStatement(
           element.kind == ValueKind.voidValue
               ? null
+              : future
+              ? _futureValue(
+                  env,
+                  element,
+                  (target) => call(
+                    VariableGet(args),
+                    method(argumentsClass, 'get'),
+                    [IntLiteral(0)],
+                    types: [target],
+                  ),
+                )
               : _argument(env, args, 0, element),
         ),
         positionalParameters: [args],
         returnType: _dartType(element),
       ),
+    );
+  }
+
+  Expression _futureValue(
+    PositionalParameter env,
+    ExportType type,
+    Expression Function(DartType) read,
+  ) {
+    if (type.kind == ValueKind.voidValue) return NullLiteral();
+    if (type.kind != ValueKind.future) {
+      return _decode(env, type, read, futureValue: true);
+    }
+    // A Promise has already flattened its result. Rebuild the declared Dart
+    // layers with syncValue, which stores an inner Future without adopting it.
+    final value = StaticInvocation(
+      method(core.futureClass, 'syncValue'),
+      Arguments(
+        [_futureValue(env, type.element!, read)],
+        types: [_dartType(type.element!)],
+      ),
+    );
+    if (!type.nullable) return value;
+    return ConditionalExpression(
+      EqualsNull(read(core.objectNullableRawType)),
+      NullLiteral(),
+      value,
+      _dartType(type),
     );
   }
 

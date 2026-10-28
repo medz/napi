@@ -19,6 +19,14 @@ const rawBox = addon.optionalRebox(amount);
 rawBox.value = amount;
 const transformed: addon.Amount = addon.transform(amountBox, value => ({value: String(value.value)}));
 const asynchronous: Promise<addon.Amount> = addon.asynchronous(amountBox, Promise.resolve({value: '52'}));
+const futureValue: Promise<number> = addon.asynchronous(addon.futureBox(), Promise.resolve(13));
+const futureAmount: Promise<addon.Amount> = addon.asynchronous(addon.futureAmountBox(), Promise.resolve({value: '14'}));
+const nullableFuture: Promise<number | null> = addon.asynchronous(addon.nullableFutureBox(), Promise.resolve(null));
+const nullableFutureValue: Promise<number | null> = addon.asynchronous(addon.nullableFutureBox(), Promise.resolve(15));
+// @ts-expect-error Future-valued type arguments keep their scalar conversion.
+addon.asynchronous(addon.futureBox(), Promise.resolve('wrong'));
+// @ts-expect-error Future-valued Amount inputs use the constructor shape.
+addon.asynchronous(addon.futureAmountBox(), Promise.resolve({value: 14}));
 const collection: addon.Amount[] = addon.collection(amountBox, [{value: '53'}]);
 const opaque = new addon.Box(amount);
 const opaqueValue: addon.Amount = addon.writeBox(opaque, amount);

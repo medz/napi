@@ -87,4 +87,29 @@ Future<Future<int>> nestedFuture() =>
     Future<Future<int>>.syncValue(Future<int>.value(7));
 
 @NAPI()
+Future<int> readNested(Future<Future<int>> value) async => await await value;
+
+@NAPI()
+Future<int> readDeepNested(Future<Future<Future<int>>> value) async =>
+    await await await value;
+
+@NAPI()
+Future<Future<int>> echoNested(Future<Future<int>> value) => value;
+
+@NAPI()
+Future<bool> nestedMissing(Future<Future<int>?> value) async =>
+    await value == null;
+
+@NAPI()
+Future<int?> nestedNullableValue(Future<Future<int?>> value) async =>
+    await await value;
+
+@NAPI()
+Future<void> nestedVoid(Future<Future<void>> value) async => await await value;
+
+@NAPI()
+Future<int> nestedCallback(Future<Future<int>> Function() callback) =>
+    readNested(callback());
+
+@NAPI()
 Future<Uint8List> createBytes(int length) async => Uint8List(length);

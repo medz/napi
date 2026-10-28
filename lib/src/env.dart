@@ -391,8 +391,16 @@ final class _ClassSpecialization {
 
 final class _ClassArgument {
   // ignore: unused_element
-  const _ClassArgument(this.read, this.write, this.directional);
+  const _ClassArgument(
+    this.read,
+    this.write,
+    this.directional, {
+    // Set by generated class conversions.
+    // ignore: unused_element_parameter
+    this.readFuture,
+  });
   final Object? Function(Object?) read;
+  final Object? Function(Object?)? readFuture;
   final Object? Function(Object?) write;
   final bool directional;
 }
@@ -1609,9 +1617,14 @@ final class Env {
     _ClassArgument argument,
     Object? value, {
     bool nullable = false,
-  }) => value == null && nullable
-      ? null as T
-      : _typedValue<T>(argument.read(value));
+    bool futureValue = false,
+  }) {
+    if (value == null && nullable) return null as T;
+    final read = futureValue
+        ? argument.readFuture ?? argument.read
+        : argument.read;
+    return _typedValue<T>(read(value));
+  }
 
   // ignore: unused_element
   Object? _writeClassArgument<T>(

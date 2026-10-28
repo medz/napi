@@ -79,6 +79,15 @@ module.exports = async function verifyGenericCalls(path) {
 
   assert.deepEqual(addon.transform(amount, value => ({value: String(value.value + 1)})), {value: 10});
   assert.deepEqual(await addon.asynchronous(amount, Promise.resolve({value: '12'})), {value: 12});
+  const future = addon.futureBox();
+  assert.equal(await addon.asynchronous(future, Promise.resolve(13)), 13);
+  await assert.rejects(addon.asynchronous(future, Promise.resolve('wrong')), TypeError);
+  const futureAmount = addon.futureAmountBox();
+  assert.deepEqual(await addon.asynchronous(futureAmount, Promise.resolve({value: '14'})), {value: 14});
+  await assert.rejects(addon.asynchronous(futureAmount, Promise.resolve({value: 14})), TypeError);
+  const nullableFuture = addon.nullableFutureBox();
+  assert.equal(await addon.asynchronous(nullableFuture, Promise.resolve(null)), null);
+  assert.equal(await addon.asynchronous(nullableFuture, Promise.resolve(15)), 15);
   assert.deepEqual(addon.collection(amount, [{value: '13'}]), [{value: 13}]);
   assert.throws(() => addon.collection(amount, [{value: 13}]), TypeError);
 
