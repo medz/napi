@@ -80,6 +80,7 @@ const boundListValue: (addon.Counter | null)[] = addon.boundListBox([boxedCounte
 const nestedBoundValue: addon.Box<number> = addon.nestedBoundBox().value;
 const boundCallbackValue: addon.Counter = addon.boundCallbackBox().value(boxedCounter);
 const boundFutureValue: Promise<addon.Counter> = addon.boundFutureBox().value;
+const hiddenThenFuture: Promise<addon.Counter> = addon.hiddenThenFutureBox().value;
 const taggedFutureValue: Promise<addon.Tag<number>> = addon.taggedFutureBox().value;
 // @ts-expect-error A plain object is not a bound Counter instance.
 bound.value = {value: 1};

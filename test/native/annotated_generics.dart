@@ -328,6 +328,9 @@ class SpecialCounter extends Counter {
 
   @NAPI()
   String get label => 'special';
+
+  @NAPI()
+  int get then => 42;
 }
 
 final _boundCounter = SpecialCounter(7);
@@ -375,7 +378,23 @@ class Tag<T> {
 }
 
 @NAPI()
-Box<Future<Tag<int>>> taggedFutureBox() => Box(Future.value(Tag(42)));
+class NumericTag<T extends num> extends Tag<T> {
+  NumericTag(super.then);
+}
+
+@NAPI()
+Box<Future<Tag<int>>> taggedFutureBox() => Box(Future.value(NumericTag(42)));
+
+@NAPI()
+class HiddenThenCounter extends Counter {
+  HiddenThenCounter(super.value);
+
+  void then(void Function(int) resolve) => resolve(value);
+}
+
+@NAPI()
+Box<Future<Counter>> hiddenThenFutureBox() =>
+    Box(Future.value(HiddenThenCounter(11)));
 
 @NAPI()
 T boundIdentity<T extends Counter>(T value) => value;

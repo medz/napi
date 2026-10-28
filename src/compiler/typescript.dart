@@ -1952,7 +1952,7 @@ final class _Writer {
           ValueKind.record,
           ValueKind.map,
         }.contains(type.element!.kind) &&
-        !_awaitPreserves(type.element!)) {
+        !_classFuturePreserves(type.element!)) {
       throw FormatException(
         '@NAPI ${owner.name}: thenable Future class arguments need different input and output types and are not supported yet: ${type.dartType}.',
       );
@@ -1960,6 +1960,32 @@ final class _Writer {
     for (final child in _typeChildren(type)) {
       _checkClassArgument(child, owner);
     }
+  }
+
+  bool _classFuturePreserves(ExportType type) {
+    if (!_awaitPreserves(type)) return false;
+    if (type.kind != ValueKind.object || type.classExport!.isObject) {
+      return true;
+    }
+    for (final cls in exports.classes) {
+      var parent = cls.superclass?.classExport;
+      while (parent != null && parent != type.classExport) {
+        parent = parent.superclass?.classExport;
+      }
+      if (parent == null) continue;
+      final then = _thenType(
+        ExportType(
+          cls.dartType,
+          ValueKind.object,
+          classExport: cls,
+          typeArguments: [
+            for (final parameter in cls.typeParameters) parameter.bound,
+          ],
+        ),
+      );
+      if (then != null && _mayCall(then)) return false;
+    }
+    return true;
   }
 
   bool _containsParameter(ExportType type) =>
