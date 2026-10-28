@@ -82,6 +82,100 @@ const boundCallbackValue: addon.Counter = addon.boundCallbackBox().value(boxedCo
 const boundFutureValue: Promise<addon.Counter> = addon.boundFutureBox().value;
 const hiddenThenFuture: Promise<addon.Counter> = addon.hiddenThenFutureBox().value;
 const taggedFutureValue: Promise<addon.Tag<number>> = addon.taggedFutureBox().value;
+const numericTagName: string = addon.NumericTag.name;
+declare const unknownTag: unknown;
+if (unknownTag instanceof addon.NumericTag) {
+  const numericTag: number = unknownTag.then;
+}
+// @ts-expect-error Generic classes without an annotated constructor remain unconstructable.
+new addon.NumericTag(1);
+const amounts: addon.Box<addon.Amount> = addon.amountBox();
+amounts.value = {value: '42'};
+const amount: addon.Amount = amounts.value;
+const previousAmount: addon.Amount = amounts.replace({value: '43'});
+const parcel: addon.Box<addon.Parcel<addon.Amount>> = addon.parcelBox();
+parcel.value = {item: {value: '8'}};
+const parcelAmount: addon.Amount = parcel.value.item;
+const labeledAmount: addon.LabeledBox<addon.Amount> = addon.labeledAmountBox();
+const amountParent: addon.Box<addon.Amount> = labeledAmount;
+const rawAmount = new addon.Box(amount);
+rawAmount.value = amount;
+const rawAmountValue: addon.Amount = rawAmount.value;
+const namedRawAmount = addon.Box.named(amount);
+const factoryRawAmount = addon.Box.from(amount);
+const wrappedRawAmount = addon.wrapBox(amount);
+const relatedRawAmount = new addon.Related<addon.Amount, addon.Amount>(amount);
+relatedRawAmount.value = amount;
+const relatedNumber: addon.Related<number, number> = new addon.Related(1);
+namedRawAmount.value = amount;
+factoryRawAmount.value = amount;
+wrappedRawAmount.value = amount;
+const echoedAmount = addon.echoBox(rawAmount);
+echoedAmount.value = amount;
+class JsAmountBox extends addon.Box<addon.Amount> {}
+const jsAmountBox = new JsAmountBox(amount);
+jsAmountBox.value = amount;
+class JsGenericBox<T> extends addon.Box<T> {}
+const jsGenericBox = new JsGenericBox(amount);
+jsGenericBox.value = amount;
+const fixedAmount: addon.Box<addon.Amount> = new addon.AmountBox({value: '1'});
+fixedAmount.value = {value: '2'};
+addon.amountListBox().value = [{value: '3'}, null];
+const amountListValue: (addon.Amount | null)[] = addon.amountListBox().value;
+addon.futureAmountBox().value = Promise.resolve({value: '4'});
+const amountFutureValue: Promise<addon.Amount> = addon.futureAmountBox().value;
+const asyncAmounts: AsyncIterable<{value: string}> = {async *[Symbol.asyncIterator]() { yield {value: '5'}; }};
+addon.streamAmountBox().value = asyncAmounts;
+const amountStep: Promise<IteratorResult<addon.Amount>> = addon.streamAmountBox().value.next();
+addon.amountCallbackBox().value = value => ({value: String(value.value + 1)});
+const callbackAmountValue: addon.Amount = addon.amountCallbackBox().value({value: '6'});
+const amountPair: addon.Box<[addon.Amount, addon.Amount]> = addon.amountPairBox();
+amountPair.value = [{value: '3'}, {value: '4'}];
+const rawAmountPair = new addon.PairBox(amount, amount);
+rawAmountPair.value = [amount, amount];
+const rawAmountArray = new addon.Box([amount]);
+rawAmountArray.value = [amount];
+addon.calculatedAmountBox().value = value => ({value: String(value * 2)});
+const calculatedAmountValue: addon.Amount = addon.calculatedAmountBox().value(3);
+const scalarWide: addon.Box<unknown> = box;
+const nativeWide: addon.Box<unknown> = amounts;
+const rawWide: addon.Box<unknown> = rawAmount;
+declare const literalBox: addon.Box<1>;
+const numberBox: addon.Box<number> = literalBox;
+// @ts-expect-error Native boxes require the data class's constructor input.
+amounts.value = amount;
+// @ts-expect-error A generic data class retains nested constructor input.
+parcel.value = {item: amount};
+// @ts-expect-error Raw JS boxes keep opaque values without data-class conversion.
+rawAmount.value = {value: '1'};
+// @ts-expect-error Named constructors preserve opaque inputs.
+namedRawAmount.value = {value: '1'};
+// @ts-expect-error Dart factories called through JS preserve opaque inputs.
+factoryRawAmount.value = {value: '1'};
+// @ts-expect-error Generic wrappers without an instance type also remain opaque.
+wrappedRawAmount.value = {value: '1'};
+// @ts-expect-error Dependent generic bounds keep opaque constructor inputs.
+relatedRawAmount.value = {value: '1'};
+// @ts-expect-error Raw and native boxes have different write contracts.
+const wrongAmountBox: addon.Box<addon.Amount> = rawAmount;
+// @ts-expect-error Unions cannot hide opaque storage behind another branch.
+const wrongAmountUnion: addon.Box<addon.Amount | number> = rawAmount;
+// @ts-expect-error Generic identity helpers retain the input contract.
+echoedAmount.value = {value: '1'};
+// @ts-expect-error JS subclasses keep their opaque constructor behavior.
+jsAmountBox.value = {value: '1'};
+// @ts-expect-error Generic JS subclasses keep their opaque constructor behavior.
+jsGenericBox.value = {value: '1'};
+// @ts-expect-error Collection elements retain constructor input types.
+addon.amountListBox().value = [amount];
+// @ts-expect-error Promise values retain constructor input types.
+addon.futureAmountBox().value = Promise.resolve(amount);
+// @ts-expect-error Stored callback inputs and outputs use opposite directions.
+addon.amountCallbackBox().value = value => value;
+// @ts-expect-error A converted tuple still retains opaque element inputs.
+const wrongAmountPair: addon.Box<[addon.Amount, addon.Amount]> = rawAmountPair;
+// @ts-expect-error An opaque array does not acquire data-class conversion.
+const wrongAmountArray: addon.Box<addon.Amount[]> = rawAmountArray;
 // @ts-expect-error A plain object is not a bound Counter instance.
 bound.value = {value: 1};
 // @ts-expect-error A base instance is not a SpecialCounter.

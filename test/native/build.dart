@@ -455,12 +455,6 @@ Future<void> main(List<String> args) async {
           '@NAPI() T invalid<T extends List<int>>(T value) => value;',
           'generic bounds must preserve JavaScript values',
         ),
-        (
-          '@NAPI() class Box<T> { @NAPI() Box(this.value); @NAPI() T value; } '
-              '@NAPI.object() class Point { @NAPI() Point({required this.x}); @NAPI() final int x; } '
-              '@NAPI() List<Point> consume(Box<List<Point>> value) => value.value;',
-          'unsupported concrete bound-class argument',
-        ),
         for (final type in [
           'Thenable',
           '({void Function(void Function(int)) then})',
@@ -489,13 +483,7 @@ Future<void> main(List<String> args) async {
                 '@NAPI() class Counter {} $subclass',
             'thenable Future class arguments need different input and output types',
           ),
-        for (final type in [
-          'Stream<int>',
-          'List<Stream<int>>',
-          'Future<Future<int>>',
-          'T Function<T>(T)',
-          'Stream<int> Function()',
-        ])
+        for (final type in ['Future<Future<int>>', 'T Function<T>(T)'])
           (
             '@NAPI() class Box<T> { @NAPI() Box(this.value); @NAPI() T value; } '
                 '@NAPI() void consume(Box<$type> value) {}',

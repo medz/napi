@@ -57,12 +57,33 @@ final class _Writer {
         ],
       );
     }
+    for (final cls in exports.classes.where((cls) => !cls.isObject)) {
+      if (cls.typeParameters.isEmpty &&
+          !_classes.containsKey(cls.superclass?.classExport)) {
+        continue;
+      }
+      _classes[cls] = (
+        shape: _unique('_NapiClass${_classes.length}'),
+        inputs: [
+          for (final parameter in cls.typeParameters)
+            _unique('${_parameterNames[parameter]}Input'),
+        ],
+        modes: [
+          for (final parameter in cls.typeParameters)
+            _unique('${_parameterNames[parameter]}Mode'),
+        ],
+      );
+      _classParameters.addAll(cls.typeParameters);
+    }
     _inputKey = _unique('_napiInput');
     _inputOf = _unique('_NapiInput');
     _same = _unique('_NapiSame');
     _projection = _unique('_NapiProjection');
     _scalar = _unique('_NapiScalar');
     _awaited = _unique('_NapiAwaited');
+    _opaqueKey = _unique('_napiOpaque');
+    _opaque = _unique('_NapiOpaque');
+    _mode = _unique('_NapiMode');
     for (final cls in _objects.keys) {
       _classParameters.addAll(cls.typeParameters);
       final arguments = <ExportTypeParameter, ExportType>{};
@@ -83,6 +104,11 @@ final class _Writer {
         ({String output, String fields, String input, List<String> inputs})
       >{};
   final _rawObjects = <ExportClass, ({String output, String input})>{};
+  final _classes =
+      <
+        ExportClass,
+        ({String shape, List<String> inputs, List<String> modes})
+      >{};
   final _rawViews = <({ExportClass cls, bool output})>{};
   final _differences = <_ObjectPair, _Difference>{};
   final _pendingDifferences = <_ObjectPair>[];
@@ -91,12 +117,19 @@ final class _Writer {
   final _mixedPairs = <_TypePair>[];
   final _parameterTypes =
       <ExportTypeParameter, ({String output, String input})>{};
+  final _parameterModes = <ExportTypeParameter, String>{};
+  final _opaqueParameters = <ExportTypeParameter>{};
   late final String _inputKey;
   late final String _inputOf;
   late final String _same;
   late final String _projection;
   late final String _scalar;
   late final String _awaited;
+  late final String _opaqueKey;
+  late final String _opaque;
+  late final String _mode;
+
+  bool get _hasMetadata => _objects.isNotEmpty || _classes.isNotEmpty;
 
   String _unique(String name) {
     while (_names.contains(name) || _parameterNames.containsValue(name)) {
@@ -267,6 +300,127 @@ final class _Writer {
         ..clear()
         ..addAll(saved);
     }
+  }
+
+  T _withClassParameters<T>(ExportClass cls, T Function() body) {
+    final savedTypes = {..._parameterTypes};
+    final savedModes = {..._parameterModes};
+    final names = _classes[cls]!;
+    for (var i = 0; i < cls.typeParameters.length; ++i) {
+      final parameter = cls.typeParameters[i];
+      _parameterTypes[parameter] = (
+        output: _parameterNames[parameter]!,
+        input: names.inputs[i],
+      );
+      _parameterModes[parameter] = names.modes[i];
+    }
+    try {
+      return body();
+    } finally {
+      _parameterTypes
+        ..clear()
+        ..addAll(savedTypes);
+      _parameterModes
+        ..clear()
+        ..addAll(savedModes);
+    }
+  }
+
+  String _classParametersDeclaration(ExportClass cls) =>
+      cls.typeParameters.isEmpty
+      ? ''
+      : '<${[
+          for (var i = 0; i < cls.typeParameters.length; ++i) ...[_parameterDeclaration(cls.typeParameters[i]), _classes[cls]!.inputs[i], _classes[cls]!.modes[i]],
+        ].join(', ')}>';
+
+  String _classShape(ExportType type, {bool metadata = true}) =>
+      !_classes.containsKey(type.classExport)
+      ? type.classExport!.name
+      : '${_classes[type.classExport]!.shape}${type.typeArguments.isEmpty ? '' : '<${[
+                for (final argument in type.typeArguments) ...[_classArgumentOutput(argument, metadata: metadata), _type(argument, output: false, metadata: metadata), _opaqueParameters.contains(argument.parameter) ? '$_mode<${_classArgumentOutput(argument, metadata: metadata)}>' : _typeMode(argument)],
+              ].join(', ')}>'}';
+
+  String _opaqueArgument(
+    ExportTypeParameter parameter, [
+    Set<ExportTypeParameter>? seen,
+  ]) {
+    final name = _parameterNames[parameter]!;
+    final visited = seen ?? <ExportTypeParameter>{};
+    if (!visited.add(parameter)) return '$_opaque<$name>';
+    var bound = parameter.bound;
+    final bounds = <ExportTypeParameter>{};
+    while (bound.kind == ValueKind.typeParameter &&
+        bounds.add(bound.parameter!)) {
+      bound = bound.parameter!.bound;
+    }
+    if (_scalarKey(bound) != null &&
+            bound.kind != ValueKind.opaque &&
+            bound.kind != ValueKind.dynamicValue ||
+        bound.kind == ValueKind.object && !bound.classExport!.isObject ||
+        bound.kind == ValueKind.enumeration ||
+        bound.kind == ValueKind.jsReference &&
+            bound.referenceKind == JsReferenceKind.symbol) {
+      return name;
+    }
+    final parent = parameter.bound.parameter;
+    return parent == null
+        ? '$_opaque<$name>'
+        : '$_opaque<$name> & (${_opaqueArgument(parent, visited)}${parameter.bound.nullable ? ' | null' : ''})';
+  }
+
+  String _constructorResult(ExportClass cls) =>
+      '${cls.name}${cls.typeParameters.isEmpty ? '' : '<${cls.typeParameters.map(_opaqueArgument).join(', ')}>'}';
+
+  String _classArgumentOutput(ExportType type, {bool metadata = true}) =>
+      _opaqueParameters.contains(type.parameter)
+      ? '${_opaqueArgument(type.parameter!)}${type.nullable ? ' | null' : ''}'
+      : _type(type, metadata: metadata);
+
+  String _functionResult(ExportFunction function) {
+    if (function.constructor) return _constructorResult(function.owner!);
+    final signature = function.signature;
+    final anchors = <ExportTypeParameter>{
+      for (final parameter in [...signature.positional, ...signature.named])
+        if (parameter.type.kind == ValueKind.object &&
+            !parameter.type.classExport!.isObject)
+          for (final argument in parameter.type.typeArguments)
+            if (argument.parameter != null) argument.parameter!,
+    };
+    final saved = {..._opaqueParameters};
+    _opaqueParameters.addAll(
+      signature.typeParameters.where(
+        (parameter) => !anchors.contains(parameter),
+      ),
+    );
+    try {
+      return _type(signature.result);
+    } finally {
+      _opaqueParameters
+        ..clear()
+        ..addAll(saved);
+    }
+  }
+
+  String _typeMode(ExportType type) {
+    final parameter = _parameterModes[type.parameter];
+    if (parameter != null)
+      return type.nullable ? '$parameter | "stable"' : parameter;
+    if (!_mentions(type, _parameterModes.keys.toSet())) {
+      return '$_mode<${_type(type)}>';
+    }
+    final value = switch (type.kind) {
+      ValueKind.list => '{ readonly array: ${_typeMode(type.element!)} }',
+      ValueKind.set => '{ readonly set: ${_typeMode(type.element!)} }',
+      ValueKind.stream => '{ readonly async: ${_typeMode(type.element!)} }',
+      ValueKind.map =>
+        '{ readonly [key: string]: ${_typeMode(type.element!)} }',
+      ValueKind.record =>
+        type.recordFields!.named.isEmpty
+            ? '{ readonly array: ${type.recordFields!.positional.map(_typeMode).join(' | ')} }'
+            : '{ ${_recordProperties(type).entries.map((entry) => 'readonly ${jsonEncode(entry.key)}: ${_typeMode(entry.value)};').join(' ')} }',
+      _ => '$_mode<${_type(type)}>',
+    };
+    return type.nullable ? '$value | "stable"' : value;
   }
 
   _Difference _requireDifference(
@@ -1536,6 +1690,138 @@ final class _Writer {
         : '[${conditions.join(', ')}] extends true[] ? true : false';
   }
 
+  void _writeProperty(
+    StringBuffer output,
+    ExportProperty property, {
+    bool static = false,
+  }) {
+    final prefix = static ? 'static ' : '';
+    output.writeln(
+      '  ${prefix}get ${_member(property.name)}(): ${property.readType == null ? 'undefined' : _type(property.readType!)};',
+    );
+    if (property.writeType != null) {
+      output.writeln(
+        '  ${prefix}set ${_member(property.name)}(value: ${_type(property.writeType!, output: false)});',
+      );
+    }
+  }
+
+  void _writeClass(
+    StringBuffer output,
+    ExportClass cls,
+    String prefix,
+    Set<String> brands,
+  ) {
+    var brand = '__napiBrand';
+    while (!brands.add(brand)) {
+      brand += '_';
+    }
+    if (!_classes.containsKey(cls)) {
+      output.writeln(
+        '${prefix}declare class ${cls.name}'
+        '${cls.superclass == null ? '' : ' extends ${_type(cls.superclass!)}'} {',
+      );
+      output.writeln('  private readonly $brand: never;');
+      if (_hasMetadata) output.writeln('  readonly [$_inputKey]: this;');
+      final constructor = cls.constructor;
+      final parent = exports.classes.any(
+        (child) => child.superclass?.classExport == cls,
+      );
+      output.writeln(
+        constructor == null
+            ? '  ${parent ? 'protected' : 'private'} constructor();'
+            : '  constructor(${_parameters(constructor.signature)});',
+      );
+      for (final function in cls.methods) {
+        output.writeln(
+          '  ${_member(function.name)}${_generics(function.signature.typeParameters, defaults: false)}(${_parameters(function.signature)}): ${_functionResult(function)};',
+        );
+      }
+      for (final function in cls.staticMethods) {
+        output.writeln(
+          '  static ${_member(function.name)}${_generics(function.signature.typeParameters, defaults: false)}(${_parameters(function.signature)}): ${_functionResult(function)};',
+        );
+      }
+      for (final property in cls.properties) {
+        _writeProperty(output, property);
+      }
+      for (final property in cls.staticProperties) {
+        _writeProperty(output, property, static: true);
+      }
+      output.writeln('}');
+      return;
+    }
+    final names = _classes[cls]!;
+    _withClassParameters(cls, () {
+      output.writeln(
+        'declare class ${names.shape}${_classParametersDeclaration(cls)}'
+        '${cls.superclass == null ? '' : ' extends ${_classShape(cls.superclass!)}'} {',
+      );
+      output.writeln(
+        '  private readonly $brand: ${names.modes.isEmpty ? 'never' : '[${names.modes.join(', ')}]'};',
+      );
+      output.writeln('  readonly [$_inputKey]: this;');
+      for (final function in cls.methods) {
+        output.writeln(
+          '  ${_member(function.name)}${_generics(function.signature.typeParameters, defaults: false)}(${_parameters(function.signature)}): ${_functionResult(function)};',
+        );
+      }
+      for (final property in cls.properties) {
+        _writeProperty(output, property);
+      }
+      output.writeln('}');
+    });
+    final arguments = cls.typeParameters.isEmpty
+        ? ''
+        : '<${[
+            for (final parameter in cls.typeParameters) ...[_parameterNames[parameter]!, '$_inputOf<${_parameterNames[parameter]!}>', '$_mode<${_parameterNames[parameter]!}>'],
+          ].join(', ')}>';
+    output.writeln(
+      '${prefix}type ${cls.name}${_generics(cls.typeParameters)} = ${names.shape}$arguments;',
+    );
+    output.writeln('${prefix}declare const ${cls.name}: {');
+    final prototype =
+        '${names.shape}${names.inputs.isEmpty ? '' : '<${List.filled(names.inputs.length * 3, 'any').join(', ')}>'}';
+    output.writeln('  readonly prototype: $prototype;');
+    if (cls.constructor case final constructor?) {
+      final result = _constructorResult(cls);
+      output.writeln(
+        '  new${_generics(cls.typeParameters)}(${_parameters(constructor.signature)}): $result;',
+      );
+    } else {
+      output.writeln(
+        '  [globalThis.Symbol.hasInstance](value: unknown): value is $prototype;',
+      );
+    }
+    final methods = <String, ExportFunction>{};
+    final properties = <String, ExportProperty>{};
+    for (
+      ExportClass? owner = cls;
+      owner != null;
+      owner = owner.superclass?.classExport
+    ) {
+      for (final function in owner.staticMethods) {
+        methods.putIfAbsent(function.name, () => function);
+      }
+      for (final property in owner.staticProperties) {
+        properties.putIfAbsent(property.name, () => property);
+      }
+    }
+    for (final function in methods.values) {
+      output.writeln(
+        '  ${_member(function.name)}${_generics(function.signature.typeParameters, defaults: false)}(${_parameters(function.signature)}): ${_functionResult(function)};',
+      );
+    }
+    for (final property in properties.values) {
+      _writeProperty(output, property);
+    }
+    output.writeln(
+      cls.constructor == null
+          ? '} & globalThis.Omit<globalThis.Function, "prototype">;'
+          : '};',
+    );
+  }
+
   String write() {
     final output = StringBuffer();
     final commonJsObject = !esm && exports.properties.isNotEmpty;
@@ -1545,10 +1831,6 @@ final class _Writer {
         ...cls.methods.map((member) => member.name),
         ...cls.properties.map((member) => member.name),
       ],
-    };
-    final parents = {
-      for (final cls in exports.classes)
-        if (cls.superclass != null) cls.superclass!.classExport!,
     };
     for (final enumeration in exports.enums) {
       output.writeln('${prefix}declare const ${enumeration.name}: {');
@@ -1599,55 +1881,11 @@ final class _Writer {
         );
         continue;
       }
-      output.writeln(
-        '${prefix}declare class ${cls.name}${_generics(cls.typeParameters)}'
-        '${cls.superclass == null ? '' : ' extends ${_type(cls.superclass!)}'} {',
-      );
-      var brand = '__napiBrand';
-      while (!brands.add(brand)) {
-        brand += '_';
-      }
-      output.writeln('  private readonly $brand: never;');
-      if (_objects.isNotEmpty) output.writeln('  readonly [$_inputKey]: this;');
-      final constructor = cls.constructor;
-      output.writeln(
-        constructor == null
-            ? '  ${parents.contains(cls) ? 'protected' : 'private'} constructor();'
-            : '  constructor(${_parameters(constructor.signature)});',
-      );
-      for (final function in cls.methods) {
-        output.writeln(
-          '  ${_member(function.name)}${_generics(function.signature.typeParameters, defaults: false)}(${_parameters(function.signature)}): ${_type(function.signature.result)};',
-        );
-      }
-      for (final function in cls.staticMethods) {
-        output.writeln(
-          '  static ${_member(function.name)}${_generics(function.signature.typeParameters, defaults: false)}(${_parameters(function.signature)}): ${_type(function.signature.result)};',
-        );
-      }
-      void property(ExportProperty property, {required bool static}) {
-        final prefix = static ? 'static ' : '';
-        output.writeln(
-          '  ${prefix}get ${_member(property.name)}(): ${property.readType == null ? 'undefined' : _type(property.readType!)};',
-        );
-        if (property.writeType != null) {
-          output.writeln(
-            '  ${prefix}set ${_member(property.name)}(value: ${_type(property.writeType!, output: false)});',
-          );
-        }
-      }
-
-      for (final value in cls.properties) {
-        property(value, static: false);
-      }
-      for (final value in cls.staticProperties) {
-        property(value, static: true);
-      }
-      output.writeln('}');
+      _writeClass(output, cls, prefix, brands);
     }
     for (final function in exports.functions) {
       output.writeln(
-        '${prefix}declare function ${function.name}${_generics(function.signature.typeParameters, defaults: false)}(${_parameters(function.signature)}): ${_type(function.signature.result)};',
+        '${prefix}declare function ${function.name}${_generics(function.signature.typeParameters, defaults: false)}(${_parameters(function.signature)}): ${_functionResult(function)};',
       );
     }
     for (final value in exports.constants) {
@@ -1656,8 +1894,9 @@ final class _Writer {
       );
     }
     if (esm || commonJsObject) _binding(output);
-    if (_objects.isNotEmpty) {
+    if (_hasMetadata) {
       output.writeln('declare const $_inputKey: unique symbol;');
+      output.writeln('declare const $_opaqueKey: unique symbol;');
       output.writeln(
         'type $_scalar<B> = 0 extends (1 & B) ? false : [B] extends [string | number | boolean | bigint | symbol | null | undefined] ? true : false;',
       );
@@ -1671,7 +1910,7 @@ final class _Writer {
         'type $_projection<O, I, S extends boolean = $_same<$_inputOf<O>, I>> = O & (S extends true ? {} : { readonly [$_inputKey]: I });',
       );
       output.writeln(
-        'type $_inputOf<T> = T extends { readonly [$_inputKey]: infer I } ? I',
+        'type $_inputOf<T> = T extends { readonly [$_opaqueKey]: infer I } ? I : T extends { readonly [$_inputKey]: infer I } ? I',
       );
       output.writeln(
         '  : T extends globalThis.ReadonlyArray<unknown> ? { [K in keyof T]: $_inputOf<T[K]> }',
@@ -1693,6 +1932,36 @@ final class _Writer {
       );
       output.writeln(
         '  : T extends object ? keyof T extends never ? T : object & { [K in keyof T]: $_inputOf<T[K]> } : T;',
+      );
+      output.writeln(
+        'type $_opaque<T> = $_same<T, $_inputOf<T>> extends true ? T : T & { readonly [$_opaqueKey]: T };',
+      );
+      output.writeln(
+        'type $_mode<T> = unknown extends T ? unknown : T extends { readonly [$_opaqueKey]: infer I } ? { readonly raw: I }',
+      );
+      output.writeln(
+        '  : T extends { readonly [$_inputKey]: unknown } ? $_same<T, $_inputOf<T>> extends true ? "stable" : { readonly mapped: T }',
+      );
+      output.writeln(
+        '  : T extends globalThis.ReadonlyArray<unknown> ? { readonly array: $_mode<T[number]> }',
+      );
+      output.writeln(
+        '  : T extends globalThis.Map<infer K, infer V> ? { readonly map: [$_mode<K>, $_mode<V>] }',
+      );
+      output.writeln(
+        '  : T extends globalThis.Set<infer V> ? { readonly set: $_mode<V> }',
+      );
+      output.writeln(
+        '  : T extends globalThis.Promise<infer V> ? { readonly promise: $_mode<V> }',
+      );
+      output.writeln(
+        '  : T extends globalThis.AsyncIterable<infer V> ? { readonly async: $_mode<V> }',
+      );
+      output.writeln(
+        '  : T extends globalThis.Function | globalThis.Date | globalThis.ArrayBuffer | globalThis.ArrayBufferView ? "stable"',
+      );
+      output.writeln(
+        '  : T extends object ? { readonly [K in keyof T]: $_mode<T[K]> } : "stable";',
       );
     }
     final emitted = <({ExportClass cls, bool output})>{};
@@ -1882,7 +2151,7 @@ final class _Writer {
     final project =
         metadata &&
         output &&
-        _objects.isNotEmpty &&
+        _hasMetadata &&
         (type.kind == ValueKind.function || type.kind == ValueKind.future);
     final condition = !project
         ? null
@@ -1911,7 +2180,10 @@ final class _Writer {
       for (final argument in type.typeArguments) {
         if (!_containsParameter(argument)) _checkClassArgument(argument, cls);
       }
-      return '${cls.name}${type.typeArguments.isEmpty ? '' : '<${type.typeArguments.map((argument) => _type(argument, metadata: metadata)).join(', ')}>'}';
+      if (_mentions(type, _parameterTypes.keys.toSet())) {
+        return _classShape(type, metadata: metadata);
+      }
+      return '${cls.name}${type.typeArguments.isEmpty ? '' : '<${type.typeArguments.map((argument) => _classArgumentOutput(argument, metadata: metadata)).join(', ')}>'}';
     }
     if (!output && cls.constructor == null) return 'never';
     final pairs = [

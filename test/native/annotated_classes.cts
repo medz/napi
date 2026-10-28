@@ -1,5 +1,13 @@
 import addon = require('./addon');
 
+const returnedOnlyName: string = addon.ReturnedOnly.name;
+const returnedOnlyArity: number = addon.ReturnedOnly.length;
+const returnedOnlyMethod: () => number = addon.ReturnedOnly.prototype.read;
+declare const unknownInstance: unknown;
+if (unknownInstance instanceof addon.ReturnedOnly) {
+  const returnedValue: number = unknownInstance.value;
+}
+
 const a: addon.Counter = new addon.Counter();
 const b: addon.Counter = new addon.Counter(5);
 const named: addon.Counter = addon.Counter.named({ value: 6, note: null });
