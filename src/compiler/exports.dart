@@ -320,9 +320,10 @@ final class _Reader {
     ValueKind.byteData ||
     ValueKind.simd ||
     ValueKind.simdList => true,
-    ValueKind.future || ValueKind.stream =>
-      type.element!.kind == ValueKind.voidValue ||
-          _classArgument(type.element!),
+    ValueKind.future =>
+      type.element!.kind != ValueKind.future &&
+          (type.element!.kind == ValueKind.voidValue ||
+              _classArgument(type.element!)),
     ValueKind.list ||
     ValueKind.map ||
     ValueKind.set => _classArgument(type.element!),

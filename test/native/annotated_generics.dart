@@ -210,14 +210,6 @@ Box<Future<List<int>>> futureBox() =>
 @NAPI()
 Box<Future<void>> doneBox() => Box(Future<void>.value());
 
-@NAPI()
-Box<Stream<List<int>>> streamBox() => Box(
-  Stream.fromIterable([
-    [1],
-    [2],
-  ]),
-);
-
 typedef IntBoxIdentity = T Function<T extends Box<int>>(T value);
 
 @NAPI()

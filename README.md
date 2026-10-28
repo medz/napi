@@ -558,7 +558,7 @@ result against the actual type argument, including a narrower subclass.
 Bounds that copy values, such as `List<int>` or data classes, produce a build error.
 
 Dart can return concrete bound classes with scalar values, JS references,
-enums, dates, binary types, collections, records, Futures and Streams. Their
+enums, dates, binary types, collections, records and Futures. Their
 members use those types for conversion and validation:
 
 ```dart
@@ -598,9 +598,10 @@ box.value = values;     // stores a Dart list containing [1, 2, 3]
 Generic helpers still use default Dart type arguments. To convert a collection
 extracted from a box, declare the concrete type, for example
 `List<int> readNumbers(Box<List<int>> box) => box.value`.
-Data-class and function arguments such as `Box<Amount>` or
-`Box<int Function(int)>`, and nested arguments depending on erased parameters
-such as `Box<List<T>>`, are not yet supported.
+Data-class, function and Stream arguments such as `Box<Amount>`,
+`Box<int Function(int)>` and `Box<Stream<int>>` are not yet supported. Directly
+nested Futures such as `Box<Future<Future<int>>>`, and nested arguments depending
+on erased parameters such as `Box<List<T>>`, are also unsupported.
 
 ## Functions and callbacks
 

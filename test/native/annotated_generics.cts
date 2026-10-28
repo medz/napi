@@ -51,7 +51,9 @@ const vectorValue: Float32Array = addon.vectorBox().value;
 const stageValue: addon.Stage = addon.stageBox().value;
 const futureValue: Promise<number[]> = addon.futureBox().value;
 const doneValue: Promise<void> = addon.doneBox().value;
-const streamValue: AsyncIterable<number[]> = addon.streamBox().value;
+addon.futureBox().value = Promise.resolve([3]);
+const previousFuture: Promise<number[]> = addon.futureBox().replace(Promise.resolve([4]));
+addon.doneBox().value = Promise.resolve();
 // @ts-expect-error Promise elements retain the concrete nested scalar type.
 addon.futureBox().value = Promise.resolve(['wrong']);
 // @ts-expect-error A timestamp's numeric representation is not a Date input.

@@ -214,22 +214,6 @@ module.exports = async function verifyAnnotatedGenerics(path, packageDirectory) 
   futures.value = Promise.resolve(['wrong']);
   await assert.rejects(futures.value, TypeError);
   assert.equal(await addon.doneBox().value, undefined);
-  const streams = addon.streamBox();
-  const streamed = [];
-  for await (const value of streams.value) streamed.push(value);
-  assert.deepEqual(streamed, [[1], [2]]);
-  let streamClosed = 0;
-  streams.value = {
-    async *[Symbol.asyncIterator]() {
-      try { yield [7]; yield [8]; }
-      finally { streamClosed++; }
-    }
-  };
-  for await (const value of streams.value) {
-    assert.deepEqual(value, [7]);
-    break;
-  }
-  assert.equal(streamClosed, 1);
   const copied = addon.copyList(array);
   assert.notEqual(copied, array);
   assert.equal(copied[0], object);

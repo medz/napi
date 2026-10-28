@@ -461,6 +461,16 @@ Future<void> main(List<String> args) async {
               '@NAPI() List<Point> consume(Box<List<Point>> value) => value.value;',
           'unsupported concrete bound-class argument',
         ),
+        for (final type in [
+          'Stream<int>',
+          'List<Stream<int>>',
+          'Future<Future<int>>',
+        ])
+          (
+            '@NAPI() class Box<T> { @NAPI() Box(this.value); @NAPI() T value; } '
+                '@NAPI() void consume(Box<$type> value) {}',
+            'unsupported concrete bound-class argument',
+          ),
         (
           '@NAPI() class Box<T> { @NAPI() Box(this.value); T value; '
               '@NAPI() Box<List<T>> nested() => Box([value]); }',
