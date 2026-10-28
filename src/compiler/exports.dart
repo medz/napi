@@ -324,6 +324,14 @@ final class _Reader {
       type.element!.kind != ValueKind.future &&
           (type.element!.kind == ValueKind.voidValue ||
               _classArgument(type.element!)),
+    ValueKind.function =>
+      type.signature!.typeParameters.isEmpty &&
+          [
+            ...type.signature!.positional,
+            ...type.signature!.named,
+          ].every((parameter) => _classArgument(parameter.type)) &&
+          (type.signature!.result.kind == ValueKind.voidValue ||
+              _classArgument(type.signature!.result)),
     ValueKind.list ||
     ValueKind.map ||
     ValueKind.set => _classArgument(type.element!),
@@ -636,7 +644,7 @@ final class _Reader {
         );
         if (base == null) continue;
         final inferred = <TypeParameter, DartType>{};
-        bool match(DartType pattern, DartType actual) {
+        bool match(DartType pattern, DartType actual, {bool covariant = true}) {
           if (pattern is TypeParameterType &&
               cls.target.typeParameters.contains(pattern.parameter)) {
             final previous = inferred[pattern.parameter];
@@ -650,7 +658,11 @@ final class _Reader {
               actual is InterfaceType &&
               pattern.classNode == actual.classNode) {
             for (var i = 0; i < pattern.typeArguments.length; ++i) {
-              if (!match(pattern.typeArguments[i], actual.typeArguments[i])) {
+              if (!match(
+                pattern.typeArguments[i],
+                actual.typeArguments[i],
+                covariant: covariant,
+              )) {
                 return false;
               }
             }
@@ -662,19 +674,65 @@ final class _Reader {
               return false;
             }
             for (var i = 0; i < pattern.positional.length; ++i) {
-              if (!match(pattern.positional[i], actual.positional[i])) {
+              if (!match(
+                pattern.positional[i],
+                actual.positional[i],
+                covariant: covariant,
+              )) {
                 return false;
               }
             }
             for (var i = 0; i < pattern.named.length; ++i) {
               if (pattern.named[i].name != actual.named[i].name ||
-                  !match(pattern.named[i].type, actual.named[i].type)) {
+                  !match(
+                    pattern.named[i].type,
+                    actual.named[i].type,
+                    covariant: covariant,
+                  )) {
                 return false;
               }
             }
             return true;
           }
-          return types.isSubtypeOf(pattern, actual);
+          if (pattern is FunctionType && actual is FunctionType) {
+            if (pattern.typeParameters.isNotEmpty ||
+                actual.typeParameters.isNotEmpty ||
+                !match(
+                  pattern.returnType,
+                  actual.returnType,
+                  covariant: covariant,
+                )) {
+              return false;
+            }
+            // Infer from shared parameters. The final subtype check validates
+            // requiredness and any additional optional parameters.
+            for (
+              var i = 0;
+              i < pattern.positionalParameters.length &&
+                  i < actual.positionalParameters.length;
+              ++i
+            ) {
+              if (!match(
+                pattern.positionalParameters[i],
+                actual.positionalParameters[i],
+                covariant: !covariant,
+              )) {
+                return false;
+              }
+            }
+            for (final left in pattern.namedParameters) {
+              for (final right in actual.namedParameters) {
+                if (left.name == right.name &&
+                    !match(left.type, right.type, covariant: !covariant)) {
+                  return false;
+                }
+              }
+            }
+            return true;
+          }
+          return covariant
+              ? types.isSubtypeOf(pattern, actual)
+              : types.isSubtypeOf(actual, pattern);
         }
 
         if (!match(base.asInterfaceType, parent)) continue;
