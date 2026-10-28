@@ -112,6 +112,16 @@ factoryRawAmount.value = amount;
 wrappedRawAmount.value = amount;
 const echoedAmount = addon.echoBox(rawAmount);
 echoedAmount.value = amount;
+const reboxedAmount = addon.rebox(amounts, amount);
+const reboxedAmountValue: addon.Amount = reboxedAmount.value;
+const reboxedRaw = addon.rebox(rawAmount, rawAmount.value);
+reboxedRaw.value = amount;
+const boxedAgain = new addon.Box(rawAmount.value);
+boxedAgain.value = amount;
+const pickedAmount = addon.pickBox([amounts]);
+const callbackAmount = addon.pickCallbackBox(() => amounts);
+const pickedRaw = addon.pickBox([rawAmount]);
+pickedRaw.value = amount;
 class JsAmountBox extends addon.Box<addon.Amount> {}
 const jsAmountBox = new JsAmountBox(amount);
 jsAmountBox.value = amount;
@@ -174,6 +184,18 @@ addon.futureAmountBox().value = Promise.resolve(amount);
 addon.amountCallbackBox().value = value => value;
 // @ts-expect-error A converted tuple still retains opaque element inputs.
 const wrongAmountPair: addon.Box<[addon.Amount, addon.Amount]> = rawAmountPair;
+// @ts-expect-error Widening one tuple position cannot erase another position's conversion.
+const wrongWideAmountPair: addon.Box<[addon.Amount, unknown]> = rawAmountPair;
+// @ts-expect-error A class parameter does not prove how a generic function creates its result.
+const wrongReboxed: addon.Box<addon.Amount> = reboxedAmount;
+// @ts-expect-error The generic result may store its values opaquely.
+reboxedAmount.value = {value: '42'};
+// @ts-expect-error The generic result may instead preserve the native box's conversion.
+reboxedAmount.value = amount;
+// @ts-expect-error Nested class inputs can preserve native conversion.
+pickedAmount.value = amount;
+// @ts-expect-error A callback result can preserve native conversion too.
+callbackAmount.value = amount;
 // @ts-expect-error An opaque array does not acquire data-class conversion.
 const wrongAmountArray: addon.Box<addon.Amount[]> = rawAmountArray;
 // @ts-expect-error A plain object is not a bound Counter instance.

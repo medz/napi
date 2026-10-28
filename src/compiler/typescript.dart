@@ -119,6 +119,7 @@ final class _Writer {
       <ExportTypeParameter, ({String output, String input})>{};
   final _parameterModes = <ExportTypeParameter, String>{};
   final _opaqueParameters = <ExportTypeParameter>{};
+  final _mixedParameters = <ExportTypeParameter>{};
   late final String _inputKey;
   late final String _inputOf;
   late final String _same;
@@ -337,8 +338,25 @@ final class _Writer {
       !_classes.containsKey(type.classExport)
       ? type.classExport!.name
       : '${_classes[type.classExport]!.shape}${type.typeArguments.isEmpty ? '' : '<${[
-                for (final argument in type.typeArguments) ...[_classArgumentOutput(argument, metadata: metadata), _type(argument, output: false, metadata: metadata), _opaqueParameters.contains(argument.parameter) ? '$_mode<${_classArgumentOutput(argument, metadata: metadata)}>' : _typeMode(argument)],
+                for (final argument in type.typeArguments) ...[_classArgumentOutput(argument, metadata: metadata), _classArgumentInput(argument, metadata: metadata), _classArgumentMode(argument, metadata: metadata)],
               ].join(', ')}>'}';
+
+  String _classArgumentInput(ExportType type, {bool metadata = true}) {
+    final input = _type(type, output: false, metadata: metadata);
+    if (!_mixedParameters.contains(type.parameter)) return input;
+    final output = _type(type, metadata: metadata);
+    return '$_inputOf<$output> & $_inputOf<$_opaque<$output>>';
+  }
+
+  String _classArgumentMode(ExportType type, {bool metadata = true}) {
+    final output = _classArgumentOutput(type, metadata: metadata);
+    if (_mixedParameters.contains(type.parameter)) {
+      return '$_mode<$output> | $_mode<$_opaque<$output>>';
+    }
+    return _opaqueParameters.contains(type.parameter)
+        ? '$_mode<$output>'
+        : _typeMode(type);
+  }
 
   String _opaqueArgument(
     ExportTypeParameter parameter, [
@@ -379,17 +397,39 @@ final class _Writer {
   String _functionResult(ExportFunction function) {
     if (function.constructor) return _constructorResult(function.owner!);
     final signature = function.signature;
-    final anchors = <ExportTypeParameter>{
-      for (final parameter in [...signature.positional, ...signature.named])
-        if (parameter.type.kind == ValueKind.object &&
-            !parameter.type.classExport!.isObject)
-          for (final argument in parameter.type.typeArguments)
-            if (argument.parameter != null) argument.parameter!,
-    };
+    final sources = <ExportTypeParameter>{};
+    void collect(ExportType type) {
+      if (type.kind == ValueKind.object && !type.classExport!.isObject) {
+        for (final argument in type.typeArguments) {
+          if (argument.parameter != null) sources.add(argument.parameter!);
+        }
+      }
+      for (final argument in type.typeArguments) {
+        collect(argument);
+      }
+      if (type.element != null) collect(type.element!);
+      if (type.recordFields case final fields?) {
+        for (final field in [...fields.positional, ...fields.named.values]) {
+          collect(field);
+        }
+      }
+      if (type.signature case final callback?) {
+        for (final parameter in [...callback.positional, ...callback.named]) {
+          collect(parameter.type);
+        }
+        collect(callback.result);
+      }
+    }
+
+    for (final parameter in [...signature.positional, ...signature.named]) {
+      collect(parameter.type);
+    }
     final saved = {..._opaqueParameters};
+    final savedMixed = {..._mixedParameters};
+    _mixedParameters.addAll(signature.typeParameters.where(sources.contains));
     _opaqueParameters.addAll(
       signature.typeParameters.where(
-        (parameter) => !anchors.contains(parameter),
+        (parameter) => !sources.contains(parameter),
       ),
     );
     try {
@@ -398,6 +438,9 @@ final class _Writer {
       _opaqueParameters
         ..clear()
         ..addAll(saved);
+      _mixedParameters
+        ..clear()
+        ..addAll(savedMixed);
     }
   }
 
@@ -409,14 +452,15 @@ final class _Writer {
       return '$_mode<${_type(type)}>';
     }
     final value = switch (type.kind) {
-      ValueKind.list => '{ readonly array: ${_typeMode(type.element!)} }',
+      ValueKind.list =>
+        '{ readonly array: readonly (${_typeMode(type.element!)})[] }',
       ValueKind.set => '{ readonly set: ${_typeMode(type.element!)} }',
       ValueKind.stream => '{ readonly async: ${_typeMode(type.element!)} }',
       ValueKind.map =>
         '{ readonly [key: string]: ${_typeMode(type.element!)} }',
       ValueKind.record =>
         type.recordFields!.named.isEmpty
-            ? '{ readonly array: ${type.recordFields!.positional.map(_typeMode).join(' | ')} }'
+            ? '{ readonly array: readonly [${type.recordFields!.positional.map(_typeMode).join(', ')}] }'
             : '{ ${_recordProperties(type).entries.map((entry) => 'readonly ${jsonEncode(entry.key)}: ${_typeMode(entry.value)};').join(' ')} }',
       _ => '$_mode<${_type(type)}>',
     };
@@ -1934,7 +1978,7 @@ final class _Writer {
         '  : T extends object ? keyof T extends never ? T : object & { [K in keyof T]: $_inputOf<T[K]> } : T;',
       );
       output.writeln(
-        'type $_opaque<T> = $_same<T, $_inputOf<T>> extends true ? T : T & { readonly [$_opaqueKey]: T };',
+        'type $_opaque<T> = T extends { readonly [$_opaqueKey]: unknown } ? T : $_same<T, $_inputOf<T>> extends true ? T : T & { readonly [$_opaqueKey]: T };',
       );
       output.writeln(
         'type $_mode<T> = unknown extends T ? unknown : T extends { readonly [$_opaqueKey]: infer I } ? { readonly raw: I }',
@@ -1943,7 +1987,7 @@ final class _Writer {
         '  : T extends { readonly [$_inputKey]: unknown } ? $_same<T, $_inputOf<T>> extends true ? "stable" : { readonly mapped: T }',
       );
       output.writeln(
-        '  : T extends globalThis.ReadonlyArray<unknown> ? { readonly array: $_mode<T[number]> }',
+        '  : T extends globalThis.ReadonlyArray<unknown> ? { readonly array: { readonly [K in keyof T]: $_mode<T[K]> } }',
       );
       output.writeln(
         '  : T extends globalThis.Map<infer K, infer V> ? { readonly map: [$_mode<K>, $_mode<V>] }',
@@ -2180,7 +2224,7 @@ final class _Writer {
       for (final argument in type.typeArguments) {
         if (!_containsParameter(argument)) _checkClassArgument(argument, cls);
       }
-      if (_mentions(type, _parameterTypes.keys.toSet())) {
+      if (_mentions(type, {..._parameterTypes.keys, ..._mixedParameters})) {
         return _classShape(type, metadata: metadata);
       }
       return '${cls.name}${type.typeArguments.isEmpty ? '' : '<${type.typeArguments.map((argument) => _classArgumentOutput(argument, metadata: metadata)).join(', ')}>'}';

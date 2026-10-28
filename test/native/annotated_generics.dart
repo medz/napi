@@ -56,6 +56,15 @@ Box<T> echoBox<T>(Box<T> value) => value;
 Box<T> wrapBox<T>(T value) => Box(value);
 
 @NAPI()
+Box<T> rebox<T>(Box<T> source, T value) => Box(value);
+
+@NAPI()
+Box<T> pickBox<T>(List<Box<T>> boxes) => boxes.first;
+
+@NAPI()
+Box<T> pickCallbackBox<T>(Box<T> Function() read) => read();
+
+@NAPI()
 class Related<T extends U, U> {
   @NAPI()
   Related(this.value);
