@@ -238,7 +238,7 @@ Box<Future<List<int>>> futureBox() =>
 Box<Future<void>> doneBox() => Box(Future<void>.value());
 
 @NAPI()
-Box<Future<Future<int>>> nestedFutureBox() =>
+FutureBox<Future<int>> nestedFutureBox() =>
     FutureBox<Future<int>>(Future.syncValue(Future.value(7)));
 
 @NAPI()

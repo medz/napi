@@ -4,6 +4,21 @@ const assert = require('node:assert/strict');
 
 module.exports = async function verifyAnnotatedGenericObjects(path) {
   const addon = require(path);
+  const nestedFutures = addon.nestedFutures({value: Promise.resolve(7)});
+  assert.equal(await nestedFutures.value, 7);
+  assert.equal(await addon.nestedFutureProducer({create: () => Promise.resolve(8)}).create(), 8);
+  const nestedAmounts = addon.nestedAmountFutures({value: Promise.resolve({value: '9'})});
+  assert.deepEqual(await nestedAmounts.value, {value: 9});
+  assert.deepEqual(await addon.nestedAmountFutureProducer({create: () => Promise.resolve({value: '10'})}).create(), {value: 10});
+  assert.equal(await addon.nullableNestedFutures({value: Promise.resolve(null)}).value, null);
+  assert.equal(await addon.nullableNestedFutures({value: Promise.resolve(11)}).value, 11);
+  assert.equal(await addon.nestedFutureEnvelope({value: {value: Promise.resolve(12)}}).value.value, 12);
+  await assert.rejects(addon.nestedFutures({value: Promise.resolve('wrong')}).value, TypeError);
+  await assert.rejects(addon.nestedAmountFutures({value: Promise.resolve({value: 9})}).value, TypeError);
+  const reason = {};
+  await addon.nestedFutures({value: Promise.reject(reason)}).value.then(
+    () => assert.fail('Expected rejection'), error => assert.equal(error, reason),
+  );
   const input = { value: 7 };
   const integer = addon.echoInt(input);
   assert.notEqual(integer, input);

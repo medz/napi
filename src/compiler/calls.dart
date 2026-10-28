@@ -26,6 +26,7 @@ final class Calls {
   final _objectNeeds = <(ExportClass, bool), Map<ExportTypeParameter, int>>{};
   Substitution _codecTypes = Substitution.empty;
   Map<ExportTypeParameter, PositionalParameter> _readCodecs = const {};
+  Map<ExportTypeParameter, PositionalParameter> _futureReadCodecs = const {};
   Map<ExportTypeParameter, PositionalParameter> _writeCodecs = const {};
   Map<ExportTypeParameter, PositionalParameter> _codecDirections = const {};
   Map<ExportTypeParameter, LocalVariable?> _genericValues = const {};
@@ -81,9 +82,9 @@ final class Calls {
           }
         }
 
-        void visit(ExportType type, bool input) {
+        void visit(ExportType type, bool input, {bool future = false}) {
           if (type.kind == ValueKind.typeParameter) {
-            require(type, input ? 1 : 2);
+            require(type, input ? (future ? 8 : 1) : 2);
           } else if (type.kind == ValueKind.object &&
               type.classExport!.isObject) {
             final nested = type.classExport!;
@@ -94,6 +95,9 @@ final class Calls {
               if ((bits & 1) != 0) visit(type.typeArguments[i], true);
               if ((bits & 2) != 0) visit(type.typeArguments[i], false);
               if ((bits & 4) != 0) direction(type.typeArguments[i]);
+              if ((bits & 8) != 0) {
+                visit(type.typeArguments[i], true, future: true);
+              }
             }
           } else if (type.kind == ValueKind.function) {
             final signature = type.signature!;
@@ -115,7 +119,11 @@ final class Calls {
               visit(field, input);
             }
           } else if (type.element != null) {
-            visit(type.element!, input);
+            visit(
+              type.element!,
+              input,
+              future: input && type.kind == ValueKind.future,
+            );
           }
         }
 
@@ -336,7 +344,9 @@ final class Calls {
           types: [_dartType(type), if (bound != null) _dartType(bound)],
         );
       }
-      final codec = _readCodecs[type.parameter];
+      final codec = (futureValue
+          ? _futureReadCodecs
+          : _readCodecs)[type.parameter];
       if (codec != null) {
         final raw = SyntheticVariable(
           cosmeticName: 'value${_next++}',
@@ -732,29 +742,32 @@ final class Calls {
             _elementWriter(env, type.typeArguments[i]),
           if (((needs[cls.typeParameters[i]] ?? 0) & 4) != 0)
             _directionalValue(type.typeArguments[i]),
+          if (((needs[cls.typeParameters[i]] ?? 0) & 8) != 0)
+            _rawValueReader(env, type.typeArguments[i], future: true),
         ],
       ], types: type.typeArguments.map(_dartType).toList()),
     );
   }
 
-  Expression _rawValueReader(PositionalParameter env, ExportType type) {
+  Expression _rawValueReader(
+    PositionalParameter env,
+    ExportType type, {
+    bool future = false,
+  }) {
     final value = PositionalParameter(
       cosmeticName: 'value',
       type: core.objectNullableRawType,
     );
+    Expression read(DartType dartType) => call(
+      VariableGet(env),
+      method(envClass, '_typedValue'),
+      [VariableGet(value)],
+      types: [dartType],
+    );
     return FunctionExpression(
       FunctionNode(
         ReturnStatement(
-          _decode(
-            env,
-            type,
-            (dartType) => call(
-              VariableGet(env),
-              method(envClass, '_typedValue'),
-              [VariableGet(value)],
-              types: [dartType],
-            ),
-          ),
+          future ? _futureValue(env, type, read) : _decode(env, type, read),
         ),
         positionalParameters: [value],
         returnType: _dartType(type),
@@ -781,6 +794,7 @@ final class Calls {
     );
     final needs = _codecNeeds(cls, read);
     final readers = <ExportTypeParameter, PositionalParameter>{};
+    final futureReaders = <ExportTypeParameter, PositionalParameter>{};
     final writers = <ExportTypeParameter, PositionalParameter>{};
     final directions = <ExportTypeParameter, PositionalParameter>{};
     final codecs = <PositionalParameter>[];
@@ -819,6 +833,18 @@ final class Calls {
         directions[parameter] = flag;
         codecs.add(flag);
       }
+      if ((bits & 8) != 0) {
+        final codec = PositionalParameter(
+          cosmeticName: 'readFuture$i',
+          type: FunctionType(
+            [core.objectNullableRawType],
+            fresh.freshTypeArguments[i],
+            Nullability.nonNullable,
+          ),
+        );
+        futureReaders[parameter] = codec;
+        codecs.add(codec);
+      }
     }
     final helper = Procedure(
       Name('_napi${read ? 'Read' : 'Write'}Object${_next++}', library),
@@ -837,10 +863,12 @@ final class Calls {
     library.addProcedure(helper);
     final savedTypes = _codecTypes;
     final savedReaders = _readCodecs;
+    final savedFutureReaders = _futureReadCodecs;
     final savedWriters = _writeCodecs;
     final savedDirections = _codecDirections;
     _codecTypes = fresh.substitution;
     _readCodecs = readers;
+    _futureReadCodecs = futureReaders;
     _writeCodecs = writers;
     _codecDirections = directions;
     try {
@@ -933,6 +961,7 @@ final class Calls {
     } finally {
       _codecTypes = savedTypes;
       _readCodecs = savedReaders;
+      _futureReadCodecs = savedFutureReaders;
       _writeCodecs = savedWriters;
       _codecDirections = savedDirections;
     }

@@ -1,5 +1,52 @@
 import 'package:napi/napi.dart';
 
+@NAPI.object()
+class FutureEnvelope<T> {
+  @NAPI()
+  FutureEnvelope({required this.value});
+
+  @NAPI()
+  final Future<T> value;
+}
+
+@NAPI.object()
+class FutureProducer<T> {
+  @NAPI()
+  FutureProducer({required this.create});
+
+  @NAPI()
+  final Future<T> Function() create;
+}
+
+@NAPI()
+FutureProducer<Future<int>> nestedFutureProducer(
+  FutureProducer<Future<int>> value,
+) => value;
+
+@NAPI()
+FutureProducer<Future<Amount>> nestedAmountFutureProducer(
+  FutureProducer<Future<Amount>> value,
+) => value;
+
+@NAPI()
+FutureEnvelope<Future<int>> nestedFutures(FutureEnvelope<Future<int>> value) =>
+    value;
+
+@NAPI()
+FutureEnvelope<Future<Amount>> nestedAmountFutures(
+  FutureEnvelope<Future<Amount>> value,
+) => value;
+
+@NAPI()
+FutureEnvelope<Future<int>?> nullableNestedFutures(
+  FutureEnvelope<Future<int>?> value,
+) => value;
+
+@NAPI()
+Envelope<FutureEnvelope<Future<int>>> nestedFutureEnvelope(
+  Envelope<FutureEnvelope<Future<int>>> value,
+) => value;
+
 const _note = 'kept';
 
 @NAPI.object()

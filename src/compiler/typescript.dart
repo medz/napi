@@ -1066,6 +1066,7 @@ final class _Writer {
     _Difference result,
     List<ExportTypeParameter> locals,
   ) {
+    right = _flattenFuture(right);
     for (final branch in _awaitedTypes(left)) {
       if (branch.resolve) {
         if (_knownRepresentationDifference(branch.type, right)) {
@@ -1827,7 +1828,7 @@ final class _Writer {
         conditions.add(condition);
       } else {
         conditions.add(
-          '$_same<${pair.awaitLeft ? _awaitedBranchType((type: pair.left, resolve: true), metadata: false) : _type(pair.left, metadata: false)}, ${_type(pair.right, output: false, metadata: false)}>',
+          '$_same<${pair.awaitLeft ? _awaitedBranchType((type: pair.left, resolve: true), metadata: false) : _type(pair.left, metadata: false)}, ${pair.awaitLeft ? _futureInput(pair.right, metadata: false) : _type(pair.right, output: false, metadata: false)}>',
         );
       }
     }
@@ -2414,7 +2415,8 @@ final class _Writer {
     final element = _flattenFuture(type);
     final input = _type(element, output: false, metadata: metadata);
     return element.kind == ValueKind.typeParameter &&
-            _instanceParameters.contains(element.parameter)
+            (_instanceParameters.contains(element.parameter) ||
+                _classParameters.contains(element.parameter))
         ? _awaitedType(input)
         : input;
   }

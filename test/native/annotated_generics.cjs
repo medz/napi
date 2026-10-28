@@ -214,6 +214,7 @@ module.exports = async function verifyAnnotatedGenerics(path, packageDirectory) 
   futures.value = Promise.resolve(['wrong']);
   await assert.rejects(futures.value, TypeError);
   assert.equal(await addon.doneBox().value, undefined);
+  assert.deepEqual(await new addon.FutureBox(Promise.resolve([1])).value, [1]);
   const nestedFutures = addon.nestedFutureBox();
   assert(nestedFutures instanceof addon.FutureBox);
   assert.equal(await nestedFutures.value, 7);
