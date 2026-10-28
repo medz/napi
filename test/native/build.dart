@@ -403,10 +403,47 @@ Future<void> main(List<String> args) async {
       'annotated_generic_objects.dart',
       [
         (
+          '@NAPI.object() class GrowingThenable<T> { '
+              '@NAPI() GrowingThenable(); '
+              '@NAPI() void Function(void Function(GrowingThenable<List<T>>)) '
+              'get then => throw UnimplementedError(); } '
+              '@NAPI() Future<GrowingThenable<int>> invalid() => '
+              'throw UnimplementedError();',
+          'thenable resolution does not have a finite type',
+        ),
+        (
           '@NAPI.object() class Readout<T> { Readout(this.value); '
               '@NAPI() final T value; } '
               '@NAPI() void invalid(Readout<int> value) {}',
           'has no annotated input constructor',
+        ),
+        (
+          '@NAPI.object() class Item { @NAPI() Item(this.value); '
+              '@NAPI() final int value; } '
+              '@NAPI.object() class Holder<T> { @NAPI() Holder(this.run); '
+              '@NAPI() final U Function<U extends T>(U) run; } '
+              '@NAPI() void invalid(Holder<Item> value) {}',
+          'generic bounds must preserve JavaScript values',
+        ),
+        (
+          '@NAPI.object() class Item { @NAPI() Item(this.value); '
+              '@NAPI() final int value; } '
+              '@NAPI.object() class Holder<T> { @NAPI() Holder(this.run); '
+              '@NAPI() final U Function<U extends T>(U) run; } '
+              '@NAPI.object() class Outer<T> { @NAPI() Outer(this.inner); '
+              '@NAPI() final Holder<T> inner; } '
+              '@NAPI() void invalid(Outer<Item> value) {}',
+          'generic bounds must preserve JavaScript values',
+        ),
+        (
+          '@NAPI.object() class Holder<T> { @NAPI() Holder(this.run); '
+              '@NAPI() final U Function<U extends T>(U) run; } '
+              '@NAPI.object() class Step<T> { '
+              '@NAPI() Step({required this.holder, this.next}); '
+              '@NAPI() final Holder<T> holder; '
+              '@NAPI() final Step<List<T>>? next; } '
+              '@NAPI() void invalid(Step<int> value) {}',
+          'generic bounds must preserve JavaScript values',
         ),
       ],
     ),

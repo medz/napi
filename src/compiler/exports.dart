@@ -130,6 +130,33 @@ final class ExportSignature {
   final ExportType result;
 }
 
+bool needsFunctionAdapter(ExportSignature signature) =>
+    signature.positional.any(
+      (parameter) => usesDirectionalConversion(parameter.type),
+    ) ||
+    signature.named.any(
+      (parameter) => usesDirectionalConversion(parameter.type),
+    ) ||
+    usesDirectionalConversion(signature.result);
+
+bool usesDirectionalConversion(ExportType type) => switch (type.kind) {
+  ValueKind.object => type.classExport!.isObject,
+  ValueKind.future ||
+  ValueKind.stream ||
+  ValueKind.dateTime ||
+  ValueKind.byteBuffer ||
+  ValueKind.byteData ||
+  ValueKind.simd ||
+  ValueKind.simdList ||
+  ValueKind.set => true,
+  ValueKind.list || ValueKind.map => usesDirectionalConversion(type.element!),
+  ValueKind.record =>
+    type.recordFields!.positional.any(usesDirectionalConversion) ||
+        type.recordFields!.named.values.any(usesDirectionalConversion),
+  ValueKind.function => needsFunctionAdapter(type.signature!),
+  _ => false,
+};
+
 final class ExportFunction {
   const ExportFunction({
     required this.target,
@@ -254,6 +281,20 @@ final class _Reader {
   final classes = <Class, ExportClass>{};
   final enums = <Class, ExportEnum>{};
   final _parameters = <TypeParameter, ExportTypeParameter>{};
+  static const _valuePreservingKinds = {
+    ValueKind.boolean,
+    ValueKind.integer,
+    ValueKind.doubleValue,
+    ValueKind.number,
+    ValueKind.string,
+    ValueKind.bigint,
+    ValueKind.nullValue,
+    ValueKind.never,
+    ValueKind.opaque,
+    ValueKind.dynamicValue,
+    ValueKind.jsReference,
+    ValueKind.undefined,
+  };
 
   InstanceConstant? _annotation(Annotatable node) {
     for (final expression in node.annotations) {
@@ -537,7 +578,115 @@ final class _Reader {
           );
       }
     }
+    _checkGenericBounds();
     return module;
+  }
+
+  void _checkGenericBounds() {
+    final requirements = {
+      for (final cls in module.classes.where((cls) => cls.isObject))
+        cls: <ExportTypeParameter>{},
+    };
+    var changed = false;
+    void requireValue(ExportType type, ExportClass? owner, String context) {
+      if (type.parameter case final parameter?) {
+        if (owner?.isObject == true &&
+            owner!.typeParameters.contains(parameter)) {
+          if (requirements[owner]!.add(parameter)) changed = true;
+          return;
+        }
+        requireValue(
+          parameter.reified ? parameter.bound : type.representation!,
+          owner,
+          context,
+        );
+        return;
+      }
+      if (!_valuePreservingKinds.contains(type.kind)) {
+        throw FormatException(
+          '@NAPI $context: generic bounds must preserve JavaScript values: ${type.dartType}.',
+        );
+      }
+    }
+
+    void visit(ExportType type, ExportClass? owner, String context) {
+      final signature = type.signature;
+      if (signature != null) {
+        for (final parameter in signature.typeParameters) {
+          requireValue(parameter.bound, owner, context);
+        }
+        for (final parameter in [...signature.positional, ...signature.named]) {
+          visit(parameter.type, owner, context);
+        }
+        visit(signature.result, owner, context);
+      }
+      final cls = type.classExport;
+      if (cls?.isObject == true) {
+        for (var i = 0; i < cls!.typeParameters.length; ++i) {
+          if (requirements[cls]!.contains(cls.typeParameters[i])) {
+            requireValue(type.typeArguments[i], owner, context);
+          }
+        }
+      }
+      for (final argument in type.typeArguments) {
+        visit(argument, owner, context);
+      }
+      if (type.element != null) visit(type.element!, owner, context);
+      if (type.recordFields case final fields?) {
+        for (final field in [...fields.positional, ...fields.named.values]) {
+          visit(field, owner, context);
+        }
+      }
+    }
+
+    void function(ExportFunction function, ExportClass? owner) {
+      for (final parameter in [
+        ...function.signature.positional,
+        ...function.signature.named,
+      ]) {
+        visit(parameter.type, owner, '${function.name}: ${parameter.name}');
+      }
+      visit(function.signature.result, owner, '${function.name}: return');
+    }
+
+    void property(ExportProperty property, ExportClass? owner) {
+      if (property.readType != null) {
+        visit(property.readType!, owner, property.name);
+      }
+      if (property.writeType != null) {
+        visit(property.writeType!, owner, property.name);
+      }
+    }
+
+    do {
+      changed = false;
+      for (final cls in module.classes) {
+        for (final member in [
+          if (cls.constructor != null) cls.constructor!,
+          ...cls.methods,
+          ...cls.staticMethods,
+          for (final view in cls.specializations.values) ...view.methods,
+        ]) {
+          function(member, cls);
+        }
+        for (final member in [
+          ...cls.properties,
+          ...cls.staticProperties,
+          for (final view in cls.specializations.values) ...view.properties,
+        ]) {
+          property(member, cls);
+        }
+      }
+    } while (changed);
+    for (final member in module.functions) {
+      function(member, null);
+    }
+    for (final member in module.properties) {
+      property(member, null);
+    }
+    for (final member in module.constants) {
+      visit(member.type, null, member.name);
+    }
   }
 
   ExportEnum _enum(Class target, String name) {
@@ -629,20 +778,7 @@ final class _Reader {
       while (representation.kind == ValueKind.typeParameter) {
         representation = representation.representation!;
       }
-      if (!const {
-        ValueKind.boolean,
-        ValueKind.integer,
-        ValueKind.doubleValue,
-        ValueKind.number,
-        ValueKind.string,
-        ValueKind.bigint,
-        ValueKind.nullValue,
-        ValueKind.never,
-        ValueKind.opaque,
-        ValueKind.dynamicValue,
-        ValueKind.jsReference,
-        ValueKind.undefined,
-      }.contains(representation.kind)) {
+      if (!_valuePreservingKinds.contains(representation.kind)) {
         throw FormatException(
           '@NAPI $context: generic bounds must preserve JavaScript values: ${model.name}.',
         );

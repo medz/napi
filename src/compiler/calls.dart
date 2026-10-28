@@ -53,7 +53,7 @@ final class Calls {
         }
 
         void direction(ExportType type) {
-          if (_directional(type)) return;
+          if (usesDirectionalConversion(type)) return;
           if (type.kind == ValueKind.typeParameter) {
             require(type, 4);
           } else if (type.kind == ValueKind.list ||
@@ -100,7 +100,7 @@ final class Calls {
               visit(parameter.type, !input);
             }
             visit(signature.result, input);
-            if (!input && !_needsFunctionAdapter(signature)) {
+            if (!input && !needsFunctionAdapter(signature)) {
               direction(type);
             }
           } else if (type.kind == ValueKind.record) {
@@ -1278,29 +1278,6 @@ final class Calls {
     );
   }
 
-  bool _needsFunctionAdapter(ExportSignature signature) =>
-      signature.positional.any((parameter) => _directional(parameter.type)) ||
-      signature.named.any((parameter) => _directional(parameter.type)) ||
-      _directional(signature.result);
-
-  bool _directional(ExportType type) => switch (type.kind) {
-    ValueKind.object => type.classExport!.isObject,
-    ValueKind.future ||
-    ValueKind.stream ||
-    ValueKind.dateTime ||
-    ValueKind.byteBuffer ||
-    ValueKind.byteData ||
-    ValueKind.simd ||
-    ValueKind.simdList ||
-    ValueKind.set => true,
-    ValueKind.list || ValueKind.map => _directional(type.element!),
-    ValueKind.record =>
-      type.recordFields!.positional.any(_directional) ||
-          type.recordFields!.named.values.any(_directional),
-    ValueKind.function => _needsFunctionAdapter(type.signature!),
-    _ => false,
-  };
-
   Expression _anyDirection(Iterable<Expression> values) {
     Expression? result;
     for (final value in values) {
@@ -1316,7 +1293,7 @@ final class Calls {
   }
 
   Expression _adapterValue(ExportSignature signature) {
-    if (_needsFunctionAdapter(signature)) return BoolLiteral(true);
+    if (needsFunctionAdapter(signature)) return BoolLiteral(true);
     final savedValues = _genericValues;
     _genericValues = {
       ...savedValues,
@@ -1334,7 +1311,7 @@ final class Calls {
   }
 
   Expression _directionalValue(ExportType type) {
-    if (_directional(type)) return BoolLiteral(true);
+    if (usesDirectionalConversion(type)) return BoolLiteral(true);
     if (type.kind == ValueKind.typeParameter && type.parameter!.reified) {
       if (_genericValues.containsKey(type.parameter)) {
         return BoolLiteral(false);
