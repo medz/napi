@@ -175,6 +175,7 @@ Procedure generateRegister(
       ),
     );
   }
+  final classRegistrationEnd = statements.length;
   for (final cls in exports.classes) {
     final parent = cls.superclass?.classExport;
     if (parent == null) continue;
@@ -275,6 +276,19 @@ Procedure generateRegister(
         ),
       ),
     );
+  }
+  if (calls.usesClassBounds) {
+    statements.insertAll(classRegistrationEnd, [
+      for (final cls in exports.classes.where((cls) => !cls.isObject))
+        ExpressionStatement(
+          calls.call(
+            VariableGet(env),
+            calls.method(calls.envClass, '_registerClassBound'),
+            [],
+            types: [cls.dartType],
+          ),
+        ),
+    ]);
   }
   return calls.procedure(
     '_napiRegister',

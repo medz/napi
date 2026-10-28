@@ -34,6 +34,28 @@ const inherited: number = child.echo<number>(1.5);
 const genericChild = new addon.GenericNumericChild<number>();
 const genericInherited: number = genericChild.echo(1.5);
 
+const counter = new addon.SpecialCounter(7);
+const sameCounter: addon.SpecialCounter = addon.boundIdentity(counter);
+const nullableCounter: null = addon.nullableBound(null);
+const counterBox = new addon.CounterBox(counter);
+const boundValue: addon.SpecialCounter = counterBox.value;
+const boundEcho: addon.SpecialCounter = counterBox.echo(counter);
+const boundResult: boolean = addon.boundCallback(counter, value => value);
+const returnedCounter: addon.SpecialCounter = addon.boundFunction()(counter);
+const handlerResult: boolean = addon.handleCounter({ run: value => value }, counter);
+const nullableHandlerResult: boolean = addon.handleNullableCounter({ run: value => value }, null);
+const handlerCounter: addon.SpecialCounter = addon.counterHandler().run(counter);
+const asyncBound: Promise<addon.SpecialCounter> = addon.asyncBoundCallback(counter, async value => value);
+
+// @ts-expect-error Bound class constraints exclude scalar type arguments.
+addon.boundIdentity<number>(7);
+// @ts-expect-error A class-constrained field cannot hold a scalar.
+counterBox.value = 7;
+// @ts-expect-error The callback must preserve the actual subclass type.
+addon.boundCallback(counter, () => new addon.Counter(7));
+// @ts-expect-error Generic constraints propagate through structural type arguments.
+addon.counterHandler().run(7);
+
 // @ts-expect-error Explicit function type arguments preserve the relation.
 addon.identity<string>(42);
 // @ts-expect-error Nullable generic arguments retain the supplied type.

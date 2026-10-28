@@ -18,6 +18,7 @@ final class Calls {
   final CoreTypes core;
   final ClassHierarchy hierarchy;
   int _next = 0;
+  bool usesClassBounds = false;
   final _objectReaders = <ExportClass, Procedure>{};
   final _objectWriters = <ExportClass, Procedure>{};
   final _objectNeeds = <(ExportClass, bool), Map<ExportTypeParameter, int>>{};
@@ -280,6 +281,23 @@ final class Calls {
     _ => false,
   };
 
+  ExportType? _classBound(ExportType type) {
+    var bound = type.parameter!.bound;
+    while (bound.kind == ValueKind.typeParameter) {
+      if (bound.parameter!.reified &&
+          !_genericValues.containsKey(bound.parameter)) {
+        usesClassBounds = true;
+        return bound;
+      }
+      bound = bound.parameter!.bound;
+    }
+    if (bound.kind != ValueKind.object || bound.classExport!.isObject) {
+      return null;
+    }
+    usesClassBounds = true;
+    return bound;
+  }
+
   Expression _decode(
     PositionalParameter env,
     ExportType type,
@@ -287,15 +305,19 @@ final class Calls {
   ) {
     if (type.kind == ValueKind.typeParameter) {
       if (_genericValues.containsKey(type.parameter)) {
+        final bound = _classBound(type);
         return call(
           VariableGet(env),
-          method(envClass, '_readGenericValue'),
+          method(
+            envClass,
+            bound == null ? '_readGenericValue' : '_readBoundGenericValue',
+          ),
           [
             read(core.objectNullableRawType),
             if (_genericValues[type.parameter] case final values?)
               VariableGet(values),
           ],
-          types: [_dartType(type)],
+          types: [_dartType(type), if (bound != null) _dartType(bound)],
         );
       }
       final codec = _readCodecs[type.parameter];
@@ -497,15 +519,19 @@ final class Calls {
   ) {
     if (type.kind == ValueKind.typeParameter) {
       if (_genericValues.containsKey(type.parameter)) {
+        final bound = _classBound(type);
         return call(
           VariableGet(env),
-          method(envClass, '_writeGenericValue'),
+          method(
+            envClass,
+            bound == null ? '_writeGenericValue' : '_writeBoundGenericValue',
+          ),
           [
             value,
             if (_genericValues[type.parameter] case final values?)
               VariableGet(values),
           ],
-          types: [_dartType(type)],
+          types: [_dartType(type), if (bound != null) _dartType(bound)],
         );
       }
       final codec = _writeCodecs[type.parameter];

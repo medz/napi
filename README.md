@@ -550,8 +550,12 @@ JavaScript type arguments do not select data-class converters. A generic
 identity preserves the supplied JS representation. Use a concrete Dart
 declaration such as `Envelope<Amount>` when constructor inputs need conversion.
 
-Bounds currently support scalars, `Object` and explicit `JsReference` types.
-Bounds that copy values or unwrap a bound class produce a build error.
+Bounds support scalars, `Object`, explicit `JsReference` types and exported
+bound classes. For example, `T identity<T extends Counter>(T value) => value`
+preserves the original instance and its subclass type in TypeScript. Generic
+callbacks with a class bound receive the ordinary JS instance; Dart checks their
+result against the actual type argument, including a narrower subclass.
+Bounds that copy values, such as `List<int>` or data classes, produce a build error.
 Non-default specializations of bound classes at the binding boundary also
 produce a build error.
 

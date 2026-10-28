@@ -411,6 +411,7 @@ final class Env {
   final _identity = Expando<int>();
   final _genericPayloads = Expando<_GenericPayload>();
   final _classes = <Type, _ClassDefinition?>{};
+  Map<Type, Type>? _classBounds;
   int _objectDepth = 0;
   final _importedFunctions = Expando<JsReference<JsFunction>>();
   final _functionIdentity = Expando<Map<Type, int>>();
@@ -1362,15 +1363,19 @@ final class Env {
   /// Exported subclasses share their most specific registered wrapper.
   /// A live wrapper for an unrelated registered class cannot be reused as T.
   /// `num`, `String`, `bool`, records and FFI values receive independent wrappers.
-  JsObject wrap<T extends Object>(T value) {
-    if (!_classes.containsKey(T)) {
-      throw StateError('No JavaScript class is registered for $T');
+  JsObject wrap<T extends Object>(T value) => _wrapClass(value, T);
+
+  JsObject _wrapClass(Object value, Type type) {
+    if (!_classes.containsKey(type)) {
+      throw StateError('No JavaScript class is registered for $type');
     }
-    final definition = _classes[T];
+    final definition = _classes[type];
     if (definition == null) {
       final existing = _cachedObject(value);
       if (existing != null) return JsObject._(this, existing, _scope!);
-      throw StateError('More than one JavaScript class is registered for $T');
+      throw StateError(
+        'More than one JavaScript class is registered for $type',
+      );
     }
     return _wrapObject(value, definition.select(value));
   }
@@ -1986,6 +1991,37 @@ final class Env {
     return result as T;
   }
 
+  // A class bound exposes the ordinary wrapper while retaining the callback's
+  // actual type argument, which can be a narrower Dart subclass.
+  // Only annotated classes participate; low-level registrations of Object or
+  // scalar types must not change otherwise opaque generic conversions.
+  // ignore: unused_element
+  void _registerClassBound<T extends Object>() {
+    final bounds = _classBounds ??= {};
+    bounds[T] = T;
+    bounds[_typeOf<T?>()] = T;
+  }
+
+  // ignore: unused_element
+  T _readBoundGenericValue<T, B>(Object? value, [_GenericValues? values]) {
+    _arena;
+    if (!(_classBounds?.containsKey(B) ?? false)) {
+      return _readGenericValue<T>(value, values);
+    }
+    if (value is! JsObject) return _typedValue<T>(value);
+    final object = _findBoundObject(_encode(value));
+    if (object == null) throw ArgumentError('Expected a bound $B instance');
+    return _typedValue<T>(object.value);
+  }
+
+  // ignore: unused_element
+  Object? _writeBoundGenericValue<T, B>(T value, [_GenericValues? values]) {
+    _arena;
+    final bound = _classBounds?[B];
+    if (bound == null) return _writeGenericValue<T>(value, values);
+    return value == null ? null : _wrapClass(value, bound);
+  }
+
   // A whole, otherwise unknown generic type is transferred as an opaque value.
   // ignore: unused_element
   T _readGenericValue<T>(Object? value, [_GenericValues? values]) {
@@ -2261,6 +2297,7 @@ final class Env {
     final objects = _objects.entries.toList();
     _objects.clear();
     _classes.clear();
+    _classBounds?.clear();
     _functions.clear();
     _callbacks.clear();
     _getters.clear();

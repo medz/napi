@@ -456,11 +456,6 @@ Future<void> main(List<String> args) async {
           'generic bounds must preserve JavaScript values',
         ),
         (
-          '@NAPI() class Bound { @NAPI() Bound(); } '
-              '@NAPI() T invalid<T extends Bound>(T value) => value;',
-          'generic bounds must preserve JavaScript values',
-        ),
-        (
           '@NAPI() class Box<T> { @NAPI() Box(this.value); @NAPI() T value; } '
               '@NAPI() int consume(Box<int> value) => value.value;',
           'non-default generic class arguments are not supported',

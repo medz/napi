@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict');
 const { join } = require('node:path');
 const { pathToFileURL } = require('node:url');
+const { Worker } = require('node:worker_threads');
 
 module.exports = async function verifyAnnotatedGenerics(path, packageDirectory) {
   const addon = require(path);
@@ -62,6 +63,86 @@ module.exports = async function verifyAnnotatedGenerics(path, packageDirectory) 
   const genericChild = new addon.GenericNumericChild();
   assert.equal(genericChild.echo(1.5), 1.5);
   assert.throws(() => genericChild.echo('wrong'), TypeError);
+
+  const counter = new addon.SpecialCounter(7);
+  assert.equal(addon.boundIdentity(counter), counter);
+  assert.equal(addon.nullableBound(counter), counter);
+  assert.equal(addon.nullableBound(null), null);
+  const counterBox = new addon.CounterBox(counter);
+  assert.equal(counterBox.value, counter);
+  assert.equal(counterBox.echo(counter), counter);
+  const baseCounter = new addon.Counter(9);
+  counterBox.value = baseCounter;
+  assert.equal(counterBox.value, baseCounter);
+  for (const invalid of [{ value: 7 }, Object.create(addon.Counter.prototype), box, null, undefined]) {
+    assert.throws(() => addon.boundIdentity(invalid), TypeError);
+    assert.throws(() => { counterBox.value = invalid; }, TypeError);
+    assert.equal(counterBox.value, baseCounter);
+  }
+  let calls = 0;
+  const boundCallback = value => {
+    calls++;
+    assert.equal(value, counter);
+    assert.equal(value.label, 'special');
+    value.value++;
+    return value;
+  };
+  assert.equal(addon.boundCallback(counter, boundCallback), true);
+  assert.equal(calls, 1);
+  assert.equal(counter.value, 8);
+  assert.equal(addon.boundFunction()(counter), counter);
+  assert.equal(addon.returnBoundCallback(boundCallback), boundCallback);
+  // A callback invoked as <SpecialCounter> must reject even a genuine base instance.
+  assert.throws(() => addon.boundCallback(counter, () => baseCounter), TypeError);
+  assert.throws(() => addon.boundCallback(counter, () => ({ value: 7 })), TypeError);
+  assert.equal(addon.nullableBoundCallback(value => value), true);
+  assert.throws(() => addon.nullableBoundCallback(() => undefined), TypeError);
+  assert.equal(addon.handleCounter({ run: boundCallback }, counter), true);
+  assert.throws(() => addon.handleCounter({ run: () => baseCounter }, counter), TypeError);
+  assert.equal(addon.handleNullableCounter({ run: value => value }, counter), true);
+  assert.equal(addon.handleNullableCounter({ run: value => value }, null), true);
+  assert.equal(addon.counterHandler().run(counter), counter);
+  assert.throws(() => addon.counterHandler().run({ value: 7 }), TypeError);
+  assert.equal(await addon.asyncBoundCallback(counter, async value => {
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(value.label, 'special');
+    return value;
+  }), counter);
+  await assert.rejects(addon.asyncBoundCallback(counter, async () => baseCounter), TypeError);
+
+  addon.registerObject();
+  const objectHandler = addon.objectHandler();
+  assert.equal(objectHandler.run(object), object);
+  assert.equal(objectHandler.run('opaque'), 'opaque');
+
+  await new Promise((resolve, reject) => {
+    let completed = false;
+    const child = new Worker(`
+      const assert = require('node:assert/strict');
+      const { parentPort, workerData } = require('node:worker_threads');
+      const addon = require(workerData);
+      const value = new addon.SpecialCounter(7);
+      assert.equal(addon.boundCallback(value, item => item), true);
+      addon.asyncBoundCallback(value, async item => {
+        await new Promise(resolve => setImmediate(resolve));
+        return item;
+      }).then(result => {
+        assert.equal(result, value);
+        parentPort.postMessage(true);
+      });
+    `, { eval: true, workerData: path });
+    const timeout = setTimeout(() => {
+      child.terminate();
+      reject(new Error('Bound generic callback worker did not exit'));
+    }, 10000);
+    child.on('message', value => { completed = value === true; });
+    child.on('error', reject);
+    child.on('exit', code => {
+      clearTimeout(timeout);
+      if (code === 0 && completed) resolve();
+      else reject(new Error(`Bound generic callback worker exited with ${code}`));
+    });
+  });
   if (packageDirectory) {
     const common = require(join(packageDirectory, 'index.cjs'));
     const module = await import(pathToFileURL(join(packageDirectory, 'index.mjs')).href);

@@ -296,6 +296,10 @@ final class _Reader {
     ValueKind.undefined,
   };
 
+  static bool _preservesValue(ExportType type) =>
+      _valuePreservingKinds.contains(type.kind) ||
+      type.kind == ValueKind.object && !type.classExport!.isObject;
+
   InstanceConstant? _annotation(Annotatable node) {
     for (final expression in node.annotations) {
       if (expression is! ConstantExpression ||
@@ -602,7 +606,7 @@ final class _Reader {
         );
         return;
       }
-      if (!_valuePreservingKinds.contains(type.kind)) {
+      if (!_preservesValue(type)) {
         throw FormatException(
           '@NAPI $context: generic bounds must preserve JavaScript values: ${type.dartType}.',
         );
@@ -778,7 +782,7 @@ final class _Reader {
       while (representation.kind == ValueKind.typeParameter) {
         representation = representation.representation!;
       }
-      if (!_valuePreservingKinds.contains(representation.kind)) {
+      if (!_preservesValue(representation)) {
         throw FormatException(
           '@NAPI $context: generic bounds must preserve JavaScript values: ${model.name}.',
         );
