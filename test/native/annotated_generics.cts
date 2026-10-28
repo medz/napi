@@ -32,6 +32,25 @@ const adjusted = addon.adjustedBox();
 const adjustedPrevious: number = adjusted.replace(5, 3);
 const adjustedDefault: number = adjusted.replace(5);
 const scaled: addon.Box<number> = addon.scaledBox();
+const lists: addon.Box<number[]> = addon.listBox();
+const listElement: number = lists.value[0];
+lists.value = [3, 4];
+const previousList: number[] = lists.replace([5]);
+const nestedLists: number[][] = lists.items;
+const labeledList: addon.LabeledBox<number[]> = addon.labeledListBox();
+const mapValues: { [key: string]: (number | null)[] } = addon.mapBox().value;
+const setValues: Set<number> = addon.setBox().value;
+const recordValue: { $1: number; label: string } = addon.recordBox().value;
+const nullableListValue: number[] | null = addon.nullableListBox().value;
+const referenceValues: object[] = addon.referenceListBox([{}]).value;
+// @ts-expect-error Nested concrete elements retain their scalar type.
+lists.value = ['wrong'];
+// @ts-expect-error The container argument is also checked by TypeScript.
+addon.consumeListBox(new addon.Box(['wrong']));
+// @ts-expect-error Nullable list elements still exclude undefined.
+addon.mapBox().value = { values: [undefined] };
+// @ts-expect-error All named record fields are required.
+addon.recordBox().value = { $1: 2 };
 // @ts-expect-error Concrete arguments must retain the class's member type.
 concrete.value = 'wrong';
 // @ts-expect-error A different generic instance is not a Box<number>.

@@ -557,8 +557,9 @@ callbacks with a class bound receive the ordinary JS instance; Dart checks their
 result against the actual type argument, including a narrower subclass.
 Bounds that copy values, such as `List<int>` or data classes, produce a build error.
 
-Dart can return concrete bound classes with scalar or `JsReference` type
-arguments. Their members use those types for conversion and validation:
+Dart can return concrete bound classes with scalars, `JsReference` types, and
+Lists, Maps, Sets or records containing them. Their members use those types for
+conversion and validation:
 
 ```dart
 @NAPI()
@@ -579,8 +580,26 @@ passed to `readIntBox`: TypeScript's `number` is erased and does not establish
 the required Dart type. Returning the same Dart object through a wider class
 type preserves its JS identity. Its members use the most specific exported
 specialization that matches the object; incompatible matches produce an error.
-Concrete arguments requiring object conversion, such as `Box<List<int>>` and
-`Box<Amount>`, are not yet supported.
+
+Collection members use the same copies as ordinary collection parameters:
+
+```dart
+@NAPI()
+Box<List<int>> numbers() => Box<List<int>>([1, 2]);
+```
+
+```js
+const box = numbers();
+const values = box.value;
+values.push(3);         // box.value is still [1, 2]
+box.value = values;     // stores a Dart list containing [1, 2, 3]
+```
+
+Generic helpers still use default Dart type arguments. To convert a collection
+extracted from a box, declare the concrete type, for example
+`List<int> readNumbers(Box<List<int>> box) => box.value`.
+Data-class arguments such as `Box<Amount>`, and nested arguments depending on
+erased parameters such as `Box<List<T>>`, are not yet supported.
 
 ## Functions and callbacks
 

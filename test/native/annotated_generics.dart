@@ -121,6 +121,42 @@ class ScaledBox<T extends num> extends Box<T> {
 @NAPI()
 Box<double> scaledBox() => ScaledBox<double>(1);
 
+final _listBox = LabeledBox<List<int>>([1, 2]);
+
+@NAPI()
+Box<dynamic> wideListBox() => _listBox;
+
+@NAPI()
+Box<List<int>> listBox() => _listBox;
+
+@NAPI()
+LabeledBox<List<int>> labeledListBox() => _listBox;
+
+@NAPI()
+Box<List<int>> consumeListBox(Box<List<int>> value) => value;
+
+@NAPI()
+List<int> readListBox(Box<List<int>> value) => value.value;
+
+@NAPI()
+Box<Map<String, List<int?>>> mapBox() => Box({
+  'items': [1, null],
+});
+
+@NAPI()
+Box<Set<int>> setBox() => Box({1, 2});
+
+@NAPI()
+Box<(int, {String label})> recordBox() => Box((1, label: 'first'));
+
+@NAPI()
+Box<List<int>?> nullableListBox() => Box(null);
+
+@NAPI()
+Box<List<JsReference<JsObject>>> referenceListBox(
+  List<JsReference<JsObject>> values,
+) => Box(values);
+
 typedef IntBoxIdentity = T Function<T extends Box<int>>(T value);
 
 @NAPI()
