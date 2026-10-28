@@ -121,6 +121,57 @@ class ScaledBox<T extends num> extends Box<T> {
 @NAPI()
 Box<double> scaledBox() => ScaledBox<double>(1);
 
+final _listBox = LabeledBox<List<int>>([1, 2]);
+
+@NAPI()
+Box<dynamic> wideListBox() => _listBox;
+
+@NAPI()
+Box<List<int>> listBox() => _listBox;
+
+@NAPI()
+LabeledBox<List<int>> labeledListBox() => _listBox;
+
+@NAPI()
+Box<List<int>> consumeListBox(Box<List<int>> value) => value;
+
+@NAPI()
+List<int> readListBox(Box<List<int>> value) => value.value;
+
+@NAPI()
+Box<Map<String, List<int?>>> mapBox() => Box({
+  'items': [1, null],
+});
+
+@NAPI()
+Box<Set<int>> setBox() => Box({1, 2});
+
+@NAPI()
+class RecordBox<T, U> extends Box<(T, {U label})> {
+  @NAPI()
+  RecordBox(T value, U label) : super((value, label: label));
+}
+
+@NAPI()
+Box<(int, {String label})> recordBox() => RecordBox<int, String>(1, 'first');
+
+@NAPI()
+class PairBox<T> extends Box<(T, T)> {
+  @NAPI()
+  PairBox(T first, T second) : super((first, second));
+}
+
+@NAPI()
+Box<(int, int)> pairBox() => PairBox<int>(1, 2);
+
+@NAPI()
+Box<List<int>?> nullableListBox() => Box(null);
+
+@NAPI()
+Box<List<JsReference<JsObject>>> referenceListBox(
+  List<JsReference<JsObject>> values,
+) => Box(values);
+
 typedef IntBoxIdentity = T Function<T extends Box<int>>(T value);
 
 @NAPI()

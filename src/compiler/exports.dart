@@ -311,6 +311,17 @@ final class _Reader {
       _valuePreservingKinds.contains(type.kind) ||
       type.kind == ValueKind.object && !type.classExport!.isObject;
 
+  static bool _classArgument(ExportType type) => switch (type.kind) {
+    ValueKind.typeParameter => _classArgument(type.representation!),
+    ValueKind.list ||
+    ValueKind.map ||
+    ValueKind.set => _classArgument(type.element!),
+    ValueKind.record =>
+      type.recordFields!.positional.every(_classArgument) &&
+          type.recordFields!.named.values.every(_classArgument),
+    _ => _valuePreservingKinds.contains(type.kind),
+  };
+
   InstanceConstant? _annotation(Annotatable node) {
     for (final expression in node.annotations) {
       if (expression is! ConstantExpression ||
@@ -629,6 +640,24 @@ final class _Reader {
               pattern.classNode == actual.classNode) {
             for (var i = 0; i < pattern.typeArguments.length; ++i) {
               if (!match(pattern.typeArguments[i], actual.typeArguments[i])) {
+                return false;
+              }
+            }
+            return true;
+          }
+          if (pattern is RecordType && actual is RecordType) {
+            if (pattern.positional.length != actual.positional.length ||
+                pattern.named.length != actual.named.length) {
+              return false;
+            }
+            for (var i = 0; i < pattern.positional.length; ++i) {
+              if (!match(pattern.positional[i], actual.positional[i])) {
+                return false;
+              }
+            }
+            for (var i = 0; i < pattern.named.length; ++i) {
+              if (pattern.named[i].name != actual.named[i].name ||
+                  !match(pattern.named[i].type, actual.named[i].type)) {
                 return false;
               }
             }
@@ -1708,17 +1737,23 @@ final class _Reader {
           );
         }
         if (!exported.isObject && actual.typeArguments.isNotEmpty) {
+          if (type.typeArguments.any(
+            (argument) =>
+                argument is! TypeParameterType &&
+                containsFreeTypeParameters(argument),
+          )) {
+            throw FormatException(
+              '@NAPI $context: nested bound-class arguments cannot depend on erased type parameters yet: $type.',
+            );
+          }
           final instance = actual.withDeclaredNullability(
             Nullability.nonNullable,
           );
           if (instance != exported.dartType) {
-            for (var argument in arguments) {
-              while (argument.kind == ValueKind.typeParameter) {
-                argument = argument.representation!;
-              }
-              if (!_valuePreservingKinds.contains(argument.kind)) {
+            for (final argument in arguments) {
+              if (!_classArgument(argument)) {
                 throw FormatException(
-                  '@NAPI $context: concrete bound-class arguments currently support scalars and JsReference types: ${argument.dartType}.',
+                  '@NAPI $context: concrete bound-class arguments currently support scalars, JsReference types, and collections or records of those types: ${argument.dartType}.',
                 );
               }
             }

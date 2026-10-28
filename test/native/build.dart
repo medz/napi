@@ -457,8 +457,14 @@ Future<void> main(List<String> args) async {
         ),
         (
           '@NAPI() class Box<T> { @NAPI() Box(this.value); @NAPI() T value; } '
-              '@NAPI() List<int> consume(Box<List<int>> value) => value.value;',
-          'concrete bound-class arguments currently support scalars and JsReference types',
+              '@NAPI.object() class Point { @NAPI() Point({required this.x}); @NAPI() final int x; } '
+              '@NAPI() List<Point> consume(Box<List<Point>> value) => value.value;',
+          'concrete bound-class arguments currently support scalars, JsReference types, and collections or records of those types',
+        ),
+        (
+          '@NAPI() class Box<T> { @NAPI() Box(this.value); T value; '
+              '@NAPI() Box<List<T>> nested() => Box([value]); }',
+          'nested bound-class arguments cannot depend on erased type parameters yet',
         ),
         (
           '@NAPI() class Box<T> { @NAPI() Box(this.value); @NAPI() T value; } '

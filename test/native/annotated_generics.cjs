@@ -110,6 +110,72 @@ module.exports = async function verifyAnnotatedGenerics(path, packageDirectory) 
   assert.equal(scaled.replace(3), 8);
   assert.equal(scaled.value, 3);
   assert.equal(addon.Box.prototype.replace.call(scaled, 2), 3);
+  const lists = addon.wideListBox();
+  assert.equal(lists, addon.listBox());
+  assert.equal(lists, addon.labeledListBox());
+  assert(lists instanceof addon.LabeledBox);
+  assert.equal(lists.label, 'labeled');
+  const listOutput = lists.value;
+  assert.deepEqual(listOutput, [1, 2]);
+  listOutput.push(3);
+  assert.deepEqual(lists.value, [1, 2]);
+  const listInput = [3, 4];
+  lists.value = listInput;
+  listInput[0] = 99;
+  assert.deepEqual(addon.readListBox(lists), [3, 4]);
+  assert.equal(addon.consumeListBox(lists), lists);
+  assert.deepEqual(lists.replace([5]), [3, 4]);
+  assert.deepEqual(lists.items, [[5]]);
+  assert.deepEqual(lists.named, { value: [5] });
+  assert.deepEqual(addon.Box.prototype.replace.call(lists, [6]), [5]);
+  for (const invalid of [null, undefined, [null], ['7'], [1, undefined]]) {
+    assert.throws(() => { lists.value = invalid; }, TypeError);
+  }
+  for (const invalid of [[0.5], [2 ** 53]]) {
+    assert.throws(() => { lists.value = invalid; }, RangeError);
+  }
+  assert.deepEqual(lists.value, [6]);
+  const opaqueList = new addon.Box(listInput);
+  assert.equal(opaqueList.value, listInput);
+  assert.throws(() => addon.consumeListBox(opaqueList), TypeError);
+  const maps = addon.mapBox();
+  assert.deepEqual(maps.value, { items: [1, null] });
+  const mapInput = { next: [2, null] };
+  maps.value = mapInput;
+  mapInput.next.push(3);
+  assert.deepEqual(maps.value, { next: [2, null] });
+  assert.throws(() => { maps.value = { next: [undefined] }; }, TypeError);
+  const sets = addon.setBox();
+  assert.deepEqual(sets.value, new Set([1, 2]));
+  const setInput = new Set([3]);
+  assert.deepEqual(sets.replace(setInput), new Set([1, 2]));
+  setInput.add(4);
+  assert.deepEqual(sets.value, new Set([3]));
+  assert.throws(() => { sets.value = new Set([0.5]); }, RangeError);
+  const records = addon.recordBox();
+  assert(records instanceof addon.RecordBox);
+  assert.deepEqual(records.value, { $1: 1, label: 'first' });
+  assert.deepEqual(records.replace({ $1: 2, label: 'second' }), { $1: 1, label: 'first' });
+  assert.throws(() => { records.value = { $1: 3 }; }, TypeError);
+  assert.deepEqual(records.value, { $1: 2, label: 'second' });
+  const pairs = addon.pairBox();
+  assert(pairs instanceof addon.PairBox);
+  assert.deepEqual(pairs.value, [1, 2]);
+  assert.deepEqual(pairs.replace([3, 4]), [1, 2]);
+  assert.deepEqual(addon.Box.prototype.replace.call(pairs, [5, 6]), [3, 4]);
+  assert.throws(() => { pairs.value = [7, 'wrong']; }, TypeError);
+  assert.deepEqual(pairs.value, [5, 6]);
+  const nullableList = addon.nullableListBox();
+  assert.equal(nullableList.value, null);
+  nullableList.value = [7];
+  assert.deepEqual(nullableList.replace(null), [7]);
+  assert.throws(() => { nullableList.value = undefined; }, TypeError);
+  const references = addon.referenceListBox([object, callback]);
+  assert.equal(references.value[0], object);
+  assert.equal(references.value[1], callback);
+  assert.equal(references.replace([next])[0], object);
+  assert.equal(references.value[0], next);
+  assert.throws(() => { references.value = [symbol]; }, TypeError);
   const copied = addon.copyList(array);
   assert.notEqual(copied, array);
   assert.equal(copied[0], object);
@@ -203,6 +269,9 @@ module.exports = async function verifyAnnotatedGenerics(path, packageDirectory) 
       assert.equal(box.replace(12), 7);
       assert.throws(() => { box.value = 0.5; }, RangeError);
       assert.equal(addon.callIntBox(value => value), box);
+      const lists = addon.listBox();
+      assert.deepEqual(lists.replace([3]), [1, 2]);
+      assert.equal(lists, addon.labeledListBox());
       const value = new addon.SpecialCounter(7);
       assert.equal(addon.boundCallback(value, item => item), true);
       addon.asyncBoundCallback(value, async item => {
@@ -239,5 +308,7 @@ module.exports = async function verifyAnnotatedGenerics(path, packageDirectory) 
     assert.equal(concrete, common.wideBox());
     assert.equal(module.consumeIntBox(concrete), concrete);
     assert.throws(() => module.consumeIntBox(value), TypeError);
+    assert.equal(module.listBox(), common.wideListBox());
+    assert.deepEqual(module.readListBox(module.listBox()), [1, 2]);
   }
 };
