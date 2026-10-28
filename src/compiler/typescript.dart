@@ -494,7 +494,9 @@ final class _Writer {
       return;
     }
     if (left.kind == ValueKind.object) {
-      if (left.classExport!.isObject && right.classExport!.isObject) {
+      if (left.classExport!.isObject != right.classExport!.isObject) {
+        result.always = true;
+      } else if (left.classExport!.isObject) {
         _requireDifference(left.classExport!, right.classExport!);
         final value = _TypePair(left, right, locals: locals);
         result.edges[_pairKey(value)] = value;
@@ -909,8 +911,9 @@ final class _Writer {
         _isBuiltinObject(left) && plain(right);
   }
 
-  // These interfaces require built-in brands or symbol-keyed members.
+  // These interfaces require nominal brands or symbol-keyed members.
   bool _isBuiltinObject(ExportType type) => switch (type.kind) {
+    ValueKind.object => !type.classExport!.isObject,
     ValueKind.dateTime ||
     ValueKind.set ||
     ValueKind.byteBuffer ||

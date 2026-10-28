@@ -137,6 +137,10 @@ module.exports = async function verifyAnnotatedGenericObjects(path) {
   const rawStreamValues = [];
   for await (const value of rawStreamNext.next) rawStreamValues.push(value);
   assert.deepEqual(rawStreamValues, []);
+  const nativeValue = new addon.NativeValue();
+  assert.equal(addon.nativeNextMatches({ next: nativeValue }, nativeValue), true);
+  assert.equal(addon.nativeNextMatches({ next: nativeValue }, new addon.NativeValue()), false);
+  assert.throws(() => addon.nativeNextMatches({ next: {} }, nativeValue), TypeError);
   let functionNextCalls = 0;
   assert.equal(addon.functionNextUsesSelf({ next: () => { functionNextCalls++; } }), true);
   assert.equal(functionNextCalls, 1);

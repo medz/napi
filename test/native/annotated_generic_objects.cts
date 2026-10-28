@@ -124,6 +124,14 @@ const rawStreamNext: addon.RawStreamNext = addon.echoRawStreamNext({ next: {} })
 const rawStreamValues: AsyncIterable<addon.RawStreamNext> = rawStreamNext.next;
 // @ts-expect-error Raw object input does not describe the output's AsyncIterable.
 const forgedRawStreamNext: addon.RawStreamNext = { next: (async function* () {})() };
+const nativeValue = new addon.NativeValue();
+declare const nativeNext: addon.NativeNext;
+const nativeNextChild: addon.NativeNext = nativeNext.next;
+const nativeNextMatches: boolean = addon.nativeNextMatches({ next: nativeValue }, nativeValue);
+// @ts-expect-error Native input differs from the recursive data output.
+const forgedNativeNext: addon.NativeNext = { next: nativeNext };
+// @ts-expect-error A plain object cannot replace an exported native instance.
+addon.nativeNextMatches({ next: {} }, nativeValue);
 declare const functionNext: addon.FunctionNext;
 const functionNextChild: addon.FunctionNext = functionNext.next;
 const functionNextUsesSelf: boolean = addon.functionNextUsesSelf({ next: () => {} });

@@ -184,6 +184,23 @@ class RawStreamNext {
   Stream<RawStreamNext> get next => const Stream.empty();
 }
 
+@NAPI()
+class NativeValue {
+  @NAPI()
+  NativeValue();
+}
+
+@NAPI.object()
+class NativeNext {
+  @NAPI()
+  // ignore: prefer_initializing_formals
+  NativeNext({required NativeValue next}) : _value = next;
+
+  final NativeValue _value;
+  @NAPI()
+  NativeNext get next => this;
+}
+
 @NAPI.object()
 class FunctionNext {
   @NAPI()
@@ -757,6 +774,10 @@ Future<bool> streamNextMatches(StreamNext value, int expected) async =>
 
 @NAPI()
 RawStreamNext echoRawStreamNext(RawStreamNext value) => value;
+
+@NAPI()
+bool nativeNextMatches(NativeNext value, NativeValue expected) =>
+    identical(value._value, expected) && identical(value.next, value);
 
 @NAPI()
 bool functionNextUsesSelf(FunctionNext value) => identical(value.next, value);
