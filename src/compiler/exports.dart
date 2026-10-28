@@ -334,7 +334,9 @@ final class _Reader {
               _classArgument(type.signature!.result)),
     ValueKind.list ||
     ValueKind.map ||
-    ValueKind.set => _classArgument(type.element!),
+    ValueKind.set ||
+    ValueKind.stream => _classArgument(type.element!),
+    ValueKind.object => type.typeArguments.every(_classArgument),
     ValueKind.record =>
       type.recordFields!.positional.every(_classArgument) &&
           type.recordFields!.named.values.every(_classArgument),

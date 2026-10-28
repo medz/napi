@@ -49,12 +49,19 @@ writeFileSync(propertiesCjs,
     .replace("require('./addon')", "require('./addon.cjs')"));
 verify([propertiesCjs], true);
 const genericPackage = resolve(process.argv[2], 'generics', 'package-consumer.mts');
-writeFileSync(genericPackage, `import api, { Box, echoBox, identity } from '../generics-package/index.mjs';
+writeFileSync(genericPackage, `import api, { Box, echoBox, identity, amountBox } from '../generics-package/index.mjs';
+import type { Amount } from '../generics-package/index.mjs';
 const value: Box<number> = new Box<number>(42);
 const fromDefault: Box<number> = new api.Box<number>(7);
 api.box = value;
 const same: Box<number> = echoBox(fromDefault);
 const text: string = identity<string>('hello');
+const nativeAmount: Box<Amount> = amountBox();
+nativeAmount.value = {value: '42'};
+const jsAmount = new api.Box(nativeAmount.value);
+jsAmount.value = nativeAmount.value;
+// @ts-expect-error ESM aliases preserve the native/opaque input distinction.
+const wrongAmount: Box<Amount> = jsAmount;
 // @ts-expect-error Generic class aliases retain their type parameter.
 value.value = '42';
 `);

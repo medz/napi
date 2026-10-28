@@ -18,6 +18,12 @@ class Box<T> {
   Box(this.value);
 
   @NAPI()
+  Box.named(this.value);
+
+  @NAPI()
+  factory Box.from(T value) => Box(value);
+
+  @NAPI()
   T value;
 
   @NAPI()
@@ -45,6 +51,27 @@ Box box = Box<dynamic>(0);
 
 @NAPI()
 Box<T> echoBox<T>(Box<T> value) => value;
+
+@NAPI()
+Box<T> wrapBox<T>(T value) => Box(value);
+
+@NAPI()
+Box<T> rebox<T>(Box<T> source, T value) => Box(value);
+
+@NAPI()
+Box<T> pickBox<T>(List<Box<T>> boxes) => boxes.first;
+
+@NAPI()
+Box<T> pickCallbackBox<T>(Box<T> Function() read) => read();
+
+@NAPI()
+class Related<T extends U, U> {
+  @NAPI()
+  Related(this.value);
+
+  @NAPI()
+  T value;
+}
 
 final _integerBox = Box<int>(7);
 
@@ -395,6 +422,69 @@ class HiddenThenCounter extends Counter {
 @NAPI()
 Box<Future<Counter>> hiddenThenFutureBox() =>
     Box(Future.value(HiddenThenCounter(11)));
+
+@NAPI.object()
+class Amount {
+  @NAPI()
+  Amount({required String value}) : value = int.parse(value);
+
+  @NAPI()
+  final int value;
+}
+
+@NAPI.object()
+class Parcel<T> {
+  @NAPI()
+  Parcel({required this.item});
+
+  @NAPI()
+  final T item;
+}
+
+@NAPI()
+Box<Parcel<Amount>> parcelBox() => Box(Parcel(item: Amount(value: '6')));
+
+final _amountBox = LabeledBox(Amount(value: '7'));
+
+@NAPI()
+Box<Amount> amountBox() => _amountBox;
+
+@NAPI()
+Box<dynamic> wideAmountBox() => _amountBox;
+
+@NAPI()
+LabeledBox<Amount> labeledAmountBox() => _amountBox;
+
+@NAPI()
+class AmountBox extends Box<Amount> {
+  @NAPI()
+  AmountBox(super.value);
+}
+
+@NAPI()
+Box<List<Amount?>> amountListBox() => Box([Amount(value: '1'), null]);
+
+@NAPI()
+Box<(Amount, Amount)> amountPairBox() =>
+    PairBox(Amount(value: '1'), Amount(value: '2'));
+
+@NAPI()
+Box<Future<Amount>> futureAmountBox() => Box(Future.value(Amount(value: '2')));
+
+@NAPI()
+Box<Stream<Amount>> streamAmountBox() => Box(Stream.value(Amount(value: '3')));
+
+@NAPI()
+Box<Amount Function(Amount)> amountCallbackBox() => Box((value) => value);
+
+@NAPI()
+Amount callAmountCallback(Box<Amount Function(Amount)> box, Amount value) =>
+    box.value(value);
+
+@NAPI()
+Box<Amount Function(int)> calculatedAmountBox() => CallbackBox<Amount>(
+  (value, [step = 1]) => Amount(value: '${value.toInt() + (step ?? 0)}'),
+);
 
 @NAPI()
 T boundIdentity<T extends Counter>(T value) => value;

@@ -620,13 +620,49 @@ box.value = value => value * 2;
 Callback arguments and results use the same conversions as ordinary callback
 fields, including optional and named parameters and Future results. Callbacks
 that declare their own type parameters are not yet supported as class arguments.
-Data-class and Stream arguments such as `Box<Amount>` and `Box<Stream<int>>`
-remain unsupported, including inside callback signatures. Directly nested
-Futures such as `Box<Future<Future<int>>>`, and nested arguments depending on
-erased parameters such as `Box<List<T>>`, are also unsupported. Future arguments
-whose values have a callable `then` are rejected because Promise resolution
-changes their output shape. This check includes exported subclasses, even when
-the declared base class has no `then` member.
+Data-class and Stream arguments use their usual input and output conversions,
+including inside collections and callbacks:
+
+```dart
+@NAPI.object()
+class Amount {
+  @NAPI()
+  Amount({required String value}) : value = int.parse(value);
+
+  @NAPI()
+  final int value;
+}
+
+@NAPI()
+Box<Amount> amountBox() => Box(Amount(value: '7'));
+```
+
+```ts
+const nativeBox: Box<Amount> = amountBox();
+nativeBox.value = {value: '42'};
+const amount = nativeBox.value;           // {value: 42}
+
+const jsBox = new Box(amount);
+jsBox.value = amount;                    // stores the same JS object
+```
+
+`Box<Amount>` describes a Dart instance with Amount conversion. A box created
+from JavaScript keeps the supplied value opaquely; when its input and output
+shapes differ, keep the inferred type or use `typeof jsBox` instead of annotating
+it as `Box<Amount>`. Symmetric types such as `Box<number>` work the same way for
+both origins. A `Box<Stream<T>>` accepts an async iterable and returns an async
+iterator with the existing Stream cancellation behavior.
+
+Generic helpers still use their default Dart type arguments. When a helper can
+return either an input box or a newly constructed box, its inferred result
+allows only writes supported by both. Use a concrete return type such as
+`Box<Amount>` when the helper requires Amount conversion.
+
+Directly nested Futures such as `Box<Future<Future<int>>>`, and nested arguments
+depending on erased parameters such as `Box<List<T>>`, remain unsupported.
+Future arguments whose values have a callable `then` are rejected because
+Promise resolution changes their output shape. This check includes exported
+subclasses, even when the declared base class has no `then` member.
 
 ## Functions and callbacks
 

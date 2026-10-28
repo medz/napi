@@ -323,6 +323,99 @@ module.exports = async function verifyAnnotatedGenerics(path, packageDirectory) 
   assert.ok(tag instanceof addon.NumericTag);
   assert(tag instanceof addon.Tag);
   assert.equal(tag.then, 42);
+  const amounts = addon.amountBox();
+  assert.equal(amounts, addon.wideAmountBox());
+  assert.equal(amounts, addon.labeledAmountBox());
+  assert.ok(amounts instanceof addon.LabeledBox);
+  assert.deepEqual(amounts.value, {value: 7});
+  amounts.value = {value: '42'};
+  const amount = amounts.value;
+  assert.deepEqual(amount, {value: 42});
+  assert.notEqual(amounts.value, amount);
+  assert.deepEqual(amounts.replace({value: '43'}), amount);
+  assert.deepEqual(amounts.items, [{value: 43}]);
+  assert.deepEqual(amounts.named, {value: {value: 43}});
+  const parcel = addon.parcelBox();
+  parcel.value = {item: {value: '8'}};
+  assert.deepEqual(parcel.value, {item: {value: 8}});
+  assert.throws(() => { parcel.value = {item: amount}; }, TypeError);
+  assert.throws(() => { amounts.value = amount; }, TypeError);
+  assert.throws(() => amounts.replace({value: null}), TypeError);
+  const rawAmountBox = new addon.Box(amount);
+  assert.equal(rawAmountBox.value, amount);
+  const nextAmount = amounts.value;
+  assert.equal(rawAmountBox.replace(nextAmount), amount);
+  assert.equal(rawAmountBox.value, nextAmount);
+  for (const create of [addon.Box.named, addon.Box.from, addon.wrapBox]) {
+    const created = create(amount);
+    assert.equal(created.value, amount);
+    created.value = nextAmount;
+    assert.equal(created.value, nextAmount);
+  }
+  class JsAmountBox extends addon.Box {}
+  const jsAmountBox = new JsAmountBox(amount);
+  assert.equal(jsAmountBox.value, amount);
+  const fixedAmountBox = new addon.AmountBox({value: '8'});
+  assert.deepEqual(fixedAmountBox.value, {value: 8});
+  fixedAmountBox.value = {value: '9'};
+  assert.deepEqual(fixedAmountBox.value, {value: 9});
+  const amountList = addon.amountListBox();
+  assert.deepEqual(amountList.value, [{value: 1}, null]);
+  amountList.value = [{value: '2'}, null];
+  assert.deepEqual(amountList.value, [{value: 2}, null]);
+  assert.throws(() => { amountList.value = [{value: 2}]; }, TypeError);
+  const amountPair = addon.amountPairBox();
+  assert.ok(amountPair instanceof addon.PairBox);
+  amountPair.value = [{value: '3'}, {value: '4'}];
+  assert.deepEqual(amountPair.value, [{value: 3}, {value: 4}]);
+  const rawAmountPair = new addon.PairBox(amount, amount);
+  assert.equal(rawAmountPair.value[0], amount);
+  assert.equal(rawAmountPair.value[1], amount);
+  rawAmountPair.value = [{value: '42'}, null];
+  assert.deepEqual(rawAmountPair.value, [{value: '42'}, null]);
+  const reboxed = addon.rebox(amounts, amount);
+  assert.equal(reboxed.value, amount);
+  reboxed.value = {value: '42'};
+  assert.deepEqual(reboxed.value, {value: '42'});
+  assert.equal(addon.pickBox([amounts]), amounts);
+  assert.equal(addon.pickCallbackBox(() => amounts), amounts);
+  const futureAmount = addon.futureAmountBox();
+  assert.deepEqual(await futureAmount.value, {value: 2});
+  futureAmount.value = Promise.resolve({value: '4'});
+  assert.deepEqual(await futureAmount.value, {value: 4});
+  futureAmount.value = Promise.resolve({value: 4});
+  await assert.rejects(futureAmount.value, TypeError);
+  const streamAmount = addon.streamAmountBox();
+  const firstAmountIterator = streamAmount.value;
+  assert.deepEqual(await firstAmountIterator.next(), {value: {value: 3}, done: false});
+  await firstAmountIterator.return();
+  let streamClosed = false;
+  streamAmount.value = {
+    async *[Symbol.asyncIterator]() {
+      try {
+        yield {value: '9'};
+        yield {value: '10'};
+      } finally {
+        streamClosed = true;
+      }
+    },
+  };
+  const amountIterator = streamAmount.value;
+  assert.deepEqual(await amountIterator.next(), {value: {value: 9}, done: false});
+  await amountIterator.return();
+  assert.equal(streamClosed, true);
+  const amountCallback = addon.amountCallbackBox();
+  assert.deepEqual(amountCallback.value({value: '11'}), {value: 11});
+  const incrementAmount = value => ({value: String(value.value + 1)});
+  amountCallback.value = incrementAmount;
+  assert.notEqual(amountCallback.value, incrementAmount);
+  assert.deepEqual(amountCallback.value({value: '12'}), {value: 13});
+  assert.deepEqual(addon.callAmountCallback(amountCallback, {value: '13'}), {value: 14});
+  const calculatedAmount = addon.calculatedAmountBox();
+  assert.ok(calculatedAmount instanceof addon.CallbackBox);
+  assert.deepEqual(calculatedAmount.value(3), {value: 4});
+  calculatedAmount.value = value => ({value: String(value * 2)});
+  assert.deepEqual(calculatedAmount.value(3), {value: 6});
   const copied = addon.copyList(array);
   assert.notEqual(copied, array);
   assert.equal(copied[0], object);
