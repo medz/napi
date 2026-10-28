@@ -54,6 +54,28 @@ const doneValue: Promise<void> = addon.doneBox().value;
 addon.futureBox().value = Promise.resolve([3]);
 const previousFuture: Promise<number[]> = addon.futureBox().replace(Promise.resolve([4]));
 addon.doneBox().value = Promise.resolve();
+const nestedFutures: addon.Box<Promise<number>> = addon.nestedFutureBox();
+const nestedSubclass: addon.FutureBox<Promise<number>> = addon.nestedFutureBox();
+nestedSubclass.value = Promise.resolve(8);
+const subclassPrevious: Promise<number> = nestedSubclass.replace(Promise.resolve(9));
+const constructedFuture = new addon.FutureBox(Promise.resolve([1]));
+const constructedFutureValue: Promise<number[]> = constructedFuture.value;
+const nestedValue: Promise<number> = nestedFutures.value;
+nestedFutures.value = Promise.resolve(8);
+const previousNested: Promise<number> = nestedFutures.replace(Promise.resolve(9));
+const nestedAmounts: addon.Box<Promise<addon.Amount>> = addon.nestedAmountBox();
+const nestedAmount: Promise<addon.Amount> = nestedAmounts.value;
+nestedAmounts.value = Promise.resolve({value: '4'});
+const nullableNested: addon.Box<Promise<number | null>> = addon.nullableNestedBox();
+nullableNested.value = Promise.resolve(null);
+nullableNested.value = Promise.resolve(10);
+const missingNested: Promise<boolean> = addon.nestedBoxMissing(nullableNested);
+// @ts-expect-error Nested Future values retain their scalar type.
+nestedFutures.value = Promise.resolve('wrong');
+// @ts-expect-error Nested Future input uses the Amount constructor shape.
+nestedAmounts.value = Promise.resolve({value: 4});
+// @ts-expect-error Nullable Future values do not accept undefined.
+nullableNested.value = Promise.resolve(undefined);
 const callbacks: addon.Box<(value: number) => number> = addon.callbackBox();
 const callbackResult: number = callbacks.value(1);
 const constructedCallbacks = new addon.NamedCallbackBox(({value}) => value.toFixed());

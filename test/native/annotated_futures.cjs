@@ -106,6 +106,26 @@ module.exports = async function verifyAnnotatedFutures(path) {
   assert.equal(await addon.thenable(13), 13);
   assert.equal(await addon.thenable(13).then(number => number + 1), 14);
   assert.equal(await addon.nestedFuture(), 7);
+  assert.equal(await addon.readNested(Promise.resolve(8)), 8);
+  assert.equal(await addon.readDeepNested(Promise.resolve(9)), 9);
+  assert.equal(await addon.echoNested(Promise.resolve(10)), 10);
+  assert.equal(await addon.nestedMissing(Promise.resolve(null)), true);
+  assert.equal(await addon.nestedMissing(Promise.resolve(11)), false);
+  assert.equal(await addon.nestedNullableValue(Promise.resolve(null)), null);
+  assert.equal(await addon.nestedNullableValue(Promise.resolve(12)), 12);
+  assert.equal(await addon.nestedVoid(Promise.resolve('ignored')), undefined);
+  assert.equal(await addon.nestedCallback(() => Promise.resolve(13)), 13);
+  await assert.rejects(addon.readNested(Promise.resolve('wrong')), TypeError);
+  await assert.rejects(addon.readNested(Promise.resolve(null)), TypeError);
+  await assert.rejects(addon.readNested(Promise.resolve(undefined)), TypeError);
+  await assert.rejects(addon.readDeepNested(Promise.resolve(1.5)), RangeError);
+  await assert.rejects(addon.echoNested(Promise.resolve(2 ** 53)), RangeError);
+  for (const invalid of [1, null, undefined, { then() {} }]) {
+    assert.throws(() => addon.readNested(invalid), TypeError);
+  }
+  const nestedReason = {};
+  await rejectsWith(addon.readNested(Promise.reject(nestedReason)), nestedReason);
+  await rejectsWith(addon.nestedCallback(() => Promise.reject(nestedReason)), nestedReason);
   const NativePromise = global.Promise;
   let intrinsic;
   try {

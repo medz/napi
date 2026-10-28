@@ -342,9 +342,8 @@ final class _Reader {
     ValueKind.simd ||
     ValueKind.simdList => true,
     ValueKind.future =>
-      type.element!.kind != ValueKind.future &&
-          (type.element!.kind == ValueKind.voidValue ||
-              _classArgument(type.element!)),
+      type.element!.kind == ValueKind.voidValue ||
+          _classArgument(type.element!),
     ValueKind.function =>
       type.signature!.typeParameters.isEmpty &&
           [

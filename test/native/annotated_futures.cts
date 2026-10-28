@@ -18,6 +18,14 @@ const forwarded: Promise<number> = addon.passFuture(async promise => (await prom
 const notified: Promise<void> = addon.notifyAsync(async () => {});
 const thenable: Promise<number> = addon.thenable(7);
 const flattened: Promise<number> = addon.nestedFuture();
+const nestedInput: Promise<number> = addon.readNested(Promise.resolve(8));
+const deepInput: Promise<number> = addon.readDeepNested(Promise.resolve(9));
+const echoedNested: Promise<number> = addon.echoNested(Promise.resolve(10));
+const missingNested: Promise<boolean> = addon.nestedMissing(Promise.resolve(null));
+const presentNested: Promise<boolean> = addon.nestedMissing(Promise.resolve(11));
+const nullNested: Promise<number | null> = addon.nestedNullableValue(Promise.resolve(null));
+const voidNested: Promise<void> = addon.nestedVoid(Promise.resolve());
+const callbackNested: Promise<number> = addon.nestedCallback(async () => 13);
 addon.thenable(7).then(value => { const number: number = value; return number + 1; });
 async function values() {
   const assimilated: number = await addon.thenable(7);
@@ -42,5 +50,15 @@ addon.applyAsync(1, value => value + 1);
 addon.multiplyAsync(2)('3');
 // @ts-expect-error Standard Promise assimilation produces number, not Thenable.
 const unassimilated: Promise<addon.Thenable> = addon.thenable(7);
+// @ts-expect-error Nested Futures still require a Promise.
+addon.readNested(8);
+// @ts-expect-error The flattened value retains its declared type.
+addon.readNested(Promise.resolve('wrong'));
+// @ts-expect-error A non-nullable nested Future cannot contain null.
+addon.readNested(Promise.resolve(null));
+// @ts-expect-error A nullable inner Future does not accept undefined.
+addon.nestedMissing(Promise.resolve(undefined));
+// @ts-expect-error Callback results still require a Promise.
+addon.nestedCallback(() => 13);
 // @ts-expect-error Then callbacks also receive the assimilated number.
 addon.thenable(7).then((value: addon.Thenable) => value.value);

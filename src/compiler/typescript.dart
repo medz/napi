@@ -1066,6 +1066,7 @@ final class _Writer {
     _Difference result,
     List<ExportTypeParameter> locals,
   ) {
+    right = _flattenFuture(right);
     for (final branch in _awaitedTypes(left)) {
       if (branch.resolve) {
         if (_knownRepresentationDifference(branch.type, right)) {
@@ -1769,8 +1770,18 @@ final class _Writer {
     if (!branch.resolve) return value;
     final bound = _awaitBound(branch.type);
     return bound == null
-        ? 'globalThis.Awaited<$value>'
+        ? _awaitedType(value)
         : '$_awaited<$value, ${_type(bound, metadata: metadata)}>';
+  }
+
+  String _awaitedType(String type) {
+    const prefix = 'globalThis.NoInfer<';
+    // Awaited<NoInfer<T>> does not distribute over a nullable Promise union.
+    // Keep inference disabled around the result of Awaited instead.
+    if (type.startsWith(prefix) && type.endsWith('>')) {
+      return '${prefix}globalThis.Awaited<${type.substring(prefix.length, type.length - 1)}>>';
+    }
+    return 'globalThis.Awaited<$type>';
   }
 
   bool _mentions(ExportType type, Set<ExportTypeParameter> parameters) =>
@@ -1817,7 +1828,7 @@ final class _Writer {
         conditions.add(condition);
       } else {
         conditions.add(
-          '$_same<${pair.awaitLeft ? _awaitedBranchType((type: pair.left, resolve: true), metadata: false) : _type(pair.left, metadata: false)}, ${_type(pair.right, output: false, metadata: false)}>',
+          '$_same<${pair.awaitLeft ? _awaitedBranchType((type: pair.left, resolve: true), metadata: false) : _type(pair.left, metadata: false)}, ${pair.awaitLeft ? _futureInput(pair.right, metadata: false) : _type(pair.right, output: false, metadata: false)}>',
         );
       }
     }
@@ -1884,7 +1895,7 @@ final class _Writer {
   }
 
   String? _futureCondition(ExportType type) {
-    final element = type.element!;
+    final element = _flattenFuture(type.element!);
     if (_awaitPreserves(element)) return _recoveryCondition(element);
     final conditions = <String>{};
     for (final branch in _awaitedTypes(element)) {
@@ -1893,7 +1904,7 @@ final class _Writer {
         continue;
       }
       final condition =
-          '$_same<$_inputOf<${_awaitedBranchType(branch, metadata: false)}>, ${_type(element, output: false, metadata: false)}>';
+          '$_same<$_inputOf<${_awaitedBranchType(branch, metadata: false)}>, ${_futureInput(element, metadata: false)}>';
       final bound = branch.resolve ? _awaitBound(branch.type) : null;
       conditions.add(
         bound == null
@@ -2344,7 +2355,7 @@ final class _Writer {
       ValueKind.future =>
         output
             ? 'globalThis.Promise<${_awaitedTypes(type.element!).map((branch) => _awaitedBranchType(branch, metadata: metadata)).join(' | ')}>'
-            : 'globalThis.Promise<${_type(type.element!, output: output, metadata: metadata)}>',
+            : 'globalThis.Promise<${_futureInput(type.element!, metadata: metadata)}>',
       ValueKind.record => _record(type, output: output, metadata: metadata),
       ValueKind.stream =>
         'globalThis.${output ? 'AsyncIterableIterator' : 'AsyncIterable'}<${_type(type.element!, output: output, metadata: metadata)}>',
@@ -2389,6 +2400,25 @@ final class _Writer {
     return type.nullable && type.kind != ValueKind.opaque
         ? '$projected | null'
         : projected;
+  }
+
+  ExportType _flattenFuture(ExportType type) {
+    var nullable = false;
+    while (type.kind == ValueKind.future) {
+      nullable |= type.nullable;
+      type = type.element!;
+    }
+    return nullable ? _copyType(type, nullable: true) : type;
+  }
+
+  String _futureInput(ExportType type, {bool metadata = true}) {
+    final element = _flattenFuture(type);
+    final input = _type(element, output: false, metadata: metadata);
+    return element.kind == ValueKind.typeParameter &&
+            (_instanceParameters.contains(element.parameter) ||
+                _classParameters.contains(element.parameter))
+        ? _awaitedType(input)
+        : input;
   }
 
   String _objectType(

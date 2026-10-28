@@ -238,6 +238,21 @@ Box<Future<List<int>>> futureBox() =>
 Box<Future<void>> doneBox() => Box(Future<void>.value());
 
 @NAPI()
+FutureBox<Future<int>> nestedFutureBox() =>
+    FutureBox<Future<int>>(Future.syncValue(Future.value(7)));
+
+@NAPI()
+Box<Future<Future<Amount>>> nestedAmountBox() =>
+    Box(Future.syncValue(Future.value(Amount(value: '2'))));
+
+@NAPI()
+Box<Future<Future<int>?>> nullableNestedBox() => Box(Future.value(null));
+
+@NAPI()
+Future<bool> nestedBoxMissing(Box<Future<Future<int>?>> box) async =>
+    await box.value == null;
+
+@NAPI()
 class CallbackBox<T> extends Box<T Function(num, [int?])> {
   @NAPI()
   CallbackBox(super.value);

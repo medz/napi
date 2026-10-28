@@ -31,6 +31,15 @@ Box<List<int>> listBox() => Box([1]);
 Box<Amount> amountBox() => Box(Amount(value: '1'));
 
 @NAPI()
+Box<Future<int>> futureBox() => Box(Future.value(1));
+
+@NAPI()
+Box<Future<Amount>> futureAmountBox() => Box(Future.value(Amount(value: '1')));
+
+@NAPI()
+Box<Future<int>?> nullableFutureBox() => Box(null);
+
+@NAPI()
 T writeBox<T>(Box<T> box, T value) => box.value = value;
 
 @NAPI()
@@ -63,6 +72,10 @@ T transform<T>(Box<T> box, T Function(T) callback) => callback(box.value);
 
 @NAPI()
 Future<T> asynchronous<T>(Box<T> box, Future<T> value) => value;
+
+@NAPI()
+Future<T> asynchronousBound<T extends U, U>(Box<U> box, Future<T> value) =>
+    value;
 
 @NAPI()
 List<T> collection<T>(Box<T> box, List<T> values) => values;

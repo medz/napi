@@ -680,8 +680,9 @@ box or a newly constructed box, its inferred result allows only writes supported
 by both. Pass a bound instance such as a `Box<Amount>`, or use a concrete return
 type, when the helper requires Amount conversion.
 
-Directly nested Futures such as `Box<Future<Future<int>>>`, and nested arguments
-depending on erased parameters such as `Box<List<T>>`, remain unsupported.
+Nested Future arguments such as `Box<Future<Future<int>>>` use a single
+`Promise<number>` for both reads and writes. Nested arguments depending on
+erased parameters such as `Box<List<T>>` remain unsupported.
 Future arguments whose values have a callable `then` are rejected because
 Promise resolution changes their output shape. This check includes exported
 subclasses, even when the declared base class has no `then` member.
@@ -807,9 +808,11 @@ errors converting a Dart result; JS rejection reasons retain their identity.
 `Future<void>` resolves to `undefined`. Use it instead of `async void`.
 
 Results follow standard Promise resolution: returned thenables are adopted, and
-nested Futures are flattened. Directly nested Future parameters cannot preserve
-their Dart structure and are rejected during compilation. Futures inside lists
-and maps are supported.
+nested Futures are flattened. A nested Future parameter accepts the flattened
+Promise value and rebuilds the declared Dart Future layers. For example,
+`Future<Future<int>>` accepts `Promise.resolve(7)`. If an inner Future is nullable,
+a fulfilled `null` becomes `null` at the outermost nullable layer. Futures inside
+lists and maps are supported.
 
 With a nullable `then`, the return type includes both the unchanged object and
 any declared fulfilled value. Thenables without a finite resolved type are

@@ -1,5 +1,29 @@
 import addon = require('./addon');
 
+const nestedFutures: addon.FutureEnvelope<Promise<number>> = addon.nestedFutures({
+  value: Promise.resolve(7),
+});
+const nestedFutureValue: Promise<number> = nestedFutures.value;
+const handwrittenFuture: addon.FutureEnvelope<Promise<number>> = {
+  value: Promise.resolve(7),
+};
+addon.nestedFutures(handwrittenFuture);
+const createdFutureValue: Promise<number> = addon.nestedFutureProducer({create: async () => 8}).create();
+const nestedAmountFutures: addon.FutureEnvelope<Promise<addon.Amount>> = addon.nestedAmountFutures({
+  value: Promise.resolve({value: '9'}),
+});
+const nestedAmountValue: Promise<addon.Amount> = nestedAmountFutures.value;
+const createdFutureAmount: Promise<addon.Amount> = addon.nestedAmountFutureProducer({create: async () => ({value: '10'})}).create();
+const nullableFutureValue: Promise<number | null> = addon.nullableNestedFutures({value: Promise.resolve(null)}).value;
+const nestedFutureEnvelope: addon.Envelope<addon.FutureEnvelope<Promise<number>>> =
+  addon.nestedFutureEnvelope({value: {value: Promise.resolve(12)}});
+// @ts-expect-error Nested Future fields retain their scalar type.
+addon.nestedFutures({value: Promise.resolve('wrong')});
+// @ts-expect-error Nested Future fields preserve constructor input shapes.
+addon.nestedAmountFutures({value: Promise.resolve({value: 9})});
+// @ts-expect-error Nullable inner Futures do not accept undefined.
+addon.nullableNestedFutures({value: Promise.resolve(undefined)});
+
 const integer: addon.Envelope<number> = addon.echoInt({ value: 7 });
 const text: addon.Envelope<string> = addon.echoText({ value: 'hello', optional: 'next' });
 const double: addon.Envelope<number> = addon.echoDouble({ value: 3 });
