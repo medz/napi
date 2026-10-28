@@ -280,6 +280,7 @@ final class _BoundObject {
   final _ClassDefinition definition;
   final node.NapiRef? reference;
   final void Function()? finalize;
+  Map<_ClassDefinition, _ClassSpecialization?>? _views;
 
   _ClassSpecialization? view(_ClassDefinition contract) {
     final candidates = contract.views;
@@ -305,17 +306,19 @@ final class _BoundObject {
 
   _ClassSpecialization? specialization(_ClassDefinition contract) {
     if (!contract.hasViews) return definition.specializations?[contract];
-    final cache = definition.viewsCache ??= {};
-    final key = (value.runtimeType, contract);
-    if (cache.containsKey(key)) return cache[key];
+    final cache = _views ??= (definition.viewsCache ??= {}).putIfAbsent(
+      value.runtimeType,
+      () => {},
+    );
+    if (cache.containsKey(contract)) return cache[contract];
     final own = view(contract);
     final inherited = definition.specializations?[contract];
     final parent = contract.parent == null
         ? null
         : specialization(contract.parent!);
     final selected = [?parent, ?inherited, ?own];
-    if (selected.length < 2) return cache[key] = selected.firstOrNull;
-    return cache[key] = _ClassSpecialization(
+    if (selected.length < 2) return cache[contract] = selected.firstOrNull;
+    return cache[contract] = _ClassSpecialization(
       methods: {for (final members in selected) ...members.methods},
       getters: {for (final members in selected) ...members.getters},
       setters: {for (final members in selected) ...members.setters},
@@ -358,7 +361,7 @@ final class _ClassDefinition {
   Map<_ClassDefinition, _ClassSpecialization>? specializations;
   List<_ClassView>? views;
   bool hasViews = false;
-  Map<(Type, _ClassDefinition), _ClassSpecialization?>? viewsCache;
+  Map<Type, Map<_ClassDefinition, _ClassSpecialization?>>? viewsCache;
 
   _ClassDefinition select(Object value) {
     _ClassDefinition? selected;
