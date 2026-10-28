@@ -23,6 +23,9 @@ const futureValue: Promise<number> = addon.asynchronous(addon.futureBox(), Promi
 const futureAmount: Promise<addon.Amount> = addon.asynchronous(addon.futureAmountBox(), Promise.resolve({value: '14'}));
 const nullableFuture: Promise<number | null> = addon.asynchronous(addon.nullableFutureBox(), Promise.resolve(null));
 const nullableFutureValue: Promise<number | null> = addon.asynchronous(addon.nullableFutureBox(), Promise.resolve(15));
+const boundedFuture: Promise<number> = addon.asynchronousBound(addon.futureBox(), Promise.resolve(14));
+const boundedAmount: Promise<addon.Amount> = addon.asynchronousBound(addon.futureAmountBox(), Promise.resolve({value: '15'}));
+const boundedNullable: Promise<number | null> = addon.asynchronousBound(addon.nullableFutureBox(), Promise.resolve(16));
 // @ts-expect-error Future-valued type arguments keep their scalar conversion.
 addon.asynchronous(addon.futureBox(), Promise.resolve('wrong'));
 // @ts-expect-error Future-valued Amount inputs use the constructor shape.

@@ -1535,7 +1535,8 @@ final class Calls {
           _directionalValue(type),
         ],
         named: [
-          if (type.kind == ValueKind.future)
+          if (type.kind == ValueKind.future ||
+              _classCodecs.containsKey(type.parameter))
             NamedExpression('readFuture', reader(future: true)),
         ],
       ),

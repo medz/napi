@@ -74,6 +74,10 @@ T transform<T>(Box<T> box, T Function(T) callback) => callback(box.value);
 Future<T> asynchronous<T>(Box<T> box, Future<T> value) => value;
 
 @NAPI()
+Future<T> asynchronousBound<T extends U, U>(Box<U> box, Future<T> value) =>
+    value;
+
+@NAPI()
 List<T> collection<T>(Box<T> box, List<T> values) => values;
 
 @NAPI()
