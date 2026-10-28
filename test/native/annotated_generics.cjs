@@ -153,10 +153,18 @@ module.exports = async function verifyAnnotatedGenerics(path, packageDirectory) 
   assert.deepEqual(sets.value, new Set([3]));
   assert.throws(() => { sets.value = new Set([0.5]); }, RangeError);
   const records = addon.recordBox();
+  assert(records instanceof addon.RecordBox);
   assert.deepEqual(records.value, { $1: 1, label: 'first' });
   assert.deepEqual(records.replace({ $1: 2, label: 'second' }), { $1: 1, label: 'first' });
   assert.throws(() => { records.value = { $1: 3 }; }, TypeError);
   assert.deepEqual(records.value, { $1: 2, label: 'second' });
+  const pairs = addon.pairBox();
+  assert(pairs instanceof addon.PairBox);
+  assert.deepEqual(pairs.value, [1, 2]);
+  assert.deepEqual(pairs.replace([3, 4]), [1, 2]);
+  assert.deepEqual(addon.Box.prototype.replace.call(pairs, [5, 6]), [3, 4]);
+  assert.throws(() => { pairs.value = [7, 'wrong']; }, TypeError);
+  assert.deepEqual(pairs.value, [5, 6]);
   const nullableList = addon.nullableListBox();
   assert.equal(nullableList.value, null);
   nullableList.value = [7];

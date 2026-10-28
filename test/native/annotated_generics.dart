@@ -147,7 +147,22 @@ Box<Map<String, List<int?>>> mapBox() => Box({
 Box<Set<int>> setBox() => Box({1, 2});
 
 @NAPI()
-Box<(int, {String label})> recordBox() => Box((1, label: 'first'));
+class RecordBox<T, U> extends Box<(T, {U label})> {
+  @NAPI()
+  RecordBox(T value, U label) : super((value, label: label));
+}
+
+@NAPI()
+Box<(int, {String label})> recordBox() => RecordBox<int, String>(1, 'first');
+
+@NAPI()
+class PairBox<T> extends Box<(T, T)> {
+  @NAPI()
+  PairBox(T first, T second) : super((first, second));
+}
+
+@NAPI()
+Box<(int, int)> pairBox() => PairBox<int>(1, 2);
 
 @NAPI()
 Box<List<int>?> nullableListBox() => Box(null);

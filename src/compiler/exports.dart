@@ -645,6 +645,24 @@ final class _Reader {
             }
             return true;
           }
+          if (pattern is RecordType && actual is RecordType) {
+            if (pattern.positional.length != actual.positional.length ||
+                pattern.named.length != actual.named.length) {
+              return false;
+            }
+            for (var i = 0; i < pattern.positional.length; ++i) {
+              if (!match(pattern.positional[i], actual.positional[i])) {
+                return false;
+              }
+            }
+            for (var i = 0; i < pattern.named.length; ++i) {
+              if (pattern.named[i].name != actual.named[i].name ||
+                  !match(pattern.named[i].type, actual.named[i].type)) {
+                return false;
+              }
+            }
+            return true;
+          }
           return types.isSubtypeOf(pattern, actual);
         }
 

@@ -41,6 +41,7 @@ const labeledList: addon.LabeledBox<number[]> = addon.labeledListBox();
 const mapValues: { [key: string]: (number | null)[] } = addon.mapBox().value;
 const setValues: Set<number> = addon.setBox().value;
 const recordValue: { $1: number; label: string } = addon.recordBox().value;
+const pairValue: [number, number] = addon.pairBox().value;
 const nullableListValue: number[] | null = addon.nullableListBox().value;
 const referenceValues: object[] = addon.referenceListBox([{}]).value;
 // @ts-expect-error Nested concrete elements retain their scalar type.
