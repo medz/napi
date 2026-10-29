@@ -638,6 +638,28 @@ class OptionalLabel<T> extends Label<T?> {
 Future<Label<int?>> optionalLabel(bool adopted) async =>
     adopted ? OptionalLabel<int?>(null) : Label<int?>(4);
 
+@NAPI()
+class Slot<T> {
+  @NAPI()
+  Slot(this.value);
+
+  @NAPI()
+  final T value;
+}
+
+@NAPI()
+class NumberSlot<T extends num> extends Slot<T> {
+  @NAPI()
+  NumberSlot(super.value);
+
+  @NAPI()
+  void then(void Function(void Function(T)) resolve) => resolve((_) {});
+}
+
+@NAPI()
+Future<Slot<Object?>> slot(bool adopted) async =>
+    adopted ? NumberSlot<num>(1) : Slot<Object?>('plain');
+
 @NAPI.object()
 class Amount {
   @NAPI()

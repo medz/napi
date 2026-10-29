@@ -878,8 +878,8 @@ adopted, and the conversion rejects with a `TypeError`. A `dynamic` `then` is
 `any` in TypeScript and cannot exclude adopted values.
 
 A Future whose element is a type parameter, such as `Future<T>` in a generic
-function or in `FutureBox<T>`, uses TypeScript's `Awaited` instead. Its type
-arguments do not account for exported subclasses or exclude adopted inputs.
+function or in `FutureBox<T>`, keeps TypeScript's own Promise typing for `T`. It
+does not account for exported subclasses or exclude adopted inputs.
 
 ## Streams
 

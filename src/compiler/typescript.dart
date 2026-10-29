@@ -1713,7 +1713,8 @@ final class _Writer {
         return null;
       }
     }
-    // The declared type leaves the other arguments unknown within their bounds.
+    // The declared type leaves the other arguments unknown within their bounds,
+    // and an inferred argument such as Object? still satisfies its bound.
     final values = {
       for (final parameter in candidate.typeParameters)
         parameter:
@@ -1728,9 +1729,87 @@ final class _Writer {
       own,
       typeArguments: [
         for (final parameter in candidate.typeParameters)
-          inferred[parameter] ?? _substituteType(parameter.bound, values),
+          switch (inferred[parameter]) {
+            final argument? => _meet(
+              argument,
+              _substituteType(parameter.bound, values),
+            ),
+            null => _substituteType(parameter.bound, values),
+          },
       ],
     );
+  }
+
+  /// Narrows [type] to the values that also have type [bound], keeping [type]
+  /// when their relation is unknown.
+  ExportType _meet(ExportType type, ExportType bound) {
+    if (!_isFixedKind(bound)) return type;
+    final nullable =
+        bound.nullable &&
+        (type.nullable ||
+            type.kind == ValueKind.dynamicValue ||
+            type.kind == ValueKind.voidValue ||
+            type.kind == ValueKind.nullValue);
+    if (const {
+      ValueKind.opaque,
+      ValueKind.dynamicValue,
+      ValueKind.voidValue,
+    }.contains(type.kind)) {
+      return _copyType(bound, nullable: nullable);
+    }
+    if (type.kind == ValueKind.nullValue) {
+      return nullable ? type : ExportType(type.dartType, ValueKind.never);
+    }
+    if (!_isFixedKind(type) || type.kind == ValueKind.function) return type;
+    final children = _typeChildren(type).toList();
+    final limits = _typeChildren(bound).toList();
+    final fields = type.recordFields;
+    final structural =
+        type.kind == bound.kind &&
+        type.classExport == bound.classExport &&
+        type.enumExport == bound.enumExport &&
+        type.typedDataKind == bound.typedDataKind &&
+        type.simdKind == bound.simdKind &&
+        children.length == limits.length &&
+        (fields == null ||
+            fields.positional.length == bound.recordFields!.positional.length &&
+                fields.named.keys.join(',') ==
+                    bound.recordFields!.named.keys.join(','));
+    if (structural) {
+      final narrowed = [
+        for (var i = 0; i < children.length; ++i) _meet(children[i], limits[i]),
+      ];
+      return _copyType(
+        type,
+        nullable: nullable,
+        element: type.element == null ? null : narrowed.single,
+        typeArguments: type.typeArguments.isEmpty ? null : narrowed,
+        recordFields: fields == null
+            ? null
+            : (
+                positional: narrowed.take(fields.positional.length).toList(),
+                named: Map.fromIterables(
+                  fields.named.keys,
+                  narrowed.skip(fields.positional.length),
+                ),
+              ),
+      );
+    }
+    final none = <ExportTypeParameter>{};
+    final unused = <ExportTypeParameter, ExportType>{};
+    final base = _copyType(type, nullable: false);
+    final limit = _copyType(bound, nullable: false);
+    final below = _maySubtype(base, limit, none, unused);
+    final above = _maySubtype(limit, base, none, unused);
+    if (below && !above) return _copyType(type, nullable: nullable);
+    if (above && !below) return _copyType(bound, nullable: nullable);
+    if (!below && !above && (_isScalarKind(type) || _isScalarKind(bound))) {
+      // No class implements a scalar, so only null can have both types.
+      return nullable
+          ? ExportType(type.dartType, ValueKind.nullValue)
+          : ExportType(type.dartType, ValueKind.never);
+    }
+    return type;
   }
 
   /// Whether [sub] can be a subtype of [sup] once the candidate [parameters]
@@ -1742,35 +1821,16 @@ final class _Writer {
     Set<ExportTypeParameter> parameters,
     Map<ExportTypeParameter, ExportType> inferred,
   ) {
-    bool fixed(ExportType type) => !const {
-      ValueKind.typeParameter,
-      ValueKind.opaque,
-      ValueKind.dynamicValue,
-      ValueKind.nullValue,
-      ValueKind.voidValue,
-      ValueKind.never,
-      ValueKind.undefined,
-      ValueKind.jsReference,
-    }.contains(type.kind);
-    bool scalar(ExportType type) => const {
-      ValueKind.boolean,
-      ValueKind.integer,
-      ValueKind.doubleValue,
-      ValueKind.number,
-      ValueKind.string,
-      ValueKind.bigint,
-    }.contains(type.kind);
-
     if (parameters.contains(sub.parameter)) {
-      if (sub.nullable && !sup.nullable && fixed(sup)) return false;
+      if (sub.nullable && !sup.nullable && _isFixedKind(sup)) return false;
       // T? matches int? for both T = int and T = int?; keep the wider one so
       // results include the null that T = int? values can contain.
       inferred.putIfAbsent(sub.parameter!, () => sup);
       return true;
     }
-    if (!fixed(sub) || !fixed(sup)) return true;
+    if (!_isFixedKind(sub) || !_isFixedKind(sup)) return true;
     if (sub.nullable && !sup.nullable) return false;
-    if (scalar(sub) || scalar(sup)) {
+    if (_isScalarKind(sub) || _isScalarKind(sup)) {
       return sub.kind == sup.kind ||
           sup.kind == ValueKind.number &&
               (sub.kind == ValueKind.integer ||
@@ -2958,6 +3018,29 @@ String _label(String name, int index) =>
     RegExp(r'^[a-zA-Z_$][a-zA-Z0-9_$]*$').hasMatch(name) ? name : 'arg$index';
 
 String _member(String name) => name == 'constructor' ? '["constructor"]' : name;
+
+/// Whether values of [type] have a known JS representation and Dart subtype
+/// relation, unlike type parameters, top types, `Null` and JS references.
+bool _isFixedKind(ExportType type) => !const {
+  ValueKind.typeParameter,
+  ValueKind.opaque,
+  ValueKind.dynamicValue,
+  ValueKind.nullValue,
+  ValueKind.voidValue,
+  ValueKind.never,
+  ValueKind.undefined,
+  ValueKind.jsReference,
+}.contains(type.kind);
+
+/// Whether [type] is a scalar that no class or enum can implement.
+bool _isScalarKind(ExportType type) => const {
+  ValueKind.boolean,
+  ValueKind.integer,
+  ValueKind.doubleValue,
+  ValueKind.number,
+  ValueKind.string,
+  ValueKind.bigint,
+}.contains(type.kind);
 
 const _objectMemberNames = {
   'constructor',

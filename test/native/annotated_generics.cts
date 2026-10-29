@@ -157,6 +157,11 @@ const plainNumber: Promise<addon.Label<number>> = addon.numberLabel(false);
 const optionalValue: Promise<addon.Label<number | null> | string | number | null> = addon.optionalLabel(true);
 // @ts-expect-error OptionalLabel<int?> can adopt null.
 const presentValue: Promise<addon.Label<number | null> | string | number> = addon.optionalLabel(false);
+type SlotValue = Awaited<ReturnType<typeof addon.slot>>;
+declare const adoptedSlot: Extract<SlotValue, (...args: never[]) => unknown>;
+adoptedSlot(1);
+// @ts-expect-error NumberSlot<T extends num> resolves a callback that keeps its bound.
+adoptedSlot('one');
 const taggedFutureValue: Promise<addon.Tag<number>> = addon.taggedFutureBox().value;
 const numericTagName: string = addon.NumericTag.name;
 declare const unknownTag: unknown;
