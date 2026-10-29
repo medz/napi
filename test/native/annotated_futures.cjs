@@ -47,6 +47,7 @@ function worker(path, mode) {
 
 module.exports = async function verifyAnnotatedFutures(path) {
   const addon = require(path);
+  assert.deepEqual(await addon.fixedThenable(), { then: null });
   const value = addon.asyncValue(7);
   assert(value instanceof Promise);
   assert.equal(await value, 7);

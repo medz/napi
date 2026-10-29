@@ -2141,7 +2141,7 @@ final class _Writer {
 
   List<_AwaitedBranch> _awaitedTypes(
     ExportType type, [
-    List<({ExportType type, bool stop, ExportType? source})> path = const [],
+    List<_AwaitedStep> path = const [],
   ]) {
     if (_awaitPreserves(type)) return [(type: type, resolve: false)];
     final base = _copyType(type, nullable: false);
@@ -2163,7 +2163,7 @@ final class _Writer {
       values.addAll(
         _awaitedTypes(base.element!, [
           ...path,
-          (type: base, stop: type.nullable, source: null),
+          (type: base, stop: type.nullable, source: null, adopted: null),
         ]),
       );
       return _normalizeAwaited(values);
@@ -2214,11 +2214,11 @@ final class _Writer {
       }
       if (instance.classExport != null &&
           path.any((step) {
-            final source = step.source;
-            return source != null &&
-                source.classExport == instance.classExport &&
-                _typeDepth(source) < _typeDepth(instance) &&
-                _embedsType(source, instance);
+            final adopted = step.adopted;
+            return adopted != null &&
+                step.source == instance.classExport &&
+                _typeDepth(adopted) < _typeDepth(value!) &&
+                _embedsType(adopted, value);
           })) {
         throw FormatException(
           '@NAPI ${instance.classExport!.name}: thenable resolution does not have a finite type.',
@@ -2227,7 +2227,12 @@ final class _Writer {
       values.addAll(
         _awaitedTypes(value, [
           ...path,
-          (type: base, stop: stop, source: instance),
+          (
+            type: base,
+            stop: stop,
+            source: instance.classExport,
+            adopted: value,
+          ),
         ]),
       );
     }
@@ -3220,6 +3225,12 @@ final class _Writer {
 }
 
 typedef _AwaitedBranch = ({ExportType type, bool resolve});
+typedef _AwaitedStep = ({
+  ExportType type,
+  bool stop,
+  ExportClass? source,
+  ExportType? adopted,
+});
 typedef _ThenMember = ({ExportType? then, ExportType instance});
 typedef _ObjectPair = ({ExportClass left, ExportClass right, bool inputOnly});
 

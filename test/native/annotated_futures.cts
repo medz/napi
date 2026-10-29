@@ -17,6 +17,7 @@ const multiplied: Promise<number> = addon.multiplyAsync(2)(3);
 const forwarded: Promise<number> = addon.passFuture(async promise => (await promise) + 1);
 const notified: Promise<void> = addon.notifyAsync(async () => {});
 const thenable: Promise<number> = addon.thenable(7);
+const fixedThenable: Promise<addon.FixedThenable<number> | addon.FixedThenable<number[]>> = addon.fixedThenable();
 const flattened: Promise<number> = addon.nestedFuture();
 const nestedInput: Promise<number> = addon.readNested(Promise.resolve(8));
 const deepInput: Promise<number> = addon.readDeepNested(Promise.resolve(9));
