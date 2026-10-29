@@ -17,6 +17,7 @@ const multiplied: Promise<number> = addon.multiplyAsync(2)(3);
 const forwarded: Promise<number> = addon.passFuture(async promise => (await promise) + 1);
 const notified: Promise<void> = addon.notifyAsync(async () => {});
 const thenable: Promise<number> = addon.thenable(7);
+const fixedThenable: Promise<addon.FixedThenable<number> | addon.FixedThenable<number[]>> = addon.fixedThenable();
 const flattened: Promise<number> = addon.nestedFuture();
 const nestedInput: Promise<number> = addon.readNested(Promise.resolve(8));
 const deepInput: Promise<number> = addon.readDeepNested(Promise.resolve(9));
@@ -62,3 +63,7 @@ addon.nestedMissing(Promise.resolve(undefined));
 addon.nestedCallback(() => 13);
 // @ts-expect-error Then callbacks also receive the assimilated number.
 addon.thenable(7).then((value: addon.Thenable) => value.value);
+const rejectedThenable: Promise<number> = addon.readThenable(Promise.reject(new Error('rejected')));
+declare const pendingThenable: Promise<addon.Thenable>;
+// @ts-expect-error A fulfilled Promise cannot deliver a Thenable unchanged.
+addon.readThenable(pendingThenable);

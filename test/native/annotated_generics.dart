@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:typed_data';
 
 import 'package:napi/env.dart';
@@ -437,6 +438,679 @@ class HiddenThenCounter extends Counter {
 @NAPI()
 Box<Future<Counter>> hiddenThenFutureBox() =>
     Box(Future.value(HiddenThenCounter(11)));
+
+@NAPI()
+class Thenable {
+  @NAPI()
+  Thenable(this.value);
+
+  @NAPI()
+  final int value;
+
+  @NAPI()
+  void then(void Function(int) resolve) => resolve(value);
+}
+
+@NAPI()
+Box<Future<Thenable>> thenableBox() => Box(Future.value(Thenable(7)));
+
+@NAPI()
+Future<int> readThenableBox(Box<Future<Thenable>> box) async =>
+    (await box.value).value;
+
+@NAPI()
+class Ticket {
+  @NAPI()
+  Ticket(this.id);
+
+  @NAPI()
+  final int id;
+}
+
+@NAPI()
+class SettledTicket extends Ticket {
+  @NAPI()
+  SettledTicket(super.id);
+
+  @NAPI(name: 'then')
+  void settle(void Function(String) resolve) => resolve('settled:$id');
+}
+
+@NAPI()
+class NamedTicket extends Ticket {
+  @NAPI()
+  NamedTicket(super.id);
+
+  @NAPI()
+  int get then => id;
+}
+
+@NAPI()
+Box<List<Future<Ticket>>> ticketBox() => Box([
+  Future.value(Ticket(1)),
+  Future.value(SettledTicket(2)),
+  Future.value(NamedTicket(3)),
+]);
+
+@NAPI()
+Future<List<int>> ticketIds(Box<List<Future<Ticket>>> box) async => [
+  for (final ticket in box.value) (await ticket).id,
+];
+
+@NAPI()
+Future<Ticket> ticket(bool settled) async =>
+    settled ? SettledTicket(4) : Ticket(5);
+
+@NAPI()
+Box<Future<Map<String, void Function(void Function(int))>>> resolverBox(
+  bool thenKey,
+) => Box(
+  Future.value({if (thenKey) 'then': (resolve) => resolve(9), 'other': (_) {}}),
+);
+
+@NAPI()
+Future<List<String>> resolverKeys(
+  Box<Future<Map<String, void Function(void Function(int))>>> box,
+) async => (await box.value).keys.toList();
+
+@NAPI()
+class Pass {
+  @NAPI()
+  Pass(this.id);
+
+  @NAPI()
+  final int id;
+}
+
+@NAPI()
+class SettledPass extends Pass {
+  @NAPI()
+  SettledPass(super.id);
+
+  @NAPI()
+  void then(void Function(int) resolve) => resolve(id);
+}
+
+@NAPI()
+class OpaquePass<T> extends Pass {
+  @NAPI()
+  OpaquePass(super.id, this.then);
+
+  @NAPI()
+  final T then;
+}
+
+@NAPI()
+Future<Pass> pass(int kind) async => switch (kind) {
+  0 => Pass(1),
+  1 => SettledPass(2),
+  _ => OpaquePass<String>(3, 'plain'),
+};
+
+@NAPI()
+Future<int> passId(Future<Pass> value) async => (await value).id;
+
+@NAPI()
+Box<Future<Map<String, Object?>>> jsonBox() =>
+    Box(Future.value({'then': 'plain'}));
+
+@NAPI()
+Future<List<String>> jsonKeys(Box<Future<Map<String, Object?>>> box) async =>
+    (await box.value).keys.toList();
+
+@NAPI()
+class Label<T> {
+  @NAPI()
+  Label(this.value);
+
+  @NAPI()
+  final T value;
+}
+
+@NAPI()
+class NumberLabel extends Label<int> {
+  @NAPI()
+  NumberLabel(super.value);
+
+  @NAPI()
+  void then(void Function(String) resolve) => resolve('number:$value');
+}
+
+@NAPI()
+class NestedLabel extends Label<String> {
+  @NAPI()
+  NestedLabel(super.value);
+
+  @NAPI()
+  void then(void Function(Label<List<String>>) resolve) =>
+      resolve(Label([value]));
+}
+
+@NAPI()
+Future<Label<bool>> flagLabel() async => Label(true);
+
+@NAPI()
+Future<bool> readFlagLabel(Future<Label<bool>> label) async =>
+    (await label).value;
+
+@NAPI()
+Future<Label<String>> textLabel(bool nested) async =>
+    nested ? NestedLabel('text') : Label('plain');
+
+@NAPI()
+class CounterLabel extends Label<Counter> {
+  @NAPI()
+  CounterLabel(super.value);
+
+  @NAPI()
+  void then(void Function(String) resolve) => resolve('counter');
+}
+
+@NAPI()
+class StageLabel extends Label<Stage> {
+  @NAPI()
+  StageLabel(super.value);
+
+  @NAPI()
+  void then(void Function(String) resolve) => resolve('stage');
+}
+
+@NAPI()
+Future<Label<List<int>>> listLabel() async => Label([1, 2]);
+
+@NAPI()
+class ValueList<T> extends ListBase<T> {
+  ValueList(this.values);
+  final List<T> values;
+
+  @override
+  int get length => values.length;
+  @override
+  set length(int value) => values.length = value;
+  @override
+  T operator [](int index) => values[index];
+  @override
+  void operator []=(int index, T value) => values[index] = value;
+}
+
+@NAPI()
+class StringListLabel extends Label<ValueList<String>> {
+  StringListLabel() : super(ValueList(['text']));
+
+  @NAPI()
+  void then(void Function(String) resolve) => resolve(value.single);
+}
+
+@NAPI()
+Future<Label<List<String>>> stringListLabel() async => StringListLabel();
+
+@NAPI()
+class CallbackList<T> extends ListBase<T Function<U>()> {
+  CallbackList(this.value);
+  final T value;
+
+  @override
+  int get length => 1;
+  @override
+  set length(int value) => throw UnsupportedError('fixed length');
+  @override
+  T Function<U>() operator [](int index) =>
+      <U>() => value;
+  @override
+  void operator []=(int index, T Function<U>() value) =>
+      throw UnsupportedError('read only');
+}
+
+@NAPI()
+class CallbackBase<T> {}
+
+@NAPI()
+class CallbackListResult extends CallbackBase<CallbackList<int>> {
+  @NAPI()
+  void then(void Function(int) resolve) =>
+      resolve(CallbackList(3).single<String>());
+}
+
+@NAPI()
+Future<CallbackBase<List<Object?>>> callbackCoreSupertype() async =>
+    CallbackListResult();
+
+@NAPI()
+Future<CallbackBase<List<int>>> integerCoreSupertype() async =>
+    CallbackBase<List<int>>();
+
+@NAPI()
+class RecursiveNode<T> {}
+
+@NAPI()
+class LeafNode extends RecursiveNode<LeafNode> {}
+
+@NAPI()
+class RecursiveResult<T> {}
+
+@NAPI()
+class LeafResult extends RecursiveResult<LeafNode> {
+  @NAPI()
+  void then(void Function(String) resolve) => resolve('leaf');
+}
+
+@NAPI()
+class RecursiveReader<T extends RecursiveNode<T>> {
+  RecursiveReader(this.value);
+  final RecursiveResult<T> value;
+
+  @NAPI()
+  Future<RecursiveResult<T>> read() async => value;
+}
+
+@NAPI()
+RecursiveReader<LeafNode> recursiveReader() => RecursiveReader(LeafResult());
+
+@NAPI()
+class NullBase<T> {}
+
+@NAPI()
+class NullChild extends NullBase<int?> {
+  @NAPI()
+  void then(void Function(String) resolve) => resolve('nullable');
+}
+
+@NAPI()
+Future<NullBase<Object>> nonNullBase() async => NullBase<Object>();
+
+@NAPI()
+Future<NullBase<Object?>> nullableBase() async => NullChild();
+
+@NAPI()
+Future<NullBase<dynamic>> dynamicBase() async => NullChild();
+
+@NAPI()
+Future<int> readListLabel(Future<Label<List<int>>> label) async =>
+    (await label).value.length;
+
+@NAPI()
+Future<Label<num>> numberLabel(bool adopted) async =>
+    adopted ? NumberLabel(3) : Label<num>(4.5);
+
+@NAPI()
+class OptionalLabel<T> extends Label<T?> {
+  @NAPI()
+  OptionalLabel(super.value);
+
+  @NAPI()
+  void then(void Function(T) resolve) => resolve(value as T);
+}
+
+@NAPI()
+Future<Label<int?>> optionalLabel(bool adopted) async =>
+    adopted ? OptionalLabel<int?>(null) : Label<int?>(4);
+
+@NAPI()
+Future<Label<Null>> nullLabel(bool adopted) async =>
+    adopted ? OptionalLabel<Null>(null) : Label<Null>(null);
+
+@NAPI()
+class FlagLabelReader<T extends bool> {
+  FlagLabelReader(this.value);
+  final T value;
+
+  @NAPI()
+  Future<Label<T>> read() async => Label(value);
+
+  @NAPI()
+  Future<Label<T?>> readNullable() async => OptionalLabel<T?>(null);
+}
+
+@NAPI()
+FlagLabelReader<bool> flagLabelReader() => FlagLabelReader(true);
+
+@NAPI()
+class Slot<T> {
+  @NAPI()
+  Slot(this.value);
+
+  @NAPI()
+  final T value;
+}
+
+@NAPI()
+class NumberSlot<T extends num> extends Slot<T> {
+  @NAPI()
+  NumberSlot(super.value);
+
+  @NAPI()
+  void then(void Function(void Function(T)) resolve) => resolve((_) {});
+
+  @NAPI()
+  Future<NullablePair<T?, Null>> readNull() async =>
+      resolvedNullPair() as NullablePair<T?, Null>;
+}
+
+@NAPI()
+Future<Slot<Object?>> slot(bool adopted) async =>
+    adopted ? intSlot() : Slot<Object?>('plain');
+
+@NAPI()
+NumberSlot<int> intSlot() => NumberSlot<int>(1);
+
+@NAPI()
+class CallbackSlot<T> extends Slot<T> {
+  CallbackSlot(super.value);
+
+  @NAPI()
+  void then(void Function(void Function(T)) resolve) => resolve((_) {});
+}
+
+@NAPI()
+CallbackSlot<String> textCallbackSlot() => CallbackSlot<String>('text');
+
+@NAPI()
+Future<Slot<Object?>> callbackSlot() async => textCallbackSlot();
+
+@NAPI()
+Future<CallbackSlot<Object?>> declaredCallbackSlot() async =>
+    textCallbackSlot();
+
+@NAPI()
+Future<void Function(String)> textCallback() async => (_) {};
+
+@NAPI()
+class ObjectResult<T> {}
+
+@NAPI()
+class BoxResult<T> extends ObjectResult<T> {
+  BoxResult(this.box);
+  final Box<T> box;
+
+  @NAPI()
+  void then(void Function(Box<T>) resolve) => resolve(box);
+}
+
+@NAPI()
+BoxResult<String> textBoxResult() => BoxResult(Box('text'));
+
+@NAPI()
+Future<ObjectResult<Object?>> adoptedBox() async => textBoxResult();
+
+@NAPI()
+class ReadOnlyResult<T> {
+  ReadOnlyResult(this.label);
+  final Label<T> label;
+
+  @NAPI()
+  void then(void Function(Label<T>) resolve) => resolve(label);
+}
+
+@NAPI()
+Future<ReadOnlyResult<String>> adoptedReadOnly() async =>
+    ReadOnlyResult(Label('read only'));
+
+@NAPI()
+class SwappedPair<A, B> {
+  SwappedPair(this.first, this.second);
+  final A first;
+  final B second;
+
+  @NAPI()
+  SwappedPair<B, A> get swapped => SwappedPair(second, first);
+
+  @NAPI()
+  B accept(B value) => value;
+}
+
+@NAPI()
+class SwappedResult<T> {
+  SwappedResult(this.value);
+  final T value;
+
+  @NAPI()
+  void then(void Function(SwappedPair<T, int>) resolve) =>
+      resolve(SwappedPair(value, 1));
+}
+
+@NAPI()
+SwappedResult<String> textSwappedResult() => SwappedResult('text');
+
+@NAPI()
+Future<SwappedResult<Object?>> adoptedSwappedPair() async =>
+    textSwappedResult();
+
+@NAPI()
+class ReadOnlyPair<A, B> {
+  ReadOnlyPair(this.first, this.second);
+
+  @NAPI()
+  final A first;
+
+  @NAPI()
+  final B second;
+
+  @NAPI()
+  ReadOnlyPair<B, A> get swapped => ReadOnlyPair(second, first);
+}
+
+@NAPI()
+class ReadOnlyPairResult<T> {
+  ReadOnlyPairResult(this.value);
+  final T value;
+
+  @NAPI()
+  void then(void Function(ReadOnlyPair<T, int>) resolve) =>
+      resolve(ReadOnlyPair(value, 1));
+}
+
+@NAPI()
+Future<ReadOnlyPairResult<String>> adoptedReadOnlyPair() async =>
+    ReadOnlyPairResult('text');
+
+@NAPI()
+class StringBox extends Box<String> {
+  StringBox(super.value);
+}
+
+@NAPI()
+class StringBoxLabel extends Label<StringBox> {
+  StringBoxLabel(super.value);
+
+  @NAPI()
+  void then(void Function(String) resolve) => resolve(value.value);
+}
+
+@NAPI()
+Future<Label<Box<int>>> integerBoxLabel() async => Label(Box(1));
+
+@NAPI()
+Future<Label<Box<String>>> textBoxLabel() async =>
+    StringBoxLabel(StringBox('text'));
+
+@NAPI()
+class FactorySlot<T> {}
+
+@NAPI()
+Future<FactorySlot<Null>> nullFactory() async => FactorySlot<Null>();
+
+@NAPI()
+Future<FactorySlot<Never>> neverFactory() async => FactorySlot<Never>();
+
+@NAPI()
+class ProducedSlot<T> extends FactorySlot<T Function()> {
+  @NAPI()
+  void then(void Function(void Function(T)) resolve) => resolve((_) {});
+}
+
+@NAPI()
+class TextFactorySlot extends FactorySlot<String Function()> {
+  @NAPI()
+  void then(void Function(String) resolve) => resolve('wrong result');
+}
+
+@NAPI()
+class RequiredFactorySlot extends FactorySlot<int Function(int)> {
+  @NAPI()
+  void then(void Function(String) resolve) => resolve('required');
+}
+
+@NAPI()
+class OptionalFactorySlot extends FactorySlot<int Function([int])> {
+  @NAPI()
+  void then(void Function(bool) resolve) => resolve(true);
+}
+
+@NAPI()
+class NamedFactorySlot<T> extends FactorySlot<T Function({int step})> {
+  NamedFactorySlot(this.value);
+  final T value;
+
+  @NAPI()
+  void then(void Function(T) resolve) => resolve(value);
+}
+
+@NAPI()
+class OtherNamedFactorySlot
+    extends FactorySlot<int Function({required int other})> {
+  @NAPI()
+  void then(void Function(String) resolve) => resolve('other name');
+}
+
+@NAPI()
+class StringParameterFactorySlot extends FactorySlot<int Function(String)> {
+  @NAPI()
+  void then(void Function(DateTime) resolve) => resolve(DateTime.utc(2026));
+}
+
+@NAPI()
+Future<FactorySlot<int Function()>> producedSlot(int kind) async =>
+    switch (kind) {
+      0 => ProducedSlot<int>(),
+      1 => OptionalFactorySlot(),
+      _ => NamedFactorySlot<int>(7),
+    };
+
+@NAPI()
+Future<FactorySlot<int Function(int)>> positionalFactory() async =>
+    RequiredFactorySlot();
+
+@NAPI()
+Future<FactorySlot<int Function({required int step})>> namedFactory() async =>
+    NamedFactorySlot<int>(8);
+
+@NAPI()
+class DoubleInputSlot<T> extends FactorySlot<void Function(void Function(T))> {
+  DoubleInputSlot(this.value);
+  final T value;
+
+  @NAPI()
+  void then(void Function(T) resolve) => resolve(value);
+}
+
+@NAPI()
+Future<FactorySlot<void Function(void Function(int))>>
+doubleInputSlot() async => DoubleInputSlot<int>(9);
+
+@NAPI()
+class PairedSlot<A, B> {}
+
+@NAPI()
+class EqualSlot<T> extends PairedSlot<T, T> {
+  @NAPI()
+  void then(void Function(void Function(T)) resolve) => resolve((_) {});
+}
+
+@NAPI()
+Future<PairedSlot<Object?, num>> repeatedSlot() async => EqualSlot<num>();
+
+@NAPI()
+Future<PairedSlot<num, Object?>> reversedSlot() async => EqualSlot<num>();
+
+@NAPI()
+Future<PairedSlot<num?, num>> nonNullableSlot() async => EqualSlot<num>();
+
+@NAPI()
+Future<PairedSlot<num?, Null>> nullSlot() async => EqualSlot<Null>();
+
+@NAPI()
+class NullablePair<A, B> {}
+
+@NAPI()
+class ResolvedPair<T> extends NullablePair<T, T> {
+  ResolvedPair(this.value);
+  final T value;
+
+  @NAPI()
+  void then(void Function(T) resolve) => resolve(value);
+}
+
+@NAPI()
+class PairReader<T> {
+  @NAPI()
+  Future<NullablePair<T, Null>> read(bool adopted) async => adopted
+      ? resolvedNullPair() as NullablePair<T, Null>
+      : NullablePair<T, Null>();
+}
+
+@NAPI()
+ResolvedPair<Null> resolvedNullPair() => ResolvedPair<Null>(null);
+
+@NAPI()
+PairReader<Null> nullPairReader() => PairReader<Null>();
+
+@NAPI()
+class CollectionLabel<T> {
+  CollectionLabel(this.value);
+
+  @NAPI()
+  final T value;
+}
+
+@NAPI()
+class BytesLabel extends CollectionLabel<Uint8List> {
+  BytesLabel() : super(Uint8List(1));
+
+  @NAPI()
+  void then(void Function(String) resolve) => resolve('bytes');
+}
+
+@NAPI()
+class FloatsLabel extends CollectionLabel<Float64List> {
+  FloatsLabel() : super(Float64List(1));
+
+  @NAPI()
+  void then(void Function(bool) resolve) => resolve(true);
+}
+
+@NAPI()
+class VectorsLabel extends CollectionLabel<Float32x4List> {
+  VectorsLabel() : super(Float32x4List(1));
+
+  @NAPI()
+  void then(void Function(int) resolve) => resolve(4);
+}
+
+@NAPI()
+Future<CollectionLabel<List<String>>> stringCollection() async =>
+    CollectionLabel(['text']);
+
+@NAPI()
+Future<CollectionLabel<List<int>>> intCollection() async => BytesLabel();
+
+@NAPI()
+Future<CollectionLabel<List<double>>> doubleCollection() async => FloatsLabel();
+
+@NAPI()
+Future<CollectionLabel<List<Float32x4>>> vectorCollection() async =>
+    VectorsLabel();
+
+@NAPI()
+class TagReader<T extends Ticket> {
+  @NAPI()
+  Future<int> read(Future<Tag<T>> value) async => (await value).then.id;
+}
+
+@NAPI()
+TagReader<Ticket> tagReader() => TagReader();
+
+@NAPI()
+Tag<Ticket> ticketTag(Ticket value) => Tag(value);
 
 @NAPI.object()
 class Amount {

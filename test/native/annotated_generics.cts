@@ -103,6 +103,142 @@ const nestedBoundValue: addon.Box<number> = addon.nestedBoundBox().value;
 const boundCallbackValue: addon.Counter = addon.boundCallbackBox().value(boxedCounter);
 const boundFutureValue: Promise<addon.Counter> = addon.boundFutureBox().value;
 const hiddenThenFuture: Promise<addon.Counter> = addon.hiddenThenFutureBox().value;
+type PassResolver = (resolve: (value: number) => void) => void;
+const resolveOne: PassResolver = done => done(1);
+const thenables = addon.thenableBox();
+const thenableValue: Promise<number> = thenables.value;
+thenables.value = Promise.reject(new Error('rejected'));
+// @ts-expect-error Promise resolution adopts the Thenable.
+thenables.value = new Promise<addon.Thenable>(resolve => resolve(new addon.Thenable(1)));
+// @ts-expect-error A fulfilled number cannot become a Thenable.
+thenables.value = Promise.resolve(1);
+// @ts-expect-error The adopted read value cannot be written back.
+thenables.value = thenables.value;
+const tickets = addon.ticketBox();
+const ticketValues: Promise<addon.Ticket | string>[] = tickets.value;
+tickets.value = [Promise.resolve(new addon.Ticket(1)), Promise.resolve(new addon.NamedTicket(2))];
+// @ts-expect-error A thenable subclass can replace the Ticket.
+const plainTickets: Promise<addon.Ticket>[] = tickets.value;
+// @ts-expect-error Promise resolution adopts the SettledTicket.
+tickets.value = [Promise.resolve(new addon.SettledTicket(3))];
+// @ts-expect-error An explicitly typed Promise still excludes SettledTicket.
+tickets.value = [new Promise<addon.SettledTicket>(resolve => resolve(new addon.SettledTicket(3)))];
+// @ts-expect-error Adopted values cannot be written back.
+tickets.value = tickets.value;
+const ticketResult: Promise<addon.Ticket | string> = addon.ticket(true);
+// @ts-expect-error A Ticket result can be adopted by SettledTicket.
+const plainTicket: Promise<addon.Ticket> = addon.ticket(false);
+const resolvers = addon.resolverBox(false);
+const resolverValue: Promise<{ [key: string]: (resolve: (value: number) => void) => void } | number> = resolvers.value;
+resolvers.value = Promise.resolve({ other() {} });
+// @ts-expect-error A callable then entry is adopted.
+resolvers.value = new Promise<{ then: PassResolver }>(resolve => resolve({ then: resolveOne }));
+addon.passId(Promise.resolve(new addon.Pass(1)));
+// @ts-expect-error A sibling with an unknown then makes the result unknown.
+const knownPass: Promise<addon.Pass> = addon.pass(0);
+// @ts-expect-error A callable then is still excluded beside an unknown sibling.
+addon.passId(new Promise<addon.SettledPass>(resolve => resolve(new addon.SettledPass(2))));
+// @ts-expect-error A then that may be callable is excluded from inputs.
+addon.passId(new Promise<addon.OpaquePass<PassResolver>>(resolve => resolve(new addon.OpaquePass(3, resolveOne))));
+const json = addon.jsonBox();
+json.value = Promise.resolve({ then: null, other: 1 });
+// @ts-expect-error An unknown then entry may be adopted.
+json.value = new Promise<{ then: PassResolver }>(resolve => resolve({ then: resolveOne }));
+// Subclasses of other instantiations do not change Label<boolean>.
+const flag: Promise<boolean> = addon.readFlagLabel(addon.flagLabel());
+// Counter and Stage are not lists, so their subclasses do not change Label<number[]>.
+const listLength: Promise<number> = addon.readListLabel(addon.listLabel());
+const integerListLabel: Promise<addon.Label<number[]>> = addon.listLabel();
+const stringListLabel: Promise<addon.Label<string[]> | string> = addon.stringListLabel();
+// @ts-expect-error The compatible List<String> subtype can adopt a string.
+const plainStringListLabel: Promise<addon.Label<string[]>> = addon.stringListLabel();
+const callbackCoreSupertype: Promise<addon.CallbackBase<unknown[]> | number> = addon.callbackCoreSupertype();
+const integerCoreSupertype: Promise<addon.CallbackBase<number[]>> = addon.integerCoreSupertype();
+// @ts-expect-error The matching generic-function List subclass adopts an integer.
+const plainCallbackCoreSupertype: Promise<addon.CallbackBase<unknown[]>> = addon.callbackCoreSupertype();
+const recursiveResult: Promise<addon.RecursiveResult<addon.LeafNode> | string> = addon.recursiveReader().read();
+const recursiveReader: addon.RecursiveReader<addon.LeafNode> = addon.recursiveReader();
+// @ts-expect-error Recursive bounds require an explicit type argument in type annotations.
+declare const recursiveDefault: addon.RecursiveReader;
+// @ts-expect-error The recursively bounded LeafNode subclass can adopt a string.
+const plainRecursiveResult: Promise<addon.RecursiveResult<addon.LeafNode>> = addon.recursiveReader().read();
+const nonNullBase: Promise<addon.NullBase<unknown>> = addon.nonNullBase();
+const nullableBase: Promise<addon.NullBase<unknown> | string> = addon.nullableBase();
+const dynamicBase: Promise<addon.NullBase<unknown> | string> = addon.dynamicBase();
+// @ts-expect-error Nullable top types still admit the nullable child.
+const plainNullableBase: Promise<addon.NullBase<unknown>> = addon.nullableBase();
+// @ts-expect-error dynamic still admits the nullable child.
+const plainDynamicBase: Promise<addon.NullBase<unknown>> = addon.dynamicBase();
+const labelText: Promise<addon.Label<string> | addon.Label<string[]> | string> = addon.textLabel(true);
+// @ts-expect-error NestedLabel can adopt a Label<string[]>.
+const plainText: Promise<addon.Label<string>> = addon.textLabel(false);
+const numberText: Promise<addon.Label<number> | string> = addon.numberLabel(true);
+// @ts-expect-error NumberLabel is a Label<num> and can adopt a string.
+const plainNumber: Promise<addon.Label<number>> = addon.numberLabel(false);
+const optionalValue: Promise<addon.Label<number | null> | string | number | null> = addon.optionalLabel(true);
+// @ts-expect-error OptionalLabel<int?> can adopt null.
+const presentValue: Promise<addon.Label<number | null> | string | number> = addon.optionalLabel(false);
+const nullLabel: Promise<addon.Label<null> | null> = addon.nullLabel(true);
+const nullFactory: Promise<addon.FactorySlot<null>> = addon.nullFactory();
+const neverFactory: Promise<addon.FactorySlot<never>> = addon.neverFactory();
+const boundedLabel: Promise<addon.Label<boolean>> = addon.flagLabelReader().read();
+const nullableBoundedLabel: Promise<addon.Label<boolean | null> | boolean | null> = addon.flagLabelReader().readNullable();
+// The base argument is only an upper bound on the adopted callback's input.
+// @ts-expect-error The actual NumberSlot may accept a narrower type than num.
+const adoptedSlot: Promise<addon.Slot<unknown> | ((value: number) => void)> = addon.slot(true);
+// @ts-expect-error The hidden CallbackSlot<String> does not accept arbitrary objects.
+const callbackSlot: Promise<addon.Slot<unknown> | ((value: unknown) => void)> = addon.callbackSlot();
+// @ts-expect-error A directly named covariant class can also have a narrower instantiation.
+const declaredSlot: Promise<(value: unknown) => void> = addon.declaredCallbackSlot();
+const textCallback: Promise<(value: string) => void> = addon.textCallback();
+textCallback.then(callback => {
+  callback('text');
+  // @ts-expect-error An explicitly declared callback retains its parameter type.
+  callback(1);
+});
+// @ts-expect-error A hidden Box<String> does not allow arbitrary writes.
+const adoptedBox: Promise<addon.ObjectResult<unknown> | addon.Box<unknown>> = addon.adoptedBox();
+const readOnlyResult: Promise<addon.Label<string> | addon.Label<string[]> | string> = addon.adoptedReadOnly();
+addon.adoptedSwappedPair().then(result => {
+  // @ts-expect-error Swapping the parameters exposes the hidden String input.
+  result.swapped.accept(123);
+});
+const readOnlyPair: Promise<addon.ReadOnlyPair<string, number>> = addon.adoptedReadOnlyPair();
+readOnlyPair.then(result => {
+  const text: string = result.swapped.second;
+  const number: number = result.swapped.swapped.second;
+});
+const integerBoxLabel: Promise<addon.Label<addon.Box<number>>> = addon.integerBoxLabel();
+const textBoxLabel: Promise<addon.Label<addon.Box<string>> | string> = addon.textBoxLabel();
+// @ts-expect-error Only the matching Box<String> subclass adopts a string.
+const plainTextBoxLabel: Promise<addon.Label<addon.Box<string>>> = addon.textBoxLabel();
+// @ts-expect-error A callback inferred through a function result still has an unknown input.
+const produced: Promise<addon.FactorySlot<() => number> | ((value: number) => void) | boolean | number> = addon.producedSlot(0);
+const positionalFactory: Promise<addon.FactorySlot<(value: number) => number> | string | boolean> = addon.positionalFactory();
+const namedFactory: Promise<addon.FactorySlot<(options: {step: number}) => number> | number> = addon.namedFactory();
+const doubleInputSlot: Promise<addon.FactorySlot<(callback: (value: number) => void) => void> | number> = addon.doubleInputSlot();
+// Neither repeated constraints nor a Null bound make the actual T exact.
+// @ts-expect-error T may be a subtype of num.
+const repeatedSlot: Promise<addon.PairedSlot<unknown, number> | ((value: number) => void)> = addon.repeatedSlot();
+// @ts-expect-error Reversing the constraints does not determine the actual T.
+const reversedSlot: Promise<addon.PairedSlot<number, unknown> | ((value: number) => void)> = addon.reversedSlot();
+// @ts-expect-error Removing null still allows a narrower T.
+const nonNullableSlot: Promise<addon.PairedSlot<number | null, number> | ((value: number) => void)> = addon.nonNullableSlot();
+// @ts-expect-error Never is also a subtype of Null.
+const nullSlot: Promise<addon.PairedSlot<number | null, null> | ((value: null) => void)> = addon.nullSlot();
+const nullablePair: Promise<addon.NullablePair<null, null> | null> = addon.nullPairReader().read(true);
+// @ts-expect-error An unmarked T can instantiate as Null.
+const presentPair: Promise<addon.NullablePair<null, null>> = addon.nullPairReader().read(true);
+// @ts-expect-error T? permits null even when T has a non-nullable bound.
+const boundedPair: Promise<addon.NullablePair<number | null, null>> = addon.intSlot().readNull();
+const stringCollection: Promise<addon.CollectionLabel<string[]>> = addon.stringCollection();
+const intCollection: Promise<addon.CollectionLabel<number[]> | string> = addon.intCollection();
+const doubleCollection: Promise<addon.CollectionLabel<number[]> | boolean> = addon.doubleCollection();
+const vectorCollection: Promise<addon.CollectionLabel<Float32Array[]> | number> = addon.vectorCollection();
+// @ts-expect-error Uint8List is a List<int> and its subclass can adopt a string.
+const plainIntCollection: Promise<addon.CollectionLabel<number[]>> = addon.intCollection();
+const ticketTag = addon.ticketTag(new addon.Ticket(9));
+const ticketTagId: Promise<number> = addon.tagReader().read(Promise.resolve(ticketTag));
 const taggedFutureValue: Promise<addon.Tag<number>> = addon.taggedFutureBox().value;
 const numericTagName: string = addon.NumericTag.name;
 declare const unknownTag: unknown;

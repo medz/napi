@@ -38,6 +38,20 @@ Future<int> delayed(int value, [int milliseconds = 2]) =>
 @NAPI()
 Future<int> pending() => Completer<int>().future;
 
+@NAPI.object()
+class FixedThenable<T> {
+  @NAPI()
+  FixedThenable({required this.then});
+
+  @NAPI()
+  final void Function(void Function(FixedThenable<List<int>>))? then;
+}
+
+@NAPI()
+Future<FixedThenable<int>> fixedThenable() async => FixedThenable(
+  then: (resolve) => resolve(FixedThenable<List<int>>(then: null)),
+);
+
 @NAPI()
 class AsyncCounter {
   @NAPI()
@@ -81,6 +95,9 @@ class Thenable {
 
 @NAPI()
 Future<Thenable> thenable(int value) async => Thenable(value);
+
+@NAPI()
+Future<int> readThenable(Future<Thenable> value) async => (await value).value;
 
 @NAPI()
 Future<Future<int>> nestedFuture() =>

@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:kernel/ast.dart' show InterfaceType;
+
 import 'exports.dart';
 
 String typeScriptDeclarations(ExportModule exports, {bool esm = false}) =>
@@ -16,6 +18,13 @@ final class _Writer {
       } {
     for (final cls in exports.classes) {
       _registerParameters(cls.typeParameters);
+      for (final type in [
+        if (cls.superclass != null) cls.superclass!,
+        for (final arguments in cls.coreSupertypes.values)
+          ...arguments.nonNulls,
+      ]) {
+        _registerType(type, cls.typeParameters);
+      }
       for (final function in [
         if (cls.constructor != null) cls.constructor!,
         ...cls.methods,
@@ -29,6 +38,13 @@ final class _Writer {
         }
         if (property.writeType != null) {
           _registerType(property.writeType!, cls.typeParameters);
+        }
+      }
+    }
+    for (final enumeration in exports.enums) {
+      for (final arguments in enumeration.coreSupertypes.values) {
+        for (final type in arguments.nonNulls) {
+          _registerType(type, const []);
         }
       }
     }
@@ -121,6 +137,7 @@ final class _Writer {
   final _opaqueParameters = <ExportTypeParameter>{};
   final _mixedParameters = <ExportTypeParameter>{};
   final _instanceParameters = <ExportTypeParameter>{};
+  final _descendantCache = <ExportClass, List<ExportClass>>{};
   late final String _inputKey;
   late final String _inputOf;
   late final String _same;
@@ -220,8 +237,10 @@ final class _Writer {
           : parameter.defaultType;
       defaultTypes.add(defaultType);
       if (defaultType.kind == ValueKind.typeParameter &&
-          pending.contains(defaultType.parameter!.target)) {
+              pending.contains(defaultType.parameter!.target) ||
+          _mentions(bound, {parameter})) {
         // Defaults must form a suffix and can only refer to earlier parameters.
+        // Dart's erased default need not satisfy a self-referential TS bound.
         firstDefault = i + 1;
       }
       pending.remove(parameter.target);
@@ -627,6 +646,9 @@ final class _Writer {
     final parameter = _parameterModes[type.parameter];
     if (parameter != null)
       return type.nullable ? '$parameter | "stable"' : parameter;
+    if (type.kind == ValueKind.object && !type.classExport!.isObject) {
+      return '"stable"';
+    }
     if (!_mentions(type, _parameterModes.keys.toSet())) {
       return '$_mode<${_type(type)}>';
     }
@@ -1073,6 +1095,11 @@ final class _Writer {
     List<ExportTypeParameter> locals,
   ) {
     right = _flattenFuture(right);
+    if (_fulfillment(right) != null) {
+      // The input excludes values that the output can contain after adoption.
+      result.always = true;
+      return;
+    }
     for (final branch in _awaitedTypes(left)) {
       if (branch.resolve) {
         if (_knownRepresentationDifference(branch.type, right)) {
@@ -1599,8 +1626,9 @@ final class _Writer {
                       parameter.bound.kind != ValueKind.dynamicValue);
       case ValueKind.object:
       case ValueKind.record:
-        final then = _thenType(type);
-        return then == null || !_mayCall(then);
+        return _thenTypes(
+          type,
+        ).every((member) => member.then == null || !_mayCall(member.then!));
       case ValueKind.map:
         return !_mayCall(type.element!);
       case ValueKind.jsReference:
@@ -1614,12 +1642,18 @@ final class _Writer {
     }
   }
 
-  bool _mayCall(ExportType type) => switch (type.kind) {
-    ValueKind.function || ValueKind.opaque || ValueKind.dynamicValue => true,
-    ValueKind.typeParameter => !_awaitPreserves(type),
-    ValueKind.jsReference => type.referenceKind != JsReferenceKind.symbol,
-    _ => false,
-  };
+  bool _mayCall(ExportType type, [Set<ExportTypeParameter>? seen]) {
+    if (type.kind == ValueKind.typeParameter) {
+      final parameter = type.parameter!;
+      final visited = seen ?? <ExportTypeParameter>{};
+      return !visited.add(parameter) || _mayCall(parameter.bound, visited);
+    }
+    return switch (type.kind) {
+      ValueKind.function || ValueKind.opaque || ValueKind.dynamicValue => true,
+      ValueKind.jsReference => type.referenceKind != JsReferenceKind.symbol,
+      _ => false,
+    };
+  }
 
   ExportType? _thenType(ExportType type) {
     if (type.kind == ValueKind.record) return type.recordFields!.named['then'];
@@ -1647,6 +1681,475 @@ final class _Writer {
         : _thenType(_substituteType(cls.superclass!, arguments));
   }
 
+  /// The `then` members of every JS value of [type], including the values of
+  /// exported subclasses. `null` stands for values without a `then` member.
+  List<_ThenMember> _thenTypes(ExportType type, {bool forOutput = false}) {
+    if (type.kind == ValueKind.record || type.classExport!.isObject) {
+      return [(then: _thenType(type), instance: type)];
+    }
+    final thens = <_ThenMember>[];
+    for (final cls in _descendants(type.classExport!)) {
+      final instance = cls == type.classExport
+          ? type
+          : _subclassInstance(cls, type);
+      if (instance == null) continue;
+      var then = _thenType(instance);
+      if (forOutput && then != null && cls.typeParameters.isNotEmpty) {
+        final declared = _thenType(_declaredObject(cls));
+        final value = declared
+            ?.signature
+            ?.positional
+            .firstOrNull
+            ?.type
+            .signature
+            ?.positional
+            .firstOrNull
+            ?.type;
+        if (value != null &&
+            _hasContravariantParameter(value, cls.typeParameters.toSet())) {
+          // A class argument is an upper bound, not the actual instantiation.
+          // Child<String> can inhabit Base<Object?>, but its adopted callback
+          // cannot be called with arbitrary objects.
+          then = ExportType(
+            then.dartType,
+            ValueKind.opaque,
+            nullable: then.nullable,
+          );
+        }
+      }
+      thens.add((then: then, instance: instance));
+    }
+    return thens;
+  }
+
+  bool _hasContravariantParameter(
+    ExportType type,
+    Set<ExportTypeParameter> parameters, {
+    bool negative = false,
+    List<({ExportType type, bool negative})> path = const [],
+  }) {
+    if (parameters.contains(type.parameter)) return negative;
+    final signature = type.signature;
+    if (signature != null) {
+      return signature.typeParameters.any(
+            (p) => _mentions(p.bound, parameters),
+          ) ||
+          _hasContravariantParameter(
+            signature.result,
+            parameters,
+            negative: negative,
+            path: path,
+          ) ||
+          [...signature.positional, ...signature.named].any(
+            (p) => _hasContravariantParameter(
+              p.type,
+              parameters,
+              negative: !negative,
+              path: path,
+            ),
+          );
+    }
+    if (_typeChildren(type).any(
+      (child) => _hasContravariantParameter(
+        child,
+        parameters,
+        negative: negative,
+        path: path,
+      ),
+    )) {
+      return true;
+    }
+    final cls = type.classExport;
+    if (cls == null || !_mentions(type, parameters)) {
+      return false;
+    }
+    for (final step in path) {
+      if (step.type.classExport != cls || step.negative != negative) continue;
+      if (_typeKey(step.type) == _typeKey(type)) return false;
+      // Changed arguments can expose a consuming member on the next visit.
+      // An expanding chain cannot establish that every result is read-only.
+      if (_typeDepth(step.type) < _typeDepth(type) &&
+          _embedsType(step.type, type)) {
+        return true;
+      }
+    }
+    final arguments = {
+      for (var i = 0; i < cls.typeParameters.length; ++i)
+        cls.typeParameters[i]: type.typeArguments[i],
+    };
+    bool check(ExportType member, {bool input = false}) =>
+        _hasContravariantParameter(
+          _substituteType(member, arguments),
+          parameters,
+          negative: input ? !negative : negative,
+          path: [...path, (type: type, negative: negative)],
+        );
+    return cls.properties.any(
+          (p) =>
+              p.readType != null && check(p.readType!) ||
+              p.writeType != null && check(p.writeType!, input: true),
+        ) ||
+        cls.methods.any(
+          (method) => check(
+            ExportType(
+              method.signature.type,
+              ValueKind.function,
+              signature: method.signature,
+            ),
+          ),
+        ) ||
+        cls.superclass != null && check(cls.superclass!);
+  }
+
+  List<ExportClass> _descendants(ExportClass cls) =>
+      _descendantCache.putIfAbsent(cls, () {
+        bool descends(ExportClass? candidate) {
+          while (candidate != null && candidate != cls) {
+            candidate = candidate.superclass?.classExport;
+          }
+          return candidate != null;
+        }
+
+        return exports.classes.where(descends).toList();
+      });
+
+  /// The instantiation of [candidate] whose values can have the declared
+  /// [type] of one of its superclasses, or null when no value can.
+  ExportType? _subclassInstance(ExportClass candidate, ExportType type) {
+    final own = _declaredObject(candidate);
+    var ancestor = own;
+    while (ancestor.classExport != type.classExport) {
+      final cls = ancestor.classExport!;
+      ancestor = _substituteType(cls.superclass!, {
+        for (var i = 0; i < cls.typeParameters.length; ++i)
+          cls.typeParameters[i]: ancestor.typeArguments[i],
+      });
+    }
+    final parameters = candidate.typeParameters.toSet();
+    final inferred = <ExportTypeParameter, ExportType>{};
+    final count = ancestor.typeArguments.length < type.typeArguments.length
+        ? ancestor.typeArguments.length
+        : type.typeArguments.length;
+    for (var i = 0; i < count; ++i) {
+      if (!_maySubtype(
+        ancestor.typeArguments[i],
+        type.typeArguments[i],
+        parameters,
+        inferred,
+      )) {
+        return null;
+      }
+    }
+    // The declared type leaves the other arguments unknown within their bounds,
+    // and an inferred argument such as Object? still satisfies its bound.
+    final values = {
+      for (final parameter in candidate.typeParameters)
+        parameter:
+            inferred[parameter] ??
+            ExportType(
+              parameter.invocationType,
+              ValueKind.opaque,
+              nullable: true,
+            ),
+    };
+    return _copyType(
+      own,
+      typeArguments: [
+        for (final parameter in candidate.typeParameters)
+          switch (inferred[parameter]) {
+            final argument? => _meet(
+              argument,
+              _substituteType(parameter.bound, values),
+            ),
+            null => _substituteType(parameter.bound, values),
+          },
+      ],
+    );
+  }
+
+  /// Narrows [type] to the values that also have type [bound], keeping [type]
+  /// when their relation is unknown.
+  ExportType _meet(ExportType type, ExportType bound) {
+    if (type.kind == ValueKind.never || bound.kind == ValueKind.never) {
+      return ExportType(type.dartType, ValueKind.never);
+    }
+    if (type.kind == ValueKind.nullValue || bound.kind == ValueKind.nullValue) {
+      final other = type.kind == ValueKind.nullValue ? bound : type;
+      return ExportType(
+        type.dartType,
+        _maySubtype(
+              ExportType(type.dartType, ValueKind.nullValue),
+              other,
+              {},
+              {},
+            )
+            ? ValueKind.nullValue
+            : ValueKind.never,
+      );
+    }
+    if (!_isFixedKind(bound)) return type;
+    final nullable =
+        bound.nullable &&
+        (type.nullable ||
+            type.kind == ValueKind.dynamicValue ||
+            type.kind == ValueKind.voidValue ||
+            type.kind == ValueKind.nullValue);
+    if (const {
+      ValueKind.opaque,
+      ValueKind.dynamicValue,
+      ValueKind.voidValue,
+    }.contains(type.kind)) {
+      return _copyType(bound, nullable: nullable);
+    }
+    if (!_isFixedKind(type) || type.kind == ValueKind.function) return type;
+    final children = _typeChildren(type).toList();
+    final limits = _typeChildren(bound).toList();
+    final fields = type.recordFields;
+    final structural =
+        type.kind == bound.kind &&
+        type.classExport == bound.classExport &&
+        type.enumExport == bound.enumExport &&
+        type.typedDataKind == bound.typedDataKind &&
+        type.simdKind == bound.simdKind &&
+        children.length == limits.length &&
+        (fields == null ||
+            fields.positional.length == bound.recordFields!.positional.length &&
+                fields.named.keys.join(',') ==
+                    bound.recordFields!.named.keys.join(','));
+    if (structural) {
+      final narrowed = [
+        for (var i = 0; i < children.length; ++i) _meet(children[i], limits[i]),
+      ];
+      return _copyType(
+        type,
+        nullable: nullable,
+        element: type.element == null ? null : narrowed.single,
+        typeArguments: type.typeArguments.isEmpty ? null : narrowed,
+        recordFields: fields == null
+            ? null
+            : (
+                positional: narrowed.take(fields.positional.length).toList(),
+                named: Map.fromIterables(
+                  fields.named.keys,
+                  narrowed.skip(fields.positional.length),
+                ),
+              ),
+      );
+    }
+    final none = <ExportTypeParameter>{};
+    final unused = <ExportTypeParameter, ExportType>{};
+    final base = _copyType(type, nullable: false);
+    final limit = _copyType(bound, nullable: false);
+    final below = _maySubtype(base, limit, none, unused);
+    final above = _maySubtype(limit, base, none, unused);
+    if (below && !above) return _copyType(type, nullable: nullable);
+    if (above && !below) return _copyType(bound, nullable: nullable);
+    if (!below && !above && (_isScalarKind(type) || _isScalarKind(bound))) {
+      // No class implements a scalar, so only null can have both types.
+      return nullable
+          ? ExportType(type.dartType, ValueKind.nullValue)
+          : ExportType(type.dartType, ValueKind.never);
+    }
+    return type;
+  }
+
+  /// Whether [sub] can be a subtype of [sup] once the candidate [parameters]
+  /// of [sub] are bound, recording their arguments in [inferred]. Unknown
+  /// types are assumed to match.
+  bool _maySubtype(
+    ExportType sub,
+    ExportType sup,
+    Set<ExportTypeParameter> parameters,
+    Map<ExportTypeParameter, ExportType> inferred, [
+    Set<String> path = const {},
+  ]) {
+    final key = '${_typeKey(sub)}<:${_typeKey(sup)}';
+    // Recursive bounds can revisit the same relation through a superclass.
+    // That adds no constraint; other arguments are still checked separately.
+    if (path.contains(key)) return true;
+    final visited = {...path, key};
+    bool matches(ExportType left, ExportType right, {bool infer = true}) =>
+        _maySubtype(
+          left,
+          right,
+          infer ? parameters : {},
+          infer ? inferred : {},
+          visited,
+        );
+    if (parameters.contains(sub.parameter)) {
+      if (sub.nullable &&
+          !matches(
+            ExportType(sub.dartType, ValueKind.nullValue),
+            sup,
+            infer: false,
+          )) {
+        return false;
+      }
+      // T? matches int? for both T = int and T = int?; keep the wider one so
+      // results include the null that T = int? values can contain.
+      inferred.update(
+        sub.parameter!,
+        (previous) => _meet(previous, sup),
+        ifAbsent: () => sup,
+      );
+      return true;
+    }
+    if (sub.kind == ValueKind.never && !sub.nullable) return true;
+    if (sup.kind == ValueKind.typeParameter &&
+        !parameters.contains(sup.parameter)) {
+      final bound = sup.parameter!.bound;
+      return matches(
+        sub,
+        sup.nullable ? _copyType(bound, nullable: true) : bound,
+      );
+    }
+    if (sub.kind == ValueKind.nullValue || sub.kind == ValueKind.never) {
+      if (sup.nullable) return true;
+      if (sup.kind == ValueKind.typeParameter) {
+        return matches(sub, sup.parameter!.bound);
+      }
+      return const {
+        ValueKind.nullValue,
+        ValueKind.dynamicValue,
+        ValueKind.voidValue,
+      }.contains(sup.kind);
+    }
+    if (sup.kind == ValueKind.nullValue || sup.kind == ValueKind.never) {
+      return false;
+    }
+    if (sub.nullable &&
+        !matches(
+          ExportType(sub.dartType, ValueKind.nullValue),
+          sup,
+          infer: false,
+        )) {
+      return false;
+    }
+    if (!_isFixedKind(sub) || !_isFixedKind(sup)) return true;
+    if (_isScalarKind(sub) || _isScalarKind(sup)) {
+      return sub.kind == sup.kind ||
+          sup.kind == ValueKind.number &&
+              (sub.kind == ValueKind.integer ||
+                  sub.kind == ValueKind.doubleValue);
+    }
+    final declared = sub.classExport?.target ?? sub.enumExport?.target;
+    final same =
+        sub.kind == sup.kind &&
+        sub.classExport == sup.classExport &&
+        sub.enumExport == sup.enumExport;
+    if (declared != null && !same) {
+      final cls = sub.classExport;
+      if (sup.classExport != null) {
+        final parent = cls?.superclass;
+        if (parent == null) return false;
+        return matches(
+          _substituteType(parent, {
+            for (var i = 0; i < cls!.typeParameters.length; ++i)
+              cls.typeParameters[i]: sub.typeArguments[i],
+          }),
+          sup,
+        );
+      }
+      // A class or enum only has another class type, including core types such
+      // as List or Future, by declaring it. It is never a function or record.
+      final target = sup.dartType;
+      if (target is! InterfaceType ||
+          !declaresSupertype(declared, target.classNode)) {
+        return false;
+      }
+      final arguments =
+          (cls?.coreSupertypes ??
+          sub.enumExport!.coreSupertypes)[target.classNode];
+      if (arguments == null) return true;
+      final substitutions = {
+        if (cls != null)
+          for (var i = 0; i < cls.typeParameters.length; ++i)
+            cls.typeParameters[i]: sub.typeArguments[i],
+      };
+      final expected = [
+        if (sup.kind == ValueKind.map)
+          ExportType(target.typeArguments.first, ValueKind.string),
+        sup.element!,
+      ];
+      for (var i = 0; i < arguments.length; ++i) {
+        final argument = arguments[i];
+        if (argument != null &&
+            !matches(_substituteType(argument, substitutions), expected[i])) {
+          return false;
+        }
+      }
+      return true;
+    }
+    if (sup.kind == ValueKind.object || sup.kind == ValueKind.enumeration) {
+      if (!same) return false;
+    } else if (sub.kind != sup.kind) {
+      if (sup.kind != ValueKind.list ||
+          sub.kind != ValueKind.typedData && sub.kind != ValueKind.simdList) {
+        return false;
+      }
+      final element = ExportType(
+        sub.dartType,
+        sub.kind == ValueKind.simdList
+            ? ValueKind.simd
+            : switch (sub.typedDataKind!) {
+                TypedDataKind.float32 ||
+                TypedDataKind.float64 => ValueKind.doubleValue,
+                _ => ValueKind.integer,
+              },
+        simdKind: sub.simdKind,
+      );
+      return matches(element, sup.element!);
+    } else if (sub.kind == ValueKind.function) {
+      final left = sub.signature!, right = sup.signature!;
+      if (left.typeParameters.isNotEmpty || right.typeParameters.isNotEmpty) {
+        return true;
+      }
+      if (left.positional.where((p) => p.required).length >
+              right.positional.where((p) => p.required).length ||
+          left.positional.length < right.positional.length ||
+          left.named.any(
+            (p) =>
+                p.required &&
+                !right.named.any((q) => q.name == p.name && q.required),
+          )) {
+        return false;
+      }
+      if (left.result.kind == ValueKind.voidValue &&
+              _isFixedKind(right.result) ||
+          !matches(left.result, right.result)) {
+        return false;
+      }
+      for (var i = 0; i < right.positional.length; ++i) {
+        if (!matches(right.positional[i].type, left.positional[i].type)) {
+          return false;
+        }
+      }
+      for (final parameter in right.named) {
+        final target = left.named
+            .where((p) => p.name == parameter.name)
+            .firstOrNull;
+        if (target == null || !matches(parameter.type, target.type)) {
+          return false;
+        }
+      }
+      return true;
+    } else if (sub.kind == ValueKind.record &&
+            (sub.recordFields!.positional.length !=
+                    sup.recordFields!.positional.length ||
+                sub.recordFields!.named.keys.join(',') !=
+                    sup.recordFields!.named.keys.join(',')) ||
+        sub.typedDataKind != sup.typedDataKind ||
+        sub.simdKind != sup.simdKind) {
+      return false;
+    }
+    final left = _typeChildren(sub).toList();
+    final right = _typeChildren(sup).toList();
+    for (var i = 0; i < left.length && i < right.length; ++i) {
+      if (!matches(left[i], right[i])) return false;
+    }
+    return true;
+  }
+
   bool _embedsType(ExportType from, ExportType to) {
     if (_typeKey(from) == _typeKey(to)) return true;
     final children = _typeChildren(to).toList();
@@ -1672,7 +2175,7 @@ final class _Writer {
 
   List<_AwaitedBranch> _awaitedTypes(
     ExportType type, [
-    List<({ExportType type, bool stop})> path = const [],
+    List<_AwaitedStep> path = const [],
   ]) {
     if (_awaitPreserves(type)) return [(type: type, resolve: false)];
     final base = _copyType(type, nullable: false);
@@ -1690,53 +2193,50 @@ final class _Writer {
         '@NAPI ${type.classExport?.name ?? 'Future'}: thenable resolution does not have a finite type.',
       );
     }
-    if (base.kind == ValueKind.object &&
-        path.any(
-          (step) =>
-              step.type.classExport == base.classExport &&
-              _typeDepth(step.type) < _typeDepth(base) &&
-              _embedsType(step.type, base),
-        )) {
-      throw FormatException(
-        '@NAPI ${type.classExport!.name}: thenable resolution does not have a finite type.',
-      );
-    }
-    ExportType? then;
     if (base.kind == ValueKind.future) {
-      then = base.element;
-    } else if (base.kind == ValueKind.map) {
-      values.add((type: base, resolve: false));
-      then = base.element;
+      values.addAll(
+        _awaitedTypes(base.element!, [
+          ...path,
+          (type: base, stop: type.nullable, source: null, adopted: null),
+        ]),
+      );
+      return _normalizeAwaited(values);
+    }
+    final List<_ThenMember> thens;
+    if (base.kind == ValueKind.map) {
+      thens = [(then: base.element, instance: base)];
     } else if (base.kind == ValueKind.object || base.kind == ValueKind.record) {
-      then = _thenType(base);
+      thens = _thenTypes(base, forOutput: true);
     } else {
       values.add((type: base, resolve: true));
       return _normalizeAwaited(values);
     }
-    final nullableThen =
-        base.kind != ValueKind.future && then?.nullable == true;
-    final stop = type.nullable || nullableThen || base.kind == ValueKind.map;
-    if (nullableThen) values.add((type: base, resolve: false));
-    if (base.kind != ValueKind.future) {
-      final signature = then?.signature;
+    // Values whose `then` is absent, null or not callable keep their identity.
+    final unchanged =
+        base.kind == ValueKind.map ||
+        thens.any((member) {
+          final then = member.then;
+          return then == null || then.nullable || !_mayCall(then);
+        });
+    if (unchanged) values.add((type: base, resolve: false));
+    final stop = type.nullable || unchanged;
+    var adapted = false;
+    for (final (then: then, instance: instance) in thens) {
+      if (then == null || !_mayCall(then)) continue;
+      final signature = then.signature;
       final callbackType = signature?.positional.firstOrNull?.type;
       final callback = callbackType?.signature;
       if (signature != null &&
           callback == null &&
           (callbackType == null || !_mayCall(callbackType)) &&
           needsFunctionAdapter(signature)) {
-        if (values.isEmpty) {
-          values.add((
-            type: ExportType(type.dartType, ValueKind.never),
-            resolve: false,
-          ));
-        }
-        return _normalizeAwaited(values);
+        adapted = true;
+        continue;
       }
-      then = callback?.positional.firstOrNull?.type;
-      if (callback?.positional.firstOrNull?.required == false) then = null;
-      if (then == null ||
-          _mentions(then, {
+      var value = callback?.positional.firstOrNull?.type;
+      if (callback?.positional.firstOrNull?.required == false) value = null;
+      if (value == null ||
+          _mentions(value, {
             ...?signature?.typeParameters,
             ...?callback?.typeParameters,
           })) {
@@ -1744,11 +2244,37 @@ final class _Writer {
           type: ExportType(type.dartType, ValueKind.opaque, nullable: true),
           resolve: false,
         ));
-        return _normalizeAwaited(values);
+        continue;
       }
+      if (instance.classExport != null &&
+          path.any((step) {
+            final adopted = step.adopted;
+            return adopted != null &&
+                step.source == instance.classExport &&
+                _typeDepth(adopted) < _typeDepth(value!) &&
+                _embedsType(adopted, value);
+          })) {
+        throw FormatException(
+          '@NAPI ${instance.classExport!.name}: thenable resolution does not have a finite type.',
+        );
+      }
+      values.addAll(
+        _awaitedTypes(value, [
+          ...path,
+          (
+            type: base,
+            stop: stop,
+            source: instance.classExport,
+            adopted: value,
+          ),
+        ]),
+      );
     }
-    if (then != null) {
-      values.addAll(_awaitedTypes(then, [...path, (type: base, stop: stop)]));
+    if (adapted && values.isEmpty) {
+      values.add((
+        type: ExportType(type.dartType, ValueKind.never),
+        resolve: false,
+      ));
     }
     return _normalizeAwaited(values);
   }
@@ -1902,6 +2428,8 @@ final class _Writer {
 
   String? _futureCondition(ExportType type) {
     final element = _flattenFuture(type.element!);
+    // An input that excludes adopted values never recovers the output shape.
+    if (_fulfillment(element) != null) return 'false';
     if (_awaitPreserves(element)) return _recoveryCondition(element);
     final conditions = <String>{};
     for (final branch in _awaitedTypes(element)) {
@@ -2419,12 +2947,109 @@ final class _Writer {
 
   String _futureInput(ExportType type, {bool metadata = true}) {
     final element = _flattenFuture(type);
-    final input = _type(element, output: false, metadata: metadata);
-    return element.kind == ValueKind.typeParameter &&
-            (_instanceParameters.contains(element.parameter) ||
-                _classParameters.contains(element.parameter))
-        ? _awaitedType(input)
-        : input;
+    if (element.kind == ValueKind.typeParameter &&
+        (_instanceParameters.contains(element.parameter) ||
+            _classParameters.contains(element.parameter))) {
+      return _awaitedType(_type(element, output: false, metadata: metadata));
+    }
+    return _fulfilledInput(element, metadata: metadata);
+  }
+
+  /// The input type of a fulfilled Promise. Promise resolution adopts values
+  /// with a callable `then`, so such values cannot reach Dart unchanged.
+  String _fulfilledInput(ExportType type, {bool metadata = true}) {
+    final fulfillment = _fulfillment(type);
+    if (fulfillment == null) {
+      return _type(type, output: false, metadata: metadata);
+    }
+    if (fulfillment.never) return type.nullable ? 'null' : 'never';
+    final allowed = {
+      for (final then in fulfillment.allowed)
+        _type(then, output: !fulfillment.input, metadata: metadata),
+      if (fulfillment.nullable) 'null',
+    };
+    final base = _copyType(type, nullable: false);
+    final value =
+        '${_type(base, output: false, metadata: metadata)} & { readonly then?: ${allowed.isEmpty ? 'never' : allowed.join(' | ')} }';
+    return type.nullable ? '$value | null' : value;
+  }
+
+  /// Describes the non-null values of a Promise element that Promise
+  /// resolution can fulfill unchanged, or returns null without a restriction.
+  ({bool never, bool nullable, bool input, List<ExportType> allowed})?
+  _fulfillment(ExportType type) {
+    final List<({ExportType? then, bool present})> members;
+    var input = false;
+    switch (type.kind) {
+      case ValueKind.object when type.classExport!.isObject:
+        final constructor = type.classExport!.constructor;
+        if (constructor == null) return null;
+        final then = [
+          ...constructor.signature.positional,
+          ...constructor.signature.named,
+        ].where((parameter) => parameter.name == 'then').firstOrNull;
+        if (then == null) return null;
+        input = true;
+        members = [
+          (
+            then: _substituteType(then.type, {
+              for (var i = 0; i < type.typeArguments.length; ++i)
+                type.classExport!.typeParameters[i]: type.typeArguments[i],
+            }),
+            present: then.required,
+          ),
+        ];
+      case ValueKind.object:
+        members = [
+          for (final member in _thenTypes(type))
+            (then: member.then, present: true),
+        ];
+      case ValueKind.record:
+        final then = type.recordFields!.named['then'];
+        input = true;
+        members = [(then: then, present: true)];
+      case ValueKind.map:
+        input = true;
+        members = [(then: type.element, present: false)];
+      default:
+        return null;
+    }
+    var replaced = false;
+    var never = true;
+    var nullable = false;
+    final allowed = <String, ExportType>{};
+    for (final member in members) {
+      final then = member.then;
+      if (then == null) {
+        never = false;
+        continue;
+      }
+      // TypeScript cannot describe the non-callable values of an unknown type,
+      // so a `then` that may be callable is excluded like a callable one.
+      final callable =
+          then.kind == ValueKind.function ||
+          then.kind == ValueKind.jsReference &&
+              then.referenceKind == JsReferenceKind.function;
+      if (callable || _mayCall(then)) {
+        replaced = true;
+        if (then.nullable) {
+          never = false;
+          nullable = true;
+        } else if (!member.present || !callable) {
+          never = false;
+        }
+      } else {
+        never = false;
+        allowed.putIfAbsent(_typeKey(then), () => then);
+      }
+    }
+    if (!replaced) return null;
+    return (
+      never: never,
+      nullable: nullable,
+      input: input,
+      allowed: allowed.values.toList(),
+    );
   }
 
   String _objectType(
@@ -2434,9 +3059,6 @@ final class _Writer {
   }) {
     final cls = type.classExport!;
     if (!cls.isObject) {
-      for (final argument in type.typeArguments) {
-        if (!_containsParameter(argument)) _checkClassArgument(argument, cls);
-      }
       if (_mentions(type, {..._parameterTypes.keys, ..._mixedParameters})) {
         return _classShape(type, metadata: metadata);
       }
@@ -2472,49 +3094,6 @@ final class _Writer {
     return '$name${pairs.isEmpty ? '' : '<${[
             for (final pair in pairs) ...[pair.output, pair.input],
           ].join(', ')}>'}';
-  }
-
-  void _checkClassArgument(ExportType type, ExportClass owner) {
-    if (type.kind == ValueKind.future &&
-        const {
-          ValueKind.object,
-          ValueKind.record,
-          ValueKind.map,
-        }.contains(type.element!.kind) &&
-        !_classFuturePreserves(type.element!)) {
-      throw FormatException(
-        '@NAPI ${owner.name}: thenable Future class arguments need different input and output types and are not supported yet: ${type.dartType}.',
-      );
-    }
-    for (final child in _typeChildren(type)) {
-      _checkClassArgument(child, owner);
-    }
-  }
-
-  bool _classFuturePreserves(ExportType type) {
-    if (!_awaitPreserves(type)) return false;
-    if (type.kind != ValueKind.object || type.classExport!.isObject) {
-      return true;
-    }
-    for (final cls in exports.classes) {
-      var parent = cls.superclass?.classExport;
-      while (parent != null && parent != type.classExport) {
-        parent = parent.superclass?.classExport;
-      }
-      if (parent == null) continue;
-      final then = _thenType(
-        ExportType(
-          cls.dartType,
-          ValueKind.object,
-          classExport: cls,
-          typeArguments: [
-            for (final parameter in cls.typeParameters) parameter.bound,
-          ],
-        ),
-      );
-      if (then != null && _mayCall(then)) return false;
-    }
-    return true;
   }
 
   bool _containsParameter(ExportType type) =>
@@ -2680,6 +3259,13 @@ final class _Writer {
 }
 
 typedef _AwaitedBranch = ({ExportType type, bool resolve});
+typedef _AwaitedStep = ({
+  ExportType type,
+  bool stop,
+  ExportClass? source,
+  ExportType? adopted,
+});
+typedef _ThenMember = ({ExportType? then, ExportType instance});
 typedef _ObjectPair = ({ExportClass left, ExportClass right, bool inputOnly});
 
 final class _TypePair {
@@ -2732,6 +3318,29 @@ String _label(String name, int index) =>
     RegExp(r'^[a-zA-Z_$][a-zA-Z0-9_$]*$').hasMatch(name) ? name : 'arg$index';
 
 String _member(String name) => name == 'constructor' ? '["constructor"]' : name;
+
+/// Whether values of [type] have a known JS representation and Dart subtype
+/// relation, unlike type parameters, top types, `Null` and JS references.
+bool _isFixedKind(ExportType type) => !const {
+  ValueKind.typeParameter,
+  ValueKind.opaque,
+  ValueKind.dynamicValue,
+  ValueKind.nullValue,
+  ValueKind.voidValue,
+  ValueKind.never,
+  ValueKind.undefined,
+  ValueKind.jsReference,
+}.contains(type.kind);
+
+/// Whether [type] is a scalar that no class or enum can implement.
+bool _isScalarKind(ExportType type) => const {
+  ValueKind.boolean,
+  ValueKind.integer,
+  ValueKind.doubleValue,
+  ValueKind.number,
+  ValueKind.string,
+  ValueKind.bigint,
+}.contains(type.kind);
 
 const _objectMemberNames = {
   'constructor',
