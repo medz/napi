@@ -643,6 +643,21 @@ Future<Label<Null>> nullLabel(bool adopted) async =>
     adopted ? OptionalLabel<Null>(null) : Label<Null>(null);
 
 @NAPI()
+class FlagLabelReader<T extends bool> {
+  FlagLabelReader(this.value);
+  final T value;
+
+  @NAPI()
+  Future<Label<T>> read() async => Label(value);
+
+  @NAPI()
+  Future<Label<T?>> readNullable() async => OptionalLabel<T?>(null);
+}
+
+@NAPI()
+FlagLabelReader<bool> flagLabelReader() => FlagLabelReader(true);
+
+@NAPI()
 class Slot<T> {
   @NAPI()
   Slot(this.value);

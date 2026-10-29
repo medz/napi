@@ -1935,8 +1935,12 @@ final class _Writer {
   ) {
     if (parameters.contains(sub.parameter)) {
       if (sub.nullable &&
-          !sup.nullable &&
-          (_isFixedKind(sup) || sup.kind == ValueKind.never)) {
+          !_maySubtype(
+            ExportType(sub.dartType, ValueKind.nullValue),
+            sup,
+            {},
+            {},
+          )) {
         return false;
       }
       // T? matches int? for both T = int and T = int?; keep the wider one so
@@ -1949,6 +1953,16 @@ final class _Writer {
       return true;
     }
     if (sub.kind == ValueKind.never && !sub.nullable) return true;
+    if (sup.kind == ValueKind.typeParameter &&
+        !parameters.contains(sup.parameter)) {
+      final bound = sup.parameter!.bound;
+      return _maySubtype(
+        sub,
+        sup.nullable ? _copyType(bound, nullable: true) : bound,
+        parameters,
+        inferred,
+      );
+    }
     if (sub.kind == ValueKind.nullValue || sub.kind == ValueKind.never) {
       if (sup.nullable) return true;
       if (sup.kind == ValueKind.typeParameter) {

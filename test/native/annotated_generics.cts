@@ -160,6 +160,8 @@ const presentValue: Promise<addon.Label<number | null> | string | number> = addo
 const nullLabel: Promise<addon.Label<null> | null> = addon.nullLabel(true);
 const nullFactory: Promise<addon.FactorySlot<null>> = addon.nullFactory();
 const neverFactory: Promise<addon.FactorySlot<never>> = addon.neverFactory();
+const boundedLabel: Promise<addon.Label<boolean>> = addon.flagLabelReader().read();
+const nullableBoundedLabel: Promise<addon.Label<boolean | null> | boolean | null> = addon.flagLabelReader().readNullable();
 // The base argument is only an upper bound on the adopted callback's input.
 // @ts-expect-error The actual NumberSlot may accept a narrower type than num.
 const adoptedSlot: Promise<addon.Slot<unknown> | ((value: number) => void)> = addon.slot(true);

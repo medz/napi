@@ -407,6 +407,8 @@ module.exports = async function verifyAnnotatedGenerics(path, packageDirectory) 
   assert.equal((await addon.nullLabel(false)).value, null);
   assert.ok((await addon.nullFactory()) instanceof addon.FactorySlot);
   assert.ok((await addon.neverFactory()) instanceof addon.FactorySlot);
+  assert.equal((await addon.flagLabelReader().read()).value, true);
+  assert.equal(await addon.flagLabelReader().readNullable(), null);
   const adoptedSlot = await addon.slot(true);
   assert.equal(typeof adoptedSlot, 'function');
   adoptedSlot(2);
