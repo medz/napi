@@ -1707,6 +1707,7 @@ final class _Writer {
     ExportType type,
     Set<ExportTypeParameter> parameters, {
     bool negative = false,
+    Set<ExportClass> classes = const {},
   }) {
     if (parameters.contains(type.parameter)) return negative;
     final signature = type.signature;
@@ -1718,19 +1719,57 @@ final class _Writer {
             signature.result,
             parameters,
             negative: negative,
+            classes: classes,
           ) ||
           [...signature.positional, ...signature.named].any(
             (p) => _hasContravariantParameter(
               p.type,
               parameters,
               negative: !negative,
+              classes: classes,
             ),
           );
     }
-    return _typeChildren(type).any(
-      (child) =>
-          _hasContravariantParameter(child, parameters, negative: negative),
-    );
+    if (_typeChildren(type).any(
+      (child) => _hasContravariantParameter(
+        child,
+        parameters,
+        negative: negative,
+        classes: classes,
+      ),
+    )) {
+      return true;
+    }
+    final cls = type.classExport;
+    if (cls == null || classes.contains(cls) || !_mentions(type, parameters)) {
+      return false;
+    }
+    final arguments = {
+      for (var i = 0; i < cls.typeParameters.length; ++i)
+        cls.typeParameters[i]: type.typeArguments[i],
+    };
+    bool check(ExportType member, {bool input = false}) =>
+        _hasContravariantParameter(
+          _substituteType(member, arguments),
+          parameters,
+          negative: input ? !negative : negative,
+          classes: {...classes, cls},
+        );
+    return cls.properties.any(
+          (p) =>
+              p.readType != null && check(p.readType!) ||
+              p.writeType != null && check(p.writeType!, input: true),
+        ) ||
+        cls.methods.any(
+          (method) => check(
+            ExportType(
+              method.signature.type,
+              ValueKind.function,
+              signature: method.signature,
+            ),
+          ),
+        ) ||
+        cls.superclass != null && check(cls.superclass!);
   }
 
   List<ExportClass> _descendants(ExportClass cls) =>

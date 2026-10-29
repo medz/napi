@@ -872,6 +872,9 @@ depend on a class type argument: `Future<Base<Object?>>` may contain
 `Child<String>`, whose callback only accepts strings. Narrow or assert the result
 before calling it, or declare the callback result directly as
 `Future<void Function(String)>` to expose `Promise<(value: string) => void>`.
+The same restriction applies when the adopted value exposes setters or methods
+that consume the hidden type, such as a `Box<String>` returned through a wider
+base class. Read-only results retain their declared types.
 
 Promise inputs exclude values that resolution would adopt, including values
 whose `then` may be callable. A `Future<Ticket>` parameter does not accept

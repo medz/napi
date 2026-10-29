@@ -173,6 +173,9 @@ textCallback.then(callback => {
   // @ts-expect-error An explicitly declared callback retains its parameter type.
   callback(1);
 });
+// @ts-expect-error A hidden Box<String> does not allow arbitrary writes.
+const adoptedBox: Promise<addon.ObjectResult<unknown> | addon.Box<unknown>> = addon.adoptedBox();
+const readOnlyResult: Promise<addon.Label<string> | addon.Label<string[]>> = addon.adoptedReadOnly();
 const integerBoxLabel: Promise<addon.Label<addon.Box<number>>> = addon.integerBoxLabel();
 const textBoxLabel: Promise<addon.Label<addon.Box<string>> | string> = addon.textBoxLabel();
 // @ts-expect-error Only the matching Box<String> subclass adopts a string.

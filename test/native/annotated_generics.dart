@@ -693,6 +693,37 @@ Future<CallbackSlot<Object?>> declaredCallbackSlot() async =>
 Future<void Function(String)> textCallback() async => (_) {};
 
 @NAPI()
+class ObjectResult<T> {}
+
+@NAPI()
+class BoxResult<T> extends ObjectResult<T> {
+  BoxResult(this.box);
+  final Box<T> box;
+
+  @NAPI()
+  void then(void Function(Box<T>) resolve) => resolve(box);
+}
+
+@NAPI()
+BoxResult<String> textBoxResult() => BoxResult(Box('text'));
+
+@NAPI()
+Future<ObjectResult<Object?>> adoptedBox() async => textBoxResult();
+
+@NAPI()
+class ReadOnlyResult<T> {
+  ReadOnlyResult(this.label);
+  final Label<T> label;
+
+  @NAPI()
+  void then(void Function(Label<T>) resolve) => resolve(label);
+}
+
+@NAPI()
+Future<ReadOnlyResult<String>> adoptedReadOnly() async =>
+    ReadOnlyResult(Label('read only'));
+
+@NAPI()
 class StringBox extends Box<String> {
   StringBox(super.value);
 }
