@@ -162,6 +162,19 @@ declare const adoptedSlot: Extract<SlotValue, (...args: never[]) => unknown>;
 adoptedSlot(1);
 // @ts-expect-error NumberSlot<T extends num> resolves a callback that keeps its bound.
 adoptedSlot('one');
+const integerBoxLabel: Promise<addon.Label<addon.Box<number>>> = addon.integerBoxLabel();
+const textBoxLabel: Promise<addon.Label<addon.Box<string>> | string> = addon.textBoxLabel();
+// @ts-expect-error Only the matching Box<String> subclass adopts a string.
+const plainTextBoxLabel: Promise<addon.Label<addon.Box<string>>> = addon.textBoxLabel();
+const produced: Promise<addon.FactorySlot<() => number> | ((value: number) => void) | boolean | number> = addon.producedSlot(0);
+type ProducedValue = Awaited<ReturnType<typeof addon.producedSlot>>;
+declare const producedCallback: Extract<ProducedValue, (...args: never[]) => unknown>;
+producedCallback(1);
+// @ts-expect-error T is inferred from the function result, so the callback requires a number.
+producedCallback('one');
+const positionalFactory: Promise<addon.FactorySlot<(value: number) => number> | string | boolean> = addon.positionalFactory();
+const namedFactory: Promise<addon.FactorySlot<(options: {step: number}) => number> | number> = addon.namedFactory();
+const doubleInputSlot: Promise<addon.FactorySlot<(callback: (value: number) => void) => void> | number> = addon.doubleInputSlot();
 type RepeatedSlot = Awaited<ReturnType<typeof addon.repeatedSlot>>;
 declare const repeatedSlot: Extract<RepeatedSlot, (...args: never[]) => unknown>;
 repeatedSlot(1);

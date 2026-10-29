@@ -408,6 +408,16 @@ module.exports = async function verifyAnnotatedGenerics(path, packageDirectory) 
   adoptedSlot(2);
   assert.throws(() => adoptedSlot('one'), TypeError);
   assert.equal((await addon.slot(false)).value, 'plain');
+  assert.equal((await addon.integerBoxLabel()).value.value, 1);
+  assert.equal(await addon.textBoxLabel(), 'text');
+  const producedCallback = await addon.producedSlot(0);
+  producedCallback(1);
+  assert.throws(() => producedCallback('one'), TypeError);
+  assert.equal(await addon.producedSlot(1), true);
+  assert.equal(await addon.producedSlot(2), 7);
+  assert.equal(await addon.positionalFactory(), 'required');
+  assert.equal(await addon.namedFactory(), 8);
+  assert.equal(await addon.doubleInputSlot(), 9);
   for (const result of [addon.repeatedSlot(), addon.reversedSlot(), addon.nonNullableSlot()]) {
     const callback = await result;
     callback(2);

@@ -661,6 +661,104 @@ Future<Slot<Object?>> slot(bool adopted) async =>
     adopted ? NumberSlot<num>(1) : Slot<Object?>('plain');
 
 @NAPI()
+class StringBox extends Box<String> {
+  StringBox(super.value);
+}
+
+@NAPI()
+class StringBoxLabel extends Label<StringBox> {
+  StringBoxLabel(super.value);
+
+  @NAPI()
+  void then(void Function(String) resolve) => resolve(value.value);
+}
+
+@NAPI()
+Future<Label<Box<int>>> integerBoxLabel() async => Label(Box(1));
+
+@NAPI()
+Future<Label<Box<String>>> textBoxLabel() async =>
+    StringBoxLabel(StringBox('text'));
+
+@NAPI()
+class FactorySlot<T> {}
+
+@NAPI()
+class ProducedSlot<T> extends FactorySlot<T Function()> {
+  @NAPI()
+  void then(void Function(void Function(T)) resolve) => resolve((_) {});
+}
+
+@NAPI()
+class TextFactorySlot extends FactorySlot<String Function()> {
+  @NAPI()
+  void then(void Function(String) resolve) => resolve('wrong result');
+}
+
+@NAPI()
+class RequiredFactorySlot extends FactorySlot<int Function(int)> {
+  @NAPI()
+  void then(void Function(String) resolve) => resolve('required');
+}
+
+@NAPI()
+class OptionalFactorySlot extends FactorySlot<int Function([int])> {
+  @NAPI()
+  void then(void Function(bool) resolve) => resolve(true);
+}
+
+@NAPI()
+class NamedFactorySlot<T> extends FactorySlot<T Function({int step})> {
+  NamedFactorySlot(this.value);
+  final T value;
+
+  @NAPI()
+  void then(void Function(T) resolve) => resolve(value);
+}
+
+@NAPI()
+class OtherNamedFactorySlot
+    extends FactorySlot<int Function({required int other})> {
+  @NAPI()
+  void then(void Function(String) resolve) => resolve('other name');
+}
+
+@NAPI()
+class StringParameterFactorySlot extends FactorySlot<int Function(String)> {
+  @NAPI()
+  void then(void Function(DateTime) resolve) => resolve(DateTime.utc(2026));
+}
+
+@NAPI()
+Future<FactorySlot<int Function()>> producedSlot(int kind) async =>
+    switch (kind) {
+      0 => ProducedSlot<int>(),
+      1 => OptionalFactorySlot(),
+      _ => NamedFactorySlot<int>(7),
+    };
+
+@NAPI()
+Future<FactorySlot<int Function(int)>> positionalFactory() async =>
+    RequiredFactorySlot();
+
+@NAPI()
+Future<FactorySlot<int Function({required int step})>> namedFactory() async =>
+    NamedFactorySlot<int>(8);
+
+@NAPI()
+class DoubleInputSlot<T> extends FactorySlot<void Function(void Function(T))> {
+  DoubleInputSlot(this.value);
+  final T value;
+
+  @NAPI()
+  void then(void Function(T) resolve) => resolve(value);
+}
+
+@NAPI()
+Future<FactorySlot<void Function(void Function(int))>>
+doubleInputSlot() async => DoubleInputSlot<int>(9);
+
+@NAPI()
 class PairedSlot<A, B> {}
 
 @NAPI()

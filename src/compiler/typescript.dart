@@ -1866,6 +1866,20 @@ final class _Writer {
         sub.classExport == sup.classExport &&
         sub.enumExport == sup.enumExport;
     if (declared != null && !same) {
+      final cls = sub.classExport;
+      if (sup.classExport != null) {
+        final parent = cls?.superclass;
+        if (parent == null) return false;
+        return _maySubtype(
+          _substituteType(parent, {
+            for (var i = 0; i < cls!.typeParameters.length; ++i)
+              cls.typeParameters[i]: sub.typeArguments[i],
+          }),
+          sup,
+          parameters,
+          inferred,
+        );
+      }
       // A class or enum only has another class type, including core types such
       // as List or Future, by declaring it. It is never a function or record.
       final target = sup.dartType;
@@ -1892,6 +1906,44 @@ final class _Writer {
       );
       return _maySubtype(element, sup.element!, parameters, inferred);
     } else if (sub.kind == ValueKind.function) {
+      final left = sub.signature!, right = sup.signature!;
+      if (left.typeParameters.isNotEmpty || right.typeParameters.isNotEmpty) {
+        return true;
+      }
+      if (left.positional.where((p) => p.required).length >
+              right.positional.where((p) => p.required).length ||
+          left.positional.length < right.positional.length ||
+          left.named.any(
+            (p) =>
+                p.required &&
+                !right.named.any((q) => q.name == p.name && q.required),
+          )) {
+        return false;
+      }
+      if (left.result.kind == ValueKind.voidValue &&
+              _isFixedKind(right.result) ||
+          !_maySubtype(left.result, right.result, parameters, inferred)) {
+        return false;
+      }
+      for (var i = 0; i < right.positional.length; ++i) {
+        if (!_maySubtype(
+          right.positional[i].type,
+          left.positional[i].type,
+          parameters,
+          inferred,
+        )) {
+          return false;
+        }
+      }
+      for (final parameter in right.named) {
+        final target = left.named
+            .where((p) => p.name == parameter.name)
+            .firstOrNull;
+        if (target == null ||
+            !_maySubtype(parameter.type, target.type, parameters, inferred)) {
+          return false;
+        }
+      }
       return true;
     } else if (sub.kind == ValueKind.record &&
             (sub.recordFields!.positional.length !=
