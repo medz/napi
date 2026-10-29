@@ -148,7 +148,11 @@ json.value = new Promise<{ then: PassResolver }>(resolve => resolve({ then: reso
 const flag: Promise<boolean> = addon.readFlagLabel(addon.flagLabel());
 // Counter and Stage are not lists, so their subclasses do not change Label<number[]>.
 const listLength: Promise<number> = addon.readListLabel(addon.listLabel());
-const labelText: Promise<addon.Label<string> | addon.Label<string[]>> = addon.textLabel(true);
+const integerListLabel: Promise<addon.Label<number[]>> = addon.listLabel();
+const stringListLabel: Promise<addon.Label<string[]> | string> = addon.stringListLabel();
+// @ts-expect-error The compatible List<String> subtype can adopt a string.
+const plainStringListLabel: Promise<addon.Label<string[]>> = addon.stringListLabel();
+const labelText: Promise<addon.Label<string> | addon.Label<string[]> | string> = addon.textLabel(true);
 // @ts-expect-error NestedLabel can adopt a Label<string[]>.
 const plainText: Promise<addon.Label<string>> = addon.textLabel(false);
 const numberText: Promise<addon.Label<number> | string> = addon.numberLabel(true);
@@ -177,7 +181,7 @@ textCallback.then(callback => {
 });
 // @ts-expect-error A hidden Box<String> does not allow arbitrary writes.
 const adoptedBox: Promise<addon.ObjectResult<unknown> | addon.Box<unknown>> = addon.adoptedBox();
-const readOnlyResult: Promise<addon.Label<string> | addon.Label<string[]>> = addon.adoptedReadOnly();
+const readOnlyResult: Promise<addon.Label<string> | addon.Label<string[]> | string> = addon.adoptedReadOnly();
 const integerBoxLabel: Promise<addon.Label<addon.Box<number>>> = addon.integerBoxLabel();
 const textBoxLabel: Promise<addon.Label<addon.Box<string>> | string> = addon.textBoxLabel();
 // @ts-expect-error Only the matching Box<String> subclass adopts a string.

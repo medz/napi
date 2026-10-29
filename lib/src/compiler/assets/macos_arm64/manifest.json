@@ -19,8 +19,8 @@
       "sha256": "e1824f05346e7722f090d52b9c0a07981fe8420e19ffa7a34bd1a24e83fcc9e4"
     },
     "frontend.aot": {
-      "size": 9601928,
-      "sha256": "d976df84065ff5bcc7c8cf6f061b5a5d5dc50a2a8ac8c09cf41a787add492df9"
+      "size": 9618312,
+      "sha256": "7bd9289a7b033c9f32f2adfd18b0a7e5a94841b76a8abaae2607beedfb476182"
     },
     "frontend.dylib": {
       "size": 4607312,

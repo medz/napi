@@ -1609,7 +1609,7 @@ final class _Writer {
       case ValueKind.record:
         return _thenTypes(
           type,
-        ).every((then) => then == null || !_mayCall(then));
+        ).every((member) => member.then == null || !_mayCall(member.then!));
       case ValueKind.map:
         return !_mayCall(type.element!);
       case ValueKind.jsReference:
@@ -1664,11 +1664,11 @@ final class _Writer {
 
   /// The `then` members of every JS value of [type], including the values of
   /// exported subclasses. `null` stands for values without a `then` member.
-  List<ExportType?> _thenTypes(ExportType type, {bool forOutput = false}) {
+  List<_ThenMember> _thenTypes(ExportType type, {bool forOutput = false}) {
     if (type.kind == ValueKind.record || type.classExport!.isObject) {
-      return [_thenType(type)];
+      return [(then: _thenType(type), instance: type)];
     }
-    final thens = <String, ExportType?>{};
+    final thens = <_ThenMember>[];
     for (final cls in _descendants(type.classExport!)) {
       final instance = cls == type.classExport
           ? type
@@ -1698,9 +1698,9 @@ final class _Writer {
           );
         }
       }
-      thens.putIfAbsent(then == null ? '' : _typeKey(then), () => then);
+      thens.add((then: then, instance: instance));
     }
-    return thens.values.toList();
+    return thens;
   }
 
   bool _hasContravariantParameter(
@@ -2008,8 +2008,37 @@ final class _Writer {
       // A class or enum only has another class type, including core types such
       // as List or Future, by declaring it. It is never a function or record.
       final target = sup.dartType;
-      return target is InterfaceType &&
-          declaresSupertype(declared, target.classNode);
+      if (target is! InterfaceType ||
+          !declaresSupertype(declared, target.classNode)) {
+        return false;
+      }
+      final arguments =
+          (cls?.coreSupertypes ??
+          sub.enumExport!.coreSupertypes)[target.classNode];
+      if (arguments == null) return true;
+      final substitutions = {
+        if (cls != null)
+          for (var i = 0; i < cls.typeParameters.length; ++i)
+            cls.typeParameters[i]: sub.typeArguments[i],
+      };
+      final expected = [
+        if (sup.kind == ValueKind.map)
+          ExportType(target.typeArguments.first, ValueKind.string),
+        sup.element!,
+      ];
+      for (var i = 0; i < arguments.length; ++i) {
+        final argument = arguments[i];
+        if (argument != null &&
+            !_maySubtype(
+              _substituteType(argument, substitutions),
+              expected[i],
+              parameters,
+              inferred,
+            )) {
+          return false;
+        }
+      }
+      return true;
     }
     if (sup.kind == ValueKind.object || sup.kind == ValueKind.enumeration) {
       if (!same) return false;
@@ -2112,7 +2141,7 @@ final class _Writer {
 
   List<_AwaitedBranch> _awaitedTypes(
     ExportType type, [
-    List<({ExportType type, bool stop})> path = const [],
+    List<({ExportType type, bool stop, ExportType? source})> path = const [],
   ]) {
     if (_awaitPreserves(type)) return [(type: type, resolve: false)];
     final base = _copyType(type, nullable: false);
@@ -2130,29 +2159,18 @@ final class _Writer {
         '@NAPI ${type.classExport?.name ?? 'Future'}: thenable resolution does not have a finite type.',
       );
     }
-    if (base.kind == ValueKind.object &&
-        path.any(
-          (step) =>
-              step.type.classExport == base.classExport &&
-              _typeDepth(step.type) < _typeDepth(base) &&
-              _embedsType(step.type, base),
-        )) {
-      throw FormatException(
-        '@NAPI ${type.classExport!.name}: thenable resolution does not have a finite type.',
-      );
-    }
     if (base.kind == ValueKind.future) {
       values.addAll(
         _awaitedTypes(base.element!, [
           ...path,
-          (type: base, stop: type.nullable),
+          (type: base, stop: type.nullable, source: null),
         ]),
       );
       return _normalizeAwaited(values);
     }
-    final List<ExportType?> thens;
+    final List<_ThenMember> thens;
     if (base.kind == ValueKind.map) {
-      thens = [base.element];
+      thens = [(then: base.element, instance: base)];
     } else if (base.kind == ValueKind.object || base.kind == ValueKind.record) {
       thens = _thenTypes(base, forOutput: true);
     } else {
@@ -2162,11 +2180,14 @@ final class _Writer {
     // Values whose `then` is absent, null or not callable keep their identity.
     final unchanged =
         base.kind == ValueKind.map ||
-        thens.any((then) => then == null || then.nullable || !_mayCall(then));
+        thens.any((member) {
+          final then = member.then;
+          return then == null || then.nullable || !_mayCall(then);
+        });
     if (unchanged) values.add((type: base, resolve: false));
     final stop = type.nullable || unchanged;
     var adapted = false;
-    for (final then in thens) {
+    for (final (then: then, instance: instance) in thens) {
       if (then == null || !_mayCall(then)) continue;
       final signature = then.signature;
       final callbackType = signature?.positional.firstOrNull?.type;
@@ -2191,7 +2212,24 @@ final class _Writer {
         ));
         continue;
       }
-      values.addAll(_awaitedTypes(value, [...path, (type: base, stop: stop)]));
+      if (instance.classExport != null &&
+          path.any((step) {
+            final source = step.source;
+            return source != null &&
+                source.classExport == instance.classExport &&
+                _typeDepth(source) < _typeDepth(instance) &&
+                _embedsType(source, instance);
+          })) {
+        throw FormatException(
+          '@NAPI ${instance.classExport!.name}: thenable resolution does not have a finite type.',
+        );
+      }
+      values.addAll(
+        _awaitedTypes(value, [
+          ...path,
+          (type: base, stop: stop, source: instance),
+        ]),
+      );
     }
     if (adapted && values.isEmpty) {
       values.add((
@@ -2924,7 +2962,8 @@ final class _Writer {
         ];
       case ValueKind.object:
         members = [
-          for (final then in _thenTypes(type)) (then: then, present: true),
+          for (final member in _thenTypes(type))
+            (then: member.then, present: true),
         ];
       case ValueKind.record:
         final then = type.recordFields!.named['then'];
@@ -3181,6 +3220,7 @@ final class _Writer {
 }
 
 typedef _AwaitedBranch = ({ExportType type, bool resolve});
+typedef _ThenMember = ({ExportType? then, ExportType instance});
 typedef _ObjectPair = ({ExportClass left, ExportClass right, bool inputOnly});
 
 final class _TypePair {

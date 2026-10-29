@@ -244,6 +244,7 @@ final class ExportClass {
   final InterfaceType? instanceType;
   final instances = <ExportClass>[];
   ExportType? superclass;
+  final coreSupertypes = <Class, List<ExportType?>>{};
   final specializations =
       <
         ExportClass,
@@ -290,11 +291,12 @@ final class ExportConstant {
 }
 
 final class ExportEnum {
-  const ExportEnum(this.target, this.name, this.values, this.cases);
+  ExportEnum(this.target, this.name, this.values, this.cases);
   final Class target;
   final String name;
   final Field values;
   final List<({String name, int index})> cases;
+  final coreSupertypes = <Class, List<ExportType?>>{};
   InterfaceType get dartType => InterfaceType(target, Nullability.nonNullable);
 }
 
@@ -553,6 +555,7 @@ final class _Reader {
         for (final parameter in cls.typeParameters) parameter.target: parameter,
       });
       cls.arguments.addAll(_classArguments(cls, cls));
+      cls.coreSupertypes.addAll(_coreSupertypes(cls.target));
       final parent = parents[cls];
       if (parent != null) {
         final type = hierarchy.getClassAsInstanceOf(cls.target, parent.target)!;
@@ -594,6 +597,9 @@ final class _Reader {
         }
       }
       _parameters.clear();
+    }
+    for (final enumeration in module.enums) {
+      enumeration.coreSupertypes.addAll(_coreSupertypes(enumeration.target));
     }
     for (final declaration in selected) {
       final name = _name(declaration, declaration.name.text);
@@ -1064,6 +1070,31 @@ final class _Reader {
       );
     }
     return Substitution.fromSupertype(type);
+  }
+
+  Map<Class, List<ExportType?>> _coreSupertypes(Class cls) {
+    ExportType? argument(DartType type) {
+      try {
+        return _type(type, '${cls.name}: supertype argument');
+      } on FormatException {
+        // An unexposed supertype argument need not have a JS mapping.
+        // Leave that argument's subtype relation unknown.
+        return null;
+      }
+    }
+
+    final core = hierarchy.coreTypes;
+    return {
+      for (final target in [
+        core.listClass,
+        core.setClass,
+        core.mapClass,
+        core.futureClass,
+        core.streamClass,
+      ])
+        if (hierarchy.getClassAsInstanceOf(cls, target) case final type?)
+          target: type.typeArguments.map(argument).toList(),
+    };
   }
 
   DartType _actual(DartType type, {bool reified = true}) =>

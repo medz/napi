@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:typed_data';
 
 import 'package:napi/env.dart';
@@ -616,6 +617,32 @@ class StageLabel extends Label<Stage> {
 
 @NAPI()
 Future<Label<List<int>>> listLabel() async => Label([1, 2]);
+
+@NAPI()
+class ValueList<T> extends ListBase<T> {
+  ValueList(this.values);
+  final List<T> values;
+
+  @override
+  int get length => values.length;
+  @override
+  set length(int value) => values.length = value;
+  @override
+  T operator [](int index) => values[index];
+  @override
+  void operator []=(int index, T value) => values[index] = value;
+}
+
+@NAPI()
+class StringListLabel extends Label<ValueList<String>> {
+  StringListLabel() : super(ValueList(['text']));
+
+  @NAPI()
+  void then(void Function(String) resolve) => resolve(value.single);
+}
+
+@NAPI()
+Future<Label<List<String>>> stringListLabel() async => StringListLabel();
 
 @NAPI()
 Future<int> readListLabel(Future<Label<List<int>>> label) async =>
