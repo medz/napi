@@ -395,6 +395,12 @@ module.exports = async function verifyAnnotatedGenerics(path, packageDirectory) 
   assert.deepEqual(nestedText.value, ['text']);
   const plainText = await addon.textLabel(false);
   assert.equal(plainText.value, 'plain');
+  assert.equal(await addon.readListLabel(addon.listLabel()), 2);
+  assert.deepEqual((await addon.listLabel()).value, [1, 2]);
+  assert.equal(await addon.numberLabel(true), 'number:3');
+  assert.equal((await addon.numberLabel(false)).value, 4.5);
+  assert.equal(await new addon.CounterLabel(new addon.Counter(1)), 'counter');
+  assert.equal(await new addon.StageLabel(addon.Stage.done), 'stage');
   const tag = await addon.taggedFutureBox().value;
   assert.ok(tag instanceof addon.NumericTag);
   assert(tag instanceof addon.Tag);

@@ -596,6 +596,35 @@ Future<bool> readFlagLabel(Future<Label<bool>> label) async =>
 Future<Label<String>> textLabel(bool nested) async =>
     nested ? NestedLabel('text') : Label('plain');
 
+@NAPI()
+class CounterLabel extends Label<Counter> {
+  @NAPI()
+  CounterLabel(super.value);
+
+  @NAPI()
+  void then(void Function(String) resolve) => resolve('counter');
+}
+
+@NAPI()
+class StageLabel extends Label<Stage> {
+  @NAPI()
+  StageLabel(super.value);
+
+  @NAPI()
+  void then(void Function(String) resolve) => resolve('stage');
+}
+
+@NAPI()
+Future<Label<List<int>>> listLabel() async => Label([1, 2]);
+
+@NAPI()
+Future<int> readListLabel(Future<Label<List<int>>> label) async =>
+    (await label).value.length;
+
+@NAPI()
+Future<Label<num>> numberLabel(bool adopted) async =>
+    adopted ? NumberLabel(3) : Label<num>(4.5);
+
 @NAPI.object()
 class Amount {
   @NAPI()

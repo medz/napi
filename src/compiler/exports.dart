@@ -138,6 +138,20 @@ final class ExportSignature {
   final ExportType result;
 }
 
+/// Whether [sub] declares [sup] among its transitive supertypes. A class or
+/// enum can only have a core type such as List or Future by declaring it.
+bool declaresSupertype(Class sub, Class sup) {
+  final seen = <Class>{};
+  final pending = [sub];
+  while (pending.isNotEmpty) {
+    final cls = pending.removeLast();
+    if (cls == sup) return true;
+    if (!seen.add(cls)) continue;
+    pending.addAll(cls.supers.map((supertype) => supertype.classNode));
+  }
+  return false;
+}
+
 bool needsFunctionAdapter(ExportSignature signature) =>
     signature.positional.any(
       (parameter) => usesDirectionalConversion(parameter.type),

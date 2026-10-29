@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:kernel/ast.dart' show InterfaceType;
+
 import 'exports.dart';
 
 String typeScriptDeclarations(ExportModule exports, {bool esm = false}) =>
@@ -1775,19 +1777,20 @@ final class _Writer {
               (sub.kind == ValueKind.integer ||
                   sub.kind == ValueKind.doubleValue);
     }
-    if (sub.kind == ValueKind.enumeration) {
-      return sup.kind != ValueKind.enumeration ||
-          sub.enumExport == sup.enumExport;
+    final declared = sub.classExport?.target ?? sub.enumExport?.target;
+    final same =
+        sub.kind == sup.kind &&
+        sub.classExport == sup.classExport &&
+        sub.enumExport == sup.enumExport;
+    if (declared != null && !same) {
+      // A class or enum only has another class type, including core types such
+      // as List or Future, by declaring it. It is never a function or record.
+      final target = sup.dartType;
+      return target is InterfaceType &&
+          declaresSupertype(declared, target.classNode);
     }
-    if (sup.kind == ValueKind.enumeration) return false;
-    if (sup.kind == ValueKind.object) {
-      if (sub.kind != ValueKind.object) return false;
-      if (sub.classExport != sup.classExport) {
-        return _descendants(sup.classExport!).contains(sub.classExport);
-      }
-    } else if (sub.kind == ValueKind.object) {
-      // A class can implement interfaces such as List or Future.
-      return sup.kind != ValueKind.record;
+    if (sup.kind == ValueKind.object || sup.kind == ValueKind.enumeration) {
+      if (!same) return false;
     } else if (sub.kind != sup.kind) {
       return sup.kind == ValueKind.list &&
           (sub.kind == ValueKind.typedData || sub.kind == ValueKind.simdList);
