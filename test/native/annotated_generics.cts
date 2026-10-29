@@ -182,6 +182,15 @@ textCallback.then(callback => {
 // @ts-expect-error A hidden Box<String> does not allow arbitrary writes.
 const adoptedBox: Promise<addon.ObjectResult<unknown> | addon.Box<unknown>> = addon.adoptedBox();
 const readOnlyResult: Promise<addon.Label<string> | addon.Label<string[]> | string> = addon.adoptedReadOnly();
+addon.adoptedSwappedPair().then(result => {
+  // @ts-expect-error Swapping the parameters exposes the hidden String input.
+  result.swapped.accept(123);
+});
+const readOnlyPair: Promise<addon.ReadOnlyPair<string, number>> = addon.adoptedReadOnlyPair();
+readOnlyPair.then(result => {
+  const text: string = result.swapped.second;
+  const number: number = result.swapped.swapped.second;
+});
 const integerBoxLabel: Promise<addon.Label<addon.Box<number>>> = addon.integerBoxLabel();
 const textBoxLabel: Promise<addon.Label<addon.Box<string>> | string> = addon.textBoxLabel();
 // @ts-expect-error Only the matching Box<String> subclass adopts a string.

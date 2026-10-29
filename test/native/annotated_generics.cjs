@@ -428,6 +428,13 @@ module.exports = async function verifyAnnotatedGenerics(path, packageDirectory) 
   assert.throws(() => { adoptedBox.value = 1; }, TypeError);
   assert.throws(() => adoptedBox.replace(1), TypeError);
   assert.equal((await addon.adoptedReadOnly()).value, 'read only');
+  const swappedPair = await addon.adoptedSwappedPair();
+  assert.equal(swappedPair.accept(123), 123);
+  assert.equal(swappedPair.swapped.accept('changed'), 'changed');
+  assert.throws(() => swappedPair.swapped.accept(123), TypeError);
+  const readOnlyPair = await addon.adoptedReadOnlyPair();
+  assert.equal(readOnlyPair.swapped.second, 'text');
+  assert.equal(readOnlyPair.swapped.swapped.second, 1);
   assert.equal((await addon.integerBoxLabel()).value.value, 1);
   assert.equal(await addon.textBoxLabel(), 'text');
   const producedCallback = await addon.producedSlot(0);

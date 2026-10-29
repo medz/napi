@@ -1707,7 +1707,7 @@ final class _Writer {
     ExportType type,
     Set<ExportTypeParameter> parameters, {
     bool negative = false,
-    Set<ExportClass> classes = const {},
+    List<({ExportType type, bool negative})> path = const [],
   }) {
     if (parameters.contains(type.parameter)) return negative;
     final signature = type.signature;
@@ -1719,14 +1719,14 @@ final class _Writer {
             signature.result,
             parameters,
             negative: negative,
-            classes: classes,
+            path: path,
           ) ||
           [...signature.positional, ...signature.named].any(
             (p) => _hasContravariantParameter(
               p.type,
               parameters,
               negative: !negative,
-              classes: classes,
+              path: path,
             ),
           );
     }
@@ -1735,14 +1735,24 @@ final class _Writer {
         child,
         parameters,
         negative: negative,
-        classes: classes,
+        path: path,
       ),
     )) {
       return true;
     }
     final cls = type.classExport;
-    if (cls == null || classes.contains(cls) || !_mentions(type, parameters)) {
+    if (cls == null || !_mentions(type, parameters)) {
       return false;
+    }
+    for (final step in path) {
+      if (step.type.classExport != cls || step.negative != negative) continue;
+      if (_typeKey(step.type) == _typeKey(type)) return false;
+      // Changed arguments can expose a consuming member on the next visit.
+      // An expanding chain cannot establish that every result is read-only.
+      if (_typeDepth(step.type) < _typeDepth(type) &&
+          _embedsType(step.type, type)) {
+        return true;
+      }
     }
     final arguments = {
       for (var i = 0; i < cls.typeParameters.length; ++i)
@@ -1753,7 +1763,7 @@ final class _Writer {
           _substituteType(member, arguments),
           parameters,
           negative: input ? !negative : negative,
-          classes: {...classes, cls},
+          path: [...path, (type: type, negative: negative)],
         );
     return cls.properties.any(
           (p) =>

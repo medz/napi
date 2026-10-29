@@ -766,6 +766,64 @@ Future<ReadOnlyResult<String>> adoptedReadOnly() async =>
     ReadOnlyResult(Label('read only'));
 
 @NAPI()
+class SwappedPair<A, B> {
+  SwappedPair(this.first, this.second);
+  final A first;
+  final B second;
+
+  @NAPI()
+  SwappedPair<B, A> get swapped => SwappedPair(second, first);
+
+  @NAPI()
+  B accept(B value) => value;
+}
+
+@NAPI()
+class SwappedResult<T> {
+  SwappedResult(this.value);
+  final T value;
+
+  @NAPI()
+  void then(void Function(SwappedPair<T, int>) resolve) =>
+      resolve(SwappedPair(value, 1));
+}
+
+@NAPI()
+SwappedResult<String> textSwappedResult() => SwappedResult('text');
+
+@NAPI()
+Future<SwappedResult<Object?>> adoptedSwappedPair() async =>
+    textSwappedResult();
+
+@NAPI()
+class ReadOnlyPair<A, B> {
+  ReadOnlyPair(this.first, this.second);
+
+  @NAPI()
+  final A first;
+
+  @NAPI()
+  final B second;
+
+  @NAPI()
+  ReadOnlyPair<B, A> get swapped => ReadOnlyPair(second, first);
+}
+
+@NAPI()
+class ReadOnlyPairResult<T> {
+  ReadOnlyPairResult(this.value);
+  final T value;
+
+  @NAPI()
+  void then(void Function(ReadOnlyPair<T, int>) resolve) =>
+      resolve(ReadOnlyPair(value, 1));
+}
+
+@NAPI()
+Future<ReadOnlyPairResult<String>> adoptedReadOnlyPair() async =>
+    ReadOnlyPairResult('text');
+
+@NAPI()
 class StringBox extends Box<String> {
   StringBox(super.value);
 }
