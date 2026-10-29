@@ -1763,10 +1763,9 @@ final class _Writer {
 
     if (parameters.contains(sub.parameter)) {
       if (sub.nullable && !sup.nullable && fixed(sup)) return false;
-      inferred.putIfAbsent(
-        sub.parameter!,
-        () => sub.nullable ? _copyType(sup, nullable: false) : sup,
-      );
+      // T? matches int? for both T = int and T = int?; keep the wider one so
+      // results include the null that T = int? values can contain.
+      inferred.putIfAbsent(sub.parameter!, () => sup);
       return true;
     }
     if (!fixed(sub) || !fixed(sup)) return true;

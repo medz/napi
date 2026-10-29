@@ -154,6 +154,9 @@ const plainText: Promise<addon.Label<string>> = addon.textLabel(false);
 const numberText: Promise<addon.Label<number> | string> = addon.numberLabel(true);
 // @ts-expect-error NumberLabel is a Label<num> and can adopt a string.
 const plainNumber: Promise<addon.Label<number>> = addon.numberLabel(false);
+const optionalValue: Promise<addon.Label<number | null> | string | number | null> = addon.optionalLabel(true);
+// @ts-expect-error OptionalLabel<int?> can adopt null.
+const presentValue: Promise<addon.Label<number | null> | string | number> = addon.optionalLabel(false);
 const taggedFutureValue: Promise<addon.Tag<number>> = addon.taggedFutureBox().value;
 const numericTagName: string = addon.NumericTag.name;
 declare const unknownTag: unknown;

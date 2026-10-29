@@ -401,6 +401,8 @@ module.exports = async function verifyAnnotatedGenerics(path, packageDirectory) 
   assert.equal((await addon.numberLabel(false)).value, 4.5);
   assert.equal(await new addon.CounterLabel(new addon.Counter(1)), 'counter');
   assert.equal(await new addon.StageLabel(addon.Stage.done), 'stage');
+  assert.equal(await addon.optionalLabel(true), null);
+  assert.equal((await addon.optionalLabel(false)).value, 4);
   const tag = await addon.taggedFutureBox().value;
   assert.ok(tag instanceof addon.NumericTag);
   assert(tag instanceof addon.Tag);

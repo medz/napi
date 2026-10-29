@@ -625,6 +625,19 @@ Future<int> readListLabel(Future<Label<List<int>>> label) async =>
 Future<Label<num>> numberLabel(bool adopted) async =>
     adopted ? NumberLabel(3) : Label<num>(4.5);
 
+@NAPI()
+class OptionalLabel<T> extends Label<T?> {
+  @NAPI()
+  OptionalLabel(super.value);
+
+  @NAPI()
+  void then(void Function(T) resolve) => resolve(value as T);
+}
+
+@NAPI()
+Future<Label<int?>> optionalLabel(bool adopted) async =>
+    adopted ? OptionalLabel<int?>(null) : Label<int?>(4);
+
 @NAPI.object()
 class Amount {
   @NAPI()
