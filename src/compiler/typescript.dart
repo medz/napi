@@ -18,6 +18,13 @@ final class _Writer {
       } {
     for (final cls in exports.classes) {
       _registerParameters(cls.typeParameters);
+      for (final type in [
+        if (cls.superclass != null) cls.superclass!,
+        for (final arguments in cls.coreSupertypes.values)
+          ...arguments.nonNulls,
+      ]) {
+        _registerType(type, cls.typeParameters);
+      }
       for (final function in [
         if (cls.constructor != null) cls.constructor!,
         ...cls.methods,
@@ -31,6 +38,13 @@ final class _Writer {
         }
         if (property.writeType != null) {
           _registerType(property.writeType!, cls.typeParameters);
+        }
+      }
+    }
+    for (final enumeration in exports.enums) {
+      for (final arguments in enumeration.coreSupertypes.values) {
+        for (final type in arguments.nonNulls) {
+          _registerType(type, const []);
         }
       }
     }
@@ -223,8 +237,10 @@ final class _Writer {
           : parameter.defaultType;
       defaultTypes.add(defaultType);
       if (defaultType.kind == ValueKind.typeParameter &&
-          pending.contains(defaultType.parameter!.target)) {
+              pending.contains(defaultType.parameter!.target) ||
+          _mentions(bound, {parameter})) {
         // Defaults must form a suffix and can only refer to earlier parameters.
+        // Dart's erased default need not satisfy a self-referential TS bound.
         firstDefault = i + 1;
       }
       pending.remove(parameter.target);
@@ -630,6 +646,9 @@ final class _Writer {
     final parameter = _parameterModes[type.parameter];
     if (parameter != null)
       return type.nullable ? '$parameter | "stable"' : parameter;
+    if (type.kind == ValueKind.object && !type.classExport!.isObject) {
+      return '"stable"';
+    }
     if (!_mentions(type, _parameterModes.keys.toSet())) {
       return '$_mode<${_type(type)}>';
     }
@@ -1941,15 +1960,28 @@ final class _Writer {
     ExportType sub,
     ExportType sup,
     Set<ExportTypeParameter> parameters,
-    Map<ExportTypeParameter, ExportType> inferred,
-  ) {
+    Map<ExportTypeParameter, ExportType> inferred, [
+    Set<String> path = const {},
+  ]) {
+    final key = '${_typeKey(sub)}<:${_typeKey(sup)}';
+    // Recursive bounds can revisit the same relation through a superclass.
+    // That adds no constraint; other arguments are still checked separately.
+    if (path.contains(key)) return true;
+    final visited = {...path, key};
+    bool matches(ExportType left, ExportType right, {bool infer = true}) =>
+        _maySubtype(
+          left,
+          right,
+          infer ? parameters : {},
+          infer ? inferred : {},
+          visited,
+        );
     if (parameters.contains(sub.parameter)) {
       if (sub.nullable &&
-          !_maySubtype(
+          !matches(
             ExportType(sub.dartType, ValueKind.nullValue),
             sup,
-            {},
-            {},
+            infer: false,
           )) {
         return false;
       }
@@ -1966,17 +1998,15 @@ final class _Writer {
     if (sup.kind == ValueKind.typeParameter &&
         !parameters.contains(sup.parameter)) {
       final bound = sup.parameter!.bound;
-      return _maySubtype(
+      return matches(
         sub,
         sup.nullable ? _copyType(bound, nullable: true) : bound,
-        parameters,
-        inferred,
       );
     }
     if (sub.kind == ValueKind.nullValue || sub.kind == ValueKind.never) {
       if (sup.nullable) return true;
       if (sup.kind == ValueKind.typeParameter) {
-        return _maySubtype(sub, sup.parameter!.bound, parameters, inferred);
+        return matches(sub, sup.parameter!.bound);
       }
       return const {
         ValueKind.nullValue,
@@ -1987,8 +2017,15 @@ final class _Writer {
     if (sup.kind == ValueKind.nullValue || sup.kind == ValueKind.never) {
       return false;
     }
+    if (sub.nullable &&
+        !matches(
+          ExportType(sub.dartType, ValueKind.nullValue),
+          sup,
+          infer: false,
+        )) {
+      return false;
+    }
     if (!_isFixedKind(sub) || !_isFixedKind(sup)) return true;
-    if (sub.nullable && !sup.nullable) return false;
     if (_isScalarKind(sub) || _isScalarKind(sup)) {
       return sub.kind == sup.kind ||
           sup.kind == ValueKind.number &&
@@ -2005,14 +2042,12 @@ final class _Writer {
       if (sup.classExport != null) {
         final parent = cls?.superclass;
         if (parent == null) return false;
-        return _maySubtype(
+        return matches(
           _substituteType(parent, {
             for (var i = 0; i < cls!.typeParameters.length; ++i)
               cls.typeParameters[i]: sub.typeArguments[i],
           }),
           sup,
-          parameters,
-          inferred,
         );
       }
       // A class or enum only has another class type, including core types such
@@ -2039,12 +2074,7 @@ final class _Writer {
       for (var i = 0; i < arguments.length; ++i) {
         final argument = arguments[i];
         if (argument != null &&
-            !_maySubtype(
-              _substituteType(argument, substitutions),
-              expected[i],
-              parameters,
-              inferred,
-            )) {
+            !matches(_substituteType(argument, substitutions), expected[i])) {
           return false;
         }
       }
@@ -2068,7 +2098,7 @@ final class _Writer {
               },
         simdKind: sub.simdKind,
       );
-      return _maySubtype(element, sup.element!, parameters, inferred);
+      return matches(element, sup.element!);
     } else if (sub.kind == ValueKind.function) {
       final left = sub.signature!, right = sup.signature!;
       if (left.typeParameters.isNotEmpty || right.typeParameters.isNotEmpty) {
@@ -2086,16 +2116,11 @@ final class _Writer {
       }
       if (left.result.kind == ValueKind.voidValue &&
               _isFixedKind(right.result) ||
-          !_maySubtype(left.result, right.result, parameters, inferred)) {
+          !matches(left.result, right.result)) {
         return false;
       }
       for (var i = 0; i < right.positional.length; ++i) {
-        if (!_maySubtype(
-          right.positional[i].type,
-          left.positional[i].type,
-          parameters,
-          inferred,
-        )) {
+        if (!matches(right.positional[i].type, left.positional[i].type)) {
           return false;
         }
       }
@@ -2103,8 +2128,7 @@ final class _Writer {
         final target = left.named
             .where((p) => p.name == parameter.name)
             .firstOrNull;
-        if (target == null ||
-            !_maySubtype(parameter.type, target.type, parameters, inferred)) {
+        if (target == null || !matches(parameter.type, target.type)) {
           return false;
         }
       }
@@ -2121,7 +2145,7 @@ final class _Writer {
     final left = _typeChildren(sub).toList();
     final right = _typeChildren(sup).toList();
     for (var i = 0; i < left.length && i < right.length; ++i) {
-      if (!_maySubtype(left[i], right[i], parameters, inferred)) return false;
+      if (!matches(left[i], right[i])) return false;
     }
     return true;
   }

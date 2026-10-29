@@ -152,6 +152,23 @@ const integerListLabel: Promise<addon.Label<number[]>> = addon.listLabel();
 const stringListLabel: Promise<addon.Label<string[]> | string> = addon.stringListLabel();
 // @ts-expect-error The compatible List<String> subtype can adopt a string.
 const plainStringListLabel: Promise<addon.Label<string[]>> = addon.stringListLabel();
+const callbackCoreSupertype: Promise<addon.CallbackBase<unknown[]> | number> = addon.callbackCoreSupertype();
+const integerCoreSupertype: Promise<addon.CallbackBase<number[]>> = addon.integerCoreSupertype();
+// @ts-expect-error The matching generic-function List subclass adopts an integer.
+const plainCallbackCoreSupertype: Promise<addon.CallbackBase<unknown[]>> = addon.callbackCoreSupertype();
+const recursiveResult: Promise<addon.RecursiveResult<addon.LeafNode> | string> = addon.recursiveReader().read();
+const recursiveReader: addon.RecursiveReader<addon.LeafNode> = addon.recursiveReader();
+// @ts-expect-error Recursive bounds require an explicit type argument in type annotations.
+declare const recursiveDefault: addon.RecursiveReader;
+// @ts-expect-error The recursively bounded LeafNode subclass can adopt a string.
+const plainRecursiveResult: Promise<addon.RecursiveResult<addon.LeafNode>> = addon.recursiveReader().read();
+const nonNullBase: Promise<addon.NullBase<unknown>> = addon.nonNullBase();
+const nullableBase: Promise<addon.NullBase<unknown> | string> = addon.nullableBase();
+const dynamicBase: Promise<addon.NullBase<unknown> | string> = addon.dynamicBase();
+// @ts-expect-error Nullable top types still admit the nullable child.
+const plainNullableBase: Promise<addon.NullBase<unknown>> = addon.nullableBase();
+// @ts-expect-error dynamic still admits the nullable child.
+const plainDynamicBase: Promise<addon.NullBase<unknown>> = addon.dynamicBase();
 const labelText: Promise<addon.Label<string> | addon.Label<string[]> | string> = addon.textLabel(true);
 // @ts-expect-error NestedLabel can adopt a Label<string[]>.
 const plainText: Promise<addon.Label<string>> = addon.textLabel(false);

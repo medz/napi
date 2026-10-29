@@ -398,6 +398,12 @@ module.exports = async function verifyAnnotatedGenerics(path, packageDirectory) 
   assert.equal(await addon.readListLabel(addon.listLabel()), 2);
   assert.deepEqual((await addon.listLabel()).value, [1, 2]);
   assert.equal(await addon.stringListLabel(), 'text');
+  assert.equal(await addon.callbackCoreSupertype(), 3);
+  assert.ok((await addon.integerCoreSupertype()) instanceof addon.CallbackBase);
+  assert.equal(await addon.recursiveReader().read(), 'leaf');
+  assert.ok((await addon.nonNullBase()) instanceof addon.NullBase);
+  assert.equal(await addon.nullableBase(), 'nullable');
+  assert.equal(await addon.dynamicBase(), 'nullable');
   assert.equal(await addon.numberLabel(true), 'number:3');
   assert.equal((await addon.numberLabel(false)).value, 4.5);
   assert.equal(await new addon.CounterLabel(new addon.Counter(1)), 'counter');

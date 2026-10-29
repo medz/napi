@@ -555,6 +555,9 @@ bound classes. For example, `T identity<T extends Counter>(T value) => value`
 preserves the original instance and its subclass type in TypeScript. Generic
 callbacks with a class bound receive the ordinary JS instance; Dart checks their
 result against the actual type argument, including a narrower subclass.
+When a bound refers to its own parameter, such as `T extends Node<T>`,
+TypeScript type annotations need an explicit argument, such as `Reader<Leaf>`.
+Calls can still infer their type arguments.
 Bounds that copy values, such as `List<int>` or data classes, require a required,
 non-null bound-instance parameter that supplies the actual Dart type:
 

@@ -645,6 +645,86 @@ class StringListLabel extends Label<ValueList<String>> {
 Future<Label<List<String>>> stringListLabel() async => StringListLabel();
 
 @NAPI()
+class CallbackList<T> extends ListBase<T Function<U>()> {
+  CallbackList(this.value);
+  final T value;
+
+  @override
+  int get length => 1;
+  @override
+  set length(int value) => throw UnsupportedError('fixed length');
+  @override
+  T Function<U>() operator [](int index) =>
+      <U>() => value;
+  @override
+  void operator []=(int index, T Function<U>() value) =>
+      throw UnsupportedError('read only');
+}
+
+@NAPI()
+class CallbackBase<T> {}
+
+@NAPI()
+class CallbackListResult extends CallbackBase<CallbackList<int>> {
+  @NAPI()
+  void then(void Function(int) resolve) =>
+      resolve(CallbackList(3).single<String>());
+}
+
+@NAPI()
+Future<CallbackBase<List<Object?>>> callbackCoreSupertype() async =>
+    CallbackListResult();
+
+@NAPI()
+Future<CallbackBase<List<int>>> integerCoreSupertype() async =>
+    CallbackBase<List<int>>();
+
+@NAPI()
+class RecursiveNode<T> {}
+
+@NAPI()
+class LeafNode extends RecursiveNode<LeafNode> {}
+
+@NAPI()
+class RecursiveResult<T> {}
+
+@NAPI()
+class LeafResult extends RecursiveResult<LeafNode> {
+  @NAPI()
+  void then(void Function(String) resolve) => resolve('leaf');
+}
+
+@NAPI()
+class RecursiveReader<T extends RecursiveNode<T>> {
+  RecursiveReader(this.value);
+  final RecursiveResult<T> value;
+
+  @NAPI()
+  Future<RecursiveResult<T>> read() async => value;
+}
+
+@NAPI()
+RecursiveReader<LeafNode> recursiveReader() => RecursiveReader(LeafResult());
+
+@NAPI()
+class NullBase<T> {}
+
+@NAPI()
+class NullChild extends NullBase<int?> {
+  @NAPI()
+  void then(void Function(String) resolve) => resolve('nullable');
+}
+
+@NAPI()
+Future<NullBase<Object>> nonNullBase() async => NullBase<Object>();
+
+@NAPI()
+Future<NullBase<Object?>> nullableBase() async => NullChild();
+
+@NAPI()
+Future<NullBase<dynamic>> dynamicBase() async => NullChild();
+
+@NAPI()
 Future<int> readListLabel(Future<Label<List<int>>> label) async =>
     (await label).value.length;
 
