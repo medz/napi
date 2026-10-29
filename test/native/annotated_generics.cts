@@ -162,6 +162,34 @@ declare const adoptedSlot: Extract<SlotValue, (...args: never[]) => unknown>;
 adoptedSlot(1);
 // @ts-expect-error NumberSlot<T extends num> resolves a callback that keeps its bound.
 adoptedSlot('one');
+type RepeatedSlot = Awaited<ReturnType<typeof addon.repeatedSlot>>;
+declare const repeatedSlot: Extract<RepeatedSlot, (...args: never[]) => unknown>;
+repeatedSlot(1);
+// @ts-expect-error Both occurrences of T constrain the adopted callback.
+repeatedSlot('one');
+type ReversedSlot = Awaited<ReturnType<typeof addon.reversedSlot>>;
+declare const reversedSlot: Extract<ReversedSlot, (...args: never[]) => unknown>;
+reversedSlot(1);
+// @ts-expect-error Constraint order does not widen the callback.
+reversedSlot('one');
+type NonNullableSlot = Awaited<ReturnType<typeof addon.nonNullableSlot>>;
+declare const nonNullableSlot: Extract<NonNullableSlot, (...args: never[]) => unknown>;
+nonNullableSlot(1);
+// @ts-expect-error T must satisfy the non-nullable occurrence too.
+nonNullableSlot(null);
+type NullSlot = Awaited<ReturnType<typeof addon.nullSlot>>;
+declare const nullSlot: Extract<NullSlot, (...args: never[]) => unknown>;
+nullSlot(null);
+// @ts-expect-error The second occurrence restricts T to Null.
+nullSlot(1);
+const stringCollection: Promise<addon.CollectionLabel<string[]>> = addon.stringCollection();
+const intCollection: Promise<addon.CollectionLabel<number[]> | string> = addon.intCollection();
+const doubleCollection: Promise<addon.CollectionLabel<number[]> | boolean> = addon.doubleCollection();
+const vectorCollection: Promise<addon.CollectionLabel<Float32Array[]> | number> = addon.vectorCollection();
+// @ts-expect-error Uint8List is a List<int> and its subclass can adopt a string.
+const plainIntCollection: Promise<addon.CollectionLabel<number[]>> = addon.intCollection();
+const ticketTag = addon.ticketTag(new addon.Ticket(9));
+const ticketTagId: Promise<number> = addon.tagReader().read(Promise.resolve(ticketTag));
 const taggedFutureValue: Promise<addon.Tag<number>> = addon.taggedFutureBox().value;
 const numericTagName: string = addon.NumericTag.name;
 declare const unknownTag: unknown;

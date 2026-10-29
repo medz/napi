@@ -871,8 +871,9 @@ is `unknown`.
 
 Promise inputs exclude values that resolution would adopt, including values
 whose `then` may be callable. A `Future<Ticket>` parameter does not accept
-`Promise<SettledTicket>`, and a `Future<Thenable>` parameter only accepts a
-rejected Promise. These checks use the static TypeScript type: a `SettledTicket`
+`Promise<SettledTicket>`, and a `Future<Thenable>` parameter accepts
+`Promise<never>`: it can remain pending or reject, but cannot fulfill with a
+Thenable. These checks use the static TypeScript type: a `SettledTicket`
 typed as `Ticket`, or an object typed only by an index signature, is still
 adopted, and the conversion rejects with a `TypeError`. A `dynamic` `then` is
 `any` in TypeScript and cannot exclude adopted values.

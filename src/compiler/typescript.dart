@@ -1623,12 +1623,18 @@ final class _Writer {
     }
   }
 
-  bool _mayCall(ExportType type) => switch (type.kind) {
-    ValueKind.function || ValueKind.opaque || ValueKind.dynamicValue => true,
-    ValueKind.typeParameter => !_awaitPreserves(type),
-    ValueKind.jsReference => type.referenceKind != JsReferenceKind.symbol,
-    _ => false,
-  };
+  bool _mayCall(ExportType type, [Set<ExportTypeParameter>? seen]) {
+    if (type.kind == ValueKind.typeParameter) {
+      final parameter = type.parameter!;
+      final visited = seen ?? <ExportTypeParameter>{};
+      return !visited.add(parameter) || _mayCall(parameter.bound, visited);
+    }
+    return switch (type.kind) {
+      ValueKind.function || ValueKind.opaque || ValueKind.dynamicValue => true,
+      ValueKind.jsReference => type.referenceKind != JsReferenceKind.symbol,
+      _ => false,
+    };
+  }
 
   ExportType? _thenType(ExportType type) {
     if (type.kind == ValueKind.record) return type.recordFields!.named['then'];
@@ -1743,6 +1749,23 @@ final class _Writer {
   /// Narrows [type] to the values that also have type [bound], keeping [type]
   /// when their relation is unknown.
   ExportType _meet(ExportType type, ExportType bound) {
+    if (type.kind == ValueKind.never || bound.kind == ValueKind.never) {
+      return ExportType(type.dartType, ValueKind.never);
+    }
+    if (type.kind == ValueKind.nullValue || bound.kind == ValueKind.nullValue) {
+      final other = type.kind == ValueKind.nullValue ? bound : type;
+      return ExportType(
+        type.dartType,
+        other.nullable ||
+                const {
+                  ValueKind.nullValue,
+                  ValueKind.dynamicValue,
+                  ValueKind.voidValue,
+                }.contains(other.kind)
+            ? ValueKind.nullValue
+            : ValueKind.never,
+      );
+    }
     if (!_isFixedKind(bound)) return type;
     final nullable =
         bound.nullable &&
@@ -1756,9 +1779,6 @@ final class _Writer {
       ValueKind.voidValue,
     }.contains(type.kind)) {
       return _copyType(bound, nullable: nullable);
-    }
-    if (type.kind == ValueKind.nullValue) {
-      return nullable ? type : ExportType(type.dartType, ValueKind.never);
     }
     if (!_isFixedKind(type) || type.kind == ValueKind.function) return type;
     final children = _typeChildren(type).toList();
@@ -1825,7 +1845,11 @@ final class _Writer {
       if (sub.nullable && !sup.nullable && _isFixedKind(sup)) return false;
       // T? matches int? for both T = int and T = int?; keep the wider one so
       // results include the null that T = int? values can contain.
-      inferred.putIfAbsent(sub.parameter!, () => sup);
+      inferred.update(
+        sub.parameter!,
+        (previous) => _meet(previous, sup),
+        ifAbsent: () => sup,
+      );
       return true;
     }
     if (!_isFixedKind(sub) || !_isFixedKind(sup)) return true;
@@ -1851,8 +1875,22 @@ final class _Writer {
     if (sup.kind == ValueKind.object || sup.kind == ValueKind.enumeration) {
       if (!same) return false;
     } else if (sub.kind != sup.kind) {
-      return sup.kind == ValueKind.list &&
-          (sub.kind == ValueKind.typedData || sub.kind == ValueKind.simdList);
+      if (sup.kind != ValueKind.list ||
+          sub.kind != ValueKind.typedData && sub.kind != ValueKind.simdList) {
+        return false;
+      }
+      final element = ExportType(
+        sub.dartType,
+        sub.kind == ValueKind.simdList
+            ? ValueKind.simd
+            : switch (sub.typedDataKind!) {
+                TypedDataKind.float32 ||
+                TypedDataKind.float64 => ValueKind.doubleValue,
+                _ => ValueKind.integer,
+              },
+        simdKind: sub.simdKind,
+      );
+      return _maySubtype(element, sup.element!, parameters, inferred);
     } else if (sub.kind == ValueKind.function) {
       return true;
     } else if (sub.kind == ValueKind.record &&

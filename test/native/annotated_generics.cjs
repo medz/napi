@@ -408,6 +408,22 @@ module.exports = async function verifyAnnotatedGenerics(path, packageDirectory) 
   adoptedSlot(2);
   assert.throws(() => adoptedSlot('one'), TypeError);
   assert.equal((await addon.slot(false)).value, 'plain');
+  for (const result of [addon.repeatedSlot(), addon.reversedSlot(), addon.nonNullableSlot()]) {
+    const callback = await result;
+    callback(2);
+    assert.throws(() => callback('one'), TypeError);
+    assert.throws(() => callback(null), TypeError);
+  }
+  assert.deepEqual((await addon.stringCollection()).value, ['text']);
+  const nullSlot = await addon.nullSlot();
+  nullSlot(null);
+  assert.throws(() => nullSlot(1), TypeError);
+  assert.equal(await addon.intCollection(), 'bytes');
+  assert.equal(await addon.doubleCollection(), true);
+  assert.equal(await addon.vectorCollection(), 4);
+  const ticketTag = addon.ticketTag(new addon.Ticket(9));
+  assert.equal(await Promise.resolve(ticketTag), ticketTag);
+  assert.equal(await addon.tagReader().read(Promise.resolve(ticketTag)), 9);
   const tag = await addon.taggedFutureBox().value;
   assert.ok(tag instanceof addon.NumericTag);
   assert(tag instanceof addon.Tag);

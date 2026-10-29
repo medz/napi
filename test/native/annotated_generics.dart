@@ -660,6 +660,85 @@ class NumberSlot<T extends num> extends Slot<T> {
 Future<Slot<Object?>> slot(bool adopted) async =>
     adopted ? NumberSlot<num>(1) : Slot<Object?>('plain');
 
+@NAPI()
+class PairedSlot<A, B> {}
+
+@NAPI()
+class EqualSlot<T> extends PairedSlot<T, T> {
+  @NAPI()
+  void then(void Function(void Function(T)) resolve) => resolve((_) {});
+}
+
+@NAPI()
+Future<PairedSlot<Object?, num>> repeatedSlot() async => EqualSlot<num>();
+
+@NAPI()
+Future<PairedSlot<num, Object?>> reversedSlot() async => EqualSlot<num>();
+
+@NAPI()
+Future<PairedSlot<num?, num>> nonNullableSlot() async => EqualSlot<num>();
+
+@NAPI()
+Future<PairedSlot<num?, Null>> nullSlot() async => EqualSlot<Null>();
+
+@NAPI()
+class CollectionLabel<T> {
+  CollectionLabel(this.value);
+
+  @NAPI()
+  final T value;
+}
+
+@NAPI()
+class BytesLabel extends CollectionLabel<Uint8List> {
+  BytesLabel() : super(Uint8List(1));
+
+  @NAPI()
+  void then(void Function(String) resolve) => resolve('bytes');
+}
+
+@NAPI()
+class FloatsLabel extends CollectionLabel<Float64List> {
+  FloatsLabel() : super(Float64List(1));
+
+  @NAPI()
+  void then(void Function(bool) resolve) => resolve(true);
+}
+
+@NAPI()
+class VectorsLabel extends CollectionLabel<Float32x4List> {
+  VectorsLabel() : super(Float32x4List(1));
+
+  @NAPI()
+  void then(void Function(int) resolve) => resolve(4);
+}
+
+@NAPI()
+Future<CollectionLabel<List<String>>> stringCollection() async =>
+    CollectionLabel(['text']);
+
+@NAPI()
+Future<CollectionLabel<List<int>>> intCollection() async => BytesLabel();
+
+@NAPI()
+Future<CollectionLabel<List<double>>> doubleCollection() async => FloatsLabel();
+
+@NAPI()
+Future<CollectionLabel<List<Float32x4>>> vectorCollection() async =>
+    VectorsLabel();
+
+@NAPI()
+class TagReader<T extends Ticket> {
+  @NAPI()
+  Future<int> read(Future<Tag<T>> value) async => (await value).then.id;
+}
+
+@NAPI()
+TagReader<Ticket> tagReader() => TagReader();
+
+@NAPI()
+Tag<Ticket> ticketTag(Ticket value) => Tag(value);
+
 @NAPI.object()
 class Amount {
   @NAPI()
