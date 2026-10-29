@@ -867,7 +867,11 @@ Result types also include values adopted through an exported subclass's `then`.
 If an exported `SettledTicket` extends `Ticket` and its `then` resolves a
 `String`, `Future<Ticket>` becomes `Promise<Ticket | string>`. When a `then`
 member may or may not be callable, such as an `Object?` field, the result type
-is `unknown`.
+is `unknown`. The result is also `unknown` when an adopted callback's parameters
+depend on a class type argument: `Future<Base<Object?>>` may contain
+`Child<String>`, whose callback only accepts strings. Narrow or assert the result
+before calling it, or declare the callback result directly as
+`Future<void Function(String)>` to expose `Promise<(value: string) => void>`.
 
 Promise inputs exclude values that resolution would adopt, including values
 whose `then` may be callable. A `Future<Ticket>` parameter does not accept

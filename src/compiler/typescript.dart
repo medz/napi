@@ -1664,7 +1664,7 @@ final class _Writer {
 
   /// The `then` members of every JS value of [type], including the values of
   /// exported subclasses. `null` stands for values without a `then` member.
-  List<ExportType?> _thenTypes(ExportType type) {
+  List<ExportType?> _thenTypes(ExportType type, {bool forOutput = false}) {
     if (type.kind == ValueKind.record || type.classExport!.isObject) {
       return [_thenType(type)];
     }
@@ -1674,10 +1674,63 @@ final class _Writer {
           ? type
           : _subclassInstance(cls, type);
       if (instance == null) continue;
-      final then = _thenType(instance);
+      var then = _thenType(instance);
+      if (forOutput && then != null && cls.typeParameters.isNotEmpty) {
+        final declared = _thenType(_declaredObject(cls));
+        final value = declared
+            ?.signature
+            ?.positional
+            .firstOrNull
+            ?.type
+            .signature
+            ?.positional
+            .firstOrNull
+            ?.type;
+        if (value != null &&
+            _hasContravariantParameter(value, cls.typeParameters.toSet())) {
+          // A class argument is an upper bound, not the actual instantiation.
+          // Child<String> can inhabit Base<Object?>, but its adopted callback
+          // cannot be called with arbitrary objects.
+          then = ExportType(
+            then.dartType,
+            ValueKind.opaque,
+            nullable: then.nullable,
+          );
+        }
+      }
       thens.putIfAbsent(then == null ? '' : _typeKey(then), () => then);
     }
     return thens.values.toList();
+  }
+
+  bool _hasContravariantParameter(
+    ExportType type,
+    Set<ExportTypeParameter> parameters, {
+    bool negative = false,
+  }) {
+    if (parameters.contains(type.parameter)) return negative;
+    final signature = type.signature;
+    if (signature != null) {
+      return signature.typeParameters.any(
+            (p) => _mentions(p.bound, parameters),
+          ) ||
+          _hasContravariantParameter(
+            signature.result,
+            parameters,
+            negative: negative,
+          ) ||
+          [...signature.positional, ...signature.named].any(
+            (p) => _hasContravariantParameter(
+              p.type,
+              parameters,
+              negative: !negative,
+            ),
+          );
+    }
+    return _typeChildren(type).any(
+      (child) =>
+          _hasContravariantParameter(child, parameters, negative: negative),
+    );
   }
 
   List<ExportClass> _descendants(ExportClass cls) =>
@@ -1756,12 +1809,12 @@ final class _Writer {
       final other = type.kind == ValueKind.nullValue ? bound : type;
       return ExportType(
         type.dartType,
-        other.nullable ||
-                const {
-                  ValueKind.nullValue,
-                  ValueKind.dynamicValue,
-                  ValueKind.voidValue,
-                }.contains(other.kind)
+        _maySubtype(
+              ExportType(type.dartType, ValueKind.nullValue),
+              other,
+              {},
+              {},
+            )
             ? ValueKind.nullValue
             : ValueKind.never,
       );
@@ -1842,7 +1895,11 @@ final class _Writer {
     Map<ExportTypeParameter, ExportType> inferred,
   ) {
     if (parameters.contains(sub.parameter)) {
-      if (sub.nullable && !sup.nullable && _isFixedKind(sup)) return false;
+      if (sub.nullable &&
+          !sup.nullable &&
+          (_isFixedKind(sup) || sup.kind == ValueKind.never)) {
+        return false;
+      }
       // T? matches int? for both T = int and T = int?; keep the wider one so
       // results include the null that T = int? values can contain.
       inferred.update(
@@ -1851,6 +1908,21 @@ final class _Writer {
         ifAbsent: () => sup,
       );
       return true;
+    }
+    if (sub.kind == ValueKind.never && !sub.nullable) return true;
+    if (sub.kind == ValueKind.nullValue || sub.kind == ValueKind.never) {
+      if (sup.nullable) return true;
+      if (sup.kind == ValueKind.typeParameter) {
+        return _maySubtype(sub, sup.parameter!.bound, parameters, inferred);
+      }
+      return const {
+        ValueKind.nullValue,
+        ValueKind.dynamicValue,
+        ValueKind.voidValue,
+      }.contains(sup.kind);
+    }
+    if (sup.kind == ValueKind.nullValue || sup.kind == ValueKind.never) {
+      return false;
     }
     if (!_isFixedKind(sub) || !_isFixedKind(sup)) return true;
     if (sub.nullable && !sup.nullable) return false;
@@ -2029,7 +2101,7 @@ final class _Writer {
     if (base.kind == ValueKind.map) {
       thens = [base.element];
     } else if (base.kind == ValueKind.object || base.kind == ValueKind.record) {
-      thens = _thenTypes(base);
+      thens = _thenTypes(base, forOutput: true);
     } else {
       values.add((type: base, resolve: true));
       return _normalizeAwaited(values);

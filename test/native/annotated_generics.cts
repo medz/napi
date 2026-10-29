@@ -157,44 +157,45 @@ const plainNumber: Promise<addon.Label<number>> = addon.numberLabel(false);
 const optionalValue: Promise<addon.Label<number | null> | string | number | null> = addon.optionalLabel(true);
 // @ts-expect-error OptionalLabel<int?> can adopt null.
 const presentValue: Promise<addon.Label<number | null> | string | number> = addon.optionalLabel(false);
-type SlotValue = Awaited<ReturnType<typeof addon.slot>>;
-declare const adoptedSlot: Extract<SlotValue, (...args: never[]) => unknown>;
-adoptedSlot(1);
-// @ts-expect-error NumberSlot<T extends num> resolves a callback that keeps its bound.
-adoptedSlot('one');
+const nullLabel: Promise<addon.Label<null> | null> = addon.nullLabel(true);
+const nullFactory: Promise<addon.FactorySlot<null>> = addon.nullFactory();
+const neverFactory: Promise<addon.FactorySlot<never>> = addon.neverFactory();
+// The base argument is only an upper bound on the adopted callback's input.
+// @ts-expect-error The actual NumberSlot may accept a narrower type than num.
+const adoptedSlot: Promise<addon.Slot<unknown> | ((value: number) => void)> = addon.slot(true);
+// @ts-expect-error The hidden CallbackSlot<String> does not accept arbitrary objects.
+const callbackSlot: Promise<addon.Slot<unknown> | ((value: unknown) => void)> = addon.callbackSlot();
+// @ts-expect-error A directly named covariant class can also have a narrower instantiation.
+const declaredSlot: Promise<(value: unknown) => void> = addon.declaredCallbackSlot();
+const textCallback: Promise<(value: string) => void> = addon.textCallback();
+textCallback.then(callback => {
+  callback('text');
+  // @ts-expect-error An explicitly declared callback retains its parameter type.
+  callback(1);
+});
 const integerBoxLabel: Promise<addon.Label<addon.Box<number>>> = addon.integerBoxLabel();
 const textBoxLabel: Promise<addon.Label<addon.Box<string>> | string> = addon.textBoxLabel();
 // @ts-expect-error Only the matching Box<String> subclass adopts a string.
 const plainTextBoxLabel: Promise<addon.Label<addon.Box<string>>> = addon.textBoxLabel();
+// @ts-expect-error A callback inferred through a function result still has an unknown input.
 const produced: Promise<addon.FactorySlot<() => number> | ((value: number) => void) | boolean | number> = addon.producedSlot(0);
-type ProducedValue = Awaited<ReturnType<typeof addon.producedSlot>>;
-declare const producedCallback: Extract<ProducedValue, (...args: never[]) => unknown>;
-producedCallback(1);
-// @ts-expect-error T is inferred from the function result, so the callback requires a number.
-producedCallback('one');
 const positionalFactory: Promise<addon.FactorySlot<(value: number) => number> | string | boolean> = addon.positionalFactory();
 const namedFactory: Promise<addon.FactorySlot<(options: {step: number}) => number> | number> = addon.namedFactory();
 const doubleInputSlot: Promise<addon.FactorySlot<(callback: (value: number) => void) => void> | number> = addon.doubleInputSlot();
-type RepeatedSlot = Awaited<ReturnType<typeof addon.repeatedSlot>>;
-declare const repeatedSlot: Extract<RepeatedSlot, (...args: never[]) => unknown>;
-repeatedSlot(1);
-// @ts-expect-error Both occurrences of T constrain the adopted callback.
-repeatedSlot('one');
-type ReversedSlot = Awaited<ReturnType<typeof addon.reversedSlot>>;
-declare const reversedSlot: Extract<ReversedSlot, (...args: never[]) => unknown>;
-reversedSlot(1);
-// @ts-expect-error Constraint order does not widen the callback.
-reversedSlot('one');
-type NonNullableSlot = Awaited<ReturnType<typeof addon.nonNullableSlot>>;
-declare const nonNullableSlot: Extract<NonNullableSlot, (...args: never[]) => unknown>;
-nonNullableSlot(1);
-// @ts-expect-error T must satisfy the non-nullable occurrence too.
-nonNullableSlot(null);
-type NullSlot = Awaited<ReturnType<typeof addon.nullSlot>>;
-declare const nullSlot: Extract<NullSlot, (...args: never[]) => unknown>;
-nullSlot(null);
-// @ts-expect-error The second occurrence restricts T to Null.
-nullSlot(1);
+// Neither repeated constraints nor a Null bound make the actual T exact.
+// @ts-expect-error T may be a subtype of num.
+const repeatedSlot: Promise<addon.PairedSlot<unknown, number> | ((value: number) => void)> = addon.repeatedSlot();
+// @ts-expect-error Reversing the constraints does not determine the actual T.
+const reversedSlot: Promise<addon.PairedSlot<number, unknown> | ((value: number) => void)> = addon.reversedSlot();
+// @ts-expect-error Removing null still allows a narrower T.
+const nonNullableSlot: Promise<addon.PairedSlot<number | null, number> | ((value: number) => void)> = addon.nonNullableSlot();
+// @ts-expect-error Never is also a subtype of Null.
+const nullSlot: Promise<addon.PairedSlot<number | null, null> | ((value: null) => void)> = addon.nullSlot();
+const nullablePair: Promise<addon.NullablePair<null, null> | null> = addon.nullPairReader().read(true);
+// @ts-expect-error An unmarked T can instantiate as Null.
+const presentPair: Promise<addon.NullablePair<null, null>> = addon.nullPairReader().read(true);
+// @ts-expect-error T? permits null even when T has a non-nullable bound.
+const boundedPair: Promise<addon.NullablePair<number | null, null>> = addon.intSlot().readNull();
 const stringCollection: Promise<addon.CollectionLabel<string[]>> = addon.stringCollection();
 const intCollection: Promise<addon.CollectionLabel<number[]> | string> = addon.intCollection();
 const doubleCollection: Promise<addon.CollectionLabel<number[]> | boolean> = addon.doubleCollection();

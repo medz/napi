@@ -403,10 +403,20 @@ module.exports = async function verifyAnnotatedGenerics(path, packageDirectory) 
   assert.equal(await new addon.StageLabel(addon.Stage.done), 'stage');
   assert.equal(await addon.optionalLabel(true), null);
   assert.equal((await addon.optionalLabel(false)).value, 4);
+  assert.equal(await addon.nullLabel(true), null);
+  assert.equal((await addon.nullLabel(false)).value, null);
+  assert.ok((await addon.nullFactory()) instanceof addon.FactorySlot);
+  assert.ok((await addon.neverFactory()) instanceof addon.FactorySlot);
   const adoptedSlot = await addon.slot(true);
   assert.equal(typeof adoptedSlot, 'function');
   adoptedSlot(2);
   assert.throws(() => adoptedSlot('one'), TypeError);
+  assert.throws(() => adoptedSlot(2.5), RangeError);
+  for (const result of [addon.callbackSlot(), addon.declaredCallbackSlot(), addon.textCallback()]) {
+    const callback = await result;
+    callback('text');
+    assert.throws(() => callback(1), TypeError);
+  }
   assert.equal((await addon.slot(false)).value, 'plain');
   assert.equal((await addon.integerBoxLabel()).value.value, 1);
   assert.equal(await addon.textBoxLabel(), 'text');
@@ -428,6 +438,9 @@ module.exports = async function verifyAnnotatedGenerics(path, packageDirectory) 
   const nullSlot = await addon.nullSlot();
   nullSlot(null);
   assert.throws(() => nullSlot(1), TypeError);
+  assert.equal(await addon.nullPairReader().read(true), null);
+  assert.ok((await addon.nullPairReader().read(false)) instanceof addon.NullablePair);
+  assert.equal(await addon.intSlot().readNull(), null);
   assert.equal(await addon.intCollection(), 'bytes');
   assert.equal(await addon.doubleCollection(), true);
   assert.equal(await addon.vectorCollection(), 4);

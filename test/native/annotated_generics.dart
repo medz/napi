@@ -639,6 +639,10 @@ Future<Label<int?>> optionalLabel(bool adopted) async =>
     adopted ? OptionalLabel<int?>(null) : Label<int?>(4);
 
 @NAPI()
+Future<Label<Null>> nullLabel(bool adopted) async =>
+    adopted ? OptionalLabel<Null>(null) : Label<Null>(null);
+
+@NAPI()
 class Slot<T> {
   @NAPI()
   Slot(this.value);
@@ -654,11 +658,39 @@ class NumberSlot<T extends num> extends Slot<T> {
 
   @NAPI()
   void then(void Function(void Function(T)) resolve) => resolve((_) {});
+
+  @NAPI()
+  Future<NullablePair<T?, Null>> readNull() async =>
+      resolvedNullPair() as NullablePair<T?, Null>;
 }
 
 @NAPI()
 Future<Slot<Object?>> slot(bool adopted) async =>
-    adopted ? NumberSlot<num>(1) : Slot<Object?>('plain');
+    adopted ? intSlot() : Slot<Object?>('plain');
+
+@NAPI()
+NumberSlot<int> intSlot() => NumberSlot<int>(1);
+
+@NAPI()
+class CallbackSlot<T> extends Slot<T> {
+  CallbackSlot(super.value);
+
+  @NAPI()
+  void then(void Function(void Function(T)) resolve) => resolve((_) {});
+}
+
+@NAPI()
+CallbackSlot<String> textCallbackSlot() => CallbackSlot<String>('text');
+
+@NAPI()
+Future<Slot<Object?>> callbackSlot() async => textCallbackSlot();
+
+@NAPI()
+Future<CallbackSlot<Object?>> declaredCallbackSlot() async =>
+    textCallbackSlot();
+
+@NAPI()
+Future<void Function(String)> textCallback() async => (_) {};
 
 @NAPI()
 class StringBox extends Box<String> {
@@ -682,6 +714,12 @@ Future<Label<Box<String>>> textBoxLabel() async =>
 
 @NAPI()
 class FactorySlot<T> {}
+
+@NAPI()
+Future<FactorySlot<Null>> nullFactory() async => FactorySlot<Null>();
+
+@NAPI()
+Future<FactorySlot<Never>> neverFactory() async => FactorySlot<Never>();
 
 @NAPI()
 class ProducedSlot<T> extends FactorySlot<T Function()> {
@@ -778,6 +816,32 @@ Future<PairedSlot<num?, num>> nonNullableSlot() async => EqualSlot<num>();
 
 @NAPI()
 Future<PairedSlot<num?, Null>> nullSlot() async => EqualSlot<Null>();
+
+@NAPI()
+class NullablePair<A, B> {}
+
+@NAPI()
+class ResolvedPair<T> extends NullablePair<T, T> {
+  ResolvedPair(this.value);
+  final T value;
+
+  @NAPI()
+  void then(void Function(T) resolve) => resolve(value);
+}
+
+@NAPI()
+class PairReader<T> {
+  @NAPI()
+  Future<NullablePair<T, Null>> read(bool adopted) async => adopted
+      ? resolvedNullPair() as NullablePair<T, Null>
+      : NullablePair<T, Null>();
+}
+
+@NAPI()
+ResolvedPair<Null> resolvedNullPair() => ResolvedPair<Null>(null);
+
+@NAPI()
+PairReader<Null> nullPairReader() => PairReader<Null>();
 
 @NAPI()
 class CollectionLabel<T> {
