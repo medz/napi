@@ -57,7 +57,7 @@ diff --git a/pkg/vm/lib/modular/transformations/for_in_lowering.dart b/pkg/vm/li
 diff --git a/runtime/vm/compiler/frontend/kernel_binary_flowgraph.cc b/runtime/vm/compiler/frontend/kernel_binary_flowgraph.cc
 --- a/runtime/vm/compiler/frontend/kernel_binary_flowgraph.cc
 +++ b/runtime/vm/compiler/frontend/kernel_binary_flowgraph.cc
-@@ -5839,10 +5839,36 @@
+@@ -5839,10 +5839,44 @@
        field = IG->object_store()->sync_star_iterator_current();
      }
      instructions += B->StoreFieldGuarded(field);
@@ -66,6 +66,14 @@ diff --git a/runtime/vm/compiler/frontend/kernel_binary_flowgraph.cc b/runtime/v
 +    const auto& closing_field = Field::ZoneHandle(
 +        Z, iterator_class.LookupInstanceFieldAllowPrivate(
 +               String::Handle(Z, Symbols::New(H.thread(), "_closing"))));
++    // The compiler frontend can use the unmodified SDK platform.
++    if (closing_field.IsNull()) {
++      instructions += B->Constant(Bool::True());
++      instructions +=
++          B->Suspend(pos, SuspendInstr::StubId::kSuspendSyncStarAtYield);
++      instructions += Drop();
++      return instructions;
++    }
 +    instructions += IntConstant(0);
 +    instructions += B->LoadFpRelativeSlot(
 +        compiler::target::frame_layout.FrameSlotForVariable(suspend_state) *

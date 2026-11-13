@@ -378,9 +378,9 @@ action("frontend_packages") {
   ]
 }
 
-can_build_frontend = (host_os == target_os && host_cpu == target_cpu) ||
-                     (host_os == "linux" && target_os == "win" &&
-                      target_cpu == "x64")
+can_build_frontend =
+    host_os == target_os ||
+    (host_os == "linux" && target_os == "win" && target_cpu == "x64")
 if (can_build_frontend) {
   action("frontend_aot") {
     script = "tool/build_frontend.py"
@@ -388,10 +388,10 @@ if (can_build_frontend) {
     packages = get_label_info(":frontend_packages", "target_gen_dir") +
                "/package_config.json"
     sources = [
-      "src/compiler/frontend.dart",
       "src/compiler/bindings.dart",
       "src/compiler/calls.dart",
       "src/compiler/exports.dart",
+      "src/compiler/frontend.dart",
       "src/compiler/node_version.dart",
       "src/compiler/typescript.dart",
     ]
@@ -402,19 +402,34 @@ if (can_build_frontend) {
     ]
     outputs = [ "$root_out_dir/frontend.aot" ]
     args = [
-      "--sdk", rebase_path(napi_bootstrap_sdk, root_build_dir),
-      "--packages", rebase_path(packages, root_build_dir),
-      "--entry", rebase_path(sources[0], root_build_dir),
-      "--output", rebase_path(outputs[0], root_build_dir),
+      "--sdk",
+      rebase_path(napi_bootstrap_sdk, root_build_dir),
+      "--packages",
+      rebase_path(packages, root_build_dir),
+      "--entry",
+      rebase_path("src/compiler/frontend.dart", root_build_dir),
+      "--output",
+      rebase_path(outputs[0], root_build_dir),
     ]
     if (host_os != target_os || host_cpu != target_cpu) {
-      generator = "//runtime/bin:gen_snapshot_product_windows_x64($host_toolchain)"
+      snapshot = "gen_snapshot_product"
+      snapshot_os = target_os
+      if (target_os == "win") {
+        if (host_os != target_os) {
+          snapshot = "gen_snapshot_product_windows_x64"
+        }
+        snapshot_os = "windows"
+      } else if (target_os == "mac") {
+        snapshot_os = "macos"
+      }
+      generator = "//runtime/bin:$snapshot($host_toolchain)"
       deps += [ generator ]
-      executable = get_label_info(generator, "root_out_dir") +
-                   "/gen_snapshot_product_windows_x64"
+      executable = get_label_info(generator, "root_out_dir") + "/$snapshot"
       args += [
-        "--target-os", "windows",
-        "--gen-snapshot", rebase_path(executable, root_build_dir),
+        "--target-os",
+        snapshot_os,
+        "--gen-snapshot",
+        rebase_path(executable, root_build_dir),
       ]
     }
   }

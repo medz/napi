@@ -49,11 +49,16 @@ Future<void> main(List<String> args) async {
     if (failure == null || !failure.contains('content has changed')) {
       throw StateError('Expected artifact hash rejection, got $failure');
     }
-    if (data['platform'] == 'linux_arm64' || data['platform'] == 'linux_x64') {
+    final otherArchitecture = switch (data['platform']) {
+      'linux_arm64' => 'linux_x64',
+      'linux_x64' => 'linux_arm64',
+      'macos_arm64' => 'macos_x64',
+      'macos_x64' => 'macos_arm64',
+      _ => null,
+    };
+    if (otherArchitecture != null) {
       (data['binary'] as Map<String, dynamic>)['sha256'] = binaryHash;
-      data['platform'] = data['platform'] == 'linux_arm64'
-          ? 'linux_x64'
-          : 'linux_arm64';
+      data['platform'] = otherArchitecture;
       await tampered.writeAsString(jsonEncode(data));
       failure = null;
       try {

@@ -107,9 +107,10 @@ def package(args):
     elif target == ("win", "x64"):
         platform, extension, prefix = "windows_x64", "dll", ""
         kind, machine, aot_machine = "pe", 0x8664, 62
-    elif target == ("mac", "arm64"):
-        platform, extension, prefix = "macos_arm64", "dylib", "lib"
-        kind, machine, aot_machine = "macho", 0x100000C, 183
+    elif target in {("mac", "arm64"), ("mac", "x64")}:
+        platform, extension, prefix = f"macos_{target[1]}", "dylib", "lib"
+        machine = 0x100000C if target[1] == "arm64" else 0x1000007
+        kind, aot_machine = "macho", machine
     else:
         raise ValueError(f"No compiler archive format for {target}")
     clang = clang_directory(args.sdk, build_args)

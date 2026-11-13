@@ -177,6 +177,7 @@ Future<void> _compile(
   if (exports != null) {
     final platform = switch ((Abi.current(), targetOS)) {
       (Abi.macosArm64, 'macos') => 'macos_arm64',
+      (Abi.macosX64, 'macos') => 'macos_x64',
       (Abi.linuxArm64, 'linux') => 'linux_arm64',
       (Abi.linuxX64, 'linux') => 'linux_x64',
       (Abi.windowsX64, 'windows') => 'windows_x64',
