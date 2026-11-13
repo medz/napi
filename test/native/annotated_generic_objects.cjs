@@ -296,6 +296,36 @@ module.exports = async function verifyAnnotatedGenericObjects(path) {
   });
   assert.notEqual(copied.next.value, recursive.next.value);
   assert.throws(() => addon.echoRecursive({ value: 1, next: { value: ['wrong'] } }), TypeError);
+  const growing = addon.echoGrowing({ value: 1, next: { value: 2, next: null } });
+  assert.deepEqual(growing, { value: 1, next: { value: [2], next: null } });
+  assert.throws(() => addon.echoGrowing(growing), TypeError);
+  assert.deepEqual(addon.echoAmountGrowing({
+    value: { value: '1' }, next: { value: { value: '2' }, next: null },
+  }), { value: { value: 1 }, next: { value: [{ value: 2 }], next: null } });
+  assert.deepEqual(addon.echoNullableGrowing({ value: null, next: { value: null, next: null } }), {
+    value: null, next: { value: [null], next: null },
+  });
+  assert.throws(() => addon.echoNullableGrowing({ value: undefined, next: null }), TypeError);
+  assert.deepEqual(addon.echoRecordGrowing({ value: 1, next: { value: 2, next: null } }), {
+    value: 1, next: { value: { next: 2 }, next: null },
+  });
+  assert.deepEqual(addon.echoEquivalentGrowing({
+    value: { next: null }, next: { value: { next: null }, next: null },
+  }), { value: { next: null }, next: { value: { next: { next: null } }, next: null } });
+  assert.deepEqual(addon.echoPhantomGrowing({ next: { next: null } }), { next: { next: null } });
+  assert.deepEqual(addon.echoMutualGrowing({ value: 1, next: { value: 2, next: null } }), growing);
+  const growingHandler = addon.echoGrowingHandler({ run: value => {
+    assert.deepEqual(value.next.value, [2]);
+    return { value: value.value, next: { value: 3, next: null } };
+  } });
+  assert.deepEqual(growingHandler.run({ value: 1, next: { value: 2, next: null } }), {
+    value: 1, next: { value: [3], next: null },
+  });
+  const genericGrowing = addon.echoGenericGrowing({
+    value: () => 1, next: { value: () => 2, next: null },
+  });
+  assert.equal(genericGrowing.value(), 1);
+  assert.deepEqual(genericGrowing.next.value(), [2]);
   for (const invalid of [
     { value: '7' }, {}, { value: 7, optional: undefined }, { value: 7, note: undefined },
   ]) {

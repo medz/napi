@@ -680,6 +680,123 @@ class Recursive<T> {
 }
 
 @NAPI.object()
+class Growing<T> {
+  @NAPI()
+  Growing({required this.value, required Growing<T>? next})
+    : next = next == null ? null : Growing(value: [next.value], next: null);
+
+  @NAPI()
+  final T value;
+  @NAPI()
+  final Growing<List<T>>? next;
+}
+
+@NAPI.object()
+class NullableGrowing<T> {
+  @NAPI()
+  NullableGrowing({required this.value, required NullableGrowing<T>? next})
+    : next = next == null
+          ? null
+          : NullableGrowing(value: [next.value], next: null);
+
+  @NAPI()
+  final T? value;
+  @NAPI()
+  final NullableGrowing<List<T?>>? next;
+}
+
+@NAPI.object()
+class RecordGrowing<T> {
+  @NAPI()
+  RecordGrowing({required this.value, required RecordGrowing<T>? next})
+    : next = next == null
+          ? null
+          : RecordGrowing(value: (next: next.value), next: null);
+
+  @NAPI()
+  final T? value;
+  @NAPI()
+  final RecordGrowing<({T? next})>? next;
+}
+
+@NAPI.object()
+class PhantomGrowing<T> {
+  @NAPI()
+  PhantomGrowing({required PhantomGrowing<T>? next})
+    : next = next == null ? null : PhantomGrowing(next: null);
+
+  @NAPI()
+  final PhantomGrowing<List<T>>? next;
+}
+
+@NAPI.object()
+class GrowingLeft<T> {
+  @NAPI()
+  GrowingLeft({required this.value, required GrowingRight<T>? next})
+    : next = next == null
+          ? null
+          : GrowingRight(value: [next.value], next: null);
+
+  @NAPI()
+  final T value;
+  @NAPI()
+  final GrowingRight<List<T>>? next;
+}
+
+@NAPI.object()
+class GrowingRight<T> {
+  @NAPI()
+  GrowingRight({required this.value, required this.next});
+
+  @NAPI()
+  final T value;
+  @NAPI()
+  final GrowingLeft<T>? next;
+}
+
+@NAPI.object()
+class GenericGrowing<T> {
+  @NAPI()
+  GenericGrowing({required this.value, required GenericGrowing<T>? next})
+    : next = next == null
+          ? null
+          : GenericGrowing(value: <U>() => [next.value<U>()], next: null);
+
+  @NAPI()
+  final T Function<U>() value;
+  @NAPI()
+  final GenericGrowing<List<T>>? next;
+}
+
+@NAPI()
+Growing<int> echoGrowing(Growing<int> value) => value;
+
+@NAPI()
+Growing<Amount> echoAmountGrowing(Growing<Amount> value) => value;
+
+@NAPI()
+NullableGrowing<int> echoNullableGrowing(NullableGrowing<int> value) => value;
+
+@NAPI()
+RecordGrowing<int> echoRecordGrowing(RecordGrowing<int> value) => value;
+
+@NAPI()
+RecordGrowing<LinkedB> echoEquivalentGrowing(RecordGrowing<LinkedB> value) =>
+    value;
+
+@NAPI()
+PhantomGrowing<int> echoPhantomGrowing(PhantomGrowing<int> value) => value;
+
+@NAPI()
+GrowingLeft<int> echoMutualGrowing(GrowingLeft<int> value) => value;
+
+@NAPI()
+Handler<Growing<int>> echoGrowingHandler(Handler<Growing<int>> value) => value;
+
+@NAPI()
+GenericGrowing<int> echoGenericGrowing(GenericGrowing<int> value) => value;
+
+@NAPI.object()
 class Swap<A, B> {
   @NAPI()
   Swap({required this.value, required this.next});

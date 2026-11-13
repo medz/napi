@@ -828,16 +828,22 @@ final class _Writer {
               break;
             }
             for (final value in next.pairs.entries) {
-              if (difference.pairs.containsKey(value.key)) continue;
+              if (difference.pairs.containsKey(value.key) ||
+                  _impliesPair(difference.pairs.values, value.value))
+                continue;
               final path = source.paths[pair.key]!;
               final parameters = _pairParameters(value.value);
+              // The first recurrence adds a constraint; later ones must follow it.
               if (parameters.isNotEmpty &&
-                  path.any(
-                    (step) =>
-                        step.node == entry.key &&
-                        _pairParameters(step.pair) == parameters &&
-                        _pairDepth(step.pair) < _pairDepth(value.value),
-                  )) {
+                  path
+                      .where(
+                        (step) =>
+                            step.node == entry.key &&
+                            _pairParameters(step.pair) == parameters &&
+                            _pairDepth(step.pair) < _pairDepth(value.value),
+                      )
+                      .skip(1)
+                      .isNotEmpty) {
                 throw FormatException(
                   '@NAPI.object ${entry.key.left.name}: recursive input/output projections expand at different rates.',
                 );
@@ -860,6 +866,102 @@ final class _Writer {
         }
       }
     }
+  }
+
+  // Reuse equalities under enclosing types instead of expanding recursive types.
+  bool _impliesPair(Iterable<_TypePair> known, _TypePair candidate) {
+    bool plain(_TypePair pair) =>
+        !pair.awaitLeft &&
+        _usedLocals(pair.left, pair.right, pair.locals).isEmpty;
+    if (!plain(candidate)) return false;
+    final nodes = <({String kind, List<int> children})>[];
+    final ids = <String, int>{};
+    int intern(String kind, List<int> children) {
+      final key = '$kind[${children.join(',')}]';
+      return ids.putIfAbsent(key, () {
+        final id = nodes.length;
+        nodes.add((kind: kind, children: children));
+        return id;
+      });
+    }
+
+    int node(ExportType type, bool output, {bool nonNull = false}) {
+      if (type.nullable) {
+        final child = node(
+          _copyType(type, nullable: false),
+          output,
+          nonNull: true,
+        );
+        return nonNull ? child : intern('nullable', [child]);
+      }
+      if (nonNull && _includesNull(type) != false) {
+        return intern('nonNull', [node(type, output)]);
+      }
+      final bidirectional =
+          type.kind == ValueKind.object || type.kind == ValueKind.function;
+      final directional =
+          type.kind == ValueKind.typeParameter ||
+          type.kind == ValueKind.object && type.classExport!.isObject ||
+          type.kind == ValueKind.function ||
+          type.kind == ValueKind.future ||
+          type.kind == ValueKind.futureOr ||
+          type.kind == ValueKind.stream;
+      return intern(
+        '${directional ? output : ''}:${_typeKey(type, const {}, (_) => '#')}',
+        [
+          for (final child in _typeChildren(type)) ...[
+            node(child, bidirectional || output),
+            if (bidirectional) node(child, false),
+          ],
+        ],
+      );
+    }
+
+    final equalities = [
+      for (final pair in known.where(plain))
+        (node(pair.left, true), node(pair.right, false)),
+    ];
+    final left = node(candidate.left, true),
+        right = node(candidate.right, false);
+    final parents = List.generate(nodes.length, (index) => index);
+    int root(int id) {
+      while (parents[id] != id) {
+        parents[id] = parents[parents[id]];
+        id = parents[id];
+      }
+      return id;
+    }
+
+    bool join(int a, int b) {
+      a = root(a);
+      b = root(b);
+      if (a == b) return false;
+      parents[b] = a;
+      return true;
+    }
+
+    for (final (a, b) in equalities) join(a, b);
+    var changed = true;
+    while (changed) {
+      changed = false;
+      final shapes = <String, int>{};
+      final constructors = <String, int>{};
+      for (var i = 0; i < nodes.length; ++i) {
+        final node = nodes[i];
+        final key = '${node.kind}[${node.children.map(root).join(',')}]';
+        final same = shapes.putIfAbsent(key, () => i);
+        changed = join(i, same) || changed;
+        if (node.kind != 'nullable') continue;
+        final other = constructors.putIfAbsent(
+          '${root(i)}:${node.kind}',
+          () => i,
+        );
+        // Equal nullable unions have equal non-null parts.
+        changed =
+            join(node.children.single, nodes[other].children.single) || changed;
+      }
+    }
+    return root(left) == root(right);
   }
 
   void _collectDifference(
@@ -925,6 +1027,8 @@ final class _Writer {
         _requireDifference(left.classExport!, right.classExport!);
         final value = _TypePair(left, right, locals: locals);
         result.edges[_pairKey(value)] = value;
+      } else if (left.classExport != right.classExport) {
+        result.always = true;
       } else if (_typeKey(left) != _typeKey(right)) {
         pair();
       }
@@ -1525,6 +1629,7 @@ final class _Writer {
   String _typeKey(
     ExportType type, [
     Map<ExportTypeParameter, int> locals = const {},
+    String Function(ExportType)? childKey,
   ]) {
     final signature = type.signature;
     final scope = {
@@ -1533,7 +1638,8 @@ final class _Writer {
         for (var i = 0; i < signature.typeParameters.length; ++i)
           signature.typeParameters[i]: locals.length + i,
     };
-    String key(ExportType child) => _typeKey(child, scope);
+    String key(ExportType child) =>
+        childKey?.call(child) ?? _typeKey(child, scope);
     final parameter = type.parameter;
     return '${type.kind}:${type.nullable}:${parameter == null
             ? ''

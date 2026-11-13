@@ -309,6 +309,40 @@ const recursive: addon.Recursive<number> = addon.echoRecursive({
   value: 1, next: { value: [2], next: { value: [[3]] } },
 });
 const nested: number[][] | undefined = recursive.next?.next?.value;
+const growing: addon.Growing<number> = addon.echoGrowing({
+  value: 1, next: { value: 2, next: null },
+});
+const growingValue: number[] | undefined = growing.next?.value;
+const nullableGrowing = addon.echoNullableGrowing({ value: null, next: { value: 2, next: null } });
+const nullableGrowingValue: (number | null)[] | null | undefined = nullableGrowing.next?.value;
+const recordGrowing: addon.RecordGrowing<number> = addon.echoRecordGrowing({
+  value: 1, next: { value: 2, next: null },
+});
+const recordGrowingValue: { next: number | null } | null | undefined = recordGrowing.next?.value;
+const equivalentGrowing: addon.RecordGrowing<addon.LinkedB> = {
+  value: { next: null }, next: { value: { next: null }, next: null },
+};
+addon.echoEquivalentGrowing(equivalentGrowing);
+const phantomGrowing: addon.PhantomGrowing<number> = { next: { next: null } };
+addon.echoPhantomGrowing(phantomGrowing);
+const mutualGrowing = addon.echoMutualGrowing({ value: 1, next: { value: 2, next: null } });
+const mutualGrowingValue: number[][] | undefined = mutualGrowing.next?.next?.next?.value;
+const growingHandler: addon.Handler<addon.Growing<number>> = addon.echoGrowingHandler({
+  run: value => ({ value: value.value, next: null }),
+});
+const handledGrowing: addon.Growing<number> = growingHandler.run({ value: 1, next: null });
+const genericGrowing = addon.echoGenericGrowing({ value: () => 1, next: { value: () => 2, next: null } });
+const genericGrowingValue: number[] | undefined = genericGrowing.next?.value();
+// @ts-expect-error Growing output arrays do not satisfy scalar constructor inputs.
+addon.echoGrowing(growing);
+// @ts-expect-error A recursively asymmetric result requires its output identity.
+const fabricatedGrowing: addon.Growing<number> = { value: 1, next: null };
+// @ts-expect-error Nullable input still excludes undefined.
+addon.echoNullableGrowing({ value: undefined, next: null });
+// @ts-expect-error Named record output does not satisfy scalar constructor inputs.
+addon.echoRecordGrowing(recordGrowing);
+// @ts-expect-error Callback results need the recursive constructor input shape.
+addon.echoGrowingHandler({ run: value => value });
 
 // @ts-expect-error Closed generic constructors retain their concrete input type.
 addon.echoInt({ value: '7' });
