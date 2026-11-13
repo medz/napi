@@ -1,3 +1,103 @@
+## 0.25.0
+
+This release adds concrete Dart types throughout generic class bindings and
+supports lazy synchronous iterables with deterministic cleanup. Generic calls
+can select their Dart type arguments from a native instance, without extra
+JavaScript arguments or annotations.
+
+### 🧩 Use concrete types in generic classes
+
+Return a specialized Dart instance and use it in a generic operation:
+
+```dart
+@NAPI()
+class Box<T> {
+  @NAPI()
+  Box(this.value);
+
+  @NAPI()
+  T value;
+}
+
+@NAPI()
+Box<List<int>> makeNumbers() => Box([1, 2]);
+
+@NAPI()
+void append<T>(Box<List<T>> box, T value) => box.value.add(value);
+```
+
+```ts
+const box = makeNumbers();
+append(box, 3);
+box.value; // [1, 2, 3]
+append(box, 'wrong'); // TypeScript error
+```
+
+Class arguments now support scalars, collections, data classes, callbacks,
+Futures, Streams and other bound classes, including nested combinations and
+generic callbacks. Getters, setters and methods use the actual Dart type's
+conversion rules. Input and output shapes remain distinct when a data class's
+constructor differs from its exported properties.
+
+A bound-instance parameter can also select a generic call's actual Dart type.
+For example, `Box<List<int>>` selects `T = int` in `append` above. A generic
+callback can expose a `Box<T>` even when that concrete type has not appeared in
+another exported declaration. These generic-call declarations require TypeScript
+5.4 or newer.
+
+TypeScript type arguments are still erased: `new Box<number>(1)` uses the Dart
+class's default type arguments. Return a concrete instance from Dart when an
+API requires a particular Dart specialization.
+
+[Generic bindings](https://github.com/medz/napi/blob/v0.25.0/README.md#generics)
+
+### 🔁 Iterate lazily and close on early exit
+
+Use `Iterable<T>` and `sync*` for synchronous sequences:
+
+```dart
+@NAPI()
+Iterable<int> count(int limit) sync* {
+  for (var value = 0; value < limit; value++) {
+    yield value;
+  }
+}
+
+@NAPI()
+int first(Iterable<int> values) => values.first;
+```
+
+```js
+[...count(3)]; // [0, 1, 2]
+first(new Set([2, 3])); // 2
+```
+
+Returned iterables create an independent iterator for each traversal. Breaking
+out of `for…of` or calling `return()` runs active Dart `sync*` finalizers,
+including nested generators. Values yielded during cleanup are discarded.
+Closing an iterator before its first `next()` does not start its body.
+
+In compiled addons, Dart `for…in` now closes iterators on exit too. Standard
+Iterable operations propagate cleanup to JS input iterators through `return()`.
+An iteration or conversion error is preserved if cleanup also fails. Custom Dart
+iterators remain responsible for resources they manage themselves.
+
+[Iterables](https://github.com/medz/napi/blob/v0.25.0/README.md#iterables)
+
+### Other improvements and fixes
+
+- JS callbacks can omit optional trailing parameters. Dart calls still preserve
+  the difference between omission and an explicit `undefined`.
+- Nested Future inputs accept flattened Promises and rebuild the declared Dart
+  Future layers. Futures in generic classes follow standard Promise adoption,
+  including thenable subclasses. Promise results use `unknown` when a hidden
+  type argument prevents a sound declaration.
+- Native compilation now loads the signed frontend snapshot correctly when
+  using an official macOS Dart SDK.
+
+The supported targets remain macOS arm64, Linux arm64 with glibc, and Windows
+x64. Business code uses the bundled Dart 3.13.5 SDK.
+
 ## 0.24.0
 
 This release rebuilds native compilation around a bundled Dart SDK. Compile
