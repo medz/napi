@@ -107,6 +107,7 @@ Future<void> _compile(
     throw FormatException(diagnostics.join('\n'));
   }
   final component = compiled.component!;
+  _configureIterators(component);
   final exports = _configureEntrypoint(
     component,
     source,
@@ -197,6 +198,37 @@ Future<void> _compile(
         ],
       }),
     );
+  }
+}
+
+void _configureIterators(Component component) {
+  final internal = component.libraries.singleWhere(
+    (library) => library.importUri.toString() == 'dart:_internal',
+  );
+  final close = internal.procedures.singleWhere(
+    (procedure) => procedure.name.text == 'napiCloseIterator',
+  );
+  final protocol = internal.classes.singleWhere(
+    (cls) => cls.name == 'NapiCloseableIterator',
+  );
+  for (final library in component.libraries) {
+    if (library.importUri.toString() != 'package:napi/src/env.dart') continue;
+    final iterator = library.classes.singleWhere(
+      (cls) => cls.name == '_JsIterator',
+    );
+    iterator.implementedTypes.add(Supertype(protocol, []));
+    final hook = library.procedures.singleWhere(
+      (p) => p.name.text == '_closeIterator',
+    );
+    hook.function.body = ExpressionStatement(
+      StaticInvocation(
+        close,
+        Arguments([
+          for (final argument in hook.function.positionalParameters)
+            VariableGet(argument),
+        ]),
+      ),
+    )..parent = hook.function;
   }
 }
 

@@ -900,6 +900,44 @@ A Future whose element is a type parameter, such as `Future<T>` in a generic
 function or in `FutureBox<T>`, keeps TypeScript's own Promise typing for `T`. It
 does not account for exported subclasses or exclude adopted inputs.
 
+## Iterables
+
+Export `Iterable<T>` for a lazy, synchronous sequence. Each JS iteration obtains
+a new Dart iterator; `List<T>` continues to produce an ordinary JS array.
+
+```dart
+@NAPI()
+Iterable<int> count(int limit) sync* {
+  for (var value = 0; value < limit; value++) {
+    yield value;
+  }
+}
+
+@NAPI()
+int first(Iterable<int> values) => values.first;
+```
+
+```js
+const values = count(3);
+[...values]; // [0, 1, 2]
+[...values]; // [0, 1, 2], a separate iteration
+first(new Set([2, 3])); // 2
+```
+
+Breaking out of `for…of`, or calling an iterator's `return()`, closes it and runs
+the active Dart `sync*` finalizers, including nested `yield*` generators. Values
+yielded during this cleanup are discarded. Closing before the first `next()`
+does not start the generator.
+
+In compiled addons, Dart `for…in` also closes its iterator on exit. Standard
+Iterable operations such as `first`, `map`, and `take` propagate this cleanup;
+JS input iterators receive `return()` when available. An existing iteration or
+conversion error takes precedence over a cleanup error. Custom Dart iterators
+remain responsible for resources they manage themselves.
+
+Elements use the same conversions as other parameters and results, including
+data classes and generic values. Use `Stream<T>` for asynchronous sequences.
+
 ## Streams
 
 Use a Dart `Stream` to produce or consume an async iterable:

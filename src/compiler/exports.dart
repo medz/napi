@@ -29,6 +29,7 @@ enum ValueKind {
   function,
   future,
   stream,
+  iterable,
   record,
   enumeration,
   jsReference,
@@ -165,6 +166,7 @@ bool usesDirectionalConversion(ExportType type) => switch (type.kind) {
   ValueKind.object => type.classExport!.isObject,
   ValueKind.future ||
   ValueKind.stream ||
+  ValueKind.iterable ||
   ValueKind.dateTime ||
   ValueKind.byteBuffer ||
   ValueKind.byteData ||
@@ -381,7 +383,8 @@ final class _Reader {
     ValueKind.list ||
     ValueKind.map ||
     ValueKind.set ||
-    ValueKind.stream => _classArgument(type.element!),
+    ValueKind.stream ||
+    ValueKind.iterable => _classArgument(type.element!),
     ValueKind.object => type.typeArguments.every(_classArgument),
     ValueKind.record =>
       type.recordFields!.positional.every(_classArgument) &&
@@ -1451,12 +1454,6 @@ final class _Reader {
         '@NAPI $name: async void exports are not supported; return Future<void> instead.',
       );
     }
-    if (function.dartAsyncMarker != AsyncMarker.Sync &&
-        function.dartAsyncMarker != AsyncMarker.Async &&
-        function.dartAsyncMarker != AsyncMarker.AsyncStar)
-      throw FormatException(
-        '@NAPI $name: sync* generator functions are not supported yet.',
-      );
   }
 
   bool _isExported(Member member) {
@@ -2120,6 +2117,17 @@ final class _Reader {
           ),
         );
       } else if (library == 'dart:core') {
+        if (type.classNode.name == 'Iterable') {
+          return ExportType(
+            _actual(type),
+            ValueKind.iterable,
+            nullable: type.nullability == Nullability.nullable,
+            element: _type(
+              type.typeArguments.single,
+              '$context: Iterable element',
+            ),
+          );
+        }
         if (type.classNode.name == 'List') {
           return ExportType(
             _actual(type),

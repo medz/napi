@@ -287,6 +287,7 @@ final class Calls {
     ValueKind.function ||
     ValueKind.future ||
     ValueKind.stream ||
+    ValueKind.iterable ||
     ValueKind.record ||
     ValueKind.enumeration ||
     ValueKind.jsReference => true,
@@ -388,6 +389,7 @@ final class Calls {
     }
     if (!_isComposite(type)) return read(_dartType(type));
     final baseType = switch (type.kind) {
+      ValueKind.iterable => core.objectNullableRawType,
       ValueKind.function => functionType,
       ValueKind.enumeration => core.intNonNullableRawType,
       ValueKind.jsReference =>
@@ -478,12 +480,13 @@ final class Calls {
         [source()],
         types: [(_dartType(type) as InterfaceType).typeArguments.single],
       ),
-      ValueKind.future || ValueKind.stream => call(
+      ValueKind.future || ValueKind.stream || ValueKind.iterable => call(
         VariableGet(env),
-        method(
-          envClass,
-          type.kind == ValueKind.future ? '_readFuture' : '_readStream',
-        ),
+        method(envClass, switch (type.kind) {
+          ValueKind.future => '_readFuture',
+          ValueKind.stream => '_readStream',
+          _ => '_readIterable',
+        }),
         [
           source(),
           _valueReader(
@@ -687,12 +690,13 @@ final class Calls {
         ),
         resultType: core.intNonNullableRawType,
       ),
-      ValueKind.future || ValueKind.stream => call(
+      ValueKind.future || ValueKind.stream || ValueKind.iterable => call(
         VariableGet(env),
-        method(
-          envClass,
-          type.kind == ValueKind.future ? '_writeFuture' : '_writeStream',
-        ),
+        method(envClass, switch (type.kind) {
+          ValueKind.future => '_writeFuture',
+          ValueKind.stream => '_writeStream',
+          _ => '_writeIterable',
+        }),
         [source(), _elementWriter(env, type.element!)],
         types: [_dartType(type.element!)],
       ),

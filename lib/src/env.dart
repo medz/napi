@@ -452,6 +452,149 @@ final class _StreamState<T> {
   }
 }
 
+// Replaced with the SDK's iterator-close hook by the compiler.
+// ignore: unused_element
+void _closeIterator(Iterator<Object?> iterator, [bool suppressError = false]) {}
+
+final class _IteratorState<T> {
+  _IteratorState(this.iterator, this.write);
+  Iterator<T>? iterator;
+  final Object? Function(T) write;
+  bool running = false;
+
+  void close() {
+    if (running) throw StateError('Iterator is already running');
+    final current = iterator;
+    iterator = null;
+    if (current != null) _closeIterator(current);
+  }
+
+  (bool, T?) next() {
+    if (running) throw StateError('Iterator is already running');
+    final current = iterator;
+    if (current == null) return (true, null);
+    running = true;
+    try {
+      if (current.moveNext()) return (false, current.current);
+    } catch (_) {
+      iterator = null;
+      _closeIterator(current, true);
+      rethrow;
+    } finally {
+      running = false;
+    }
+    close();
+    return (true, null);
+  }
+}
+
+final class _JsIterable<T> extends Iterable<T> {
+  _JsIterable(this.env, this.source, this.read);
+  final Env env;
+  final JsReference<JsObject> source;
+  final T Function(JsArguments) read;
+
+  @override
+  Iterator<T> get iterator => env.withScope(() {
+    final receiver = source.value;
+    final method = receiver._get<JsFunction>(env._iteratorSymbol);
+    final object = method._call<JsObject>([], receiver: receiver);
+    final iterator = object.retain();
+    try {
+      return _JsIterator(
+        env,
+        iterator,
+        object.get<JsFunction>('next').retain(),
+        read,
+      );
+    } catch (_) {
+      iterator.dispose();
+      rethrow;
+    }
+  });
+}
+
+// The compiler adds the SDK's private closeable-iterator interface.
+final class _JsIterator<T> implements Iterator<T> {
+  _JsIterator(this.env, this.iterator, this.next, this.read);
+  final Env env;
+  final JsReference<JsObject> iterator;
+  final JsReference<JsFunction> next;
+  final T Function(JsArguments) read;
+  bool closed = false;
+  bool running = false;
+  T? _current;
+
+  @override
+  T get current => _current as T;
+
+  void release() {
+    closed = true;
+    _current = null;
+    try {
+      iterator.dispose();
+    } finally {
+      next.dispose();
+    }
+  }
+
+  // ignore: unused_element
+  void close() {
+    if (running) throw StateError('Iterator is already running');
+    if (closed) return;
+    closed = true;
+    try {
+      if (!env._closed) {
+        env.withScope(() {
+          final receiver = iterator.value;
+          final method = receiver['return'];
+          if (method == null || identical(method, undefined)) return;
+          if (method is! JsFunction) {
+            throw ArgumentError('Iterator return must be a function');
+          }
+          method._call<JsObject>([], receiver: receiver);
+        });
+      }
+    } finally {
+      release();
+    }
+  }
+
+  @override
+  bool moveNext() {
+    if (running) throw StateError('Iterator is already running');
+    if (closed) return false;
+    running = true;
+    try {
+      return env.withScope(() {
+        final step = next.value._call<JsObject>([], receiver: iterator.value);
+        final done = env._result(
+          (out) =>
+              node.napiCoerceToBool(env._handle, step._property('done'), out),
+        );
+        if (env._decode<bool>(done)) {
+          release();
+          return false;
+        }
+        _current = read(
+          JsArguments._(env, [step._property('value')], env._scope!),
+        );
+        return true;
+      });
+    } catch (_) {
+      running = false;
+      try {
+        close();
+      } catch (_) {
+        // Preserve the iteration or conversion error if cleanup also fails.
+      }
+      rethrow;
+    } finally {
+      running = false;
+    }
+  }
+}
+
 /// Dart operations on the Node environment supplied to a module's register hook.
 ///
 /// Values are borrowed for the duration of a call. Env cannot be sent to another
@@ -497,6 +640,7 @@ final class Env {
   final _functions = <int, _BoundFunction>{};
   final _references = <int>{};
   JsReference<JsSymbol>? _asyncIteratorSymbol;
+  JsReference<JsSymbol>? _syncIteratorSymbol;
   int _nextToken = 1;
   bool _closed = false;
   _Scope? _scope;
@@ -801,6 +945,91 @@ final class Env {
         .get<JsSymbol>('asyncIterator');
     _asyncIteratorSymbol = symbol.retain();
     return symbol;
+  }
+
+  JsSymbol get _iteratorSymbol {
+    final cached = _syncIteratorSymbol;
+    if (cached != null) return cached.value;
+    final symbol = global.get<JsObject>('Symbol').get<JsSymbol>('iterator');
+    _syncIteratorSymbol = symbol.retain();
+    return symbol;
+  }
+
+  // ignore: unused_element
+  Iterable<T> _readIterable<T>(Object? value, T Function(JsArguments) read) {
+    final source = JsObject._(
+      this,
+      _result((out) => node.napiCoerceToObject(_handle, _encode(value), out)),
+      _scope!,
+    );
+    source._get<JsFunction>(_iteratorSymbol);
+    return _JsIterable(this, source.retain(), read);
+  }
+
+  // ignore: unused_element
+  JsObject _writeIterable<T>(Iterable<T> value, Object? Function(T) write) {
+    final symbol = _iteratorSymbol;
+    if (!_classes.containsKey(_IteratorState<T>)) {
+      final constructor = defineClass<_IteratorState<T>>(
+        'DartIterator',
+        constructor: (_) => throw StateError('Iterators cannot be constructed'),
+        methods: {
+          'next': (state, _) {
+            final step = state.next();
+            final result = object();
+            result.defineValue('done', step.$1);
+            try {
+              result.defineValue(
+                'value',
+                step.$1 ? undefined : state.write(step.$2 as T),
+              );
+            } catch (_) {
+              try {
+                state.close();
+              } catch (_) {
+                // Preserve the conversion error if cleanup also fails.
+              }
+              rethrow;
+            }
+            return result;
+          },
+          'return': (state, arguments) {
+            state.close();
+            final result = object();
+            result.defineValue('done', true);
+            result.defineValue(
+              'value',
+              arguments.length == 0 ? undefined : arguments.get<Object?>(0),
+            );
+            return result;
+          },
+        },
+        finalize: (state) {
+          try {
+            state.close();
+          } catch (_) {
+            // A finalizer cannot report cleanup errors to its former caller.
+          }
+        },
+      );
+      constructor
+          .get<JsObject>('prototype')
+          ._defineValue(
+            symbol,
+            function('[Symbol.iterator]', (arguments) => arguments._receiver),
+            attributes: node.napiWritable | node.napiConfigurable,
+          );
+    }
+    final result = object();
+    result._defineValue(
+      symbol,
+      function(
+        '[Symbol.iterator]',
+        (_) => wrap(_IteratorState(value.iterator, write)),
+      ),
+      attributes: node.napiWritable | node.napiConfigurable,
+    );
+    return result;
   }
 
   Future<T> _awaitValue<T>(Object? value, T Function(JsArguments) read) {

@@ -1,0 +1,634 @@
+diff --git a/pkg/vm/lib/modular/transformations/for_in_lowering.dart b/pkg/vm/lib/modular/transformations/for_in_lowering.dart
+--- a/pkg/vm/lib/modular/transformations/for_in_lowering.dart
++++ b/pkg/vm/lib/modular/transformations/for_in_lowering.dart
+@@ -3,6 +3,7 @@
+ // BSD-style license that can be found in the LICENSE file.
+ 
+ import 'package:kernel/ast.dart';
++import 'package:kernel/library_index.dart' show LibraryIndex;
+ import 'package:kernel/core_types.dart' show CoreTypes;
+ import 'package:kernel/type_algebra.dart' show Substitution;
+ import 'package:kernel/type_environment.dart' show StaticTypeContext;
+@@ -292,7 +293,43 @@
+       ..fileOffset = stmt.fileOffset
+       ..scope = stmt.scope;
+ 
+-    return Block([syncForIteratorVariableInitialization, forStatement]);
++    final close = coreTypes.index.tryGetProcedure(
++      'dart:_internal',
++      LibraryIndex.topLevel,
++      'napiCloseIterator',
++    );
++    if (close == null) {
++      return Block([syncForIteratorVariableInitialization, forStatement]);
++    }
++    final failed = SyntheticVariable(
++      cosmeticName: ':iterator-failed',
++      initializer: BoolLiteral(false),
++      type: coreTypes.boolNonNullableRawType,
++    );
++    return Block([
++      syncForIteratorVariableInitialization,
++      VariableStatement(VariableDeclaration(failed)),
++      TryFinally(
++        TryCatch(forStatement, [
++          Catch(
++            null,
++            Block([
++              ExpressionStatement(VariableSet(failed, BoolLiteral(true))),
++              ExpressionStatement(Rethrow()),
++            ]),
++          ),
++        ]),
++        ExpressionStatement(
++          StaticInvocation(
++            close,
++            Arguments([
++              VariableGet(syncForIteratorVariable),
++              VariableGet(failed),
++            ]),
++          ),
++        ),
++      ),
++    ]);
+   }
+ 
+   (Variable, Statement) _createSyncForIteratorVariableAndInitialization({
+diff --git a/runtime/vm/compiler/frontend/kernel_binary_flowgraph.cc b/runtime/vm/compiler/frontend/kernel_binary_flowgraph.cc
+--- a/runtime/vm/compiler/frontend/kernel_binary_flowgraph.cc
++++ b/runtime/vm/compiler/frontend/kernel_binary_flowgraph.cc
+@@ -5839,10 +5839,36 @@
+       field = IG->object_store()->sync_star_iterator_current();
+     }
+     instructions += B->StoreFieldGuarded(field);
++    // Skipping yields during cancellation lets all finalizers complete.
++    const auto& iterator_class = Class::Handle(Z, field.Owner());
++    const auto& closing_field = Field::ZoneHandle(
++        Z, iterator_class.LookupInstanceFieldAllowPrivate(
++               String::Handle(Z, Symbols::New(H.thread(), "_closing"))));
++    instructions += IntConstant(0);
++    instructions += B->LoadFpRelativeSlot(
++        compiler::target::frame_layout.FrameSlotForVariable(suspend_state) *
++            compiler::target::kWordSize,
++        CompileType::Dynamic(), kTagged);
++    instructions += LoadNativeField(Slot::SuspendState_function_data());
++    instructions += B->LoadField(closing_field, false);
++    TargetEntryInstr *skip, *suspend;
++    instructions += BranchIfTrue(&skip, &suspend, false);
++    JoinEntryInstr* continued = BuildJoinEntry();
++    Fragment(skip) + Goto(continued);
++    auto* entry = instructions.entry;
++    instructions = Fragment(entry, suspend);
+     instructions += B->Constant(Bool::True());
+     instructions +=
+         B->Suspend(pos, SuspendInstr::StubId::kSuspendSyncStarAtYield);
+-    instructions += Drop();
++    TargetEntryInstr *close, *resume;
++    instructions += BranchIfTrue(&close, &resume, false);
++    Fragment closing(close);
++    closing += TranslateFinallyFinalizers(nullptr, -1);
++    closing += Constant(Bool::False());
++    closing += Return(TokenPosition::kNoSource);
++    instructions = Fragment(instructions.entry, resume);
++    instructions += Goto(continued);
++    instructions = Fragment(entry, continued);
+   } else {
+     UNREACHABLE();
+   }
+diff --git a/sdk/lib/_internal/vm/lib/async_patch.dart b/sdk/lib/_internal/vm/lib/async_patch.dart
+--- a/sdk/lib/_internal/vm/lib/async_patch.dart
++++ b/sdk/lib/_internal/vm/lib/async_patch.dart
+@@ -7,7 +7,13 @@
+ /// by patches of that library. We plan to change this when we have a shared
+ /// front end and simply use parts.
+ 
+-import "dart:_internal" show VMLibraryHooks, patch, unsafeCast;
++import "dart:_internal"
++    show
++        VMLibraryHooks,
++        patch,
++        unsafeCast,
++        NapiCloseableIterator,
++        napiCloseIterator;
+ 
+ /// These are the additional parts of this patch library:
+ part "schedule_microtask_patch.dart";
+@@ -530,7 +536,43 @@
+   }
+ }
+ 
+-class _SyncStarIterator<T> implements Iterator<T> {
++class _SyncStarIterator<T> implements Iterator<T>, NapiCloseableIterator {
++  @pragma('vm:entry-point')
++  bool _closing = false;
++  bool _started = false;
++
++  void close() {
++    if (_state == null) return;
++    _closing = true;
++    Object? failure;
++    StackTrace? trace;
++    void cleanup(void Function() action) {
++      try {
++        action();
++      } catch (error, stack) {
++        failure ??= error;
++        trace ??= stack;
++      }
++    }
++
++    try {
++      cleanup(() => napiCloseIterator(_yieldStarIterator));
++      _yieldStarIterator = null;
++      if (_started) {
++        while (_state != null) {
++          cleanup(() => _state!._resume(true, null, null));
++          _handleSyncStarMethodCompletion();
++        }
++      }
++    } finally {
++      _state = null;
++      _stack = null;
++      _current = null;
++      _yieldStarIterable = null;
++    }
++    if (failure != null) Error.throwWithStackTrace(failure!, trace!);
++  }
++
+   _SuspendState? _state;
+   Iterator<T>? _yieldStarIterator;
+ 
+@@ -569,6 +611,7 @@
+       return false;
+     }
+ 
++    _started = true;
+     Object? pendingException;
+     StackTrace? pendingStackTrace;
+     while (true) {
+diff --git a/sdk/lib/core/iterable.dart b/sdk/lib/core/iterable.dart
+--- a/sdk/lib/core/iterable.dart
++++ b/sdk/lib/core/iterable.dart
+@@ -390,15 +390,23 @@
+   /// ```
+   /// Consider using [fold] if the iterable can be empty.
+   E reduce(E combine(E value, E element)) {
+-    Iterator<E> iterator = this.iterator;
+-    if (!iterator.moveNext()) {
+-      throw IterableElementError.noElement();
+-    }
+-    E value = iterator.current;
+-    while (iterator.moveNext()) {
+-      value = combine(value, iterator.current);
+-    }
+-    return value;
++    final Iterator<E> iterator = this.iterator;
++    var failed = false;
++    try {
++      if (!iterator.moveNext()) {
++        throw IterableElementError.noElement();
++      }
++      E value = iterator.current;
++      while (iterator.moveNext()) {
++        value = combine(value, iterator.current);
++      }
++      return value;
++    } catch (_) {
++      failed = true;
++      rethrow;
++    } finally {
++      napiCloseIterator(iterator, failed);
++    }
+   }
+ 
+   /// Reduces a collection to a single value by iteratively combining each
+@@ -462,24 +470,32 @@
+   /// final joinedNames = planetsByMass.values.join('-'); // Mercury-Venus-Mars
+   /// ```
+   String join([String separator = ""]) {
+-    Iterator<E> iterator = this.iterator;
+-    if (!iterator.moveNext()) return "";
+-    var first = iterator.current.toString();
+-    if (!iterator.moveNext()) return first;
+-    var buffer = StringBuffer(first);
+-    // TODO(51681): Drop null check when de-supporting pre-2.12 code.
+-    if (separator == null || separator.isEmpty) {
+-      do {
+-        buffer.write(iterator.current.toString());
+-      } while (iterator.moveNext());
+-    } else {
+-      do {
+-        buffer
+-          ..write(separator)
+-          ..write(iterator.current.toString());
+-      } while (iterator.moveNext());
+-    }
+-    return buffer.toString();
++    final Iterator<E> iterator = this.iterator;
++    var failed = false;
++    try {
++      if (!iterator.moveNext()) return "";
++      var first = iterator.current.toString();
++      if (!iterator.moveNext()) return first;
++      var buffer = StringBuffer(first);
++      // TODO(51681): Drop null check when de-supporting pre-2.12 code.
++      if (separator == null || separator.isEmpty) {
++        do {
++          buffer.write(iterator.current.toString());
++        } while (iterator.moveNext());
++      } else {
++        do {
++          buffer
++            ..write(separator)
++            ..write(iterator.current.toString());
++        } while (iterator.moveNext());
++      }
++      return buffer.toString();
++    } catch (_) {
++      failed = true;
++      rethrow;
++    } finally {
++      napiCloseIterator(iterator, failed);
++    }
+   }
+ 
+   /// Checks whether any element of this iterable satisfies [test].
+@@ -540,11 +556,19 @@
+   int get length {
+     assert(this is! EfficientLengthIterable);
+     int count = 0;
+-    Iterator<Object?> it = iterator;
+-    while (it.moveNext()) {
+-      count++;
+-    }
+-    return count;
++    final Iterator<Object?> it = iterator;
++    var failed = false;
++    try {
++      while (it.moveNext()) {
++        count++;
++      }
++      return count;
++    } catch (_) {
++      failed = true;
++      rethrow;
++    } finally {
++      napiCloseIterator(it, failed);
++    }
+   }
+ 
+   /// Whether this collection has no elements.
+@@ -557,7 +581,10 @@
+   /// print(emptyList.isEmpty); // true;
+   /// print(emptyList.iterator.moveNext()); // false
+   /// ```
+-  bool get isEmpty => !iterator.moveNext();
++  bool get isEmpty {
++    for (final _ in this) return false;
++    return true;
++  }
+ 
+   /// Whether this collection has at least one element.
+   ///
+@@ -658,11 +685,19 @@
+   /// Otherwise returns the first element in the iteration order,
+   /// equivalent to `this.elementAt(0)`.
+   E get first {
+-    Iterator<E> it = iterator;
+-    if (!it.moveNext()) {
+-      throw IterableElementError.noElement();
+-    }
+-    return it.current;
++    final Iterator<E> it = iterator;
++    var failed = false;
++    try {
++      if (!it.moveNext()) {
++        throw IterableElementError.noElement();
++      }
++      return it.current;
++    } catch (_) {
++      failed = true;
++      rethrow;
++    } finally {
++      napiCloseIterator(it, failed);
++    }
+   }
+ 
+   /// The last element.
+@@ -674,15 +709,23 @@
+   /// (for example a list can directly access the last element,
+   /// without iterating through the previous ones).
+   E get last {
+-    Iterator<E> it = iterator;
+-    if (!it.moveNext()) {
+-      throw IterableElementError.noElement();
+-    }
+-    E result;
+-    do {
+-      result = it.current;
+-    } while (it.moveNext());
+-    return result;
++    final Iterator<E> it = iterator;
++    var failed = false;
++    try {
++      if (!it.moveNext()) {
++        throw IterableElementError.noElement();
++      }
++      E result;
++      do {
++        result = it.current;
++      } while (it.moveNext());
++      return result;
++    } catch (_) {
++      failed = true;
++      rethrow;
++    } finally {
++      napiCloseIterator(it, failed);
++    }
+   }
+ 
+   /// Checks that this iterable has only one element, and returns that element.
+@@ -690,11 +733,19 @@
+   /// Throws a [StateError] if `this` is empty or has more than one element.
+   /// This operation will not iterate past the second element.
+   E get single {
+-    Iterator<E> it = iterator;
+-    if (!it.moveNext()) throw IterableElementError.noElement();
+-    E result = it.current;
+-    if (it.moveNext()) throw IterableElementError.tooMany();
+-    return result;
++    final Iterator<E> it = iterator;
++    var failed = false;
++    try {
++      if (!it.moveNext()) throw IterableElementError.noElement();
++      E result = it.current;
++      if (it.moveNext()) throw IterableElementError.tooMany();
++      return result;
++    } catch (_) {
++      failed = true;
++      rethrow;
++    } finally {
++      napiCloseIterator(it, failed);
++    }
+   }
+ 
+   /// The first element that satisfies the given predicate [test].
+@@ -972,90 +1023,99 @@
+ 
+   int length = 0;
+   int count = 0;
+-  Iterator<Object?> it = iterable.iterator;
+-  // Initial run of elements, at least headCount, and then continue until
+-  // passing at most lengthLimit characters.
+-  while (length < lengthLimit || count < headCount) {
+-    if (!it.moveNext()) return;
+-    String next = "${it.current}";
+-    parts.add(next);
+-    length += next.length + overhead;
+-    count++;
+-  }
+-
+-  String penultimateString;
+-  String ultimateString;
+-
+-  // Find last two elements. One or more of them may already be in the
+-  // parts array. Include their length in `length`.
+-  if (!it.moveNext()) {
+-    if (count <= headCount + tailCount) return;
+-    ultimateString = parts.removeLast();
+-    penultimateString = parts.removeLast();
+-  } else {
+-    Object? penultimate = it.current;
+-    count++;
++  final Iterator<Object?> it = iterable.iterator;
++  var failed = false;
++  try {
++    // Initial run of elements, at least headCount, and then continue until
++    // passing at most lengthLimit characters.
++    while (length < lengthLimit || count < headCount) {
++      if (!it.moveNext()) return;
++      String next = "${it.current}";
++      parts.add(next);
++      length += next.length + overhead;
++      count++;
++    }
++
++    String penultimateString;
++    String ultimateString;
++
++    // Find last two elements. One or more of them may already be in the
++    // parts array. Include their length in `length`.
+     if (!it.moveNext()) {
+-      if (count <= headCount + 1) {
+-        parts.add("$penultimate");
+-        return;
+-      }
+-      ultimateString = "$penultimate";
++      if (count <= headCount + tailCount) return;
++      ultimateString = parts.removeLast();
+       penultimateString = parts.removeLast();
+-      length += ultimateString.length + overhead;
+     } else {
+-      Object? ultimate = it.current;
++      Object? penultimate = it.current;
+       count++;
+-      // Then keep looping, keeping the last two elements in variables.
+-      assert(count < maxCount);
+-      while (it.moveNext()) {
+-        penultimate = ultimate;
+-        ultimate = it.current;
+-        count++;
+-        if (count > maxCount) {
+-          // If we haven't found the end before maxCount, give up.
+-          // This cannot happen in the code above because each entry
+-          // increases length by at least two, so there is no way to
+-          // visit more than ~40 elements before this loop.
+-
+-          // Remove any surplus elements until length, including ", ...)",
+-          // is at most lengthLimit.
+-          while (length > lengthLimit - ellipsisSize - overhead &&
+-              count > headCount) {
+-            length -= parts.removeLast().length + overhead;
+-            count--;
+-          }
+-          parts.add("...");
++      if (!it.moveNext()) {
++        if (count <= headCount + 1) {
++          parts.add("$penultimate");
+           return;
+         }
++        ultimateString = "$penultimate";
++        penultimateString = parts.removeLast();
++        length += ultimateString.length + overhead;
++      } else {
++        Object? ultimate = it.current;
++        count++;
++        // Then keep looping, keeping the last two elements in variables.
++        assert(count < maxCount);
++        while (it.moveNext()) {
++          penultimate = ultimate;
++          ultimate = it.current;
++          count++;
++          if (count > maxCount) {
++            // If we haven't found the end before maxCount, give up.
++            // This cannot happen in the code above because each entry
++            // increases length by at least two, so there is no way to
++            // visit more than ~40 elements before this loop.
++
++            // Remove any surplus elements until length, including ", ...)",
++            // is at most lengthLimit.
++            while (length > lengthLimit - ellipsisSize - overhead &&
++                count > headCount) {
++              length -= parts.removeLast().length + overhead;
++              count--;
++            }
++            parts.add("...");
++            return;
++          }
++        }
++        penultimateString = "$penultimate";
++        ultimateString = "$ultimate";
++        length +=
++            ultimateString.length + penultimateString.length + 2 * overhead;
+       }
+-      penultimateString = "$penultimate";
+-      ultimateString = "$ultimate";
+-      length += ultimateString.length + penultimateString.length + 2 * overhead;
+-    }
+-  }
+-
+-  // If there is a gap between the initial run and the last two,
+-  // prepare to add an ellipsis.
+-  String? elision;
+-  if (count > parts.length + tailCount) {
+-    elision = "...";
+-    length += ellipsisSize + overhead;
+-  }
+-
+-  // If the last two elements were very long, and we have more than
+-  // headCount elements in the initial run, drop some to make room for
+-  // the last two.
+-  while (length > lengthLimit && parts.length > headCount) {
+-    length -= parts.removeLast().length + overhead;
+-    if (elision == null) {
++    }
++
++    // If there is a gap between the initial run and the last two,
++    // prepare to add an ellipsis.
++    String? elision;
++    if (count > parts.length + tailCount) {
+       elision = "...";
+       length += ellipsisSize + overhead;
+     }
+-  }
+-  if (elision != null) {
+-    parts.add(elision);
+-  }
+-  parts.add(penultimateString);
+-  parts.add(ultimateString);
++
++    // If the last two elements were very long, and we have more than
++    // headCount elements in the initial run, drop some to make room for
++    // the last two.
++    while (length > lengthLimit && parts.length > headCount) {
++      length -= parts.removeLast().length + overhead;
++      if (elision == null) {
++        elision = "...";
++        length += ellipsisSize + overhead;
++      }
++    }
++    if (elision != null) {
++      parts.add(elision);
++    }
++    parts.add(penultimateString);
++    parts.add(ultimateString);
++  } catch (_) {
++    failed = true;
++    rethrow;
++  } finally {
++    napiCloseIterator(it, failed);
++  }
+ }
+diff --git a/sdk/lib/internal/internal.dart b/sdk/lib/internal/internal.dart
+--- a/sdk/lib/internal/internal.dart
++++ b/sdk/lib/internal/internal.dart
+@@ -32,6 +32,44 @@
+ part 'print.dart';
+ part 'sort.dart';
+ part 'symbol.dart';
++
++abstract interface class NapiCloseableIterator {
++  void close();
++}
++
++void napiCloseIterator(Iterator? iterator, [bool suppressError = false]) {
++  try {
++    switch (iterator) {
++      case final NapiCloseableIterator closeable:
++        closeable.close();
++      case MappedIterator(_iterator: final source):
++      case WhereIterator(_iterator: final source):
++      case TakeIterator(_iterator: final source):
++      case TakeWhileIterator(_iterator: final source):
++      case SkipIterator(_iterator: final source):
++      case SkipWhileIterator(_iterator: final source):
++        napiCloseIterator(source);
++      case CastIterator(_source: final Iterator source):
++      case WhereTypeIterator(_source: final Iterator source):
++      case NonNullsIterator(_source: final Iterator source):
++      case IndexedIterator(_source: final Iterator source):
++        napiCloseIterator(source);
++      case FollowedByIterator(_currentIterator: final source):
++        napiCloseIterator(source);
++      case ExpandIterator(
++        _iterator: final source,
++        _currentExpansion: final nested,
++      ):
++        try {
++          napiCloseIterator(nested);
++        } finally {
++          napiCloseIterator(source);
++        }
++    }
++  } catch (_) {
++    if (!suppressError) rethrow;
++  }
++}
+ 
+ // Returns true iff `null as T` will succeed based on the
+ // execution mode.
+diff --git a/sdk/lib/internal/iterable.dart b/sdk/lib/internal/iterable.dart
+--- a/sdk/lib/internal/iterable.dart
++++ b/sdk/lib/internal/iterable.dart
+@@ -503,6 +503,7 @@
+   bool moveNext() {
+     if (_currentExpansion == null) return false;
+     while (!_currentExpansion!.moveNext()) {
++      napiCloseIterator(_currentExpansion);
+       _current = null;
+       if (_iterator.moveNext()) {
+         // If _f throws, this ends iteration. Otherwise _currentExpansion and
+@@ -564,6 +565,7 @@
+       return _iterator.moveNext();
+     }
+     _remaining = -1;
++    napiCloseIterator(_iterator);
+     return false;
+   }
+ 
+@@ -599,6 +601,7 @@
+     if (_isFinished) return false;
+     if (!_iterator.moveNext() || !_f(_iterator.current)) {
+       _isFinished = true;
++      napiCloseIterator(_iterator);
+       return false;
+     }
+     return true;
+@@ -881,6 +884,7 @@
+ 
+   bool moveNext() {
+     if (_currentIterator.moveNext()) return true;
++    napiCloseIterator(_currentIterator);
+     if (_nextIterable != null) {
+       _currentIterator = _nextIterable!.iterator;
+       _nextIterable = null;

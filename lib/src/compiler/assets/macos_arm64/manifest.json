@@ -12,23 +12,23 @@
     },
     "backend.dylib": {
       "size": 3891760,
-      "sha256": "6ff0cd76158c8542fc8a9b8694fd619aaad8db8e5338f9e73508abacb8a6b57c"
+      "sha256": "eaefa79dcadb05d8e189d3ab15b38214dccc98d0eeac36a642110342d419dcb1"
     },
     "compiler.dylib": {
       "size": 91216,
       "sha256": "f6d9ff7cd847556facb83910dc09e2adbee566782db58dcf35c1b0d5db2109a4"
     },
     "frontend.aot": {
-      "size": 11884784,
-      "sha256": "78ea3bf41e70a139e7c9639259c58f0986cbb5a9b55724ac5d263ebefa7c7bd3"
+      "size": 11885600,
+      "sha256": "6bfc9e7faa46bde7f2578c4cfb0a2f76b0a6b8feae6f93d8a176710323d074f0"
     },
     "frontend.dylib": {
       "size": 4556800,
       "sha256": "667dae6e771bc5e9d5516799a627e81a179de4ce104521c0bf307719e6eee422"
     },
     "platform.dill": {
-      "size": 8663552,
-      "sha256": "346a29abc98ee15d654363567742b342078513b19be89573acaf0a700c0e8e8a"
+      "size": 8696760,
+      "sha256": "54a85f59758ee6a73c2ae9a04b7ca7c3c952ee382c7d8d63df554c8bd4115894"
     },
     "runtime-core.node": {
       "size": 1503648,

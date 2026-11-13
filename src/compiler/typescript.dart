@@ -657,6 +657,8 @@ final class _Writer {
         '{ readonly array: readonly (${_typeMode(type.element!)})[] }',
       ValueKind.set => '{ readonly set: ${_typeMode(type.element!)} }',
       ValueKind.stream => '{ readonly async: ${_typeMode(type.element!)} }',
+      ValueKind.iterable =>
+        '{ readonly iterable: ${_typeMode(type.element!)} }',
       ValueKind.map =>
         '{ readonly [key: string]: ${_typeMode(type.element!)} }',
       ValueKind.record =>
@@ -932,7 +934,7 @@ final class _Writer {
       _collectAwaitedDifference(left.element!, right.element!, result, locals);
       return;
     }
-    if (left.kind == ValueKind.stream) {
+    if (left.kind == ValueKind.stream || left.kind == ValueKind.iterable) {
       result.always = true;
       return;
     }
@@ -1400,7 +1402,8 @@ final class _Writer {
     ValueKind.simd ||
     ValueKind.simdList ||
     ValueKind.future ||
-    ValueKind.stream => true,
+    ValueKind.stream ||
+    ValueKind.iterable => true,
     _ => false,
   };
 
@@ -2693,6 +2696,7 @@ final class _Writer {
         '  : T extends globalThis.Function | globalThis.Date | globalThis.ArrayBuffer | globalThis.ArrayBufferView ? T',
       );
       output.writeln(
+        '  : T extends string ? T : T extends globalThis.Iterable<infer V> ? globalThis.Iterable<$_inputOf<V>>'
         '  : T extends object ? keyof T extends never ? T : object & { [K in keyof T]: $_inputOf<T[K]> } : T;',
       );
       output.writeln(
@@ -2723,6 +2727,8 @@ final class _Writer {
         '  : T extends globalThis.Function | globalThis.Date | globalThis.ArrayBuffer | globalThis.ArrayBufferView ? "stable"',
       );
       output.writeln(
+        '  : T extends string ? "stable"'
+        '  : T extends globalThis.Iterable<infer V> ? { readonly iterable: $_mode<V> }'
         '  : T extends object ? { readonly [K in keyof T]: $_mode<T[K]> } : "stable";',
       );
     }
@@ -2947,6 +2953,8 @@ final class _Writer {
             ? 'globalThis.Promise<${_awaitedTypes(type.element!).map((branch) => _awaitedBranchType(branch, metadata: metadata)).join(' | ')}>'
             : 'globalThis.Promise<${_futureInput(type.element!, metadata: metadata)}>',
       ValueKind.record => _record(type, output: output, metadata: metadata),
+      ValueKind.iterable =>
+        'globalThis.Iterable<${_type(type.element!, output: output, metadata: metadata)}>',
       ValueKind.stream =>
         'globalThis.${output ? 'AsyncIterableIterator' : 'AsyncIterable'}<${_type(type.element!, output: output, metadata: metadata)}>',
       ValueKind.list =>

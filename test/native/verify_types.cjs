@@ -22,6 +22,7 @@ for (const [target, fixture] of [
   ['callbacks', 'annotated_callbacks.cts'],
   ['futures', 'annotated_futures.cts'],
   ['streams', 'annotated_streams.cts'],
+  ['iterables', 'annotated_iterables.cts'],
   ['records', 'annotated_records.cts'],
   ['enums', 'annotated_enums.cts'],
   ['constants', 'annotated_constants.cts'],
