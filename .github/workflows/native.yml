@@ -52,8 +52,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           dart analyze
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          dart pub publish --dry-run
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ('${{ matrix.platform }}' -eq 'linux_x64') {
+            dart pub publish --dry-run
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
           $archive = Join-Path $env:RUNNER_TEMP 'napi.tar.gz'
           dart pub publish --skip-validation "--to-archive=$archive"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

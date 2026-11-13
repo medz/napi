@@ -4,15 +4,10 @@ const { copyFileSync, readFileSync, writeFileSync } = require('node:fs');
 const { join, resolve } = require('node:path');
 const { spawnSync } = require('node:child_process');
 
+const groups = [[], []];
+
 function verify(consumers, isolated = false) {
-  const result = spawnSync(process.execPath, [
-    require.resolve('typescript/bin/tsc'),
-    '--strict', '--exactOptionalPropertyTypes', '--noEmit',
-    '--module', 'NodeNext', '--target', 'ES2020',
-    ...(isolated ? ['--isolatedModules'] : []), ...consumers,
-  ], { stdio: 'inherit' });
-  if (result.error) throw result.error;
-  if (result.status !== 0) process.exit(result.status ?? 1);
+  groups[Number(isolated)].push(...consumers);
 }
 
 for (const [target, fixture] of [
@@ -162,4 +157,15 @@ const done: Status = toggle(ready);
 const invalid: Status = 2;
 `);
   verify([common, module], true);
+}
+
+for (const [isolated, consumers] of groups.entries()) {
+  const result = spawnSync(process.execPath, [
+    require.resolve('typescript/bin/tsc'),
+    '--strict', '--exactOptionalPropertyTypes', '--noEmit',
+    '--module', 'NodeNext', '--target', 'ES2020',
+    ...(isolated ? ['--isolatedModules'] : []), ...consumers,
+  ], { stdio: 'inherit' });
+  if (result.error) throw result.error;
+  if (result.status !== 0) process.exit(result.status ?? 1);
 }
