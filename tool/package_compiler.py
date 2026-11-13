@@ -128,7 +128,8 @@ def package(args):
         if name == "platform.dill":
             continue
         if name == "frontend.aot":
-            validate_image(source, "elf", aot_machine)
+            validate_image(source, "macho" if kind == "macho" else "elf",
+                           machine if kind == "macho" else aot_machine)
         else:
             validate_image(source, kind, machine)
     license_text = (args.notices.read_text(encoding="utf-8")

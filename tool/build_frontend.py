@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the SDK's private Dart frontend as an ELF AOT snapshot."""
+"""Build the SDK's private Dart frontend as a platform AOT snapshot."""
 
 import argparse
 from pathlib import Path
@@ -31,5 +31,8 @@ subprocess.run([
 subprocess.run([
     generator,
     "--deterministic", "--target_unknown_cpu", "--strip",
-    "--snapshot_kind=app-aot-elf", "--elf=" + args.output, str(kernel),
+    *(["--snapshot_kind=app-aot-macho-dylib", "--macho=" + args.output]
+      if target == "macos" else
+      ["--snapshot_kind=app-aot-elf", "--elf=" + args.output]),
+    str(kernel),
 ], check=True)

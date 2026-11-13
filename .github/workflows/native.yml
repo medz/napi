@@ -1,4 +1,4 @@
-name: Windows native addon
+name: Native addons
 
 on:
   workflow_dispatch:
@@ -11,7 +11,15 @@ permissions:
 
 jobs:
   verify:
-    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            platform: windows_x64
+          - os: macos-15
+            platform: macos_arm64
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     defaults:
       run:
@@ -85,7 +93,7 @@ jobs:
           } finally { Pop-Location }
           $images = Join-Path $smoke 'images'
           New-Item -ItemType Directory -Force $images | Out-Null
-          $assets = Join-Path $package 'lib/src/compiler/assets/windows_x64'
+          $assets = Join-Path $package 'lib/src/compiler/assets/${{ matrix.platform }}'
           Copy-Item "$assets/runtime*.node" $images
           Copy-Item "$assets/NOTICES" $images
           Remove-Item -Recurse -Force $package
@@ -111,10 +119,10 @@ jobs:
             } finally { Pop-Location }
           }
 
-      - name: Upload the Windows native package
+      - name: Upload the native package
         uses: actions/upload-artifact@v4
         with:
-          name: native-windows-x64
+          name: native-${{ matrix.platform }}
           path: '${{ runner.temp }}/napi smoke 中文/build/package'
           include-hidden-files: true
           retention-days: 1

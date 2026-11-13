@@ -8,6 +8,7 @@
 #include "bin/platform.h"
 #include "include/bin/dart_io_api.h"
 #include "include/dart_api.h"
+#include "platform/utils.h"
 
 #if defined(_WIN32)
 #define NAPI_COMPILER_EXPORT extern "C" __declspec(dllexport)
@@ -22,7 +23,7 @@ bool initialized = false;
 const char* initialization_error = nullptr;
 const uint8_t* snapshot_data = nullptr;
 const uint8_t* snapshot_text = nullptr;
-Dart_LoadedElf* snapshot = nullptr;
+void* snapshot = nullptr;
 char executable[32768];
 
 int Error(char** error, const char* message) {
@@ -36,8 +37,26 @@ int Error(char** error, const char* message) {
 }
 
 void Initialize(const char* aot) {
+#if defined(DART_HOST_OS_MACOS)
+  // dyld maps signed code without requiring unsigned-executable-memory rights.
+  char* load_error = nullptr;
+  snapshot = dart::Utils::LoadDynamicLibrary(aot, &load_error);
+  if (load_error == nullptr) {
+    snapshot_data = static_cast<const uint8_t*>(
+        dart::Utils::ResolveSymbolInDynamicLibrary(
+            snapshot, kSnapshotDataCSymbol, &load_error));
+  }
+  if (load_error == nullptr) {
+    snapshot_text = static_cast<const uint8_t*>(
+        dart::Utils::ResolveSymbolInDynamicLibrary(
+            snapshot, kSnapshotTextCSymbol, &load_error));
+  }
+  initialization_error = load_error;
+  if (initialization_error != nullptr) return;
+#else
   snapshot = Dart_LoadELF(aot, 0, &initialization_error, &snapshot_data,
                           &snapshot_text);
+#endif
   if (snapshot == nullptr) return;
   dart::bin::SetupICU();
   if (!dart::bin::Platform::Initialize(false) ||
