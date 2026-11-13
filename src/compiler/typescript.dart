@@ -107,6 +107,7 @@ final class _Writer {
       _inputParameters[cls] = parameters;
       _classParameters.addAll(parameters);
     }
+    _collectShapeParameters();
     _analyzeDifferences();
   }
   final ExportModule exports;
@@ -130,6 +131,7 @@ final class _Writer {
   final _pendingDifferences = <_ObjectPair>[];
   final _inputParameters = <ExportClass, List<ExportTypeParameter>>{};
   final _classParameters = <ExportTypeParameter>{};
+  final _shapeParameters = <ExportTypeParameter>{};
   final _mixedPairs = <_TypePair>[];
   final _parameterTypes =
       <ExportTypeParameter, ({String output, String input})>{};
@@ -1260,9 +1262,69 @@ final class _Writer {
     return same(left.left, right.left) && same(left.right, right.right);
   }
 
+  void _collectShapeParameters() {
+    Iterable<ExportTypeParameter> used(ExportType type) sync* {
+      if (type.parameter case final parameter?) yield parameter;
+      for (final child in _shapeChildren(type)) yield* used(child);
+    }
+
+    var changed = true;
+    while (changed) {
+      changed = false;
+      for (final cls in _objects.keys) {
+        final constructor = cls.constructor?.signature;
+        for (final type in [
+          for (final property in cls.properties) property.readType!,
+          if (constructor != null)
+            for (final parameter in [
+              ...constructor.positional,
+              ...constructor.named,
+            ])
+              parameter.type,
+        ]) {
+          for (final parameter in used(type)) {
+            if (cls.typeParameters.contains(parameter)) {
+              changed = _shapeParameters.add(parameter) || changed;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  Iterable<ExportType> _shapeChildren(ExportType type) sync* {
+    if (type.classExport?.isObject != true) {
+      yield* _typeChildren(type);
+      return;
+    }
+    for (var i = 0; i < type.typeArguments.length; ++i) {
+      if (_shapeParameters.contains(type.classExport!.typeParameters[i])) {
+        yield type.typeArguments[i];
+      }
+    }
+  }
+
+  bool _sameShapeType(ExportType left, ExportType right) {
+    if (_typeKey(left, const {}, (_) => '#') !=
+        _typeKey(right, const {}, (_) => '#')) {
+      return false;
+    }
+    final a = _shapeChildren(left).toList();
+    final b = _shapeChildren(right).toList();
+    return a.length == b.length &&
+        a.indexed.every((item) => _sameShapeType(item.$2, b[item.$1]));
+  }
+
   bool _enterSchemaPair(_TypePair pair) {
     final key = _pairKey(pair);
-    if (_mixedPairs.any((old) => _pairKey(old) == key)) return false;
+    if (_mixedPairs.any(
+      (old) =>
+          _pairKey(old) == key ||
+          _sameShapeType(old.left, pair.left) &&
+              _sameShapeType(old.right, pair.right),
+    )) {
+      return false;
+    }
     if (_mixedPairs.any(
       (old) =>
           _sameMixedSchema(old, pair) &&

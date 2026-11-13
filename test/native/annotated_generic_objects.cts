@@ -333,6 +333,11 @@ const growingHandler: addon.Handler<addon.Growing<number>> = addon.echoGrowingHa
 const handledGrowing: addon.Growing<number> = growingHandler.run({ value: 1, next: null });
 const genericGrowing = addon.echoGenericGrowing({ value: () => 1, next: { value: () => 2, next: null } });
 const genericGrowingValue: number[] | undefined = genericGrowing.next?.value();
+const mixedRecursive: addon.MixedRecursive<number> = { value: { next: null } };
+const copiedMixedRecursive = addon.echoMixedRecursive(mixedRecursive);
+const mixedNext: addon.RecordLink<number> | null | undefined = copiedMixedRecursive.value?.next;
+// @ts-expect-error Recursive record fields still require objects or null.
+addon.echoMixedRecursive({ value: { next: 1 } });
 // @ts-expect-error Growing output arrays do not satisfy scalar constructor inputs.
 addon.echoGrowing(growing);
 // @ts-expect-error A recursively asymmetric result requires its output identity.

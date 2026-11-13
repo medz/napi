@@ -797,6 +797,28 @@ Handler<Growing<int>> echoGrowingHandler(Handler<Growing<int>> value) => value;
 GenericGrowing<int> echoGenericGrowing(GenericGrowing<int> value) => value;
 
 @NAPI.object()
+class RecordLink<T> {
+  @NAPI()
+  RecordLink({required this.next});
+
+  @NAPI()
+  final ({RecordLink<List<T>>? next})? next;
+}
+
+@NAPI.object()
+class MixedRecursive<T> {
+  @NAPI()
+  MixedRecursive({required RecordLink<T>? value})
+    : value = value == null ? null : (next: value);
+
+  @NAPI()
+  final ({RecordLink<T>? next})? value;
+}
+
+@NAPI()
+MixedRecursive<int> echoMixedRecursive(MixedRecursive<int> value) => value;
+
+@NAPI.object()
 class Swap<A, B> {
   @NAPI()
   Swap({required this.value, required this.next});

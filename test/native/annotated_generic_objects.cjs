@@ -326,6 +326,12 @@ module.exports = async function verifyAnnotatedGenericObjects(path) {
   });
   assert.equal(genericGrowing.value(), 1);
   assert.deepEqual(genericGrowing.next.value(), [2]);
+  const mixedRecursive = addon.echoMixedRecursive({ value: { next: null } });
+  assert.deepEqual(mixedRecursive, { value: { next: { next: null } } });
+  assert.deepEqual(addon.echoMixedRecursive(mixedRecursive), {
+    value: { next: { next: { next: null } } },
+  });
+  assert.throws(() => addon.echoMixedRecursive({ value: { next: 1 } }), TypeError);
   for (const invalid of [
     { value: '7' }, {}, { value: 7, optional: undefined }, { value: 7, note: undefined },
   ]) {
