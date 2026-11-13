@@ -22,6 +22,7 @@ Future<void> main(List<String> args) async {
       ('collections', 'annotated_collections.dart'),
       ('callbacks', 'annotated_callbacks.dart'),
       ('futures', 'annotated_futures.dart'),
+      ('future-or', 'annotated_future_or.dart'),
       ('streams', 'annotated_streams.dart'),
       ('iterables', 'annotated_iterables.dart'),
       ('records', 'annotated_records.dart'),

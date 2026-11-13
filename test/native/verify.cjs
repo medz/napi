@@ -10,6 +10,7 @@ const verifyAnnotatedClasses = require('./annotated_classes.cjs');
 const verifyAnnotatedCollections = require('./annotated_collections.cjs');
 const verifyAnnotatedCallbacks = require('./annotated_callbacks.cjs');
 const verifyAnnotatedFutures = require('./annotated_futures.cjs');
+const verifyFutureOr = require('./annotated_future_or.cjs');
 const verifyAnnotatedStreams = require('./annotated_streams.cjs');
 const verifyAnnotatedIterables = require('./annotated_iterables.cjs');
 const verifyAnnotatedRecords = require('./annotated_records.cjs');
@@ -92,6 +93,7 @@ async function main() {
   verifyAnnotatedCollections(join(output, 'collections', 'addon.node'));
   await verifyAnnotatedCallbacks(join(output, 'callbacks', 'addon.node'));
   await verifyAnnotatedFutures(join(output, 'futures', 'addon.node'));
+  await verifyFutureOr(join(output, 'future-or', 'addon.node'));
   await verifyAnnotatedStreams(join(output, 'streams', 'addon.node'));
   await verifyAnnotatedIterables(join(output, 'iterables', 'addon.node'));
   await verifyAnnotatedRecords(join(output, 'records', 'addon.node'));

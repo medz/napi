@@ -813,6 +813,24 @@ final class Env {
   }
 
   // ignore: unused_element
+  FutureOr<T> _readFutureOr<T>(
+    Object? value,
+    T Function(JsArguments) read,
+    T Function(JsArguments) readFuture,
+  ) {
+    if (value is JsObject) {
+      final isPromise = _arena<Bool>();
+      _check(node.napiIsPromise(_handle, value._handle, isPromise));
+      if (isPromise.value) return _readFuture(value, readFuture);
+    }
+    return read(JsArguments._(this, [_encode(value)], _scope!));
+  }
+
+  // ignore: unused_element
+  Object? _writeFutureOr<T>(FutureOr<T> value, Object? Function(T) write) =>
+      value is Future<T> ? _writeFuture(value, write) : write(value);
+
+  // ignore: unused_element
   Future<T> _readFuture<T>(JsObject value, T Function(JsArguments) read) {
     final isPromise = _arena<Bool>();
     _check(node.napiIsPromise(_handle, _encode(value), isPromise));
@@ -823,7 +841,9 @@ final class Env {
     final resolve = function('', (arguments) {
       if (!result.isCompleted) {
         try {
-          result.complete(read(arguments));
+          final value = read(arguments);
+          // shortcut: Dart 3.13 rejects null for nested nullable FutureOr; remove when fixed in the bundled SDK.
+          result.complete(value ?? Future<T>.syncValue(value));
         } catch (error, stack) {
           result.completeError(error, stack);
         }

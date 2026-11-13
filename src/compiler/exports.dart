@@ -28,6 +28,7 @@ enum ValueKind {
   byteData,
   function,
   future,
+  futureOr,
   stream,
   iterable,
   record,
@@ -165,6 +166,7 @@ bool needsFunctionAdapter(ExportSignature signature) =>
 bool usesDirectionalConversion(ExportType type) => switch (type.kind) {
   ValueKind.object => type.classExport!.isObject,
   ValueKind.future ||
+  ValueKind.futureOr ||
   ValueKind.stream ||
   ValueKind.iterable ||
   ValueKind.dateTime ||
@@ -370,7 +372,7 @@ final class _Reader {
     ValueKind.byteData ||
     ValueKind.simd ||
     ValueKind.simdList => true,
-    ValueKind.future =>
+    ValueKind.future || ValueKind.futureOr =>
       type.element!.kind == ValueKind.voidValue ||
           _classArgument(type.element!),
     ValueKind.function =>
@@ -711,6 +713,7 @@ final class _Reader {
     final patterns = _TypeCodecPatterns(
       hierarchy.coreTypes.objectNullableRawType,
     );
+    patterns.add(FutureOrType(patterns.parameter(), Nullability.nonNullable));
     for (final library in component.libraries) {
       if (library.importUri.isScheme('dart')) {
         if (const {
@@ -1883,6 +1886,18 @@ final class _Reader {
   }
 
   ExportType _type(DartType type, String context, {bool result = false}) {
+    if (type is FutureOrType) {
+      return ExportType(
+        _actual(type),
+        ValueKind.futureOr,
+        nullable: type.declaredNullability == Nullability.nullable,
+        element: _type(
+          type.typeArgument,
+          '$context: FutureOr value',
+          result: true,
+        ),
+      );
+    }
     if (type is TypeParameterType) {
       final parameter = _parameters[type.parameter];
       if (parameter == null) {
@@ -2379,6 +2394,12 @@ final class _TypeCodecPatterns extends RecursiveVisitor {
       return InterfaceType(type.classNode, type.nullability, [
         for (final value in type.typeArguments) shape(value, bound),
       ]);
+    }
+    if (type is FutureOrType) {
+      return FutureOrType(
+        shape(type.typeArgument, bound),
+        type.declaredNullability,
+      );
     }
     if (type is TypeParameterType) return parameter();
     return type;

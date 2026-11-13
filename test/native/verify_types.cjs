@@ -21,6 +21,7 @@ for (const [target, fixture] of [
   ['collections', 'annotated_collections.cts'],
   ['callbacks', 'annotated_callbacks.cts'],
   ['futures', 'annotated_futures.cts'],
+  ['future-or', 'annotated_future_or.cts'],
   ['streams', 'annotated_streams.cts'],
   ['iterables', 'annotated_iterables.cts'],
   ['records', 'annotated_records.cts'],

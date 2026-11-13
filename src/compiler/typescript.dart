@@ -934,6 +934,11 @@ final class _Writer {
       _collectAwaitedDifference(left.element!, right.element!, result, locals);
       return;
     }
+    if (left.kind == ValueKind.futureOr) {
+      _collectDifference(left.element!, right.element!, result, locals: locals);
+      _collectAwaitedDifference(left.element!, right.element!, result, locals);
+      return;
+    }
     if (left.kind == ValueKind.stream || left.kind == ValueKind.iterable) {
       result.always = true;
       return;
@@ -1046,7 +1051,9 @@ final class _Writer {
       return;
     }
     if (output &&
-        (type.kind == ValueKind.function || type.kind == ValueKind.future)) {
+        (type.kind == ValueKind.function ||
+            type.kind == ValueKind.future ||
+            type.kind == ValueKind.futureOr)) {
       _collectDifference(type, type, result, locals: locals);
       return;
     }
@@ -1081,6 +1088,7 @@ final class _Writer {
   };
 
   bool? _includesNull(ExportType type) => switch (type.kind) {
+    ValueKind.futureOr => type.nullable ? true : _includesNull(type.element!),
     ValueKind.typeParameter ||
     ValueKind.dynamicValue ||
     ValueKind.opaque => null,
@@ -1464,6 +1472,7 @@ final class _Writer {
   }
 
   bool? _isJsArray(ExportType type) => switch (type.kind) {
+    ValueKind.futureOr => _isJsArray(type.element!) == false ? false : null,
     ValueKind.list => true,
     ValueKind.record => type.recordFields!.named.isEmpty,
     ValueKind.typeParameter ||
@@ -1475,6 +1484,7 @@ final class _Writer {
   };
 
   bool? _isJsCallable(ExportType type) => switch (type.kind) {
+    ValueKind.futureOr => _isJsCallable(type.element!) == false ? false : null,
     ValueKind.function => true,
     ValueKind.jsReference when type.referenceKind == JsReferenceKind.function =>
       true,
@@ -1487,6 +1497,7 @@ final class _Writer {
   };
 
   bool? _isJsPrimitive(ExportType type) => switch (type.kind) {
+    ValueKind.futureOr => _isJsPrimitive(type.element!) == false ? false : null,
     ValueKind.boolean ||
     ValueKind.integer ||
     ValueKind.doubleValue ||
@@ -1639,6 +1650,7 @@ final class _Writer {
       case ValueKind.opaque:
       case ValueKind.dynamicValue:
       case ValueKind.future:
+      case ValueKind.futureOr:
         return false;
       default:
         return true;
@@ -1652,10 +1664,25 @@ final class _Writer {
       return !visited.add(parameter) || _mayCall(parameter.bound, visited);
     }
     return switch (type.kind) {
+      ValueKind.futureOr => _mayCall(type.element!, seen),
       ValueKind.function || ValueKind.opaque || ValueKind.dynamicValue => true,
       ValueKind.jsReference => type.referenceKind != JsReferenceKind.symbol,
       _ => false,
     };
+  }
+
+  Iterable<ExportType?> _futureOrBranches(ExportType? type) sync* {
+    if (type?.kind != ValueKind.futureOr) {
+      yield type;
+      return;
+    }
+    yield* _futureOrBranches(
+      _copyType(
+        type!.element!,
+        nullable: type.nullable || type.element!.nullable,
+      ),
+    );
+    yield ExportType(type.dartType, ValueKind.future, element: type.element);
   }
 
   ExportType? _thenType(ExportType type) {
@@ -2196,7 +2223,7 @@ final class _Writer {
         '@NAPI ${type.classExport?.name ?? 'Future'}: thenable resolution does not have a finite type.',
       );
     }
-    if (base.kind == ValueKind.future) {
+    if (base.kind == ValueKind.future || base.kind == ValueKind.futureOr) {
       values.addAll(
         _awaitedTypes(base.element!, [
           ...path,
@@ -2205,15 +2232,20 @@ final class _Writer {
       );
       return _normalizeAwaited(values);
     }
-    final List<_ThenMember> thens;
+    final List<_ThenMember> members;
     if (base.kind == ValueKind.map) {
-      thens = [(then: base.element, instance: base)];
+      members = [(then: base.element, instance: base)];
     } else if (base.kind == ValueKind.object || base.kind == ValueKind.record) {
-      thens = _thenTypes(base, forOutput: true);
+      members = _thenTypes(base, forOutput: true);
     } else {
       values.add((type: base, resolve: true));
       return _normalizeAwaited(values);
     }
+    final thens = [
+      for (final member in members)
+        for (final then in _futureOrBranches(member.then))
+          (then: then, instance: member.instance),
+    ];
     // Values whose `then` is absent, null or not callable keep their identity.
     final unchanged =
         base.kind == ValueKind.map ||
@@ -2952,6 +2984,12 @@ final class _Writer {
         output
             ? 'globalThis.Promise<${_awaitedTypes(type.element!).map((branch) => _awaitedBranchType(branch, metadata: metadata)).join(' | ')}>'
             : 'globalThis.Promise<${_futureInput(type.element!, metadata: metadata)}>',
+      ValueKind.futureOr =>
+        '(${_type(type.element!, output: output, metadata: metadata)} | ${_type(
+          ExportType(type.dartType, ValueKind.future, element: type.element),
+          output: output,
+          metadata: metadata,
+        )})',
       ValueKind.record => _record(type, output: output, metadata: metadata),
       ValueKind.iterable =>
         'globalThis.Iterable<${_type(type.element!, output: output, metadata: metadata)}>',
@@ -3002,7 +3040,7 @@ final class _Writer {
 
   ExportType _flattenFuture(ExportType type) {
     var nullable = false;
-    while (type.kind == ValueKind.future) {
+    while (type.kind == ValueKind.future || type.kind == ValueKind.futureOr) {
       nullable |= type.nullable;
       type = type.element!;
     }
@@ -3082,7 +3120,11 @@ final class _Writer {
     var never = true;
     var nullable = false;
     final allowed = <String, ExportType>{};
-    for (final member in members) {
+    for (final member in [
+      for (final member in members)
+        for (final then in _futureOrBranches(member.then))
+          (then: then, present: member.present),
+    ]) {
       final then = member.then;
       if (then == null) {
         never = false;

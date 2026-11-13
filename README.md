@@ -860,6 +860,23 @@ declared Dart type. Completion errors reject the returned Promise, including
 errors converting a Dart result; JS rejection reasons retain their identity.
 `Future<void>` resolves to `undefined`. Use it instead of `async void`.
 
+Use `FutureOr<T>` when a value may be available immediately or asynchronously:
+
+```dart
+@NAPI()
+FutureOr<int> echo(FutureOr<int> value) => value;
+```
+
+```js
+echo(42); // 42
+await echo(Promise.resolve(42)); // 42
+```
+
+Import `dart:async` for `FutureOr`. Its TypeScript type is `T | Promise<T>`,
+using the same input and output conversions as `T`. It also works in callbacks,
+collections and generic class members. Only an actual Promise selects the
+asynchronous input branch; a plain thenable is checked as an ordinary `T` value.
+
 Results follow standard Promise resolution: returned thenables are adopted, and
 nested Futures are flattened. A nested Future parameter accepts the flattened
 Promise value and rebuilds the declared Dart Future layers. For example,

@@ -123,8 +123,14 @@ final class Calls {
             visit(
               type.element!,
               input,
-              future: input && type.kind == ValueKind.future,
+              future:
+                  input &&
+                  (type.kind == ValueKind.future ||
+                      future && type.kind == ValueKind.futureOr),
             );
+            if (input && !future && type.kind == ValueKind.futureOr) {
+              visit(type.element!, input, future: true);
+            }
           }
         }
 
@@ -286,6 +292,7 @@ final class Calls {
     ValueKind.byteData ||
     ValueKind.function ||
     ValueKind.future ||
+    ValueKind.futureOr ||
     ValueKind.stream ||
     ValueKind.iterable ||
     ValueKind.record ||
@@ -389,7 +396,7 @@ final class Calls {
     }
     if (!_isComposite(type)) return read(_dartType(type));
     final baseType = switch (type.kind) {
-      ValueKind.iterable => core.objectNullableRawType,
+      ValueKind.iterable || ValueKind.futureOr => core.objectNullableRawType,
       ValueKind.function => functionType,
       ValueKind.enumeration => core.intNonNullableRawType,
       ValueKind.jsReference =>
@@ -472,6 +479,16 @@ final class Calls {
         [source()],
       ),
       ValueKind.function => _readFunction(env, type.signature!, source()),
+      ValueKind.futureOr => call(
+        VariableGet(env),
+        method(envClass, '_readFutureOr'),
+        [
+          source(),
+          _valueReader(env, type.element!),
+          _valueReader(env, type.element!, future: true),
+        ],
+        types: [_dartType(type.element!)],
+      ),
       ValueKind.record => _readRecord(env, type, source),
       ValueKind.enumeration => _readEnum(type.enumExport!, source),
       ValueKind.jsReference => call(
@@ -690,10 +707,14 @@ final class Calls {
         ),
         resultType: core.intNonNullableRawType,
       ),
-      ValueKind.future || ValueKind.stream || ValueKind.iterable => call(
+      ValueKind.future ||
+      ValueKind.futureOr ||
+      ValueKind.stream ||
+      ValueKind.iterable => call(
         VariableGet(env),
         method(envClass, switch (type.kind) {
           ValueKind.future => '_writeFuture',
+          ValueKind.futureOr => '_writeFutureOr',
           ValueKind.stream => '_writeStream',
           _ => '_writeIterable',
         }),
@@ -1784,7 +1805,9 @@ final class Calls {
         named: [
           if (type.kind == ValueKind.object && !type.classExport!.isObject)
             NamedExpression('boundClass', BoolLiteral(true)),
-          if (type.kind == ValueKind.future || type.parameter?.reified == true)
+          if (type.kind == ValueKind.future ||
+              type.kind == ValueKind.futureOr ||
+              type.parameter?.reified == true)
             NamedExpression('readFuture', reader(future: true)),
         ],
       ),
@@ -1939,6 +1962,17 @@ final class Calls {
     Expression Function(DartType) read,
   ) {
     if (type.kind == ValueKind.voidValue) return NullLiteral();
+    if (type.kind == ValueKind.futureOr) {
+      final value = _futureValue(env, type.element!, read);
+      return type.nullable
+          ? ConditionalExpression(
+              EqualsNull(read(core.objectNullableRawType)),
+              NullLiteral(),
+              value,
+              _dartType(type),
+            )
+          : value;
+    }
     if (type.kind != ValueKind.future) {
       return _decode(env, type, read, futureValue: true);
     }
