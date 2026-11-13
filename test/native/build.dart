@@ -477,11 +477,6 @@ Future<void> main(List<String> args) async {
           'thenable resolution does not have a finite type',
         ),
         (
-          '@NAPI() class Box<T> { @NAPI() Box(this.value); @NAPI() T value; } '
-              '@NAPI() void consume(Box<T Function<T>(T)> value) {}',
-          'unsupported concrete bound-class argument',
-        ),
-        (
           '@NAPI() class Box<T> { @NAPI() Box(this.value); T value; '
               '@NAPI() Box<List<T>> nested() => Box([value]); }',
           'nested bound-class arguments cannot depend on erased type parameters yet',

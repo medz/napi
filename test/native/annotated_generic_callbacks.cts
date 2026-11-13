@@ -26,6 +26,24 @@ const counter = new addon.Counter(9);
 const roundtrip: boolean = addon.counterRoundtrip(counter, value => value);
 const captured: boolean = addon.capture(value => value);
 const asynchronous: Promise<number> = addon.readCaptured(value => value);
+const box: addon.Box<<T>(value: T) => T> = addon.boxedIdentity();
+const boxedInteger: number = box.value(7);
+const boxedString: string = box.value('hello');
+box.value = value => value;
+addon.replace(box, value => value);
+const boxedResults: boolean[] = addon.exerciseBox(box);
+const listBox = addon.boxedLists();
+const boxedList: number[] = listBox.value([1, 2]);
+listBox.value = values => [...values];
+addon.replace(listBox, values => [...values]);
+addon.exerciseListBox(listBox);
+
+// @ts-expect-error A boxed generic function must work for every type parameter.
+box.value = (value: number) => value;
+// @ts-expect-error Generic dispatch retains the boxed function signature.
+addon.replace(box, () => 'wrong');
+// @ts-expect-error A boxed list callback must return a list.
+listBox.value = value => value[0];
 
 // @ts-expect-error A generic callback must work for all its declared type arguments.
 addon.exercise((value: number) => value);

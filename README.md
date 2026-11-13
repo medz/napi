@@ -655,7 +655,7 @@ box.value = value => value * 2;
 
 Callback arguments and results use the same conversions as ordinary callback
 fields, including optional and named parameters and Future results. Callbacks
-that declare their own type parameters are not yet supported as class arguments.
+can declare their own type parameters, such as `Box<T Function<T>(T)>`.
 Data-class and Stream arguments use their usual input and output conversions,
 including inside collections and callbacks:
 

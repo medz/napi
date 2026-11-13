@@ -140,6 +140,35 @@ T _nonNull<T extends Object>(T value) => value;
 NonNullId nonNullIdentity() => _nonNull;
 
 @NAPI()
+class Box<T> {
+  @NAPI()
+  Box(this.value);
+
+  @NAPI()
+  T value;
+}
+
+@NAPI()
+Box<Id> boxedIdentity() => Box(_identity);
+
+@NAPI()
+List<bool> exerciseBox(Box<Id> box) => [
+  box.value<int>(7) == 7,
+  box.value<String>('hello') == 'hello',
+];
+
+List<T> _listIdentity<T>(List<T> values) => values;
+
+@NAPI()
+Box<ListId> boxedLists() => Box(_listIdentity);
+
+@NAPI()
+List<bool> exerciseListBox(Box<ListId> box) => explicitLists(box.value);
+
+@NAPI()
+void replace<T>(Box<T> box, T value) => box.value = value;
+
+@NAPI()
 class Forward<T extends U, U extends num> {
   @NAPI()
   Forward(this.value);

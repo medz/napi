@@ -363,8 +363,7 @@ final class _Reader {
       type.element!.kind == ValueKind.voidValue ||
           _classArgument(type.element!),
     ValueKind.function =>
-      type.signature!.typeParameters.isEmpty &&
-          [
+      [
             ...type.signature!.positional,
             ...type.signature!.named,
           ].every((parameter) => _classArgument(parameter.type)) &&
