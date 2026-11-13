@@ -39,10 +39,13 @@ console.log(add(20, 22)); // 42
 ```
 
 The output is a standalone `.node` file for the current platform. The package
-includes compilers for macOS x64 and arm64, Linux x64 and arm64 (glibc), and
-Windows x64. Building an addon does not require SDK sources or a C/C++ toolchain.
+includes compilers for macOS, Windows, and Linux on x64 and arm64. Linux supports
+both glibc and musl. Building an addon does not require SDK sources or a C/C++
+toolchain.
 Business code is compiled with the bundled Dart 3.13.5 SDK, independently of the
 SDK running the script.
+On Alpine, install `gcompat` and `libstdc++` to run the official Dart SDK; generated
+addons load directly in musl Node.js.
 Include the corresponding SDK `NOTICES` file when redistributing the addon.
 
 Omit `node` to infer the minimum requirements from referenced APIs. A supplied

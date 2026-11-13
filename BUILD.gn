@@ -379,8 +379,8 @@ action("frontend_packages") {
 }
 
 can_build_frontend =
-    host_os == target_os ||
-    (host_os == "linux" && target_os == "win" && target_cpu == "x64")
+    host_os == target_os || (host_os == "linux" && target_os == "win" &&
+                             (target_cpu == "x64" || target_cpu == "arm64"))
 if (can_build_frontend) {
   action("frontend_aot") {
     script = "tool/build_frontend.py"
@@ -388,6 +388,7 @@ if (can_build_frontend) {
     packages = get_label_info(":frontend_packages", "target_gen_dir") +
                "/package_config.json"
     sources = [
+      "lib/src/compiler/native/platform.dart",
       "src/compiler/bindings.dart",
       "src/compiler/calls.dart",
       "src/compiler/exports.dart",
@@ -416,7 +417,7 @@ if (can_build_frontend) {
       snapshot_os = target_os
       if (target_os == "win") {
         if (host_os != target_os) {
-          snapshot = "gen_snapshot_product_windows_x64"
+          snapshot = "gen_snapshot_product_windows_$target_cpu"
         }
         snapshot_os = "windows"
       } else if (target_os == "mac") {

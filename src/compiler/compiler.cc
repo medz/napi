@@ -152,7 +152,7 @@ struct Sdk {
     if (!Symbol(front, "napi_frontend_package", &package, &error)) return;
 #endif
     for (const char* resource :
-         {"frontend.aot", "platform.dill", "runtime.node", "runtime-core.node",
+         {"frontend.aot", "../platform.dill", "runtime.node", "runtime-core.node",
           "runtime-regexp.node"}) {
       std::error_code status;
       if (!fs::is_regular_file(directory / resource, status)) {
@@ -510,7 +510,7 @@ int Compile(const NapiCompileOptions* options, char** metadata, char** error) {
     }
   }
   const std::string frontend = Utf8(sdk.directory / "frontend.aot");
-  const std::string platform = Utf8(sdk.directory / "platform.dill");
+  const std::string platform = Utf8(sdk.directory.parent_path() / "platform.dill");
   const std::string kernel = Utf8(workspace.path / "app.dill");
   const std::string snapshot = Utf8(workspace.path / "app.aot");
 #if defined(_WIN32)

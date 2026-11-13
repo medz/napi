@@ -38,21 +38,34 @@ python3 napi_compiler/tool/package_compiler.py \
 ```
 
 The packaging command requires a new output directory. Copy its complete contents
-into `lib/src/compiler/assets/linux_arm64/` when updating the package.
+into `lib/src/compiler/assets/linux_arm64/` and the shared
+`out/package/platform.dill` into `lib/src/compiler/assets/` when updating the
+package. All platforms must use the same SDK libraries; the packaging command
+rejects a different `platform.dill` in an existing package directory.
 For a native Linux x64 build, set `host_cpu`, `target_cpu` and `dart_target_arch`
 to `"x64"`, use `clang_x64_shared` for the runtime directory, and package into
 `lib/src/compiler/assets/linux_x64/`.
 Use the platform built from the patched SDK; the stock SDK platform does not
 include the private type conversion entry used by generated generic bindings.
 
-For macOS arm64, use `target_os="mac"` and the same CPU values. For Windows x64,
-use `target_os="win"`, `target_cpu="x64"` and `dart_target_arch="x64"`; its shared
-outputs are in `clang_x64_shared`. Windows builds require
+For musl, set `dart_sysroot="alpine"` and provide a matching musl sysroot at
+`buildtools/sysroot/alpine-linux-aarch64` or `alpine-linux-x86_64`. Set
+`clang_prefix` when using a different Clang installation. An ARM64-to-x64 build
+can use `dart_host_sysroot=""` to compile host tools against the host system
+while the target uses musl. Package these builds as `linux_arm64_musl` or
+`linux_x64_musl`.
+
+For macOS, use `target_os="mac"`. For Windows, use `target_os="win"`. Both support
+`target_cpu` and `dart_target_arch` set to `"arm64"` or `"x64"`; shared outputs
+are in `clang_arm64_shared` or `clang_x64_shared`. Windows builds require
 `dart_lib_export_symbols=false` to keep the two compiler VMs private.
 
-Linux-to-Windows x64 builds use the SDK's host `gen_snapshot` target and a Windows
+Linux-to-Windows builds use the SDK's host `gen_snapshot` target and a Windows
 SDK/MSVC sysroot. Configure `clang_base_path`, `visual_studio_path`,
 `visual_studio_version`, `windows_sdk_path` and `wdk_path` for that sysroot.
+The sysroot must include the target architecture's SDK and CRT libraries.
+On a case-sensitive filesystem, `windows_vfs_overlay` can provide Clang and LLD
+with a case-insensitive view of the Windows headers and libraries.
 This cross-build produces the Windows compiler package; it does not make the Dart
 `Compiler` API cross-compile user addons.
 

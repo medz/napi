@@ -11,7 +11,6 @@ String commonJsLoader(String name, Map<NativePlatform, String>? packages) {
       entry.key.runtimeKey: {
         'package': entry.value,
         'file': 'platforms/${entry.key.id}/addon.node',
-        if (entry.key.libc != null) 'libc': entry.key.libc,
       },
   };
   return ''''use strict';
@@ -19,13 +18,16 @@ String commonJsLoader(String name, Map<NativePlatform, String>? packages) {
 const { existsSync } = require('fs');
 const { join } = require('path');
 const platforms = ${const JsonEncoder.withIndent('  ').convert(platforms)};
-const key = process.platform + '-' + process.arch;
+let key = process.platform + '-' + process.arch;
+if (process.platform === 'linux') {
+  if (!process.report || !process.report.getReport) {
+    throw new Error('Cannot determine the Linux libc for ' + ${jsonEncode(name)});
+  }
+  key += process.report.getReport().header.glibcVersionRuntime ? '-glibc' : '-musl';
+}
 const platform = platforms[key];
 if (!platform) {
   throw new Error(${jsonEncode('$name has no native addon for ')} + key);
-}
-if (platform.libc === 'glibc' && !(process.report && process.report.getReport && process.report.getReport().header.glibcVersionRuntime)) {
-  throw new Error(${jsonEncode('$name requires glibc on ')} + key);
 }
 const local = join(__dirname, platform.file);
 if (existsSync(local)) {

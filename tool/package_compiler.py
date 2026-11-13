@@ -102,11 +102,14 @@ def package(args):
               target_cpu[1] if target_cpu else None)
     if target in {("linux", "arm64"), ("linux", "x64")}:
         platform, extension, prefix = f"linux_{target[1]}", "so", "lib"
+        if re.search(r'dart_sysroot\s*=\s*"alpine"', build_args):
+            platform += "_musl"
         machine = 183 if target[1] == "arm64" else 62
         kind, aot_machine = "elf", machine
-    elif target == ("win", "x64"):
-        platform, extension, prefix = "windows_x64", "dll", ""
-        kind, machine, aot_machine = "pe", 0x8664, 62
+    elif target in {("win", "x64"), ("win", "arm64")}:
+        platform, extension, prefix = f"windows_{target[1]}", "dll", ""
+        kind = "pe"
+        machine, aot_machine = (0xaa64, 183) if target[1] == "arm64" else (0x8664, 62)
     elif target in {("mac", "arm64"), ("mac", "x64")}:
         platform, extension, prefix = f"macos_{target[1]}", "dylib", "lib"
         machine = 0x100000C if target[1] == "arm64" else 0x1000007
@@ -124,11 +127,8 @@ def package(args):
         "runtime.node": args.runtime_dir / f"{prefix}napi_runtime.{extension}",
         "runtime-core.node": args.runtime_dir / f"{prefix}napi_runtime_core.{extension}",
         "runtime-regexp.node": args.runtime_dir / f"{prefix}napi_runtime_regexp.{extension}",
-        "platform.dill": args.platform_dill,
     }
     for name, source in files.items():
-        if name == "platform.dill":
-            continue
         if name == "frontend.aot":
             validate_image(source, "macho" if kind == "macho" else "elf",
                            machine if kind == "macho" else aot_machine)
@@ -139,11 +139,18 @@ def package(args):
     if not license_text.strip():
         raise ValueError("The SDK notices must not be empty")
     output.parent.mkdir(parents=True, exist_ok=True)
+    platform_dill = output.parent / "platform.dill"
+    platform_bytes = args.platform_dill.read_bytes()
+    if platform_dill.exists():
+        if platform_dill.read_bytes() != platform_bytes:
+            raise ValueError("The bundled platforms must use the same SDK libraries")
+    else:
+        platform_dill.write_bytes(platform_bytes)
     with tempfile.TemporaryDirectory(prefix=".sdk-", dir=output.parent) as temp:
         staging = Path(temp) / platform
         staging.mkdir()
         for name, source in files.items():
-            image = name not in {"platform.dill", "frontend.aot"}
+            image = name != "frontend.aot"
             copy(source, staging / name, strip if image else None,
                  kind if image else None)
         (staging / "NOTICES").write_text(license_text, encoding="utf-8")
@@ -162,6 +169,9 @@ def package(args):
         (staging / "manifest.json").write_text(
             json.dumps({"abi": 2, "platform": platform,
                         "dart": {"version": version, "revision": revision},
+                        "shared": {"platform.dill": {
+                            "size": len(platform_bytes),
+                            "sha256": hashlib.sha256(platform_bytes).hexdigest()}},
                         "files": entries}, indent=2) + "\n",
             encoding="utf-8")
         staging.rename(output)

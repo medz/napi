@@ -15,20 +15,16 @@
       "sha256": "33b455057040d2586a94266723b25e360a988fd95107f10ab8fb7eba581300e7"
     },
     "compiler.so": {
-      "size": 505456,
-      "sha256": "92c27be1aca1711cd142a12e8ff3605635a4fcd9115f28341fcf840215a4024d"
+      "size": 505600,
+      "sha256": "a7a8e17e47024426ac5865a4e59b68a7afde8da265e2d70d2fdbfbf1ee376eb1"
     },
     "frontend.aot": {
       "size": 9765768,
-      "sha256": "f808f03dfed7eed2641cc316f2303f65e24e2e678fe8f7a410908ac7226d5e0e"
+      "sha256": "3a8cf3d965f6bf884df3adc61ae38e7ebacee1c93d6315dd5274be7e6001b98c"
     },
     "frontend.so": {
       "size": 5219304,
       "sha256": "be47e75c7c203df4cb2d7e274cd124973d4e8f9c7674b1828663f9aef8ef97ef"
-    },
-    "platform.dill": {
-      "size": 8696760,
-      "sha256": "54a85f59758ee6a73c2ae9a04b7ca7c3c952ee382c7d8d63df554c8bd4115894"
     },
     "runtime-core.node": {
       "size": 1813776,
@@ -41,6 +37,12 @@
     "runtime.node": {
       "size": 5242368,
       "sha256": "020f32a929854866cee1d706bb1e5de48332ce7dff9369edf0658b15321024fc"
+    }
+  },
+  "shared": {
+    "platform.dill": {
+      "size": 8696760,
+      "sha256": "54a85f59758ee6a73c2ae9a04b7ca7c3c952ee382c7d8d63df554c8bd4115894"
     }
   }
 }

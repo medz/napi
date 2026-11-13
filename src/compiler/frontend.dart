@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:ffi' show Abi;
 import 'dart:io';
 
 import 'package:dart2native/dart2native_macho.dart' as macho;
@@ -11,6 +10,7 @@ import 'package:kernel/binary/ast_to_binary.dart';
 import 'package:package_config/package_config.dart';
 import 'package:vm/kernel_front_end.dart';
 
+import '../../lib/src/compiler/native/platform.dart';
 import 'bindings.dart';
 import 'exports.dart';
 import 'node_version.dart' as versions;
@@ -175,17 +175,13 @@ Future<void> _compile(
     await output.close();
   }
   if (exports != null) {
-    final platform = switch ((Abi.current(), targetOS)) {
-      (Abi.macosArm64, 'macos') => 'macos_arm64',
-      (Abi.macosX64, 'macos') => 'macos_x64',
-      (Abi.linuxArm64, 'linux') => 'linux_arm64',
-      (Abi.linuxX64, 'linux') => 'linux_x64',
-      (Abi.windowsX64, 'windows') => 'windows_x64',
-      _ => throw FormatException(
+    if (targetOS != Platform.operatingSystem) {
+      throw FormatException(
         'The frontend target "$targetOS" does not match a supported host ABI: '
-        '${Abi.current()}.',
-      ),
-    };
+        '${currentNativePlatform()}.',
+      );
+    }
+    final platform = currentNativePlatform();
     await File('$outputPath.d.ts').writeAsString(exports.declarations);
     await File('$outputPath.d.mts').writeAsString(exports.esmDeclarations);
     await File('$outputPath.exports.json').writeAsString(

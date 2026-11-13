@@ -49,16 +49,20 @@ Future<void> main(List<String> args) async {
     if (failure == null || !failure.contains('content has changed')) {
       throw StateError('Expected artifact hash rejection, got $failure');
     }
-    final otherArchitecture = switch (data['platform']) {
-      'linux_arm64' => 'linux_x64',
-      'linux_x64' => 'linux_arm64',
-      'macos_arm64' => 'macos_x64',
-      'macos_x64' => 'macos_arm64',
-      _ => null,
+    final mismatchedPlatforms = switch (data['platform']) {
+      'linux_arm64' => ['linux_x64', 'linux_arm64_musl'],
+      'linux_x64' => ['linux_arm64', 'linux_x64_musl'],
+      'linux_arm64_musl' => ['linux_x64_musl', 'linux_arm64'],
+      'linux_x64_musl' => ['linux_arm64_musl', 'linux_x64'],
+      'macos_arm64' => ['macos_x64'],
+      'macos_x64' => ['macos_arm64'],
+      'windows_arm64' => ['windows_x64'],
+      'windows_x64' => ['windows_arm64'],
+      _ => <String>[],
     };
-    if (otherArchitecture != null) {
+    for (final platform in mismatchedPlatforms) {
       (data['binary'] as Map<String, dynamic>)['sha256'] = binaryHash;
-      data['platform'] = otherArchitecture;
+      data['platform'] = platform;
       await tampered.writeAsString(jsonEncode(data));
       failure = null;
       try {
@@ -68,7 +72,7 @@ Future<void> main(List<String> args) async {
       }
       if (failure == null || !failure.contains('does not match')) {
         throw StateError(
-          'Expected artifact architecture rejection, got $failure',
+          'Expected artifact platform rejection for $platform, got $failure',
         );
       }
     }

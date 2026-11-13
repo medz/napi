@@ -18,6 +18,21 @@ enum NativePlatform {
   macosX64('macos_x64', 'darwin', 'x64', 'darwin-x64'),
   linuxArm64('linux_arm64', 'linux', 'arm64', 'linux-arm64-gnu', libc: 'glibc'),
   linuxX64('linux_x64', 'linux', 'x64', 'linux-x64-gnu', libc: 'glibc'),
+  linuxArm64Musl(
+    'linux_arm64_musl',
+    'linux',
+    'arm64',
+    'linux-arm64-musl',
+    libc: 'musl',
+  ),
+  linuxX64Musl(
+    'linux_x64_musl',
+    'linux',
+    'x64',
+    'linux-x64-musl',
+    libc: 'musl',
+  ),
+  windowsArm64('windows_arm64', 'win32', 'arm64', 'win32-arm64'),
   windowsX64('windows_x64', 'win32', 'x64', 'win32-x64');
 
   const NativePlatform(this.id, this.os, this.cpu, this.npmSuffix, {this.libc});
@@ -27,7 +42,7 @@ enum NativePlatform {
   final String cpu;
   final String npmSuffix;
   final String? libc;
-  String get runtimeKey => '$os-$cpu';
+  String get runtimeKey => '$os-$cpu${libc == null ? '' : '-$libc'}';
 }
 
 final class Artifact {
@@ -367,26 +382,29 @@ Future<void> _checkBinary(File file, NativePlatform platform) async {
                       ? 0x0100000c
                       : 0x01000007) &&
               data.getUint32(12, Endian.little) == 6,
-        NativePlatform.linuxArm64 || NativePlatform.linuxX64 =>
+        NativePlatform.linuxArm64 ||
+        NativePlatform.linuxX64 ||
+        NativePlatform.linuxArm64Musl ||
+        NativePlatform.linuxX64Musl =>
           data.getUint32(0, Endian.big) == 0x7f454c46 &&
               header[4] == 2 &&
               header[5] == 1 &&
               header[6] == 1 &&
               data.getUint16(16, Endian.little) == 3 &&
               data.getUint16(18, Endian.little) ==
-                  (platform == NativePlatform.linuxArm64 ? 183 : 62),
-        NativePlatform.windowsX64 => false,
+                  (platform.cpu == 'arm64' ? 183 : 62) &&
+              await _checkElfLibc(handle, data, length, platform),
+        NativePlatform.windowsArm64 || NativePlatform.windowsX64 => false,
       };
-      if (platform == NativePlatform.windowsX64 &&
-          header[0] == 0x4d &&
-          header[1] == 0x5a) {
+      if (platform.os == 'win32' && header[0] == 0x4d && header[1] == 0x5a) {
         final offset = data.getUint32(0x3c, Endian.little);
         if (offset >= 64 && offset <= length - 26) {
           await handle.setPosition(offset);
           final pe = ByteData.sublistView(await handle.read(26));
           matches =
               pe.getUint32(0, Endian.little) == 0x00004550 &&
-              pe.getUint16(4, Endian.little) == 0x8664 &&
+              pe.getUint16(4, Endian.little) ==
+                  (platform.cpu == 'arm64' ? 0xaa64 : 0x8664) &&
               pe.getUint16(20, Endian.little) >= 2 &&
               pe.getUint16(22, Endian.little) & 0x2000 != 0 &&
               pe.getUint16(24, Endian.little) == 0x20b;
@@ -401,6 +419,86 @@ Future<void> _checkBinary(File file, NativePlatform platform) async {
   } finally {
     await handle.close();
   }
+}
+
+Future<bool> _checkElfLibc(
+  RandomAccessFile file,
+  ByteData header,
+  int length,
+  NativePlatform platform,
+) async {
+  final offset = header.getUint64(32, Endian.little);
+  final entrySize = header.getUint16(54, Endian.little);
+  final count = header.getUint16(56, Endian.little);
+  if (offset < 0 ||
+      entrySize != 56 ||
+      count == 0 ||
+      offset > length - entrySize * count) {
+    return false;
+  }
+  await file.setPosition(offset);
+  final headers = await file.read(entrySize * count);
+  if (headers.length != entrySize * count) return false;
+  final data = ByteData.sublistView(headers);
+  final loads = <({int address, int offset, int size})>[];
+  var dynamicOffset = -1;
+  var dynamicSize = 0;
+  for (var i = 0; i < count; i++) {
+    final start = i * entrySize;
+    final kind = data.getUint32(start, Endian.little);
+    if (kind != 1 && kind != 2) continue;
+    final offset = data.getUint64(start + 8, Endian.little);
+    final address = data.getUint64(start + 16, Endian.little);
+    final size = data.getUint64(start + 32, Endian.little);
+    if (offset < 0 || address < 0 || size < 0 || offset > length - size) {
+      return false;
+    }
+    if (kind == 1) {
+      loads.add((address: address, offset: offset, size: size));
+    } else {
+      dynamicOffset = offset;
+      dynamicSize = size;
+    }
+  }
+  if (dynamicOffset < 0 || dynamicSize % 16 != 0) return false;
+  await file.setPosition(dynamicOffset);
+  final dynamicBytes = await file.read(dynamicSize);
+  if (dynamicBytes.length != dynamicSize) return false;
+  final dynamic = ByteData.sublistView(dynamicBytes);
+  final needed = <int>[];
+  var stringAddress = -1;
+  var stringSize = 0;
+  for (var i = 0; i < dynamicSize; i += 16) {
+    final tag = dynamic.getUint64(i, Endian.little);
+    final value = dynamic.getUint64(i + 8, Endian.little);
+    if (tag == 0) break;
+    if (tag == 1) needed.add(value);
+    if (tag == 5) stringAddress = value;
+    if (tag == 10) stringSize = value;
+  }
+  if (stringAddress < 0 || stringSize <= 0) return false;
+  final segment = loads
+      .where(
+        (load) =>
+            stringAddress >= load.address &&
+            stringAddress - load.address <= load.size - stringSize,
+      )
+      .firstOrNull;
+  if (segment == null) return false;
+  await file.setPosition(segment.offset + stringAddress - segment.address);
+  final strings = await file.read(stringSize);
+  if (strings.length != stringSize) return false;
+  final dependencies = <String>{};
+  for (final offset in needed) {
+    if (offset < 0 || offset >= strings.length) return false;
+    final end = strings.indexOf(0, offset);
+    if (end < 0) return false;
+    dependencies.add(utf8.decode(strings.sublist(offset, end)));
+  }
+  final musl =
+      'libc.musl-${platform.cpu == 'arm64' ? 'aarch64' : 'x86_64'}.so.1';
+  return dependencies.contains(platform.libc == 'musl' ? musl : 'libc.so.6') &&
+      !dependencies.contains(platform.libc == 'musl' ? 'libc.so.6' : musl);
 }
 
 const _reservedNames = {

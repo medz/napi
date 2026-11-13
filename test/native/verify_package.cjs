@@ -46,7 +46,11 @@ async function main() {
         assert.deepEqual(packed.files.map(file => file.path).sort(), [
           'NOTICES', 'addon.node', 'index.d.cts', 'package.json',
         ].sort());
-        if (leaf.os.includes(process.platform) && leaf.cpu.includes(process.arch)) {
+        const libc = process.platform === 'linux'
+          ? (process.report.getReport().header.glibcVersionRuntime ? 'glibc' : 'musl')
+          : undefined;
+        if (leaf.os.includes(process.platform) && leaf.cpu.includes(process.arch) &&
+            (!leaf.libc || leaf.libc.includes(libc))) {
           hostPackages.push(join(temporary, packed.filename));
         }
       }

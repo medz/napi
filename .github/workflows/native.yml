@@ -17,6 +17,8 @@ jobs:
         include:
           - os: windows-2022
             platform: windows_x64
+          - os: windows-11-arm
+            platform: windows_arm64
           - os: macos-15
             platform: macos_arm64
           - os: macos-15-intel
@@ -132,5 +134,68 @@ jobs:
         with:
           name: native-${{ matrix.platform }}
           path: '${{ runner.temp }}/napi smoke 中文/build/package'
+          include-hidden-files: true
+          retention-days: 1
+
+  verify-musl:
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            platform: linux_x64_musl
+            glibc: linux_x64
+          - os: ubuntu-24.04-arm
+            platform: linux_arm64_musl
+            glibc: linux_arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: 3.12.0
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-${{ matrix.glibc }}
+          path: '${{ runner.temp }}/glibc'
+      - name: Build and load musl addons in Alpine
+        run: |
+          docker run --rm \
+            -v "$PWD:/workspace" -v "$DART_HOME:/opt/dart:ro" \
+            -v "$RUNNER_TEMP:/result" -w /workspace \
+            -e NAPI_PLATFORM='${{ matrix.platform }}' \
+            alpine:3.23 sh -euxc '
+              apk add --no-cache gcompat libstdc++ nodejs npm
+              export PATH=/opt/dart/bin:$PATH
+              dart pub get
+              npm ci --prefix test/native --ignore-scripts
+              dart pub publish --skip-validation --to-archive=/tmp/napi.tar.gz
+              mkdir /tmp/napi-package "/tmp/napi smoke 中文" /tmp/images
+              tar -xzf /tmp/napi.tar.gz -C /tmp/napi-package
+              smoke="/tmp/napi smoke 中文"
+              printf "name: napi_native_smoke\nenvironment:\n  sdk: ^3.12.0\ndependencies:\n  napi:\n    path: /tmp/napi-package\n" > "$smoke/pubspec.yaml"
+              cp test/native/*.dart "$smoke/"
+              cp example/counter.dart "$smoke/package_counter.dart"
+              cp experiments/native-image/payload.dart experiments/native-image/node_api.dart "$smoke/"
+              cd "$smoke"
+              dart pub get --offline
+              dart build.dart /result/musl
+              dart build_package.dart "$smoke/package_counter.dart" /result/musl/package
+              mv /tmp/napi-package/lib/src/compiler/assets /tmp/sdk-unavailable
+              dart build_assembly.dart /result/glibc/.napi.json /result/musl/package/.napi.json /result/musl/assembled
+              cp /tmp/sdk-unavailable/$NAPI_PLATFORM/runtime*.node /tmp/sdk-unavailable/$NAPI_PLATFORM/NOTICES /tmp/images/
+              rm -rf /tmp/napi-package /tmp/sdk-unavailable
+              cd /workspace
+              node --expose-gc test/native/verify.cjs /result/musl /tmp/images
+              node test/native/verify_types.cjs /result/musl
+              npm --prefix test/native run verify-package -- /result/musl/package
+              npm --prefix test/native run verify-package -- /result/musl/assembled
+            '
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.platform }}
+          path: '${{ runner.temp }}/musl/package'
           include-hidden-files: true
           retention-days: 1
