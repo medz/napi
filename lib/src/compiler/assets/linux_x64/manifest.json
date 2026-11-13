@@ -1,0 +1,46 @@
+{
+  "abi": 2,
+  "platform": "linux_x64",
+  "dart": {
+    "version": "3.13.5",
+    "revision": "04bcd1036cdc799ac6564988f159ee454d42c822"
+  },
+  "files": {
+    "NOTICES": {
+      "size": 262725,
+      "sha256": "a483a737d2c19121edc5ab53fa7471833aa4e93771b6b3b24c7a6417b0f68338"
+    },
+    "backend.so": {
+      "size": 4599448,
+      "sha256": "7085fbfaad37bb87ffc56bfd93a05fd52c1197ff49d55111a335d66b5c21d68c"
+    },
+    "compiler.so": {
+      "size": 513280,
+      "sha256": "c8d324d8f79bb66b712811c5d288d7c3f12c67812e4083888d6af7333e65c701"
+    },
+    "frontend.aot": {
+      "size": 9716616,
+      "sha256": "edd9086e4f2235552d2138110016ac0bfb7c5eb5549237340c9c08fad30b41dd"
+    },
+    "frontend.so": {
+      "size": 5467200,
+      "sha256": "e51b50bfa0908c1a3306ff68da379648f8c6112e8ee5660a4a079d9f3c95b192"
+    },
+    "platform.dill": {
+      "size": 8696760,
+      "sha256": "54a85f59758ee6a73c2ae9a04b7ca7c3c952ee382c7d8d63df554c8bd4115894"
+    },
+    "runtime-core.node": {
+      "size": 1840424,
+      "sha256": "be6d2783422f0c905f19c3f894d67ab76ed5e92fd7c7147dc9a2fca132070f60"
+    },
+    "runtime-regexp.node": {
+      "size": 3907480,
+      "sha256": "7b0bd6554d24903c07de38425ccc65661e575d4dd11cbc1fc5ed6e246df818ca"
+    },
+    "runtime.node": {
+      "size": 5491080,
+      "sha256": "58802c0da824af15ee841e3178a2eeb81b957756e333c431a6745c8f82e0aa84"
+    }
+  }
+}

@@ -16,6 +16,7 @@ final class NativeArtifact {
 enum NativePlatform {
   macosArm64('macos_arm64', 'darwin', 'arm64', 'darwin-arm64'),
   linuxArm64('linux_arm64', 'linux', 'arm64', 'linux-arm64-gnu', libc: 'glibc'),
+  linuxX64('linux_x64', 'linux', 'x64', 'linux-x64-gnu', libc: 'glibc'),
   windowsX64('windows_x64', 'win32', 'x64', 'win32-x64');
 
   const NativePlatform(this.id, this.os, this.cpu, this.npmSuffix, {this.libc});
@@ -362,13 +363,14 @@ Future<void> _checkBinary(File file, NativePlatform platform) async {
           data.getUint32(0, Endian.little) == 0xfeedfacf &&
               data.getUint32(4, Endian.little) == 0x0100000c &&
               data.getUint32(12, Endian.little) == 6,
-        NativePlatform.linuxArm64 =>
+        NativePlatform.linuxArm64 || NativePlatform.linuxX64 =>
           data.getUint32(0, Endian.big) == 0x7f454c46 &&
               header[4] == 2 &&
               header[5] == 1 &&
               header[6] == 1 &&
               data.getUint16(16, Endian.little) == 3 &&
-              data.getUint16(18, Endian.little) == 183,
+              data.getUint16(18, Endian.little) ==
+                  (platform == NativePlatform.linuxArm64 ? 183 : 62),
         NativePlatform.windowsX64 => false,
       };
       if (platform == NativePlatform.windowsX64 &&

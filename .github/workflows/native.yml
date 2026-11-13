@@ -19,6 +19,10 @@ jobs:
             platform: windows_x64
           - os: macos-15
             platform: macos_arm64
+          - os: ubuntu-24.04
+            platform: linux_x64
+          - os: ubuntu-24.04-arm
+            platform: linux_arm64
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     defaults:

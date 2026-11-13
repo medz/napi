@@ -39,9 +39,10 @@ console.log(add(20, 22)); // 42
 ```
 
 The output is a standalone `.node` file for the current platform. The package
-includes compilers for macOS arm64, Linux arm64 (glibc) and Windows x64; building an
-addon does not require SDK sources or a C/C++ toolchain. Business code is compiled
-with the bundled Dart 3.13.5 SDK, independently of the SDK running the script.
+includes compilers for macOS arm64, Linux x64 and arm64 (glibc), and Windows x64;
+building an addon does not require SDK sources or a C/C++ toolchain. Business code
+is compiled with the bundled Dart 3.13.5 SDK, independently of the SDK running the
+script.
 Include the corresponding SDK `NOTICES` file when redistributing the addon.
 
 Omit `node` to infer the minimum requirements from referenced APIs. A supplied
@@ -765,9 +766,9 @@ JS function releases its Dart closure and captured values. Optional arguments
 keep the actual Dart function's defaults and distinguish omission from `null`
 and `undefined`.
 
-In TypeScript, use a rest parameter such as `(...args) => args[0]` when a
-callback ignores optional positional arguments. The current declarations reject
-a shorter fixed-arity callback in that position.
+JavaScript callbacks may declare fewer parameters when the remaining Dart
+parameters are optional, including an optional final named-options argument.
+Parameters they do declare retain their value types.
 
 Arguments and results use the same conversions as other annotated functions,
 including nested collections and exported classes.

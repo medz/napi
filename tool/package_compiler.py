@@ -100,9 +100,10 @@ def package(args):
     target_cpu = re.search(r'target_cpu\s*=\s*"([^"\n]+)"', build_args)
     target = (target_os[1] if target_os else None,
               target_cpu[1] if target_cpu else None)
-    if target == ("linux", "arm64"):
-        platform, extension, prefix = "linux_arm64", "so", "lib"
-        kind, machine, aot_machine = "elf", 183, 183
+    if target in {("linux", "arm64"), ("linux", "x64")}:
+        platform, extension, prefix = f"linux_{target[1]}", "so", "lib"
+        machine = 183 if target[1] == "arm64" else 62
+        kind, aot_machine = "elf", machine
     elif target == ("win", "x64"):
         platform, extension, prefix = "windows_x64", "dll", ""
         kind, machine, aot_machine = "pe", 0x8664, 62

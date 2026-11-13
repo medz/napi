@@ -37,6 +37,7 @@ Future<void> main(List<String> args) async {
     final tampered = File('${invalid.path}/.napi.json');
     final data =
         jsonDecode(await tampered.readAsString()) as Map<String, dynamic>;
+    final binaryHash = (data['binary'] as Map<String, dynamic>)['sha256'];
     (data['binary'] as Map<String, dynamic>)['sha256'] = ''.padLeft(64, '0');
     await tampered.writeAsString(jsonEncode(data));
     String? failure;
@@ -47,6 +48,24 @@ Future<void> main(List<String> args) async {
     }
     if (failure == null || !failure.contains('content has changed')) {
       throw StateError('Expected artifact hash rejection, got $failure');
+    }
+    if (data['platform'] == 'linux_arm64' || data['platform'] == 'linux_x64') {
+      (data['binary'] as Map<String, dynamic>)['sha256'] = binaryHash;
+      data['platform'] = data['platform'] == 'linux_arm64'
+          ? 'linux_x64'
+          : 'linux_arm64';
+      await tampered.writeAsString(jsonEncode(data));
+      failure = null;
+      try {
+        await assemble([tampered, ...manifests.skip(1)]);
+      } on FormatException catch (error) {
+        failure = error.message;
+      }
+      if (failure == null || !failure.contains('does not match')) {
+        throw StateError(
+          'Expected artifact architecture rejection, got $failure',
+        );
+      }
     }
     for (final file in previous.entries) {
       final current = await file.key.readAsBytes();

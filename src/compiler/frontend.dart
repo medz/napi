@@ -178,6 +178,7 @@ Future<void> _compile(
     final platform = switch ((Abi.current(), targetOS)) {
       (Abi.macosArm64, 'macos') => 'macos_arm64',
       (Abi.linuxArm64, 'linux') => 'linux_arm64',
+      (Abi.linuxX64, 'linux') => 'linux_x64',
       (Abi.windowsX64, 'windows') => 'windows_x64',
       _ => throw FormatException(
         'The frontend target "$targetOS" does not match a supported host ABI: '

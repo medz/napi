@@ -39,6 +39,9 @@ python3 napi_compiler/tool/package_compiler.py \
 
 The packaging command requires a new output directory. Copy its complete contents
 into `lib/src/compiler/assets/linux_arm64/` when updating the package.
+For a native Linux x64 build, set `host_cpu`, `target_cpu` and `dart_target_arch`
+to `"x64"`, use `clang_x64_shared` for the runtime directory, and package into
+`lib/src/compiler/assets/linux_x64/`.
 Use the platform built from the patched SDK; the stock SDK platform does not
 include the private type conversion entry used by generated generic bindings.
 
