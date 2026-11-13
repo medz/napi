@@ -2821,6 +2821,17 @@ final class _Writer {
     bool metadata = true,
     Map<ExportParameter, bool> presence = const {},
     String Function(ExportParameter)? parameterType,
+  }) =>
+      '...args: ${_parameterTuples(function, output: output, metadata: metadata, presence: presence, parameterType: parameterType).join(' | ')}';
+
+  List<String> _parameterTuples(
+    ExportSignature function, {
+    bool output = true,
+    bool metadata = true,
+    Map<ExportParameter, bool> presence = const {},
+    String Function(ExportParameter)? parameterType,
+    bool optional = false,
+    int skip = 0,
   }) {
     bool required(ExportParameter parameter) =>
         parameter.required || presence[parameter] == true;
@@ -2832,19 +2843,61 @@ final class _Writer {
     final options = function.named.isEmpty
         ? null
         : '{ ${function.named.map((parameter) => '${jsonEncode(parameter.name)}${required(parameter) ? '' : '?'}: ${type(parameter)};').join(' ')} }';
-    for (var count = minimum; count <= function.positional.length; ++count) {
+    for (
+      var count = optional ? function.positional.length : minimum;
+      count <= function.positional.length;
+      ++count
+    ) {
       final parameters = [
-        for (var i = 0; i < count; ++i)
-          '${_label(function.positional[i].name, i)}: ${type(function.positional[i])}',
+        for (var i = skip; i < count; ++i)
+          '${_label(function.positional[i].name, i)}${optional && !required(function.positional[i]) ? '?' : ''}: ${type(function.positional[i])}',
       ];
-      if (options == null || !function.named.any(required)) {
+      if (options == null || !optional && !function.named.any(required)) {
         tuples.add('[${parameters.join(', ')}]');
       }
       if (options != null) {
-        tuples.add('[${[...parameters, 'options: $options'].join(', ')}]');
+        tuples.add(
+          '[${[...parameters, 'options${optional && !function.named.any(required) ? '?' : ''}: $options'].join(', ')}]',
+        );
       }
     }
-    return '...args: ${tuples.join(' | ')}';
+    return tuples;
+  }
+
+  String _callbackType(
+    ExportSignature function, {
+    required bool output,
+    required bool metadata,
+  }) {
+    final generics = _generics(
+      function.typeParameters,
+      defaults: false,
+      metadata: metadata,
+    );
+    final result = _type(function.result, output: output, metadata: metadata);
+    final tuples = _parameterTuples(
+      function,
+      output: output,
+      metadata: metadata,
+      optional: !output,
+    );
+    if (tuples.length == 1) {
+      return '($generics(...args: ${tuples.single}) => $result)';
+    }
+    // Strict call overloads remain assignable to callbacks with optional parameters.
+    final required = function.positional.takeWhile((value) => value.required);
+    final prefix = [
+      for (final (index, parameter) in required.indexed)
+        '${_label(parameter.name, index)}: ${_type(parameter.type, output: false, metadata: metadata)}',
+    ];
+    final tails = _parameterTuples(
+      function,
+      metadata: metadata,
+      skip: prefix.length,
+    );
+    return '({ ${[
+      for (final tail in [...tails, tails.join(' | ')]) '$generics(${[...prefix, '...args: $tail'].join(', ')}): $result;',
+    ].join(' ')} })';
   }
 
   String _type(ExportType type, {bool output = true, bool metadata = true}) {
@@ -2884,8 +2937,11 @@ final class _Writer {
         JsReferenceKind.function => 'globalThis.Function',
         JsReferenceKind.symbol => 'symbol',
       },
-      ValueKind.function =>
-        '(${_generics(type.signature!.typeParameters, defaults: false, metadata: metadata)}(${_parameters(type.signature!, output: output, metadata: metadata)}) => ${_type(type.signature!.result, output: output, metadata: metadata)})',
+      ValueKind.function => _callbackType(
+        type.signature!,
+        output: output,
+        metadata: metadata,
+      ),
       ValueKind.future =>
         output
             ? 'globalThis.Promise<${_awaitedTypes(type.element!).map((branch) => _awaitedBranchType(branch, metadata: metadata)).join(' | ')}>'

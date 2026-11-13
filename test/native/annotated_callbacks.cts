@@ -24,10 +24,16 @@ const positional = addon.positionalCallback();
 const positionalValue: number = positional(1, 2, null);
 positional(1);
 addon.invokePositional((...args) => args.length);
+addon.invokePositional(value => value);
+addon.invokePositional((value, step = 1) => value + step);
+addon.invokePositional(positional);
 const named = addon.namedCallback();
 const namedValue: string = named(1, { note: null });
 named(1);
 addon.invokeNamed((...args) => String(args.length));
+addon.invokeNamed(value => String(value));
+addon.invokeNamed((value, options = {}) => String(value + (options.step ?? 0)));
+addon.invokeNamed(named);
 const required: number = addon.requiredNamedCallback()({ value: 3 });
 addon.invokeRequiredNamed(options => options.value);
 const calculator = new addon.Calculator(3);
@@ -43,6 +49,12 @@ const delayed: number | null = addon.delayedResult();
 
 // @ts-expect-error Callback results preserve their declared type.
 addon.apply(1, value => String(value));
+// @ts-expect-error Dart may omit the second argument.
+addon.invokePositional((value: number, step: number) => value + step);
+// @ts-expect-error Optional arguments still retain their value types.
+addon.invokePositional((value: number, step?: string) => value);
+// @ts-expect-error Dart may omit the options object.
+addon.invokeNamed((value: number, options: { step?: number }) => String(value));
 // @ts-expect-error A zero-argument view does not expose its implementation's optional parameter.
 zeroView(2);
 // @ts-expect-error An optional argument may be omitted but is not undefined.

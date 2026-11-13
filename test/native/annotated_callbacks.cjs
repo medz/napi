@@ -80,6 +80,9 @@ module.exports = async function verifyAnnotatedCallbacks(path) {
     return args.length;
   }), [1, 2, 3]);
   assert.deepEqual(positions, [[1], [1, 2], [1, 2, null]]);
+  assert.deepEqual(addon.invokePositional(value => value), [1, 1, 1]);
+  assert.deepEqual(addon.invokePositional((value, step = 1) => value + step), [2, 3, 3]);
+  assert.deepEqual(addon.invokePositional(positional), [21, 14, 3]);
 
   const named = addon.namedCallback();
   assert.equal(named(1), '1|9|actual');
@@ -95,6 +98,8 @@ module.exports = async function verifyAnnotatedCallbacks(path) {
   }), ['1', '2', '2', '2']);
   assert.deepEqual(names, [[1], [1, { step: 2 }], [1, { note: null }],
     [1, { step: 2, note: 'explicit' }]]);
+  assert.deepEqual(addon.invokeNamed(value => String(value)), ['1', '1', '1', '1']);
+  assert.deepEqual(addon.invokeNamed(named), ['1|9|actual', '1|2|actual', '1|9|null', '1|2|explicit']);
   const required = addon.requiredNamedCallback();
   assert.equal(required({ value: 3 }), 7);
   assert.throws(() => required(), TypeError);
