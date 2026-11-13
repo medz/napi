@@ -11,36 +11,36 @@
       "sha256": "cf7110c68807b874dc837b8f1c7f0626176f31b0f5dbedefcf63d3ab2f2661e8"
     },
     "backend.dylib": {
-      "size": 3975888,
-      "sha256": "341b7d89b43f33c44847bb49d3126ae723843821424e6f265ba60c87ad731c15"
+      "size": 3891760,
+      "sha256": "6ff0cd76158c8542fc8a9b8694fd619aaad8db8e5338f9e73508abacb8a6b57c"
     },
     "compiler.dylib": {
-      "size": 91248,
-      "sha256": "e1824f05346e7722f090d52b9c0a07981fe8420e19ffa7a34bd1a24e83fcc9e4"
+      "size": 91216,
+      "sha256": "f6d9ff7cd847556facb83910dc09e2adbee566782db58dcf35c1b0d5db2109a4"
     },
     "frontend.aot": {
-      "size": 11899680,
-      "sha256": "956e2ee2ce22682914d9fdcf42c5835ed60d37848d301fdad3538da6f1798080"
+      "size": 11884784,
+      "sha256": "78ea3bf41e70a139e7c9639259c58f0986cbb5a9b55724ac5d263ebefa7c7bd3"
     },
     "frontend.dylib": {
       "size": 4556800,
-      "sha256": "f3b5556677b8e4941b4657618359e5c0ef000d6b5964b7b25fc7127555fa3ba6"
+      "sha256": "667dae6e771bc5e9d5516799a627e81a179de4ce104521c0bf307719e6eee422"
     },
     "platform.dill": {
-      "size": 8663064,
-      "sha256": "de7a14dba344519c58539d5fd570362ea64e56d3b750c8b3c4aab8cbc9815d4b"
+      "size": 8663552,
+      "sha256": "346a29abc98ee15d654363567742b342078513b19be89573acaf0a700c0e8e8a"
     },
     "runtime-core.node": {
-      "size": 1571248,
-      "sha256": "51efe9964b37791acc18ced8fcc6bc73bfb8f337998c7c29e8327ef00c28045e"
+      "size": 1503648,
+      "sha256": "d528173ee498f914c8251b79c0809e558b031c3ef193a28251bf56fdfd3937e0"
     },
     "runtime-regexp.node": {
-      "size": 3464336,
-      "sha256": "6489b2da233dbbfdf911886ebac713697d9bf0205a3f43853bef208edf63f098"
+      "size": 3413488,
+      "sha256": "8af4efe3690e42a8c221e21bd33b69c72ae5601e01f0b8e8ae828e2542eb840e"
     },
     "runtime.node": {
-      "size": 4625088,
-      "sha256": "4769284ae18bcd3fa624acd048347146ef5b9bb479fb61cf8a2fdeb67889e487"
+      "size": 4574560,
+      "sha256": "9e36ed6e22cea59d2f28a4525139d8ca7d4fce207a57117ebd9b3fa092158f53"
     }
   }
 }

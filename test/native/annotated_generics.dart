@@ -45,7 +45,25 @@ class Box<T> {
 
   @NAPI()
   bool get holdsInt => T == int;
+
+  @NAPI()
+  Box<List<T>> nested() => Box([value]);
 }
+
+@NAPI.object()
+class BoxRecord<T> {
+  @NAPI()
+  BoxRecord(this.box);
+
+  @NAPI()
+  final Box<T> box;
+}
+
+@NAPI()
+BoxRecord<int> boxRecord() => BoxRecord(Box(9));
+
+@NAPI()
+int readBoxRecord(BoxRecord<int> record) => record.box.value;
 
 @NAPI()
 Box box = Box<dynamic>(0);

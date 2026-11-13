@@ -33,12 +33,14 @@ python3 napi_compiler/tool/package_compiler.py \
   --sdk . \
   --build out/Napi \
   --runtime-dir out/Napi/clang_arm64_shared \
-  --platform-dill tools/sdks/dart-sdk/lib/_internal/vm_platform_product.dill \
+  --platform-dill out/Napi/vm_platform_product.dill \
   --output out/package/linux_arm64
 ```
 
 The packaging command requires a new output directory. Copy its complete contents
 into `lib/src/compiler/assets/linux_arm64/` when updating the package.
+Use the platform built from the patched SDK; the stock SDK platform does not
+include the private type conversion entry used by generated generic bindings.
 
 For macOS arm64, use `target_os="mac"` and the same CPU values. For Windows x64,
 use `target_os="win"`, `target_cpu="x64"` and `dart_target_arch="x64"`; its shared

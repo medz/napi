@@ -398,11 +398,13 @@ final class _ClassArgument {
     // Set by generated class conversions.
     // ignore: unused_element_parameter
     this.readFuture,
+    this.boundClass = false,
   });
   final Object? Function(Object?) read;
   final Object? Function(Object?)? readFuture;
   final Object? Function(Object?) write;
   final bool directional;
+  final bool boundClass;
 }
 
 final class _GenericArgument<T> {
@@ -489,7 +491,6 @@ final class Env {
   final _identity = Expando<int>();
   final _genericPayloads = Expando<_GenericPayload>();
   final _classes = <Type, _ClassDefinition?>{};
-  Map<Type, Type>? _classBounds;
   int _objectDepth = 0;
   final _importedFunctions = Expando<JsReference<JsFunction>>();
   final _functionIdentity = Expando<Map<Type, int>>();
@@ -1547,6 +1548,54 @@ final class Env {
   }
 
   // Concrete type arguments share the class's JS constructor and prototype.
+  late Object? Function(Type, Function) _matchTypeCodec;
+  final _typeCodecFactories = <Function>[];
+  final _typeArguments = <Type, _ClassArgument>{};
+
+  // ignore: unused_element
+  void _defineTypeCodecs(
+    Object? Function(Type, Function) match,
+    List<Function> factories,
+  ) {
+    _matchTypeCodec = match;
+    _typeCodecFactories.addAll(factories);
+  }
+
+  // ignore: unused_element
+  _ClassArgument _canonicalClassArgument<T>() {
+    final existing = _typeArguments[T];
+    if (existing != null) return existing;
+    _ClassArgument? conversion;
+    for (final factory in _typeCodecFactories) {
+      conversion = _matchTypeCodec(T, factory) as _ClassArgument?;
+      if (conversion != null) break;
+    }
+    if (T == _typeOf<void>()) {
+      conversion = _ClassArgument((_) => null, (_) => undefined, false);
+    }
+    conversion ??= _ClassArgument(
+      _readGenericValue<T>,
+      (value) => _writeGenericValue<T>(_typedValue<T>(value)),
+      false,
+    );
+    if (null is T && T != _typeOf<void>()) {
+      final nonNull = conversion;
+      conversion = _ClassArgument(
+        (value) => value == null ? null : nonNull.read(value),
+        (value) => value == null ? null : nonNull.write(value),
+        nonNull.directional,
+        boundClass: nonNull.boundClass,
+        readFuture: (value) =>
+            value == null ? null : (nonNull.readFuture ?? nonNull.read)(value),
+      );
+    }
+    return _typeArguments[T] = conversion;
+  }
+
+  // ignore: unused_element
+  bool _hasClassInstance<T extends Object, S extends Object>() =>
+      _classes[S]?.views?.any((view) => view.type == T) ?? false;
+
   // ignore: unused_element
   void _specializeClassInstance<T extends Object, S extends Object>({
     bool registerType = true,
@@ -1586,6 +1635,13 @@ final class Env {
       ),
     );
     if (registerType) _classes[T] = definition;
+    for (final registered in _classes.values.toSet()) {
+      if (registered?.viewsCache case final cache?) {
+        for (final cached in cache.values) {
+          cached.clear();
+        }
+      }
+    }
   }
 
   // ignore: unused_element
@@ -2189,35 +2245,22 @@ final class Env {
     return result as T;
   }
 
-  // A class bound exposes the ordinary wrapper while retaining the callback's
-  // actual type argument, which can be a narrower Dart subclass.
-  // Only annotated classes participate; low-level registrations of Object or
-  // scalar types must not change otherwise opaque generic conversions.
-  // ignore: unused_element
-  void _registerClassBound<T extends Object>() {
-    final bounds = _classBounds ??= {};
-    bounds[T] = T;
-    bounds[_typeOf<T?>()] = T;
-  }
-
   // ignore: unused_element
   T _readBoundGenericValue<T, B>(Object? value, [_GenericValues? values]) {
     _arena;
-    if (!(_classBounds?.containsKey(B) ?? false)) {
-      return _readGenericValue<T>(value, values);
-    }
-    if (value is! JsObject) return _typedValue<T>(value);
-    final object = _findBoundObject(_encode(value));
-    if (object == null) throw ArgumentError('Expected a bound $B instance');
-    return _typedValue<T>(object.value);
+    final conversion = _canonicalClassArgument<B>();
+    return conversion.boundClass
+        ? _typedValue<T>(conversion.read(value))
+        : _readGenericValue<T>(value, values);
   }
 
   // ignore: unused_element
   Object? _writeBoundGenericValue<T, B>(T value, [_GenericValues? values]) {
     _arena;
-    final bound = _classBounds?[B];
-    if (bound == null) return _writeGenericValue<T>(value, values);
-    return value == null ? null : _wrapClass(value, bound);
+    final conversion = _canonicalClassArgument<B>();
+    return conversion.boundClass
+        ? conversion.write(value)
+        : _writeGenericValue<T>(value, values);
   }
 
   // A whole, otherwise unknown generic type is transferred as an opaque value.
@@ -2495,7 +2538,8 @@ final class Env {
     final objects = _objects.entries.toList();
     _objects.clear();
     _classes.clear();
-    _classBounds?.clear();
+    _typeArguments.clear();
+    _typeCodecFactories.clear();
     _functions.clear();
     _callbacks.clear();
     _getters.clear();

@@ -19,9 +19,10 @@ final class Calls {
   final CoreTypes core;
   final ClassHierarchy hierarchy;
   int _next = 0;
-  bool usesClassBounds = false;
+  bool usesTypeCodecs = false;
   final _objectReaders = <(ExportClass, bool), Procedure>{};
   final _objectWriters = <(ExportClass, bool), Procedure>{};
+  final _classFactories = <ExportClass, Procedure>{};
   bool _classArgumentConversion = false;
   final _objectNeeds = <(ExportClass, bool), Map<ExportTypeParameter, int>>{};
   Substitution _codecTypes = Substitution.empty;
@@ -297,7 +298,7 @@ final class Calls {
     while (bound.kind == ValueKind.typeParameter) {
       if (bound.parameter!.reified &&
           !_genericValues.containsKey(bound.parameter)) {
-        usesClassBounds = true;
+        usesTypeCodecs = true;
         return bound;
       }
       bound = bound.parameter!.bound;
@@ -305,7 +306,7 @@ final class Calls {
     if (bound.kind != ValueKind.object || bound.classExport!.isObject) {
       return null;
     }
-    usesClassBounds = true;
+    usesTypeCodecs = true;
     return bound;
   }
 
@@ -630,12 +631,7 @@ final class Calls {
       ValueKind.object =>
         type.classExport!.isObject
             ? _objectInvocation(env, type, source(), read: false)
-            : call(
-                VariableGet(env),
-                method(envClass, 'wrap'),
-                [source()],
-                types: [type.classExport!.dartType],
-              ),
+            : _writeClass(env, type, source()),
       ValueKind.list || ValueKind.map => call(
         VariableGet(env),
         method(
@@ -1502,7 +1498,225 @@ final class Calls {
     );
   }
 
+  Expression _writeClass(
+    PositionalParameter env,
+    ExportType type,
+    Expression value,
+  ) {
+    final cls = type.classExport!;
+    final wrapped = call(
+      VariableGet(env),
+      method(envClass, 'wrap'),
+      [value],
+      types: [cls.dartType],
+    );
+    if (type.typeArguments.isEmpty ||
+        type.dartType == cls.dartType ||
+        cls.instances.any((instance) => instance.dartType == type.dartType)) {
+      return wrapped;
+    }
+    final factory = _classFactory(cls);
+    return BlockExpression(
+      Block([
+        ExpressionStatement(
+          StaticInvocation(
+            factory,
+            Arguments([
+              VariableGet(env),
+              for (final argument in type.typeArguments)
+                classArgument(env, argument),
+            ], types: (_dartType(type) as InterfaceType).typeArguments),
+          ),
+        ),
+      ]),
+      wrapped,
+    );
+  }
+
+  Procedure _classFactory(ExportClass cls) {
+    if (_classFactories[cls] case final factory?) return factory;
+    final instance = cls.genericInstance!;
+    final fresh = getFreshTypeParameters(cls.target.typeParameters);
+    final env = PositionalParameter(cosmeticName: 'env', type: envType);
+    final argumentClass = envLibrary.classes.singleWhere(
+      (cls) => cls.name == '_ClassArgument',
+    );
+    final arguments = [
+      for (final parameter in instance.typeParameters)
+        PositionalParameter(
+          cosmeticName: parameter.name,
+          type: InterfaceType(argumentClass, Nullability.nonNullable),
+        ),
+    ];
+    final factory = Procedure(
+      Name('_napiClass${_next++}', library),
+      ProcedureKind.Method,
+      FunctionNode(
+        EmptyStatement(),
+        typeParameters: fresh.freshTypeParameters,
+        positionalParameters: [env, ...arguments],
+        returnType: const VoidType(),
+      ),
+      isStatic: true,
+      fileUri: library.fileUri,
+    );
+    _classFactories[cls] = factory;
+    library.addProcedure(factory);
+    final savedTypes = _codecTypes;
+    final savedCodecs = _classCodecs;
+    _codecTypes = fresh.substitution;
+    _classCodecs = {
+      for (var i = 0; i < arguments.length; ++i)
+        instance.typeParameters[i]: arguments[i],
+    };
+    try {
+      final receiver = _codecTypes.substituteType(instance.dartType);
+      final statements = <Statement>[
+        IfStatement(
+          call(
+            VariableGet(env),
+            method(envClass, '_hasClassInstance'),
+            [],
+            types: [receiver, cls.dartType],
+          ),
+          ReturnStatement(),
+          null,
+        ),
+      ];
+      for (final (contract, members) in [
+        (
+          cls,
+          (
+            methods: instance.methods,
+            properties: instance.properties,
+            arguments: instance.arguments,
+          ),
+        ),
+        for (final entry in instance.specializations.entries)
+          (entry.key, entry.value),
+      ]) {
+        final register = method(envClass, '_specializeClassInstance');
+        final signature = FunctionTypeInstantiator.instantiate(
+          register.function.computeFunctionType(Nullability.nonNullable),
+          [receiver, contract.dartType],
+        );
+        Expression callbacks(
+          String name,
+          List<MapEntry<String, FunctionNode>> nodes,
+        ) {
+          final mapType =
+              signature.namedParameters.singleWhere((p) => p.name == name).type
+                  as InterfaceType;
+          return MapLiteral(
+            [
+              for (final entry in nodes)
+                MapLiteralEntry(
+                  StringLiteral(entry.key),
+                  _bindLocal(entry.value, env),
+                ),
+            ],
+            keyType: mapType.typeArguments[0],
+            valueType: mapType.typeArguments[1],
+          );
+        }
+
+        statements.add(
+          ExpressionStatement(
+            call(
+              VariableGet(env),
+              register,
+              [],
+              types: [receiver, contract.dartType],
+              named: [
+                NamedExpression('registerType', BoolLiteral(contract == cls)),
+                NamedExpression(
+                  'arguments',
+                  classArguments(env, members.arguments),
+                ),
+                NamedExpression(
+                  'methods',
+                  callbacks('methods', [
+                    for (final method in members.methods)
+                      MapEntry(method.name, _functionNode(method)),
+                  ]),
+                ),
+                NamedExpression(
+                  'getters',
+                  callbacks('getters', [
+                    for (final property in members.properties)
+                      if (property.getter != null)
+                        MapEntry(
+                          property.name,
+                          _propertyNode(property, setter: false),
+                        ),
+                  ]),
+                ),
+                NamedExpression(
+                  'setters',
+                  callbacks('setters', [
+                    for (final property in members.properties)
+                      if (property.setter != null)
+                        MapEntry(
+                          property.name,
+                          _propertyNode(property, setter: true),
+                        ),
+                  ]),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+      factory.function.body = Block(statements)..parent = factory.function;
+      _lower(factory);
+      return factory;
+    } finally {
+      _codecTypes = savedTypes;
+      _classCodecs = savedCodecs;
+    }
+  }
+
+  Expression _bindLocal(FunctionNode node, PositionalParameter env) {
+    final parameters = [
+      for (final parameter in node.positionalParameters.skip(1))
+        PositionalParameter(
+          cosmeticName: parameter.cosmeticName,
+          type: parameter.type,
+        ),
+    ];
+    final signature = node.computeFunctionType(Nullability.nonNullable);
+    return FunctionExpression(
+      FunctionNode(
+        ReturnStatement(
+          FunctionInvocation(
+            FunctionAccessKind.FunctionType,
+            FunctionExpression(node),
+            Arguments([
+              VariableGet(env),
+              for (final parameter in parameters) VariableGet(parameter),
+            ]),
+            functionType: signature,
+          ),
+        ),
+        positionalParameters: parameters,
+        returnType: node.returnType,
+      ),
+    );
+  }
+
   Expression classArgument(PositionalParameter env, ExportType type) {
+    if (_classCodecs[type.parameter] case final codec? when !type.nullable) {
+      return VariableGet(codec);
+    }
+    if (type.parameter?.reified == true) {
+      usesTypeCodecs = true;
+      return call(
+        VariableGet(env),
+        method(envClass, '_canonicalClassArgument'),
+        [],
+        types: [_dartType(type)],
+      );
+    }
     final saved = _classArgumentConversion;
     _classArgumentConversion = true;
     try {
@@ -1564,8 +1778,9 @@ final class Calls {
           _directionalValue(type),
         ],
         named: [
-          if (type.kind == ValueKind.future ||
-              _classCodecs.containsKey(type.parameter))
+          if (type.kind == ValueKind.object && !type.classExport!.isObject)
+            NamedExpression('boundClass', BoolLiteral(true)),
+          if (type.kind == ValueKind.future || type.parameter?.reified == true)
             NamedExpression('readFuture', reader(future: true)),
         ],
       ),
@@ -1582,6 +1797,103 @@ final class Calls {
     return ListLiteral([
       for (final type in arguments) classArgument(env, type),
     ], typeArgument: InterfaceType(cls, Nullability.nonNullable));
+  }
+
+  Statement defineTypeCodecs(PositionalParameter env, ExportModule exports) {
+    final factories = <Expression>[];
+    final codecClass = envLibrary.classes.singleWhere(
+      (c) => c.name == '_ClassArgument',
+    );
+    final codecType = InterfaceType(codecClass, Nullability.nonNullable);
+    for (final model in exports.typeCodecs()) {
+      final fresh = getFreshTypeParameters([
+        for (final p in model.parameters) p.target,
+      ]);
+      final savedTypes = _codecTypes;
+      final savedCodecs = _classCodecs;
+      _codecTypes = fresh.substitution;
+      _classCodecs = {};
+      try {
+        final body = <Statement>[];
+        for (var i = 0; i < model.parameters.length; ++i) {
+          _classCodecs[model.parameters[i]] = local(
+            body,
+            'codec$i',
+            codecType,
+            call(
+              VariableGet(env),
+              method(envClass, '_canonicalClassArgument'),
+              [],
+              types: [
+                TypeParameterType(
+                  fresh.freshTypeParameters[i],
+                  Nullability.nonNullable,
+                ),
+              ],
+            ),
+          );
+        }
+        body.add(ReturnStatement(classArgument(env, model.type)));
+        factories.add(
+          FunctionExpression(
+            FunctionNode(
+              Block(body),
+              typeParameters: [
+                TypeParameter(
+                  'S',
+                  core.objectNullableRawType,
+                  const DynamicType(),
+                ),
+                ...fresh.freshTypeParameters,
+              ],
+              positionalParameters: [
+                PositionalParameter(
+                  cosmeticName: 'unused',
+                  type: _dartType(
+                    model.type,
+                  ).withDeclaredNullability(Nullability.nullable),
+                ),
+              ],
+              returnType: codecType,
+            ),
+          ),
+        );
+      } finally {
+        _codecTypes = savedTypes;
+        _classCodecs = savedCodecs;
+      }
+    }
+    final match = component.libraries
+        .singleWhere((lib) => lib.importUri.toString() == 'dart:_internal')
+        .procedures
+        .singleWhere((p) => p.name.text == 'napiTypeCodec');
+    final matchParameters = [
+      for (final parameter in match.function.positionalParameters.take(2))
+        PositionalParameter(
+          cosmeticName: parameter.cosmeticName,
+          type: parameter.type,
+        ),
+    ];
+    return ExpressionStatement(
+      call(VariableGet(env), method(envClass, '_defineTypeCodecs'), [
+        FunctionExpression(
+          FunctionNode(
+            ReturnStatement(
+              StaticInvocation(
+                match,
+                Arguments([
+                  for (final parameter in matchParameters)
+                    VariableGet(parameter),
+                ]),
+              ),
+            ),
+            positionalParameters: matchParameters,
+            returnType: core.objectNullableRawType,
+          ),
+        ),
+        ListLiteral(factories, typeArgument: core.functionNonNullableRawType),
+      ]),
+    );
   }
 
   Expression _valueReader(
@@ -1771,7 +2083,7 @@ final class Calls {
               VariableGet(receiver!),
               target.name,
               interfaceTarget: target as Procedure,
-              resultType: function.tearOffType!,
+              resultType: _codecTypes.substituteType(function.tearOffType!),
             )
           : ConstantExpression(
               StaticTearOffConstant(target as Procedure),
@@ -1800,11 +2112,24 @@ final class Calls {
   }
 
   Procedure function(ExportFunction function, {bool rawResult = false}) {
+    final node = _functionNode(function, rawResult: rawResult);
+    return procedure(
+      '_napiCall${_next++}',
+      node.positionalParameters,
+      node.returnType,
+      node.body!,
+    );
+  }
+
+  FunctionNode _functionNode(
+    ExportFunction function, {
+    bool rawResult = false,
+  }) {
     final env = PositionalParameter(cosmeticName: 'env', type: envType);
     final receiver = function.instance
         ? PositionalParameter(
             cosmeticName: 'receiver',
-            type: function.owner!.dartType,
+            type: _codecTypes.substituteType(function.owner!.dartType),
           )
         : null;
     final args = PositionalParameter(
@@ -1830,7 +2155,7 @@ final class Calls {
                 VariableGet(receiver!),
                 function.target.name,
                 interfaceTarget: function.target as Procedure,
-                resultType: function.tearOffType!,
+                resultType: _codecTypes.substituteType(function.tearOffType!),
               );
               return function.typeArguments.isEmpty
                   ? result
@@ -1843,15 +2168,14 @@ final class Calls {
             }
           : null,
     );
-    return procedure(
-      '_napiCall${_next++}',
-      [env, if (receiver != null) receiver, args],
-      rawResult
-          ? _dartType(function.signature.result)
-          : core.objectNullableRawType,
+    return FunctionNode(
       function.classParameters.isEmpty
           ? body(const {})
           : _classCallBody(function, env, args, body),
+      positionalParameters: [env, if (receiver != null) receiver, args],
+      returnType: rawResult
+          ? _dartType(function.signature.result)
+          : core.objectNullableRawType,
     );
   }
 
@@ -1989,7 +2313,30 @@ final class Calls {
         final index = argument.parameter == null
             ? -1
             : parameters.indexOf(argument.parameter!);
-        if (index < 0 || argument.nullable) continue;
+        if (index < 0) {
+          final selected = parameters
+              .where(
+                (p) => inferableTypeParameters(
+                  argument.dartType,
+                ).contains(p.target),
+              )
+              .toList();
+          if (selected.isNotEmpty) {
+            usesTypeCodecs = true;
+            record.add(
+              _recordClassPattern(
+                env,
+                slots,
+                parameters,
+                selected,
+                argument,
+                fresh.freshTypeArguments[i],
+              ),
+            );
+          }
+          continue;
+        }
+        if (argument.nullable) continue;
         record.add(
           ExpressionStatement(
             call(
@@ -2109,6 +2456,100 @@ final class Calls {
 
     statements.addAll(invoke(0).statements);
     return Block(statements);
+  }
+
+  Statement _recordClassPattern(
+    PositionalParameter env,
+    Variable slots,
+    List<ExportTypeParameter> parameters,
+    List<ExportTypeParameter> selected,
+    ExportType argument,
+    DartType actual,
+  ) {
+    final match = component.libraries
+        .singleWhere((lib) => lib.importUri.toString() == 'dart:_internal')
+        .procedures
+        .singleWhere((p) => p.name.text == 'napiTypeCodec');
+    return Block([
+      for (final parameter in selected)
+        () {
+          final type = TypeParameter(
+            parameter.name,
+            core.objectNullableRawType,
+            const DynamicType(),
+          );
+          final inferred = TypeParameterType(type, Nullability.nonNullable);
+          final substitution = Substitution.combine(
+            Substitution.fromMap({
+              for (final other in parameters)
+                other.target: other == parameter
+                    ? inferred
+                    : const DynamicType(),
+            }),
+            _codecTypes,
+          );
+          final pattern = substitution.substituteType(argument.dartType);
+          return IfStatement(
+            EqualsNull(
+              StaticInvocation(
+                match,
+                Arguments([
+                  TypeLiteral(actual),
+                  FunctionExpression(
+                    FunctionNode(
+                      Block([
+                        ExpressionStatement(
+                          call(
+                            VariableGet(env),
+                            method(envClass, '_recordGenericArgument'),
+                            [
+                              VariableGet(slots),
+                              IntLiteral(parameters.indexOf(parameter)),
+                              call(
+                                VariableGet(env),
+                                method(envClass, '_canonicalClassArgument'),
+                                [],
+                                types: [inferred],
+                              ),
+                              StringLiteral(parameter.name),
+                            ],
+                            types: [inferred],
+                          ),
+                        ),
+                        ReturnStatement(BoolLiteral(true)),
+                      ]),
+                      typeParameters: [
+                        TypeParameter(
+                          'S',
+                          core.objectNullableRawType,
+                          const DynamicType(),
+                        ),
+                        type,
+                      ],
+                      positionalParameters: [
+                        PositionalParameter(
+                          cosmeticName: 'unused',
+                          type: pattern.withDeclaredNullability(
+                            Nullability.nullable,
+                          ),
+                        ),
+                      ],
+                      returnType: core.objectNullableRawType,
+                    ),
+                  ),
+                  BoolLiteral(true),
+                ]),
+              ),
+            ),
+            ExpressionStatement(
+              failure(
+                'The Dart class type does not match ${argument.dartType}.',
+              ),
+            ),
+            null,
+          );
+        }(),
+    ]);
   }
 
   Block _callBody(
@@ -2377,11 +2818,21 @@ final class Calls {
   }
 
   Procedure property(ExportProperty property, {required bool setter}) {
+    final node = _propertyNode(property, setter: setter);
+    return procedure(
+      '_napiProperty${_next++}',
+      node.positionalParameters,
+      node.returnType,
+      node.body!,
+    );
+  }
+
+  FunctionNode _propertyNode(ExportProperty property, {required bool setter}) {
     final env = PositionalParameter(cosmeticName: 'env', type: envType);
     final receiver = property.instance
         ? PositionalParameter(
             cosmeticName: 'receiver',
-            type: property.owner!.dartType,
+            type: _codecTypes.substituteType(property.owner!.dartType),
           )
         : null;
     final args = setter
@@ -2422,11 +2873,14 @@ final class Calls {
       }
       _return(statements, env, value, property.readType!);
     }
-    return procedure(
-      '_napiProperty${_next++}',
-      [env, if (receiver != null) receiver, if (args != null) args],
-      setter ? const VoidType() : core.objectNullableRawType,
+    return FunctionNode(
       Block(statements),
+      positionalParameters: [
+        env,
+        if (receiver != null) receiver,
+        if (args != null) args,
+      ],
+      returnType: setter ? const VoidType() : core.objectNullableRawType,
     );
   }
 

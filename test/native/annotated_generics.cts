@@ -11,6 +11,13 @@ const defaultBox: addon.Box = addon.box;
 addon.box = box;
 const inferredBox = new addon.Box('hello');
 const value: number = box.value;
+const nested: addon.Box<number[]> = box.nested();
+const deeper: number[][] = nested.nested().value;
+nested.value = [1, 2];
+// @ts-expect-error Nested class arguments keep their element type.
+nested.value = ['wrong'];
+const boxRecord: addon.BoxRecord<number> = addon.boxRecord();
+const recordInteger: number = addon.readBoxRecord(boxRecord);
 const text: string = inferredBox.value;
 const previous: number = box.replace(7);
 const method: string = box.echo<string>('hello');

@@ -1,0 +1,237 @@
+diff --git a/runtime/lib/object.cc b/runtime/lib/object.cc
+--- a/runtime/lib/object.cc
++++ b/runtime/lib/object.cc
+@@ -473,6 +473,196 @@
+   return result.ptr();
+ }
+ 
++struct NapiCodecBinder {
++  const FunctionType& pattern;
++  const FunctionType& actual;
++  const NapiCodecBinder* parent;
++};
++
++// Match the structural pattern carried by a precompiled converter factory.
++static bool MatchNapiCodecType(Zone* zone,
++                               const AbstractType& pattern,
++                               const AbstractType& actual,
++                               const TypeArguments& inferred,
++                               bool partial,
++                               bool outer = false,
++                               const NapiCodecBinder* binders = nullptr) {
++  if (partial && pattern.IsDynamicType()) return true;
++  if (pattern.IsTypeParameter()) {
++    const auto& parameter = TypeParameter::Cast(pattern);
++    if (!parameter.IsFunctionTypeParameter()) return false;
++    for (auto* binder = binders; binder != nullptr; binder = binder->parent) {
++      if (parameter.parameterized_function_type() == binder->pattern.ptr()) {
++        if (!actual.IsTypeParameter() ||
++            pattern.nullability() != actual.nullability())
++          return false;
++        const auto& other = TypeParameter::Cast(actual);
++        return other.IsFunctionTypeParameter() &&
++               other.parameterized_function_type() == binder->actual.ptr() &&
++               parameter.index() - binder->pattern.NumParentTypeArguments() ==
++                   other.index() - binder->actual.NumParentTypeArguments();
++      }
++    }
++    if (parameter.index() >= inferred.Length()) return false;
++    const intptr_t index = parameter.index();
++    const auto& previous = AbstractType::Handle(zone, inferred.TypeAt(index));
++    if (!previous.IsNull()) {
++      const auto& expected = AbstractType::Handle(
++          zone, previous.SetInstantiatedNullability(parameter, Heap::kNew));
++      return expected.Equals(actual);
++    }
++    // Infer from T, then validate T? after all non-nullable occurrences.
++    if (parameter.IsNullable()) return true;
++    // A local binder cannot escape into a factory's enclosing type arguments.
++    if (!actual.IsInstantiated()) return false;
++    inferred.SetTypeAt(index, actual);
++    return true;
++  }
++  if (!outer && pattern.nullability() != actual.nullability()) return false;
++  if (pattern.IsType() && actual.IsType()) {
++    if (pattern.type_class_id() != actual.type_class_id()) return false;
++    const auto& cls = Class::Handle(zone, pattern.type_class());
++    const auto& left = TypeArguments::Handle(zone, pattern.arguments());
++    const auto& right = TypeArguments::Handle(zone, actual.arguments());
++    for (intptr_t i = cls.NumTypeArguments() - cls.NumTypeParameters();
++         i < cls.NumTypeArguments(); ++i) {
++      const auto& left_type =
++          AbstractType::Handle(zone, left.TypeAtNullSafe(i));
++      const auto& right_type =
++          AbstractType::Handle(zone, right.TypeAtNullSafe(i));
++      if (!MatchNapiCodecType(zone, left_type, right_type, inferred, partial,
++                              false, binders))
++        return false;
++    }
++    return true;
++  }
++  if (pattern.IsRecordType() && actual.IsRecordType()) {
++    const auto& left = RecordType::Cast(pattern);
++    const auto& right = RecordType::Cast(actual);
++    if (left.shape() != right.shape()) return false;
++    for (intptr_t i = 0; i < left.NumFields(); ++i) {
++      const auto& left_type = AbstractType::Handle(zone, left.FieldTypeAt(i));
++      const auto& right_type = AbstractType::Handle(zone, right.FieldTypeAt(i));
++      if (!MatchNapiCodecType(zone, left_type, right_type, inferred, partial,
++                              false, binders))
++        return false;
++    }
++    return true;
++  }
++  if (pattern.IsFunctionType() && actual.IsFunctionType()) {
++    const auto& left = FunctionType::Cast(pattern);
++    const auto& right = FunctionType::Cast(actual);
++    if (left.NumTypeParameters() != right.NumTypeParameters() ||
++        left.num_fixed_parameters() - left.num_implicit_parameters() !=
++            right.num_fixed_parameters() - right.num_implicit_parameters() ||
++        left.NumOptionalNamedParameters() !=
++            right.NumOptionalNamedParameters() ||
++        left.NumOptionalPositionalParameters() !=
++            right.NumOptionalPositionalParameters()) {
++      return false;
++    }
++    const NapiCodecBinder binder = {left, right, binders};
++    if (left.IsGeneric()) {
++      const auto& left_params =
++          TypeParameters::Handle(zone, left.type_parameters());
++      const auto& right_params =
++          TypeParameters::Handle(zone, right.type_parameters());
++      for (intptr_t i = 0; i < left.NumTypeParameters(); ++i) {
++        const auto& left_bound =
++            AbstractType::Handle(zone, left_params.BoundAt(i));
++        const auto& right_bound =
++            AbstractType::Handle(zone, right_params.BoundAt(i));
++        if (!MatchNapiCodecType(zone, left_bound, right_bound, inferred,
++                                partial, false, &binder))
++          return false;
++      }
++    }
++    for (intptr_t i = left.num_implicit_parameters(); i < left.NumParameters();
++         ++i) {
++      const intptr_t j =
++          i - left.num_implicit_parameters() + right.num_implicit_parameters();
++      if (left.HasOptionalNamedParameters() &&
++          i >= left.num_fixed_parameters()) {
++        const auto& name = String::Handle(zone, left.ParameterNameAt(i));
++        if (!name.Equals(String::Handle(zone, right.ParameterNameAt(j))) ||
++            left.IsRequiredAt(i) != right.IsRequiredAt(j))
++          return false;
++      }
++      const auto& left_type =
++          AbstractType::Handle(zone, left.ParameterTypeAt(i));
++      const auto& right_type =
++          AbstractType::Handle(zone, right.ParameterTypeAt(j));
++      if (!MatchNapiCodecType(zone, left_type, right_type, inferred, partial,
++                              false, &binder))
++        return false;
++    }
++    const auto& left_result = AbstractType::Handle(zone, left.result_type());
++    const auto& right_result = AbstractType::Handle(zone, right.result_type());
++    return MatchNapiCodecType(zone, left_result, right_result, inferred,
++                              partial, false, &binder);
++  }
++  return pattern.Equals(actual);
++}
++
++DEFINE_NATIVE_ENTRY(Internal_napiTypeCodec, 0, 3) {
++  GET_NON_NULL_NATIVE_ARGUMENT(AbstractType, type, arguments->NativeArgAt(0));
++  GET_NON_NULL_NATIVE_ARGUMENT(Closure, factory, arguments->NativeArgAt(1));
++  GET_NON_NULL_NATIVE_ARGUMENT(Bool, partial, arguments->NativeArgAt(2));
++  const auto& signature =
++      FunctionType::Handle(zone, factory.GetInstantiatedSignature(zone));
++  if (signature.IsNull() || signature.NumTypeParameters() < 1 ||
++      signature.NumParameters() - signature.num_implicit_parameters() != 1) {
++    Exceptions::ThrowArgumentError(String::Handle(
++        zone, String::New("Invalid native type converter factory")));
++  }
++  const intptr_t count = signature.NumTypeParameters();
++  const intptr_t parents = signature.NumParentTypeArguments();
++  auto& inferred =
++      TypeArguments::Handle(zone, TypeArguments::New(parents + count));
++  const auto& captured =
++      TypeArguments::Handle(zone, factory.function_type_arguments());
++  for (intptr_t i = 0; i < parents; ++i) {
++    inferred.SetTypeAt(i,
++                       AbstractType::Handle(zone, captured.TypeAtNullSafe(i)));
++  }
++  inferred.SetTypeAt(parents, type);
++  const auto& pattern = AbstractType::Handle(
++      zone, signature.ParameterTypeAt(signature.num_implicit_parameters()));
++  if (!MatchNapiCodecType(zone, pattern, type, inferred, partial.value(),
++                          true)) {
++    return Object::null();
++  }
++  for (intptr_t i = parents; i < parents + count; ++i) {
++    if (inferred.TypeAt(i) == AbstractType::null()) {
++      Exceptions::ThrowArgumentError(String::Handle(
++          zone, String::New("Unbound native type converter parameter")));
++    }
++  }
++  if (!MatchNapiCodecType(zone, pattern, type, inferred, partial.value(),
++                          true)) {
++    return Object::null();
++  }
++  auto& selected = TypeArguments::Handle(zone, TypeArguments::New(count));
++  for (intptr_t i = 0; i < count; ++i) {
++    selected.SetTypeAt(
++        i, AbstractType::Handle(zone, inferred.TypeAt(parents + i)));
++  }
++  selected = selected.Canonicalize(thread);
++  const auto& args = Array::Handle(zone, Array::New(3));
++  args.SetAt(0, selected);
++  args.SetAt(1, factory);
++  args.SetAt(2, Object::null_instance());
++  const auto& descriptor =
++      Array::Handle(zone, ArgumentsDescriptor::NewBoxed(count, 2));
++  const auto& result =
++      Object::Handle(zone, DartEntry::InvokeClosure(thread, args, descriptor));
++  if (result.IsError()) {
++    Exceptions::PropagateError(Error::Cast(result));
++    UNREACHABLE();
++  }
++  return result.ptr();
++}
++
+ DEFINE_NATIVE_ENTRY(Internal_prependTypeArguments, 0, 4) {
+   const TypeArguments& function_type_arguments =
+       TypeArguments::CheckedHandle(zone, arguments->NativeArgAt(0));
+diff --git a/runtime/vm/bootstrap_natives.h b/runtime/vm/bootstrap_natives.h
+--- a/runtime/vm/bootstrap_natives.h
++++ b/runtime/vm/bootstrap_natives.h
+@@ -274,6 +274,7 @@
+   V(Internal_makeListFixedLength, 1)                                           \
+   V(Internal_makeFixedListUnmodifiable, 1)                                     \
+   V(Internal_extractTypeArguments, 2)                                          \
++  V(Internal_napiTypeCodec, 3)                                                 \
+   V(Internal_prependTypeArguments, 4)                                          \
+   V(Internal_instantiateClosure, 2)                                            \
+   V(Internal_loadDynamicModule, 1)                                             \
+diff --git a/sdk/lib/internal/internal.dart b/sdk/lib/internal/internal.dart
+--- a/sdk/lib/internal/internal.dart
++++ b/sdk/lib/internal/internal.dart
+@@ -796,6 +796,8 @@
+ /// See this issue for more context:
+ /// https://github.com/dart-lang/sdk/issues/31371
+ external Object? extractTypeArguments<T>(T instance, Function extract);
++
++external Object? napiTypeCodec(Type type, Function factory, [bool partial = false]);
+ 
+ /// Annotation class marking the version where SDK API was added.
+ ///
+diff --git a/sdk/lib/_internal/vm/lib/internal_patch.dart b/sdk/lib/_internal/vm/lib/internal_patch.dart
+--- a/sdk/lib/_internal/vm/lib/internal_patch.dart
++++ b/sdk/lib/_internal/vm/lib/internal_patch.dart
+@@ -38,6 +38,10 @@
+ @patch
+ @pragma("vm:external-name", "Internal_extractTypeArguments")
+ external Object? extractTypeArguments<T>(T instance, Function extract);
++
++@patch
++@pragma("vm:external-name", "Internal_napiTypeCodec")
++external Object? napiTypeCodec(Type type, Function factory, [bool partial = false]);
+ 
+ /// The returned string is a [_OneByteString] with uninitialized content.
+ @pragma("vm:recognized", "asm-intrinsic")

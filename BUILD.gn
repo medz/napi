@@ -428,6 +428,7 @@ group("compiler") {
     ":runtime_core",
     ":runtime_image",
     ":runtime_regexp",
+    "//runtime/vm:vm_platform_product",
   ]
   if (can_build_frontend) {
     deps += [ ":frontend_aot" ]

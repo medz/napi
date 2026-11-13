@@ -476,16 +476,6 @@ Future<void> main(List<String> args) async {
               '@NAPI() Future<Loop> invalid() => throw UnimplementedError();',
           'thenable resolution does not have a finite type',
         ),
-        (
-          '@NAPI() class Box<T> { @NAPI() Box(this.value); T value; '
-              '@NAPI() Box<List<T>> nested() => Box([value]); }',
-          'nested bound-class arguments cannot depend on erased type parameters yet',
-        ),
-        (
-          '@NAPI() class Box<T> { @NAPI() Box(this.value); @NAPI() T value; } '
-              '@NAPI() void invalid(Box<T> Function<T>(Box<T>) callback) {}',
-          'bound-class arguments cannot depend on reified callback or data-class parameters yet',
-        ),
       ],
     ),
     (

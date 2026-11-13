@@ -9,6 +9,7 @@ typedef AsyncId = Future<T> Function<T>({required T value});
 typedef First = A Function<A, B>(A first, B second);
 typedef Capture = JsReference<JsObject> Function<T>(T value);
 typedef NonNullId = T Function<T extends Object>(T value);
+typedef BoundBoxId = T Function<T extends Box<Map<String, List<int>>>>(T value);
 
 @NAPI()
 class Counter {
@@ -146,6 +147,15 @@ class Box<T> {
 
   @NAPI()
   T value;
+
+  @NAPI()
+  Box<List<T>> nested() => Box([value]);
+
+  @NAPI()
+  String append<U>(Box<List<U>> box, U value) {
+    box.value.add(value);
+    return '$U';
+  }
 }
 
 @NAPI()
@@ -167,6 +177,106 @@ List<bool> exerciseListBox(Box<ListId> box) => explicitLists(box.value);
 
 @NAPI()
 void replace<T>(Box<T> box, T value) => box.value = value;
+
+@NAPI()
+List<bool> boxedCallback(Box<T> Function<T>(Box<T>) callback) => [
+  callback<int>(Box(7)).value == 7,
+  callback<String>(Box('hello')).value == 'hello',
+];
+
+@NAPI()
+Future<List<bool>> boxedTypes(void Function<T>(String, Box<T>) callback) async {
+  T change<T>(String name, T value) {
+    final box = Box(value);
+    callback<T>(name, box);
+    return box.value;
+  }
+
+  final list = change<List<int>>('list', [7]);
+  final scalar = change<int>('int', 9);
+  final nested = change<List<List<int?>>>('nested', [
+    [1, null],
+  ]);
+  final map = change<Map<String, int>>('map', {'value': 1});
+  final set = change<Set<String>>('set', {'one'});
+  final nullable = change<List<int>?>('nullable', null);
+  final record = change<(int, {String name})>('record', (1, name: 'one'));
+  final function = change<String Function(int)>(
+    'function',
+    (value) => '$value',
+  );
+  final generic = change<Id>('generic', _identity);
+  final bound = change<BoundBoxId>(
+    'boundFunction',
+    <T extends Box<Map<String, List<int>>>>(T value) => value,
+  );
+  final boundValue = Box<Map<String, List<int>>>({
+    'items': [1],
+  });
+  final point = change<Point>('point', Point(value: '1'));
+  final future = change<Future<int>>('future', Future.value(1));
+  final stream = change<Stream<int>>('stream', Stream.value(1));
+  return [
+    list.join(',') == '3,4',
+    scalar == 10,
+    nested.single.join(',') == '2,null',
+    map['value'] == 2,
+    set.single == 'two',
+    nullable!.single == 2,
+    record == (2, name: 'two'),
+    function(2) == 'value:2',
+    generic<int>(7) == 7 && generic<String>('text') == 'text',
+    identical(bound(boundValue), boundValue) &&
+        boundValue.value['items']!.single == 2,
+    point.value == 2,
+    await future == 2,
+    await stream.single == 2,
+  ];
+}
+
+@NAPI.object()
+class BoxRecord<T> {
+  @NAPI()
+  BoxRecord({required this.box});
+
+  @NAPI()
+  final Box<T> box;
+}
+
+@NAPI()
+List<int> structuredBox(void Function<T>(BoxRecord<T>) callback) {
+  final value = BoxRecord(box: Box<List<int>>([1]));
+  callback<List<int>>(value);
+  return value.box.value;
+}
+
+@NAPI()
+String replaceNested<T>(Box<List<T>> box, T value) {
+  box.value = [value];
+  return '$T';
+}
+
+@NAPI()
+Box<(int, String?)> firstPair() => Box((1, null));
+
+@NAPI()
+Box<(String, int?)> secondPair() => Box(('one', null));
+
+@NAPI()
+String replacePairs<T, U>(Box<(T, U?)> first, Box<(U, T?)> second, T a, U b) {
+  first.value = (a, b);
+  second.value = (b, a);
+  return '$T/$U';
+}
+
+@NAPI()
+Box<(int, int?)> repeatedPair() => Box((1, null));
+
+@NAPI()
+String replaceRepeated<T>(Box<(T, T?)> box, T value) {
+  box.value = (value, value);
+  return '$T';
+}
 
 @NAPI()
 class Forward<T extends U, U extends num> {

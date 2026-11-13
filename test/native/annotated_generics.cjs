@@ -33,6 +33,21 @@ module.exports = async function verifyAnnotatedGenerics(path, packageDirectory) 
   assert.equal(box.value, next);
   box.value = object;
   assert.equal(box.value, object);
+  const nestedOpaque = box.nested();
+  assert.equal(nestedOpaque.value[0], object);
+  nestedOpaque.value = [next];
+  assert.equal(nestedOpaque.value[0], next);
+  assert.deepEqual(nestedOpaque.nested().value, [[next]]);
+  const nestedInteger = addon.intBox().nested();
+  assert.deepEqual(nestedInteger.value, [7]);
+  nestedInteger.value = [9];
+  assert.deepEqual(nestedInteger.value, [9]);
+  assert.throws(() => { nestedInteger.value = [1.5]; }, RangeError);
+  assert.deepEqual(nestedInteger.nested().value, [[9]]);
+  const record = addon.boxRecord();
+  assert.equal(record.box.value, 9);
+  assert.equal(addon.readBoxRecord(record), 9);
+  assert.throws(() => addon.readBoxRecord({ box: new addon.Box(9) }), TypeError);
   // Resolving a wide view first must not choose a different wrapper or codec.
   const integerBox = addon.wideBox();
   assert.equal(integerBox, addon.numericBox());

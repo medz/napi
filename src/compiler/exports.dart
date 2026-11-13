@@ -206,8 +206,11 @@ final class ExportFunction {
       if (parameter.type.kind == ValueKind.object &&
           !parameter.type.classExport!.isObject &&
           parameter.type.typeArguments.any(
-            (argument) =>
-                argument.parameter?.fromClass == true && !argument.nullable,
+            (argument) => inferableTypeParameters(argument.dartType).any(
+              (target) => signature.typeParameters.any(
+                (p) => p.target == target && p.fromClass,
+              ),
+            ),
           ))
         parameter,
   ];
@@ -243,6 +246,7 @@ final class ExportClass {
   final bool isObject;
   final InterfaceType? instanceType;
   final instances = <ExportClass>[];
+  ExportClass? genericInstance;
   ExportType? superclass;
   final coreSupertypes = <Class, List<ExportType?>>{};
   final specializations =
@@ -274,6 +278,9 @@ final class ExportModule {
   final enums = <ExportEnum>[];
   final constants = <ExportConstant>[];
   final properties = <ExportProperty>[];
+  late final List<({ExportType type, List<ExportTypeParameter> parameters})>
+  Function()
+  typeCodecs;
   bool get isEmpty =>
       functions.isEmpty &&
       classes.isEmpty &&
@@ -307,7 +314,7 @@ ExportModule readExports(
 ) => _Reader(component, packages).read(entry);
 
 final class _Reader {
-  _Reader(Component component, PackageConfig packages)
+  _Reader(this.component, PackageConfig packages)
     : annotationFile = packages.resolve(_annotationUri),
       envClass = component.libraries
           .where(
@@ -323,6 +330,7 @@ final class _Reader {
   static final _annotationUri = Uri.parse('package:napi/napi.dart');
   static final _envUri = Uri.parse('package:napi/src/env.dart');
   final Uri? annotationFile;
+  final Component component;
   final Class? envClass;
   final ClassHierarchy hierarchy;
   final module = ExportModule();
@@ -330,6 +338,7 @@ final class _Reader {
   final enums = <Class, ExportEnum>{};
   final _parameters = <TypeParameter, ExportTypeParameter>{};
   final _classTypes = <InterfaceType>{};
+  bool _readingClassInstance = false;
   final _copiedBounds = <ExportTypeParameter>{};
   static const _valuePreservingKinds = {
     ValueKind.boolean,
@@ -668,6 +677,7 @@ final class _Reader {
           );
       }
     }
+    _genericClassInstances();
     _classInstances();
     _checkGenericBounds();
     // Dart subtypes can have different JS shapes, such as Uint8List/Uint8Array.
@@ -689,7 +699,86 @@ final class _Reader {
         }
       }
     }
+    final patterns = _typeCodecPatterns();
+    module.typeCodecs = () => _typeCodecs(patterns);
     return module;
+  }
+
+  _TypeCodecPatterns _typeCodecPatterns() {
+    final patterns = _TypeCodecPatterns(
+      hierarchy.coreTypes.objectNullableRawType,
+    );
+    for (final library in component.libraries) {
+      if (library.importUri.isScheme('dart')) {
+        if (const {
+          'dart:core',
+          'dart:async',
+          'dart:typed_data',
+        }.contains(library.importUri.toString())) {
+          for (final cls in library.classes.where(
+            (cls) => !cls.name.startsWith('_'),
+          )) {
+            patterns.addClass(cls);
+          }
+        }
+      } else if (library != envClass?.enclosingLibrary &&
+          !library.fileUri.toString().startsWith(
+            annotationFile!.resolve('.').toString(),
+          )) {
+        library.accept(patterns);
+      }
+    }
+    for (final cls in module.classes) patterns.addClass(cls.target);
+    for (final enumeration in module.enums)
+      patterns.addClass(enumeration.target);
+    if (envClass?.enclosingLibrary case final library?) {
+      final reference = library.classes.singleWhere(
+        (c) => c.name == 'JsReference',
+      );
+      for (final cls in library.classes.where(
+        (c) => const {'JsObject', 'JsFunction', 'JsSymbol'}.contains(c.name),
+      )) {
+        patterns.add(
+          InterfaceType(reference, Nullability.nonNullable, [
+            InterfaceType(cls, Nullability.nonNullable),
+          ]),
+        );
+      }
+      patterns.addClass(
+        library.classes.singleWhere((c) => c.name == 'JsUndefined'),
+      );
+    }
+    return patterns;
+  }
+
+  List<({ExportType type, List<ExportTypeParameter> parameters})> _typeCodecs(
+    _TypeCodecPatterns patterns,
+  ) {
+    final result =
+        <({ExportType type, List<ExportTypeParameter> parameters})>[];
+    _readingClassInstance = true;
+    try {
+      for (final pattern in patterns.types.values) {
+        _parameters.clear();
+        try {
+          final parameters = _typeParameters(
+            pattern.$2,
+            'runtime type',
+            reified: true,
+          );
+          result.add((
+            type: _type(pattern.$1, 'runtime type', result: true),
+            parameters: parameters,
+          ));
+        } on FormatException {
+          // Unexported classes and unmapped SDK types retain opaque identity.
+        }
+      }
+    } finally {
+      _parameters.clear();
+      _readingClassInstance = false;
+    }
+    return result;
   }
 
   List<ExportType> _classArguments(ExportClass instance, ExportClass contract) {
@@ -711,6 +800,7 @@ final class _Reader {
   }
 
   void _classInstances() {
+    _readingClassInstance = true;
     final visited = <InterfaceType>{};
     final types = TypeEnvironment(hierarchy.coreTypes, hierarchy);
     void descendants(InterfaceType parent) {
@@ -851,44 +941,69 @@ final class _Reader {
           original.name,
           instanceType: type,
         );
-        instance.arguments.addAll(_classArguments(instance, original));
         original.instances.add(instance);
-        instance.methods.addAll([
-          for (final method in original.methods)
+        _populateClassInstance(instance, original);
+      }
+    }
+    _readingClassInstance = false;
+  }
+
+  void _genericClassInstances() {
+    _readingClassInstance = true;
+    for (final cls in module.classes) {
+      if (cls.isObject || cls.typeParameters.isEmpty) continue;
+      final instance = ExportClass(
+        cls.target,
+        cls.name,
+        instanceType: InterfaceType(cls.target, Nullability.nonNullable, [
+          for (final parameter in cls.target.typeParameters)
+            TypeParameterType(
+              parameter,
+              parameter.computeNullabilityFromBound(),
+            ),
+        ]),
+      );
+      cls.genericInstance = instance;
+      instance.typeParameters.addAll(
+        _typeParameters(cls.target.typeParameters, cls.name, reified: true),
+      );
+      _populateClassInstance(instance, cls);
+      _parameters.clear();
+    }
+    _readingClassInstance = false;
+  }
+
+  void _populateClassInstance(ExportClass instance, ExportClass original) {
+    instance.arguments.addAll(_classArguments(instance, original));
+    instance.methods.addAll([
+      for (final method in original.methods)
+        _function(method.target, method.name, owner: instance),
+    ]);
+    instance.properties.addAll([
+      for (final property in original.properties)
+        _property(instance, property.name, property.getter, property.setter),
+    ]);
+    for (
+      var parent = original.superclass?.classExport;
+      parent != null;
+      parent = parent.superclass?.classExport
+    ) {
+      instance.specializations[parent] = (
+        arguments: _classArguments(instance, parent),
+        methods: [
+          for (final method in parent.methods)
             _function(method.target, method.name, owner: instance),
-        ]);
-        instance.properties.addAll([
-          for (final property in original.properties)
+        ],
+        properties: [
+          for (final property in parent.properties)
             _property(
               instance,
               property.name,
               property.getter,
               property.setter,
             ),
-        ]);
-        for (
-          var parent = original.superclass?.classExport;
-          parent != null;
-          parent = parent.superclass?.classExport
-        ) {
-          instance.specializations[parent] = (
-            arguments: _classArguments(instance, parent),
-            methods: [
-              for (final method in parent.methods)
-                _function(method.target, method.name, owner: instance),
-            ],
-            properties: [
-              for (final property in parent.properties)
-                _property(
-                  instance,
-                  property.name,
-                  property.getter,
-                  property.setter,
-                ),
-            ],
-          );
-        }
-      }
+        ],
+      );
     }
   }
 
@@ -1189,16 +1304,13 @@ final class _Reader {
           if (type is! InterfaceType) continue;
           final cls = classes[type.classNode];
           if (cls == null || cls.isObject) continue;
-          for (final argument in type.typeArguments) {
-            if (argument is! TypeParameterType ||
-                argument.declaredNullability == Nullability.nullable ||
-                !function.typeParameters.contains(argument.parameter)) {
-              continue;
-            }
-            fromClasses.add(argument.parameter);
+          for (final argument in inferableTypeParameters(
+            type,
+          ).intersection(function.typeParameters.toSet())) {
+            fromClasses.add(argument);
             if (required.contains(parameter) &&
                 type.nullability == Nullability.nonNullable) {
-              copiedBounds.add(argument.parameter);
+              copiedBounds.add(argument);
             }
           }
         }
@@ -1967,29 +2079,7 @@ final class _Reader {
           for (final argument in type.typeArguments)
             _type(argument, '$context: class argument'),
         ];
-        final classCall = type.typeArguments.every(
-          (argument) =>
-              !containsFreeTypeParameters(argument) ||
-              argument is TypeParameterType &&
-                  _parameters[argument.parameter]?.fromClass == true,
-        );
-        if (!exported.isObject &&
-            containsFreeTypeParameters(actual) &&
-            !classCall) {
-          throw FormatException(
-            '@NAPI $context: bound-class arguments cannot depend on reified callback or data-class parameters yet: $type.',
-          );
-        }
         if (!exported.isObject && actual.typeArguments.isNotEmpty) {
-          if (type.typeArguments.any(
-            (argument) =>
-                argument is! TypeParameterType &&
-                containsFreeTypeParameters(argument),
-          )) {
-            throw FormatException(
-              '@NAPI $context: nested bound-class arguments cannot depend on erased type parameters yet: $type.',
-            );
-          }
           final instance = actual.withDeclaredNullability(
             Nullability.nonNullable,
           );
@@ -2002,7 +2092,9 @@ final class _Reader {
                 );
               }
             }
-            _classTypes.add(instance);
+            if (!_readingClassInstance && !containsFreeTypeParameters(type)) {
+              _classTypes.add(instance);
+            }
           }
         }
         return ExportType(
@@ -2135,6 +2227,187 @@ final class _Reader {
     throw FormatException(
       '@NAPI $context: unsupported ${result ? 'return' : 'parameter'} type $type.',
     );
+  }
+}
+
+Set<TypeParameter> inferableTypeParameters(DartType type) {
+  final visitor = _InferableTypeParameters();
+  type.accept(visitor);
+  return visitor.parameters;
+}
+
+final class _InferableTypeParameters extends RecursiveVisitor {
+  final parameters = <TypeParameter>{};
+  @override
+  void visitTypeParameterType(TypeParameterType type) {
+    if (type.declaredNullability != Nullability.nullable)
+      parameters.add(type.parameter);
+  }
+}
+
+final class _TypeCodecPatterns extends RecursiveVisitor {
+  _TypeCodecPatterns(this.objectType);
+  final DartType objectType;
+  final types = <FunctionType, (DartType, List<TypeParameter>)>{};
+  final _parameters = <TypeParameter>[];
+
+  DartType parameter() {
+    final value = TypeParameter(
+      'P${_parameters.length}',
+      objectType,
+      objectType,
+    );
+    _parameters.add(value);
+    return TypeParameterType(value, Nullability.nonNullable);
+  }
+
+  void add(DartType type) {
+    final parameters = _parameters.toList();
+    final fresh = getFreshStructuralParametersFromTypeParameters(parameters);
+    final key = FunctionType(
+      [fresh.substitute(type)],
+      const VoidType(),
+      Nullability.nonNullable,
+      typeParameters: fresh.freshTypeParameters,
+    );
+    types.putIfAbsent(key, () => (type, parameters));
+    _parameters.clear();
+  }
+
+  void addClass(Class cls) {
+    if (cls.name != 'Map' ||
+        cls.enclosingLibrary.importUri.toString() != 'dart:core') {
+      final fresh = getFreshTypeParameters(cls.typeParameters);
+      _parameters.addAll(fresh.freshTypeParameters);
+      add(
+        InterfaceType(cls, Nullability.nonNullable, fresh.freshTypeArguments),
+      );
+      return;
+    }
+    add(
+      InterfaceType(cls, Nullability.nonNullable, [
+        for (var i = 0; i < cls.typeParameters.length; ++i)
+          if (cls.name == 'Map' &&
+              cls.enclosingLibrary.importUri.toString() == 'dart:core' &&
+              i == 0)
+            InterfaceType(
+              cls.enclosingLibrary.classes.singleWhere(
+                (c) => c.name == 'String',
+              ),
+              Nullability.nonNullable,
+            )
+          else
+            parameter(),
+      ]),
+    );
+  }
+
+  DartType shape(
+    DartType type,
+    Set<StructuralParameter> bound, {
+    bool outer = false,
+  }) {
+    if (!outer && !containsStructuralParameter(type, bound)) return parameter();
+    if (type is FunctionType) {
+      if (type.typeParameters.isNotEmpty) {
+        type = getFreshStructuralParameters(
+          type.typeParameters,
+        ).applyToFunctionType(type);
+      }
+      final function = type as FunctionType;
+      final local = {...bound, ...function.typeParameters};
+      for (final parameter in function.typeParameters) {
+        parameter.bound = shape(parameter.bound, local, outer: true);
+      }
+      final fresh = getFreshTypeParametersFromStructuralParameters(
+        function.typeParameters,
+      );
+      final defaults = calculateBounds(
+        fresh.freshTypeParameters,
+        (objectType as InterfaceType).classNode,
+      );
+      final restore = Substitution.fromPairs(fresh.freshTypeParameters, [
+        for (final parameter in function.typeParameters)
+          StructuralParameterType(
+            parameter,
+            parameter.computeNullabilityFromBound(),
+          ),
+      ]);
+      for (var i = 0; i < defaults.length; ++i) {
+        function.typeParameters[i].defaultType = restore.substituteType(
+          defaults[i],
+        );
+      }
+      return FunctionType(
+        [
+          for (final value in function.positionalParameters)
+            shape(value, local),
+        ],
+        shape(function.returnType, local),
+        function.nullability,
+        typeParameters: function.typeParameters,
+        namedParameters: [
+          for (final value in function.namedParameters)
+            NamedType(
+              value.name,
+              shape(value.type, local),
+              isRequired: value.isRequired,
+            ),
+        ],
+        requiredParameterCount: function.requiredParameterCount,
+      );
+    }
+    if (type is RecordType) {
+      return RecordType(
+        [for (final value in type.positional) shape(value, bound)],
+        [
+          for (final value in type.named)
+            NamedType(value.name, shape(value.type, bound)),
+        ],
+        type.nullability,
+      );
+    }
+    if (type is InterfaceType) {
+      return InterfaceType(type.classNode, type.nullability, [
+        for (final value in type.typeArguments) shape(value, bound),
+      ]);
+    }
+    if (type is TypeParameterType) return parameter();
+    return type;
+  }
+
+  @override
+  void visitFunctionNode(FunctionNode node) {
+    visitFunctionType(node.computeFunctionType(Nullability.nonNullable));
+    super.visitFunctionNode(node);
+  }
+
+  @override
+  void visitFunctionType(FunctionType type) {
+    if (!containsFreeStructuralParameters(type)) {
+      add(
+        shape(
+          type.withDeclaredNullability(Nullability.nonNullable),
+          const {},
+          outer: true,
+        ),
+      );
+    }
+    super.visitFunctionType(type);
+  }
+
+  @override
+  void visitRecordType(RecordType type) {
+    if (!containsFreeStructuralParameters(type)) {
+      add(
+        shape(
+          type.withDeclaredNullability(Nullability.nonNullable),
+          const {},
+          outer: true,
+        ),
+      );
+    }
+    super.visitRecordType(type);
   }
 }
 

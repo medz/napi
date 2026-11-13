@@ -368,19 +368,11 @@ Procedure generateRegister(
       ),
     );
   }
-  if (calls.usesClassBounds) {
-    statements.insertAll(classRegistrationEnd, [
-      for (final cls in exports.classes.where((cls) => !cls.isObject))
-        for (final instance in [cls, ...cls.instances])
-          ExpressionStatement(
-            calls.call(
-              VariableGet(env),
-              calls.method(calls.envClass, '_registerClassBound'),
-              [],
-              types: [instance.dartType],
-            ),
-          ),
-    ]);
+  if (calls.usesTypeCodecs) {
+    statements.insert(
+      classRegistrationEnd,
+      calls.defineTypeCodecs(env, exports),
+    );
   }
   return calls.procedure(
     '_napiRegister',

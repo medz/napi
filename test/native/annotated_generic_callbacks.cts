@@ -37,6 +37,22 @@ const boxedList: number[] = listBox.value([1, 2]);
 listBox.value = values => [...values];
 addon.replace(listBox, values => [...values]);
 addon.exerciseListBox(listBox);
+const callbackBoxes: boolean[] = addon.boxedCallback(box => box);
+const pairs: string = addon.replacePairs(addon.firstPair(), addon.secondPair(), 2, 'two');
+addon.replaceRepeated(addon.repeatedPair(), 3);
+const nestedBox = new addon.Box(1).nested();
+addon.replaceNested(nestedBox, 2);
+// @ts-expect-error Nested class inference still constrains the element type.
+addon.replaceNested(nestedBox, 'wrong');
+const typedBoxes: Promise<boolean[]> = addon.boxedTypes((name, box) => {
+  const label: string = name;
+  const value = box.value;
+  // @ts-expect-error An arbitrary T can have different input and output shapes.
+  box.value = value;
+});
+const structured: number[] = addon.structuredBox(value => {
+  value.box.value = value.box.value;
+});
 
 // @ts-expect-error A boxed generic function must work for every type parameter.
 box.value = (value: number) => value;

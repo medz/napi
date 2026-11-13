@@ -637,8 +637,11 @@ A nullable or optional instance selects a type only when present and non-null.
 Otherwise, the declaration's defaults apply, following any selected bound.
 For a variable that may be `null`, inputs must work in both cases; narrow it
 first when the native and opaque input shapes differ.
-Instance arguments must directly contain the parameter, as in `Box<T>`;
-instances inside lists or callbacks do not select type arguments.
+Instance arguments can also contain nested parameters, as in
+`append<T>(Box<List<T>> box, T value)`: a Dart `Box<List<int>>` selects `T = int`.
+Instances inside lists or callbacks do not select type arguments. An occurrence
+of `T?` alone cannot distinguish a nullable T from a non-nullable one; another
+occurrence of `T` is needed to select it.
 
 Typed callbacks can also be stored and replaced:
 
@@ -695,9 +698,9 @@ box or a newly constructed box, its inferred result allows only writes supported
 by both. Pass a bound instance such as a `Box<Amount>`, or use a concrete return
 type, when the helper requires Amount conversion.
 
+Nested arguments such as `Box<List<T>>` use the actual Dart element type.
 Nested Future arguments such as `Box<Future<Future<int>>>` use a single
-`Promise<number>` for both reads and writes. Nested arguments depending on
-erased parameters such as `Box<List<T>>` remain unsupported.
+`Promise<number>` for both reads and writes.
 
 Future arguments follow the [Future](#futures) adoption rules in each
 direction. When the value has a callable `then`, reads return the adopted
@@ -790,6 +793,11 @@ value. Explicit shapes such as `List<T>` still become JS arrays, with each `T`
 element following these rules. Calling a generic Dart function from JavaScript
 uses the declaration's default type arguments unless a bound-instance parameter
 selects them.
+
+A bound class such as `Box<T>` converts its members using the actual Dart T,
+including when the box is a field of a generic data class. For example, its
+`value` is a JS array when T is `List<int>`. The type does not need to appear in
+another exported declaration.
 
 ## JavaScript values
 

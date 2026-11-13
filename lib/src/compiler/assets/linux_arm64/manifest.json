@@ -11,36 +11,36 @@
       "sha256": "a483a737d2c19121edc5ab53fa7471833aa4e93771b6b3b24c7a6417b0f68338"
     },
     "backend.so": {
-      "size": 4565656,
-      "sha256": "be8e467ee4aaf9648672bb0428c5bf55eedf0171a293591e572607311ea7aab9"
+      "size": 4476992,
+      "sha256": "9210a3681d2856d0969200f8abefd515508c6919379beb19262044775666ebcd"
     },
     "compiler.so": {
-      "size": 505272,
-      "sha256": "56b3a859275df6f13a9d02514d8a7b17ed37b3de0bf9c64468ed762467e83210"
+      "size": 505456,
+      "sha256": "92c27be1aca1711cd142a12e8ff3605635a4fcd9115f28341fcf840215a4024d"
     },
     "frontend.aot": {
-      "size": 9700232,
-      "sha256": "61a3c21f39ca7f5bf26aaffe0936a352a8f98369277d2a475dc3fc29802401bf"
+      "size": 9765768,
+      "sha256": "0bb6bca6b70bf2645c292adf64339c55c31bef851dc972137511a2935325785a"
     },
     "frontend.so": {
-      "size": 5280696,
-      "sha256": "1fa9958a353bb3251877dcc39ca4f995666ebfc51f0e1de8443aa3e3cd6d8b57"
+      "size": 5219304,
+      "sha256": "be47e75c7c203df4cb2d7e274cd124973d4e8f9c7674b1828663f9aef8ef97ef"
     },
     "platform.dill": {
-      "size": 8663064,
-      "sha256": "de7a14dba344519c58539d5fd570362ea64e56d3b750c8b3c4aab8cbc9815d4b"
+      "size": 8663552,
+      "sha256": "346a29abc98ee15d654363567742b342078513b19be89573acaf0a700c0e8e8a"
     },
     "runtime-core.node": {
-      "size": 1855912,
-      "sha256": "c78c103d1ecdd1fc9f2cab6747c04589b4227b4d2c1b51216a0f53a792878e89"
+      "size": 1813776,
+      "sha256": "d3b9c6be2aabf0d8866a61a0b4178f96d345ea7f3db788d3794afff16d6a5205"
     },
     "runtime-regexp.node": {
-      "size": 3920272,
-      "sha256": "67785a5478586f496422cf1e0e248d635b2c605d97c55f94c7d7facaa6ad9018"
+      "size": 3878120,
+      "sha256": "6fbd60a29d222de737239e2bc151661de067c07d4f34b170ab2b528eb5d70a25"
     },
     "runtime.node": {
-      "size": 5303376,
-      "sha256": "74696e3fccb46aa3a1125e2880c0de3e712dec1ea7ef57b32f99b4fbb6b2803b"
+      "size": 5242368,
+      "sha256": "020f32a929854866cee1d706bb1e5de48332ce7dff9369edf0658b15321024fc"
     }
   }
 }

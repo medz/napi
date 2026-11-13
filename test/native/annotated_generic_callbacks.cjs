@@ -93,6 +93,84 @@ module.exports = async function verifyAnnotatedGenericCallbacks(path) {
   assert.deepEqual(addon.exerciseListBox(listBox), [true, true]);
   listBox.value = () => ({});
   assert.throws(() => addon.exerciseListBox(listBox), TypeError);
+  assert.deepEqual(addon.boxedCallback(box => box), [true, true]);
+  assert.throws(() => addon.boxedCallback(box => new addon.Box(box.value)), TypeError);
+  const savedBoxes = {};
+  assert.deepEqual(await addon.boxedTypes((name, box) => {
+    savedBoxes[name] = box;
+    switch (name) {
+      case 'list':
+        assert.deepEqual(box.value, [7]);
+        assert.throws(() => { box.value = [1.5]; }, RangeError);
+        box.value = [3, 4];
+        break;
+      case 'int':
+        assert.equal(box.value, 9);
+        assert.throws(() => { box.value = 1.5; }, RangeError);
+        box.value = 10;
+        break;
+      case 'nested':
+        assert.deepEqual(box.value, [[1, null]]);
+        box.value = [[2, null]];
+        break;
+      case 'map': box.value = { value: 2 }; break;
+      case 'set':
+        assert.deepEqual(box.value, new Set(['one']));
+        box.value = new Set(['two']);
+        break;
+      case 'nullable':
+        assert.equal(box.value, null);
+        box.value = [2];
+        break;
+      case 'record':
+        assert.deepEqual(box.value, { $1: 1, name: 'one' });
+        box.value = { $1: 2, name: 'two' };
+        break;
+      case 'function':
+        assert.equal(box.value(1), '1');
+        box.value = value => `value:${value}`;
+        break;
+      case 'generic':
+        assert.equal(box.value(1), 1);
+        box.value = value => value;
+        break;
+      case 'boundFunction':
+        box.value = value => {
+          assert(value instanceof addon.Box);
+          assert.deepEqual(value.value, { items: [1] });
+          value.value = { items: [2] };
+          return value;
+        };
+        break;
+      case 'point':
+        assert.deepEqual(box.value, { value: 1 });
+        box.value = { value: '2' };
+        break;
+      case 'future': box.value = Promise.resolve(2); break;
+      case 'stream': box.value = (async function* () { yield 2; })(); break;
+      default: assert.fail(name);
+    }
+  }), Array(13).fill(true));
+  // A specialization first reached through a callback must agree with nested returns.
+  assert.deepEqual(savedBoxes.int.nested().value, [10]);
+  assert.deepEqual(savedBoxes.list.nested().value, [[3, 4]]);
+  assert.equal(addon.replaceNested(savedBoxes.list, 12), 'int');
+  assert.deepEqual(savedBoxes.list.value, [12]);
+  assert.throws(() => addon.replaceNested(savedBoxes.list, 1.5), RangeError);
+  assert.equal(savedBoxes.int.append(savedBoxes.list, 13), 'int');
+  assert.deepEqual(savedBoxes.list.value, [12, 13]);
+  const firstPair = addon.firstPair();
+  const secondPair = addon.secondPair();
+  assert.equal(addon.replacePairs(firstPair, secondPair, 2, 'two'), 'int/String');
+  assert.deepEqual(firstPair.value, [2, 'two']);
+  assert.deepEqual(secondPair.value, ['two', 2]);
+  const repeatedPair = addon.repeatedPair();
+  assert.equal(addon.replaceRepeated(repeatedPair, 3), 'int');
+  assert.deepEqual(repeatedPair.value, [3, 3]);
+  assert.deepEqual(addon.structuredBox(value => {
+    assert.deepEqual(value.box.value, [1]);
+    value.box.value = [2];
+  }), [2]);
   const nonNull = addon.nonNullIdentity();
   const object = {};
   assert.equal(nonNull(object), object);
