@@ -26,7 +26,7 @@ jobs:
           - os: ubuntu-24.04-arm
             platform: linux_arm64
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
+    timeout-minutes: 20
     defaults:
       run:
         shell: pwsh
