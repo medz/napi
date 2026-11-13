@@ -137,35 +137,14 @@ jobs:
           include-hidden-files: true
           retention-days: 1
 
-  verify-musl:
-    needs: verify
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-24.04
-            platform: linux_x64_musl
-            glibc: linux_x64
-          - os: ubuntu-24.04-arm
-            platform: linux_arm64_musl
-            glibc: linux_arm64
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dart-lang/setup-dart@v1
-        with:
-          sdk: 3.12.0
-      - uses: actions/download-artifact@v4
-        with:
-          name: native-${{ matrix.glibc }}
-          path: '${{ runner.temp }}/glibc'
       - name: Build and load musl addons in Alpine
+        if: startsWith(matrix.platform, 'linux_')
+        shell: bash
         run: |
           docker run --rm \
             -v "$PWD:/workspace" -v "$DART_HOME:/opt/dart:ro" \
             -v "$RUNNER_TEMP:/result" -w /workspace \
-            -e NAPI_PLATFORM='${{ matrix.platform }}' \
+            -e NAPI_PLATFORM='${{ matrix.platform }}_musl' \
             alpine:3.23 sh -euxc '
               apk add --no-cache gcompat libstdc++ nodejs npm
               export PATH=/opt/dart/bin:$PATH
@@ -184,7 +163,7 @@ jobs:
               dart build.dart /result/musl
               dart build_package.dart "$smoke/package_counter.dart" /result/musl/package
               mv /tmp/napi-package/lib/src/compiler/assets /tmp/sdk-unavailable
-              dart build_assembly.dart /result/glibc/.napi.json /result/musl/package/.napi.json /result/musl/assembled
+              dart build_assembly.dart "/result/napi smoke 中文/build/package/.napi.json" /result/musl/package/.napi.json /result/musl/assembled
               cp /tmp/sdk-unavailable/$NAPI_PLATFORM/runtime*.node /tmp/sdk-unavailable/$NAPI_PLATFORM/NOTICES /tmp/images/
               rm -rf /tmp/napi-package /tmp/sdk-unavailable
               cd /workspace
@@ -194,8 +173,9 @@ jobs:
               npm --prefix test/native run verify-package -- /result/musl/assembled
             '
       - uses: actions/upload-artifact@v4
+        if: startsWith(matrix.platform, 'linux_')
         with:
-          name: native-${{ matrix.platform }}
+          name: native-${{ matrix.platform }}_musl
           path: '${{ runner.temp }}/musl/package'
           include-hidden-files: true
           retention-days: 1
